@@ -13,6 +13,7 @@ let runtimeConfigInstance: NitroRuntimeConfig
 export const generateRuntimeConfig = () => ({
   preset: process.env.NUXT_NITRO_PRESET,
   betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
+  jwtAudience: process.env.NUXT_JWT_AUDIENCE || 'python-api',
   // Stripe
   stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
   stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,

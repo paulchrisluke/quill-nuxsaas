@@ -3,12 +3,11 @@ import {
   integer,
   pgTable,
   text,
-  timestamp,
-  uuid
+  timestamp
 } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
-  id: uuid('id').primaryKey(),
+  id: text('id').primaryKey(),
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   emailVerified: boolean('email_verified').default(false).notNull(),
@@ -27,10 +26,10 @@ export const user = pgTable('user', {
 })
 
 export const account = pgTable('account', {
-  id: uuid('id').primaryKey(),
+  id: text('id').primaryKey(),
   accountId: text('account_id').notNull(),
   providerId: text('provider_id').notNull(),
-  userId: uuid('user_id')
+  userId: text('user_id')
     .notNull()
     .references(() => user.id, { onDelete: 'cascade' }),
   accessToken: text('access_token'),
@@ -47,7 +46,7 @@ export const account = pgTable('account', {
 })
 
 export const verification = pgTable('verification', {
-  id: uuid('id').primaryKey(),
+  id: text('id').primaryKey(),
   identifier: text('identifier').notNull(),
   value: text('value').notNull(),
   expiresAt: timestamp('expires_at').notNull(),
@@ -58,8 +57,15 @@ export const verification = pgTable('verification', {
     .notNull()
 })
 
+export const jwks = pgTable('jwks', {
+  id: text('id').primaryKey(),
+  publicKey: text('public_key').notNull(),
+  privateKey: text('private_key').notNull(),
+  createdAt: timestamp('created_at').notNull()
+})
+
 export const subscription = pgTable('subscription', {
-  id: uuid('id').primaryKey(),
+  id: text('id').primaryKey(),
   plan: text('plan').notNull(),
   referenceId: text('reference_id').notNull(),
   stripeCustomerId: text('stripe_customer_id'),

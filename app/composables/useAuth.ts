@@ -7,7 +7,7 @@ import type {
 import type { RouteLocationRaw } from 'vue-router'
 import { stripeClient } from '@better-auth/stripe/client'
 import { polarClient } from '@polar-sh/better-auth'
-import { adminClient, inferAdditionalFields } from 'better-auth/client/plugins'
+import { adminClient, inferAdditionalFields, jwtClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
 
 export function useAuth() {
@@ -29,6 +29,7 @@ export function useAuth() {
         }
       }),
       adminClient(),
+      jwtClient(),
       polarClient(),
       stripeClient({
         subscription: true
@@ -120,6 +121,13 @@ export function useAuth() {
     },
     fetchSession,
     payment,
-    client
+    client,
+    async getToken() {
+      const { data, error } = await client.token()
+      if (error) {
+        throw error
+      }
+      return data?.token || null
+    }
   }
 }

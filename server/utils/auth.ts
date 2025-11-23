@@ -3,7 +3,7 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
-import { admin, openAPI } from 'better-auth/plugins'
+import { admin, jwt, openAPI } from 'better-auth/plugins'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
@@ -182,6 +182,22 @@ export const createBetterAuth = () => betterAuth({
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
     admin(),
+    jwt({
+      jwt: {
+        issuer: runtimeConfig.public.baseURL,
+        audience: runtimeConfig.jwtAudience || 'python-api',
+        expirationTime: '15m',
+        getSubject: session => session.user.id,
+        definePayload: ({ user }) => {
+          return {
+            sub: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role
+          }
+        }
+      }
+    }),
     setupStripe(),
     setupPolar()
   ]

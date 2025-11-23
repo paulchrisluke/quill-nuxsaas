@@ -41,7 +41,7 @@
 ## ✨ Features
 
 - 🚀 **Modern Tech Stack** - Built with Nuxt 4, Vue 3, TypeScript
-- 🔒 **Secure Auth** - Better Auth with OAuth2 social logins
+- 🔒 **Secure Auth** - Better Auth with OAuth2 social logins and JWT token support
 - 💾 **Enterprise Database** - PostgreSQL with Drizzle ORM
 - 💳 **Payment Ready** - Stripe/Polar integration for subscription
 - 📧 **Email Integration** - Built-in Resend support
