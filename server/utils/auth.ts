@@ -39,6 +39,11 @@ export const createBetterAuth = () => betterAuth({
         type: 'string',
         required: false,
         defaultValue: null
+      },
+      role: {
+        type: 'string',
+        required: false,
+        defaultValue: null
       }
     }
   },
@@ -189,11 +194,13 @@ export const createBetterAuth = () => betterAuth({
         expirationTime: '15m',
         getSubject: session => session.user.id,
         definePayload: ({ user }) => {
+          // Note: Email is included for API convenience but is PII.
+          // Ensure tokens are transmitted over HTTPS and properly validated.
           return {
             sub: user.id,
             email: user.email,
             name: user.name,
-            role: user.role
+            role: user.role || null
           }
         }
       }

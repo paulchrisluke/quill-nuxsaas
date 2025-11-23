@@ -61,7 +61,9 @@ export const jwks = pgTable('jwks', {
   id: text('id').primaryKey(),
   publicKey: text('public_key').notNull(),
   privateKey: text('private_key').notNull(),
-  createdAt: timestamp('created_at').notNull()
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  expiresAt: timestamp('expires_at')
 })
 
 export const subscription = pgTable('subscription', {

@@ -121,7 +121,6 @@ export function useAuth() {
     },
     fetchSession,
     payment,
-    client,
     async getToken() {
       const { data, error } = await client.token()
       if (error) {
