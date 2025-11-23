@@ -6,7 +6,8 @@
         "admin": "Admin",
         "features": "Features",
         "pricing": "Pricing",
-        "docs": "Documentation"
+        "docs": "Documentation",
+        "dashboard": "Dashboard"
       },
       "auth": {
         "signIn": "Sign In",

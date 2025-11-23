@@ -3,7 +3,8 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
-import { admin, openAPI } from 'better-auth/plugins'
+import { admin, openAPI, organization } from 'better-auth/plugins'
+import { eq, and } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
@@ -17,7 +18,18 @@ console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 
 export const createBetterAuth = () => betterAuth({
   baseURL: runtimeConfig.public.baseURL,
-  trustedOrigins: ['http://localhost:8787', runtimeConfig.public.baseURL],
+  trustedOrigins: [
+    'http://localhost:8787',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://localhost:4000',
+    'http://127.0.0.1:8787',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:4000',
+    runtimeConfig.public.baseURL
+  ],
   secret: runtimeConfig.betterAuthSecret,
   database: drizzleAdapter(
     getDB(),
@@ -39,6 +51,74 @@ export const createBetterAuth = () => betterAuth({
         type: 'string',
         required: false,
         defaultValue: null
+      },
+      lastActiveOrganizationId: {
+        type: 'string',
+        required: false,
+        defaultValue: null
+      }
+    }
+  },
+  databaseHooks: {
+    session: {
+      create: {
+        before: async (session) => {
+          const db = getDB()
+          
+          // 1. Try to get user's last active org
+          const users = await db
+            .select()
+            .from(schema.user)
+            .where(eq(schema.user.id, session.userId))
+            .limit(1)
+            
+          let activeOrgId = users[0]?.lastActiveOrganizationId
+          
+          // 2. Verify user is still a member of that org
+          if (activeOrgId) {
+            const member = await db
+              .select()
+              .from(schema.member)
+              .where(and(
+                eq(schema.member.userId, session.userId),
+                eq(schema.member.organizationId, activeOrgId)
+              ))
+              .limit(1)
+              
+            if (member.length === 0) activeOrgId = null
+          }
+
+          // 3. Fallback to first organization
+          if (!activeOrgId) {
+            const members = await db
+              .select()
+              .from(schema.member)
+              .where(eq(schema.member.userId, session.userId))
+              .limit(1)
+            
+            if (members.length > 0) activeOrgId = members[0].organizationId
+          }
+
+          if (activeOrgId) {
+            return {
+              data: {
+                ...session,
+                activeOrganizationId: activeOrgId
+              }
+            }
+          }
+        }
+      },
+      update: {
+        after: async (session) => {
+          const activeOrgId = (session as any).activeOrganizationId
+          if (activeOrgId) {
+            await getDB()
+              .update(schema.user)
+              .set({ lastActiveOrganizationId: activeOrgId })
+              .where(eq(schema.user.id, session.userId))
+          }
+        }
       }
     }
   },
@@ -75,27 +155,30 @@ export const createBetterAuth = () => betterAuth({
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
-      const response = await resendInstance.emails.send({
-        from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-        to: user.email,
-        subject: 'Verify your email address',
-        text: `Click the link to verify your email: ${url}`
-      })
-      await logAuditEvent({
-        userId: user.id,
-        category: 'email',
-        action: 'verification',
-        targetType: 'email',
-        targetId: user.email,
-        status: response.error ? 'failure' : 'success',
-        details: response.error?.message
-      })
-      if (response.error) {
-        console.error(`Failed to send verification email: ${response.error.message}`)
-        throw createError({
-          statusCode: 500,
-          statusMessage: 'Internal Server Error'
+      try {
+        const response = await resendInstance.emails.send({
+          from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
+          to: user.email,
+          subject: 'Verify your email address',
+          text: `Click the link to verify your email: ${url}`
         })
+        await logAuditEvent({
+          userId: user.id,
+          category: 'email',
+          action: 'verification',
+          targetType: 'email',
+          targetId: user.email,
+          status: response.error ? 'failure' : 'success',
+          details: response.error?.message
+        })
+        if (response.error) {
+          throw new Error(response.error.message)
+        }
+      } catch (e) {
+        console.warn('Failed to send verification email:', e)
+        console.log('>>> MANUAL VERIFICATION LINK <<<')
+        console.log(url)
+        console.log('>>> ------------------------ <<<')
       }
     }
   },
@@ -182,7 +265,8 @@ export const createBetterAuth = () => betterAuth({
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
     admin(),
-    setupStripe(),
+    organization(),
+    // setupStripe(), // Disabled until API key is fixed
     setupPolar()
   ]
 })

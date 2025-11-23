@@ -10,9 +10,32 @@ import type { Refund } from '@polar-sh/sdk/models/components/refund.js'
 import type { Subscription } from '@polar-sh/sdk/models/components/subscription.js'
 import { checkout, polar, portal, usage, webhooks } from '@polar-sh/better-auth'
 import { Polar } from '@polar-sh/sdk'
-import { eq } from 'drizzle-orm'
-import { user as userTable } from '../database/schema'
+import { eq, and } from 'drizzle-orm'
+import { organization as organizationTable, member as memberTable } from '../database/schema'
 import { runtimeConfig } from './runtimeConfig'
+import { useDB } from './db'
+import { logAuditEvent } from './auditLogger'
+
+/**
+ * POLAR ORGANIZATION BILLING IMPLEMENTATION
+ * 
+ * 1. Customer Creation:
+ *    - Customers are created for ORGANIZATIONS, not Users.
+ *    - `ensurePolarCustomer(organizationId)` is called when a billing action is initiated.
+ *    - It fetches the Organization and its Owner (for email).
+ *    - It creates a Polar Customer with `externalId` = `organizationId`.
+ *    - The Polar Customer ID is stored in `organization.polarCustomerId`.
+ * 
+ * 2. Webhook Handling:
+ *    - Webhooks are handled by Better Auth's `polar` plugin via `webhooks.onPayload`.
+ *    - The `addPaymentLog` function processes these events.
+ *    - It links events back to the Organization using `customer.externalId` (which is the Org ID).
+ *    - If `customer.created` event fires with an `externalId`, we ensure the DB is synced.
+ * 
+ * 3. Metadata:
+ *    - `ownerUserId` is stored in metadata to track WHO initiated the subscription, 
+ *      but the billing entity remains the Organization.
+ */
 
 const createPolarClient = () => {
   return new Polar({
@@ -21,35 +44,60 @@ const createPolarClient = () => {
   })
 }
 
-export const ensurePolarCustomer = async (user: User) => {
+export const ensurePolarCustomer = async (organizationId: string) => {
   const client = createPolarClient()
-  const { result: existingCustomers } = await client.customers.list({ email: user.email })
-  const existingCustomer = existingCustomers.items[0]
-  if (existingCustomer) {
-    if (existingCustomer.externalId !== user.id) {
-      await client.customers.update({
-        id: existingCustomer.id,
-        customerUpdate: {
-          externalId: user.id
-        }
-      })
-    }
-    return existingCustomer
-  } else {
-    const customer = await client.customers.create({
-      email: user.email,
-      name: user.name,
-      externalId: user.id
-    })
-    return customer
+  const db = await useDB()
+  
+  const org = await db.query.organization.findFirst({
+    where: eq(organizationTable.id, organizationId)
+  })
+
+  if (!org) {
+    throw new Error('Organization not found')
   }
+
+  if (org.polarCustomerId) {
+    // Check if exists in Polar? We assume DB is truth source for ID mapping.
+    // But we might want to ensure sync. For now, just return ID.
+    return { id: org.polarCustomerId }
+  }
+
+  // Fetch Owner for email
+  const member = await db.query.member.findFirst({
+    where: and(
+      eq(memberTable.organizationId, organizationId), 
+      eq(memberTable.role, 'owner')
+    ),
+    with: { user: true }
+  })
+  
+  const email = member?.user.email
+  if (!email) throw new Error("Organization owner email not found")
+
+  // Create Customer
+  const customer = await client.customers.create({
+    email: email,
+    name: org.name,
+    externalId: org.id,
+    metadata: {
+      ownerUserId: member?.user.id
+    }
+  })
+
+  // Save to DB
+  await db.update(organizationTable)
+    .set({ polarCustomerId: customer.id })
+    .where(eq(organizationTable.id, organizationId))
+
+  return customer
 }
 
 const addPaymentLog = async (hookType: string, data: Customer | Checkout | Benefit | BenefitGrantWebhook | Order | Organization | Product | Refund | Subscription | CustomerState) => {
   if (hookType.startsWith('checkout.')) {
     const checkout = data as Checkout
+    // Target ID is Org ID (externalId) if set
     await logAuditEvent({
-      userId: checkout.customerExternalId || undefined,
+      userId: 'system',
       category: 'payment',
       action: `polar:${hookType}:${checkout.product.name}`,
       targetType: 'polarExternalId',
@@ -60,12 +108,12 @@ const addPaymentLog = async (hookType: string, data: Customer | Checkout | Benef
     const customer = data as Customer
     if (hookType == 'customer.created' && customer.externalId) {
       const db = await useDB()
-      await db.update(userTable).set({
+      await db.update(organizationTable).set({
         polarCustomerId: customer.id
-      }).where(eq(userTable.id, customer.externalId))
+      }).where(eq(organizationTable.id, customer.externalId))
     }
     await logAuditEvent({
-      userId: customer.externalId || undefined,
+      userId: 'system',
       category: 'payment',
       action: `polar:${hookType}`,
       targetType: 'polarExternalId',
@@ -75,7 +123,7 @@ const addPaymentLog = async (hookType: string, data: Customer | Checkout | Benef
   } else if (hookType.startsWith('subscription.')) {
     const subscription = data as Subscription
     await logAuditEvent({
-      userId: subscription.customer.externalId || undefined,
+      userId: 'system',
       category: 'payment',
       action: `polar:${hookType}:${subscription.product.name}`,
       targetType: 'polarExternalId',
@@ -87,7 +135,7 @@ const addPaymentLog = async (hookType: string, data: Customer | Checkout | Benef
 
 export const setupPolar = () => polar({
   client: createPolarClient(),
-  createCustomerOnSignUp: runtimeConfig.public.payment == 'polar',
+  createCustomerOnSignUp: false, // Org-based
   use: [
     checkout({
       products: [

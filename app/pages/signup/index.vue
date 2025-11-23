@@ -196,7 +196,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
             variant="link"
             color="primary"
             :disabled="loading"
-            :to="localePath('/signin')"
+            :to="localePath({ path: '/signin', query: route.query })"
           >
             {{ t('signUp.signIn') }}
           </UButton>

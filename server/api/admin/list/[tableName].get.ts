@@ -1,5 +1,5 @@
 import type { SQL } from 'drizzle-orm'
-import { and, asc, count, desc, getTableColumns } from 'drizzle-orm'
+import { and, asc, count, desc, getTableColumns, sql } from 'drizzle-orm'
 import { PgTable } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import * as schema from '~~/server/database/schema'
@@ -68,7 +68,8 @@ const querySchema = z.object({
         return undefined
       }
     })
-    .optional()
+    .optional(),
+  t: z.string().optional()
 })
 
 export default eventHandler(async (event) => {
@@ -122,6 +123,12 @@ export default eventHandler(async (event) => {
     if (filters.length) {
       queryOptions.where = filters.length === 1 ? filters[0] : and(...filters)
     }
+  }
+
+  // Cache busting
+  if (query?.t) {
+    const cacheBuster = sql`${query.t} = ${query.t}`
+    queryOptions.where = queryOptions.where ? and(queryOptions.where, cacheBuster) : cacheBuster
   }
 
   // Handle sorting

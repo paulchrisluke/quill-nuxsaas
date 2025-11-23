@@ -122,7 +122,7 @@ export default defineNuxtConfig({
     }
   },
   nitro: {
-    preset: 'cloudflare-pages',
+    preset: process.env.NUXT_NITRO_PRESET === 'cloudflare-module' ? 'cloudflare-pages' : 'node-server',
     rollupConfig: {
       external: process.env.NUXT_NITRO_PRESET != 'node-server' ? ['pg-native'] : undefined
     },

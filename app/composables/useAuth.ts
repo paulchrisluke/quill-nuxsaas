@@ -7,7 +7,7 @@ import type {
 import type { RouteLocationRaw } from 'vue-router'
 import { stripeClient } from '@better-auth/stripe/client'
 import { polarClient } from '@polar-sh/better-auth'
-import { adminClient, inferAdditionalFields } from 'better-auth/client/plugins'
+import { adminClient, inferAdditionalFields, organizationClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
 
 export function useAuth() {
@@ -29,6 +29,7 @@ export function useAuth() {
         }
       }),
       adminClient(),
+      organizationClient(),
       polarClient(),
       stripeClient({
         subscription: true
@@ -47,7 +48,15 @@ export function useAuth() {
       return
     }
     sessionFetching.value = true
-    const { data } = await client.getSession()
+    
+    // Use useFetch for better SSR support and hydration
+    const { data: sessionData } = await useFetch('/api/auth/get-session', {
+      headers: import.meta.server ? useRequestHeaders() : undefined,
+      key: 'auth-session',
+      retry: 0
+    })
+
+    const data = sessionData.value
     session.value = data?.session || null
 
     const userDefaults = {
@@ -63,12 +72,17 @@ export function useAuth() {
       : null
     subscriptions.value = []
     if (user.value) {
-      if (payment == 'stripe') {
-        const { data: subscriptionData } = await client.subscription.list()
-        subscriptions.value = subscriptionData || []
-      } else if (payment == 'polar') {
-        const { data: customerState } = await client.customer.state()
-        polarState.value = customerState
+      try {
+        if (payment == 'stripe') {
+          const { data: subscriptionData } = await client.subscription.list()
+          subscriptions.value = subscriptionData || []
+        } else if (payment == 'polar') {
+          const { data: customerState } = await client.customer.state()
+          polarState.value = customerState
+        }
+      } catch (error) {
+        // Ignore subscription fetch errors (e.g., 404 if not configured)
+        console.debug('Subscription fetch failed:', error)
       }
     }
     sessionFetching.value = false
@@ -86,6 +100,8 @@ export function useAuth() {
   return {
     session,
     user,
+    organization: client.organization,
+    useActiveOrganization: client.useActiveOrganization,
     subscription: client.subscription,
     subscriptions,
     loggedIn: computed(() => !!session.value),

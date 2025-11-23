@@ -9,6 +9,7 @@ definePageMeta({
 const { t } = useI18n()
 const localePath = useLocalePath()
 const runtimeConfig = useRuntimeConfig()
+const { user } = useAuth()
 
 const title = `${t('global.appName')}: ${t('home.slogan')}`
 const desc = t('home.slogan')
@@ -179,11 +180,20 @@ const activeScreenshot = ref('0')
             </p>
             <div class="flex gap-4 justify-center">
               <UButton
+                v-if="!user"
                 :to="localePath('/signin')"
                 color="primary"
                 size="lg"
               >
                 {{ t('home.getStarted') }}
+              </UButton>
+              <UButton
+                v-else
+                :to="localePath('/dashboard')"
+                color="primary"
+                size="lg"
+              >
+                Dashboard
               </UButton>
               <UButton
                 :to="runtimeConfig.public.appRepo"

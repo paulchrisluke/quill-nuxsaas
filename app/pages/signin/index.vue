@@ -201,7 +201,7 @@ async function handleResendEmail() {
               variant="link"
               color="primary"
               :disabled="loading"
-              :to="localePath('/signup')"
+              :to="localePath({ path: '/signup', query: route.query })"
             >
               {{ t('signIn.createAccount') }}
             </UButton>

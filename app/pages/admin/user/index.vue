@@ -96,6 +96,7 @@ const getRoleDropdownItems = (original: User) => {
           role
         })
         if (result.data?.user) {
+          original.role = role
           refresh()
         } else {
           console.error(result.error)
@@ -145,7 +146,8 @@ const columns: AdminTableColumn<User>[] = [
 const fetchRoleCount = async (filter: FilterCondition[]) => {
   const statusCount = await $fetch<ColumnCount[]>('/api/admin/count/user/role', {
     query: {
-      filter: JSON.stringify(filter)
+      filter: JSON.stringify(filter),
+      t: Date.now()
     }
   })
   const roleFilter = filters[1] as FilterCheckbox
@@ -164,7 +166,8 @@ const fetchData: FetchDataFn<User> = async ({ page, limit, sort, filter }) => {
       sort: JSON.stringify(sort.map((item) => {
         return [item.field, item.order]
       })),
-      filter: JSON.stringify(filter)
+      filter: JSON.stringify(filter),
+      t: Date.now()
     }
   })
   return {

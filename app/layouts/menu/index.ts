@@ -60,3 +60,37 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
     ]
   ]
 }
+
+export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string, slug: string, canManage = false): NavigationMenuItem[][] => {
+  const items: NavigationMenuItem[] = [
+    {
+      label: t('menu.dashboard'),
+      icon: 'i-lucide-layout-dashboard',
+      to: localePath(`/${slug}/dashboard`)
+    },
+    {
+      label: 'Members',
+      icon: 'i-lucide-users',
+      to: localePath(`/${slug}/members`)
+    }
+  ]
+
+  if (canManage) {
+    items.push({
+      label: 'Settings',
+      icon: 'i-lucide-settings',
+      to: localePath(`/${slug}/settings`)
+    })
+  }
+
+  return [
+    items,
+    [
+      {
+        label: t('menu.home'),
+        icon: 'i-lucide-home',
+        to: localePath('/')
+      }
+    ]
+  ]
+}
