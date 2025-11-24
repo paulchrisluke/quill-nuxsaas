@@ -312,26 +312,26 @@ This ensures the system can handle long videos in a codex-like fashion without h
    - `server/api/content/*.ts`  
       - CRUD for `content` and attach to `source_content`.
 
-4. **Wire in LLM operations via Cloudflare AI Gateway (Option 2)**
+4. **Wire in LLM operations via Cloudflare AI Gateway (Option 2)** ✅
 
    Reuse the existing, working AI Gateway pattern directly from the Nuxt/Node backend.
 
    **Config / environment (Nuxt runtimeConfig):**
 
-   - `CLOUDFLARE_ACCOUNT_ID`
-   - `CF_AI_GATEWAY_TOKEN`
-   - `OPENAI_BLOG_MODEL` (default: `gpt-5.1` or `gpt-4.1-mini`)
-   - `OPENAI_BLOG_TEMPERATURE` (default: `0.6`)
-   - `OPENAI_BLOG_MAX_OUTPUT_TOKENS` (default: `2200`)
+   - Reuse `NUXT_CF_ACCOUNT_ID` (already used for R2) as the Cloudflare account ID for AI Gateway.
+   - `NUXT_CF_AI_GATEWAY_TOKEN`
+   - `NUXT_OPENAI_BLOG_MODEL` (default: `gpt-5.1` or `gpt-4.1-mini`)
+   - `NUXT_OPENAI_BLOG_TEMPERATURE` (default: `0.6`)
+   - `NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS` (default: `2200`)
 
    **Shared helper:** `server/utils/aiGateway.ts`
 
-   - Build `gatewayBase = https://gateway.ai.cloudflare.com/v1/${CLOUDFLARE_ACCOUNT_ID}/quill/openai`.
+   - Build `gatewayBase = https://gateway.ai.cloudflare.com/v1/${NUXT_CF_ACCOUNT_ID}/quill/openai`.
    - Implement `callChatCompletions({ model, systemPrompt, userPrompt, temperature, maxTokens })`:
      - `POST /chat/completions`
      - Headers:
        - `Content-Type: application/json`
-       - `cf-aig-authorization: Bearer ${CF_AI_GATEWAY_TOKEN}`
+       - `cf-aig-authorization: Bearer ${NUXT_CF_AI_GATEWAY_TOKEN}`
      - Body mirrors Python implementation:
        - `model`
        - `messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }]`
