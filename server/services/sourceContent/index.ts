@@ -1,4 +1,5 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/database/schema'
 
@@ -30,33 +31,56 @@ export const upsertSourceContent = async (
     ? input.ingestStatus
     : 'pending'
 
-  const payload = {
-    title: typeof input.title === 'string' ? input.title : null,
-    sourceText: typeof input.sourceText === 'string' ? input.sourceText : null,
-    metadata: typeof input.metadata === 'object' && input.metadata !== null ? input.metadata : null,
+  const insertPayload: Record<string, any> = {
     ingestStatus
   }
 
-  const [result] = await db
-    .insert(schema.sourceContent)
-    .values({
-      id: uuidv7(),
-      organizationId: input.organizationId,
-      createdByUserId: input.userId,
-      sourceType: input.sourceType,
-      externalId: input.externalId ?? null,
-      ...payload
-    })
-    .onConflictDoUpdate({
-      target: [
+  const updatePayload: Record<string, any> = {
+    ingestStatus,
+    updatedAt: new Date()
+  }
+
+  if (typeof input.title === 'string') {
+    insertPayload.title = input.title
+    updatePayload.title = input.title
+  }
+
+  if (typeof input.sourceText === 'string') {
+    insertPayload.sourceText = input.sourceText
+    updatePayload.sourceText = input.sourceText
+  }
+
+  if (typeof input.metadata === 'object' && input.metadata !== null) {
+    insertPayload.metadata = input.metadata
+    updatePayload.metadata = input.metadata
+  }
+
+  const insertValues = {
+    id: uuidv7(),
+    organizationId: input.organizationId,
+    createdByUserId: input.userId,
+    sourceType: input.sourceType,
+    externalId: input.externalId ?? null,
+    ...insertPayload
+  }
+
+  const onConflictTarget = input.externalId
+    ? [
         schema.sourceContent.organizationId,
         schema.sourceContent.sourceType,
         schema.sourceContent.externalId
-      ],
-      set: {
-        ...payload,
-        updatedAt: new Date()
-      }
+      ]
+    : [
+        schema.sourceContent.organizationId,
+        schema.sourceContent.sourceType
+      ]
+
+  const [result] = await db
+    .insert(schema.sourceContent)
+    .values(insertValues)
+    .onConflictDoUpdate({
+      target: onConflictTarget,
+      set: updatePayload
     })
     .returning()
 

@@ -1,10 +1,10 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { desc, eq } from 'drizzle-orm'
-import { v7 as uuidv7 } from 'uuid'
 import { createError } from 'h3'
+import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/database/schema'
 import { composeBlogFromText } from '~~/server/utils/aiGateway'
-import { CONTENT_STATUSES, CONTENT_TYPES, ensureUniqueContentSlug, isContentSlugConstraintError, slugifyTitle } from '~~/server/utils/content'
+import { CONTENT_STATUSES, CONTENT_TYPES, ensureUniqueContentSlug, isContentSlugConstraintError } from '~~/server/utils/content'
 
 interface GenerateContentOverrides {
   title?: string | null

@@ -56,19 +56,12 @@ export async function callChatCompletions({
     })
 
     const content = response?.choices?.[0]?.message?.content
-
-    if (Array.isArray(content)) {
-      return content.map((c: any) => c.text ?? c).join('')
-    }
-
-    return typeof content === 'string' ? content : ''
+    return typeof content === 'string' ? content : String(content ?? '')
   } catch (error: any) {
     console.error('AI Gateway request failed', {
       model,
       temperature,
       maxTokens,
-      systemPromptPreview: systemPrompt?.slice(0, 200),
-      userPromptPreview: userPrompt?.slice(0, 200),
       error: error?.message || error
     })
 

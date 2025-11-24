@@ -70,6 +70,7 @@ export default defineEventHandler(async (event) => {
   const maxAttempts = 5
 
   while (!createdRecord && attempt < maxAttempts) {
+    attempt += 1
     try {
       const [created] = await db
         .insert(schema.content)
@@ -91,7 +92,6 @@ export default defineEventHandler(async (event) => {
       createdRecord = created
     } catch (error: any) {
       if (isContentSlugConstraintError(error)) {
-        attempt += 1
         const fallbackCandidate = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`
         slug = await ensureUniqueContentSlug(db, organizationId, fallbackCandidate)
         continue

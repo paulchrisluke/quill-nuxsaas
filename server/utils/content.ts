@@ -15,7 +15,7 @@ const normalizeToSlug = (input: string) => {
 
   return input
     .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0300-\u036F]/g, '')
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
@@ -66,6 +66,7 @@ export const isContentSlugConstraintError = (error: any) => {
   return Boolean(
     error &&
     error.code === '23505' &&
-    (!error.constraint || UNIQUE_SLUG_CONSTRAINTS.includes(error.constraint))
+    typeof error.constraint === 'string' &&
+    UNIQUE_SLUG_CONSTRAINTS.includes(error.constraint)
   )
 }

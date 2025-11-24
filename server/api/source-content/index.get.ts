@@ -57,10 +57,12 @@ export default defineEventHandler(async (event) => {
     const offsetRaw = getQueryValue(query.offset as string | string[] | undefined)
     const parsedOffset = Number.parseInt(offsetRaw ?? '0', 10)
     if (!Number.isFinite(parsedOffset) || parsedOffset < 0) {
-      offset = 0
-    } else {
-      offset = parsedOffset
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'offset must be a non-negative integer'
+      })
     }
+    offset = parsedOffset
   }
 
   const rows = await db.select()

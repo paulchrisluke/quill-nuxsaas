@@ -1,4 +1,4 @@
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 import { v7 as uuidv7 } from 'uuid'
 import { organization, user } from './auth'
@@ -25,11 +25,12 @@ export const sourceContent = pgTable('source_content', {
 }, table => ({
   organizationIdx: index('source_content_organization_idx').on(table.organizationId),
   sourceTypeIdx: index('source_content_type_idx').on(table.sourceType),
-  orgSourceExternalUnique: uniqueIndex('source_content_org_type_external_idx').on(
-    table.organizationId,
-    table.sourceType,
-    table.externalId
-  )
+  orgSourceExternalUnique: uniqueIndex('source_content_org_type_external_idx')
+    .on(table.organizationId, table.sourceType, table.externalId)
+    .where(sql`${table.externalId} IS NOT NULL`),
+  orgSourceUniqueWhenNull: uniqueIndex('source_content_org_type_null_external_idx')
+    .on(table.organizationId, table.sourceType)
+    .where(sql`${table.externalId} IS NULL`)
 }))
 
 export const sourceContentRelations = relations(sourceContent, ({ one }) => ({
