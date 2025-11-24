@@ -25,7 +25,7 @@ export interface ChatSourceSnapshot {
   ingestStatus: string
   title: string | null
   originalUrl?: string | null
-  createdAt: string
+  createdAt: Date
 }
 
 export interface ChatGenerationResult {

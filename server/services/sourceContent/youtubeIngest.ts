@@ -1,11 +1,12 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { FetchError } from 'ofetch'
-import { and, eq, like } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import * as schema from '../../database/schema'
 
 const YOUTUBE_SCOPE_KEYWORDS = ['youtube', 'youtube.force-ssl']
+const TOKEN_REFRESH_BUFFER_MS = 60_000
 
 interface IngestYouTubeOptions {
   db: NodePgDatabase<typeof schema>
@@ -58,9 +59,16 @@ async function refreshGoogleAccessToken(db: NodePgDatabase<typeof schema>, accou
   if (!account.refreshToken) {
     throw new Error('Google account is missing a refresh token.')
   }
+
+  const { googleClientId, googleClientSecret } = runtimeConfig
+
+  if (!googleClientId || !googleClientSecret) {
+    throw new Error('Google OAuth client configuration is missing. Ensure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set.')
+  }
+
   const params = new URLSearchParams({
-    client_id: runtimeConfig.googleClientId!,
-    client_secret: runtimeConfig.googleClientSecret!,
+    client_id: googleClientId,
+    client_secret: googleClientSecret,
     refresh_token: account.refreshToken,
     grant_type: 'refresh_token'
   })
@@ -97,12 +105,17 @@ async function ensureAccessToken(db: NodePgDatabase<typeof schema>, account: typ
   if (
     account.accessToken &&
     account.accessTokenExpiresAt &&
-    new Date(account.accessTokenExpiresAt).getTime() > Date.now() + 60_000
+    new Date(account.accessTokenExpiresAt).getTime() > Date.now() + TOKEN_REFRESH_BUFFER_MS
   ) {
     return account.accessToken
   }
   const refreshed = await refreshGoogleAccessToken(db, account)
-  return refreshed.accessToken!
+
+  if (!refreshed || !refreshed.accessToken) {
+    throw new Error('Failed to refresh Google access token: response did not include access_token.')
+  }
+
+  return refreshed.accessToken
 }
 
 async function downloadCaption(accessToken: string, captionId: string) {
@@ -164,12 +177,16 @@ async function findYouTubeAccount(db: NodePgDatabase<typeof schema>, organizatio
     .innerJoin(schema.member, eq(schema.member.userId, schema.account.userId))
     .where(and(
       eq(schema.member.organizationId, organizationId),
-      eq(schema.account.providerId, 'google'),
-      like(schema.account.scope, '%youtube%')
+      eq(schema.account.providerId, 'google')
     ))
 
-  const fallback = orgAccounts.find(entry => hasYouTubeScopes(entry.account.scope))
-  return fallback?.account
+  for (const entry of orgAccounts) {
+    if (hasYouTubeScopes(entry.account.scope)) {
+      return entry.account
+    }
+  }
+
+  return undefined
 }
 
 export async function ingestYouTubeSource(options: IngestYouTubeOptions) {
