@@ -40,17 +40,17 @@ export const upsertSourceContent = async (
     updatedAt: new Date()
   }
 
-  if (typeof input.title === 'string') {
+  if (input.title !== undefined) {
     insertPayload.title = input.title
     updatePayload.title = input.title
   }
 
-  if (typeof input.sourceText === 'string') {
+  if (input.sourceText !== undefined) {
     insertPayload.sourceText = input.sourceText
     updatePayload.sourceText = input.sourceText
   }
 
-  if (typeof input.metadata === 'object' && input.metadata !== null) {
+  if (input.metadata !== undefined) {
     insertPayload.metadata = input.metadata
     updatePayload.metadata = input.metadata
   }
