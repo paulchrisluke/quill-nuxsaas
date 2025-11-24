@@ -70,8 +70,8 @@ function handleAction(action: ChatActionSuggestion) {
           </div>
           <div class="flex flex-wrap gap-2">
             <UButton
-              v-for="action in actions"
-              :key="`${action.type}-${action.sourceContentId}`"
+              v-for="(action, index) in actions"
+              :key="`${action.type}-${action.sourceContentId ?? 'none'}-${index}`"
               variant="soft"
               size="sm"
               icon="i-lucide-wand-sparkles"
