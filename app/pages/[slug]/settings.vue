@@ -5,7 +5,7 @@ definePageMeta({
   layout: 'dashboard'
 })
 
-const { organization, useActiveOrganization, fetchSession, user } = useAuth()
+const { organization, useActiveOrganization, fetchSession, user, client: authClient } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
@@ -100,10 +100,21 @@ onMounted(() => {
   }
 })
 
-const connectGoogle = () => {
+const connectYouTube = async () => {
   if (!activeOrg.value?.data?.id)
     return
-  window.location.href = `/api/organization/google/authorize?organizationId=${activeOrg.value.data.id}`
+  try {
+    await authClient.linkSocial({
+      provider: 'google',
+      scopes: [
+        'https://www.googleapis.com/auth/youtube',
+        'https://www.googleapis.com/auth/youtube.force-ssl'
+      ],
+      callbackURL: `/${activeOrg.value.data.slug}/settings?integration=success`
+    })
+  } catch (e: any) {
+    toast.add({ title: 'Error initiating YouTube integration', description: e.message, color: 'error' })
+  }
 }
 
 const disconnectLoading = ref(false)
@@ -296,25 +307,25 @@ async function deleteTeam() {
         <div class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-800 rounded-lg">
           <div class="flex items-center gap-3">
             <Icon
-              name="simple-icons:google"
+              name="simple-icons:youtube"
               class="w-6 h-6"
             />
             <div>
               <div class="font-medium">
-                Google
+                YouTube
               </div>
               <div class="text-sm text-gray-500">
-                Connect your Google account
+                Connect your YouTube account
               </div>
             </div>
           </div>
           <div>
             <UButton
-              v-if="!integrations?.find((i: any) => i?.provider === 'google' && i?.status === 'connected')"
+              v-if="!integrations?.find((i: any) => i?.provider === 'youtube' && i?.status === 'connected')"
               label="Connect"
               color="white"
               class="cursor-pointer"
-              @click="connectGoogle"
+              @click="connectYouTube"
             />
             <div
               v-else
@@ -335,7 +346,7 @@ async function deleteTeam() {
                 size="sm"
                 :loading="disconnectLoading"
                 class="cursor-pointer"
-                @click="disconnectIntegration('google')"
+                @click="disconnectIntegration('youtube')"
               />
             </div>
           </div>

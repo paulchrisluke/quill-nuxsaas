@@ -80,38 +80,9 @@ export const organization = pgTable("organization", {
   polarCustomerId: text("polar_customer_id"),
 });
 
-export const integration = pgTable(
-  "integration",
-  {
-    id: text("id").primaryKey(),
-    organizationId: text("organization_id")
-      .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
-    provider: text("provider").default("google").notNull(),
-    type: text("type").default("oauth").notNull(),
-    status: text("status").default("disconnected").notNull(),
-    accessToken: text("access_token"),
-    refreshToken: text("refresh_token"),
-    expiresAt: timestamp("expires_at"),
-    scopes: text("scopes"),
-    metadata: text("metadata"),
-    connectedByUserId: text("connected_by_user_id").references(() => user.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
-      .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
-  },
-  (table) => [
-    index("integration_organizationId_idx").on(table.organizationId),
-    uniqueIndex("integration_org_provider_unique").on(
-      table.organizationId,
-      table.provider,
-    ),
-  ],
-);
+// Integration table removed - we now use Better Auth's account table directly
+// See: server/api/organization/integrations.get.ts for implementation
+// export const integration = pgTable(...)
 
 export const member = pgTable(
   "member",
@@ -207,7 +178,7 @@ export const accountRelations = relations(account, ({ one }) => ({
 export const organizationRelations = relations(organization, ({ many }) => ({
   members: many(member),
   invitations: many(invitation),
-  integrations: many(integration),
+  // integrations removed - using Better Auth's account table instead
 }));
 
 export const memberRelations = relations(member, ({ one }) => ({
@@ -232,13 +203,5 @@ export const invitationRelations = relations(invitation, ({ one }) => ({
   }),
 }));
 
-export const integrationRelations = relations(integration, ({ one }) => ({
-  organization: one(organization, {
-    fields: [integration.organizationId],
-    references: [organization.id],
-  }),
-  connectedBy: one(user, {
-    fields: [integration.connectedByUserId],
-    references: [user.id],
-  }),
-}));
+// Integration relations removed - using Better Auth's account table instead
+// export const integrationRelations = relations(integration, ({ one }) => ({...}))

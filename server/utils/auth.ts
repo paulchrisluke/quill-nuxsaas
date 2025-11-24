@@ -4,7 +4,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { admin, openAPI, organization } from 'better-auth/plugins'
-import { eq, and } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
@@ -64,16 +64,16 @@ export const createBetterAuth = () => betterAuth({
       create: {
         before: async (session) => {
           const db = getDB()
-          
+
           // 1. Try to get user's last active org
           const users = await db
             .select()
             .from(schema.user)
             .where(eq(schema.user.id, session.userId))
             .limit(1)
-            
+
           let activeOrgId = users[0]?.lastActiveOrganizationId
-          
+
           // 2. Verify user is still a member of that org
           if (activeOrgId) {
             const member = await db
@@ -84,8 +84,10 @@ export const createBetterAuth = () => betterAuth({
                 eq(schema.member.organizationId, activeOrgId)
               ))
               .limit(1)
-              
-            if (member.length === 0) activeOrgId = null
+
+            if (member.length === 0) {
+              activeOrgId = null
+            }
           }
 
           // 3. Fallback to first organization
@@ -95,8 +97,10 @@ export const createBetterAuth = () => betterAuth({
               .from(schema.member)
               .where(eq(schema.member.userId, session.userId))
               .limit(1)
-            
-            if (members.length > 0) activeOrgId = members[0].organizationId
+
+            if (members.length > 0) {
+              activeOrgId = members[0].organizationId
+            }
           }
 
           if (activeOrgId) {
@@ -194,7 +198,9 @@ export const createBetterAuth = () => betterAuth({
   },
   account: {
     accountLinking: {
-      enabled: true
+      enabled: true,
+      allowDifferentEmails: true, // Allow linking accounts with different emails
+      allowUnlinkingAll: true // Allow unlinking even if it's the last account (needed for integrations)
     }
   },
   hooks: {
@@ -241,6 +247,10 @@ export const createBetterAuth = () => betterAuth({
           })
         }
       } else {
+        // Note: OAuth callback handling for YouTube is now done via database hook
+        // (account.create.after) which has access to the account's userId
+        // This allows us to get the user's email from the database
+
         if (['/sign-in/email', '/sign-up/email', '/forget-password', '/reset-password'].includes(ctx.path)) {
           let userId: string | undefined
           if (['/sign-in/email', '/sign-up/email'].includes(ctx.path)) {
