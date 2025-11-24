@@ -13,6 +13,11 @@ let runtimeConfigInstance: NitroRuntimeConfig
 export const generateRuntimeConfig = () => ({
   preset: process.env.NUXT_NITRO_PRESET,
   betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
+  // LLM / Cloudflare AI Gateway
+  cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
+  openAiBlogModel: process.env.NUXT_OPENAI_BLOG_MODEL,
+  openAiBlogTemperature: process.env.NUXT_OPENAI_BLOG_TEMPERATURE,
+  openAiBlogMaxOutputTokens: process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS,
   // Stripe
   stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
   stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,
