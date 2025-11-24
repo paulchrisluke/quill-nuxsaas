@@ -16,17 +16,20 @@ interface ChatResponse {
   generation?: ChatGenerationResult | null
 }
 
-const INITIAL_ASSISTANT_MESSAGE: ChatMessage = {
-  id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2),
-  role: 'assistant',
-  content: 'Hi! Share a link or describe what you want to write and I can prep a draft.',
-  createdAt: new Date()
+function createId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return Math.random().toString(36).slice(2)
 }
 
 export function useChatSession() {
-  const messages = useState<ChatMessage[]>('chat/messages', () => [INITIAL_ASSISTANT_MESSAGE])
+  const messages = useState<ChatMessage[]>('chat/messages', () => [{
+    id: createId(),
+    role: 'assistant',
+    content: 'Hi! Share a link or describe what you want to write and I can prep a draft.',
+    createdAt: new Date()
+  }])
   const status = useState<ChatStatus>('chat/status', () => 'ready')
   const actions = useState<ChatActionSuggestion[]>('chat/actions', () => [])
   const sources = useState<ChatSourceSnapshot[]>('chat/sources', () => [])
@@ -34,13 +37,6 @@ export function useChatSession() {
   const errorMessage = useState<string | null>('chat/error', () => null)
 
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
-
-  function createId() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID()
-    }
-    return Math.random().toString(36).slice(2)
-  }
 
   async function callChatEndpoint(body: Record<string, any>) {
     status.value = 'submitted'
