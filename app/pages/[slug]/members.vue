@@ -6,7 +6,7 @@ definePageMeta({
   layout: 'dashboard'
 })
 
-const { organization, useActiveOrganization, session, user, fetchSession, activeStripeSubscription } = useAuth()
+const { organization, useActiveOrganization, session, user, fetchSession, activeStripeSubscription, refreshActiveOrg, client } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
@@ -14,30 +14,27 @@ const { copy } = useClipboard()
 const inviteEmail = ref('')
 const inviteRole = ref('member')
 const loading = ref(false)
+const route = useRoute()
 
-// SSR: Prefetch session and organization data
-const { data: preloadedOrg } = await useAsyncData('members-page-data', async () => {
-  const [_sessionRes, orgRes] = await Promise.all([
-    $fetch('/api/auth/get-session', { headers: useRequestHeaders(['cookie']) }),
-    $fetch('/api/auth/organization/get-full-organization', { headers: useRequestHeaders(['cookie']) })
-  ])
-  return orgRes
-}, {
-  server: true,
-  lazy: false
-})
-
-// Initialize activeOrg with preloaded data if available
-if (preloadedOrg.value && activeOrg.value) {
-  activeOrg.value.data = preloadedOrg.value as any
-}
-
-// Watch for preloaded data changes (hydration)
-watch(preloadedOrg, (newData) => {
-  if (newData && activeOrg.value) {
-    activeOrg.value.data = newData as any
+// Fetch subscription data for this org
+const { data: subscriptionData } = await useAsyncData(
+  () => `members-subs-${activeOrg.value?.data?.id}`,
+  async () => {
+    if (!activeOrg.value?.data?.id)
+      return null
+    const subs = await $fetch('/api/auth/subscription/list', {
+      query: { referenceId: activeOrg.value.data.id },
+      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    })
+    return Array.isArray(subs) ? subs.find((s: any) => s.status === 'active' || s.status === 'trialing') : null
+  },
+  {
+    watch: [() => activeOrg.value?.data?.id]
   }
-}, { immediate: true })
+)
+
+// Organization data is already available via useActiveOrganization()
+// No need to fetch it again on page load
 
 // Check if current user is admin or owner
 const currentUserRole = computed(() => {
@@ -51,8 +48,15 @@ const canManageMembers = computed(() => {
   return currentUserRole.value === 'admin' || currentUserRole.value === 'owner'
 })
 
-// Check subscription status
-const isPro = computed(() => !!activeStripeSubscription.value)
+// Check subscription status - use fetched data as source of truth
+const isPro = computed(() => {
+  // subscriptionData.value will be:
+  // - null or undefined if no active/trialing subscription
+  // - subscription object if active/trialing subscription exists
+  const result = subscriptionData.value !== null && subscriptionData.value !== undefined
+  console.log('isPro:', result, 'subscriptionData:', subscriptionData.value)
+  return result
+})
 
 // Check if we need to set an active org on mount
 onMounted(async () => {
@@ -66,6 +70,16 @@ onMounted(async () => {
       // Redirect to onboarding if no teams exist
       navigateTo('/onboarding')
     }
+  }
+
+  // Check if returning from successful upgrade with pending invite
+  // Just preserve the email and role in the input fields
+  if (route.query.success === 'true' && route.query.pendingInviteEmail) {
+    inviteEmail.value = route.query.pendingInviteEmail as string
+    inviteRole.value = (route.query.pendingInviteRole as string) || 'member'
+
+    // Clean up URL params
+    navigateTo(route.path, { replace: true })
   }
 })
 
@@ -96,13 +110,7 @@ async function refreshPage() {
   loading.value = true
   try {
     await fetchSession()
-    // Fetch fresh organization data
-    const orgData = await $fetch('/api/auth/organization/get-full-organization')
-
-    // Manually update the activeOrg state with fresh data
-    if (orgData && activeOrg.value) {
-      activeOrg.value.data = orgData as any
-    }
+    await refreshActiveOrg()
 
     toast.add({ title: 'Data refreshed', color: 'success' })
   } catch {
@@ -132,10 +140,7 @@ async function updateMemberRole(memberId: string, newRole: string) {
 
     toast.add({ title: 'Role updated successfully', color: 'success' })
     await fetchSession()
-    const orgData = await $fetch('/api/auth/organization/get-full-organization')
-    if (orgData && activeOrg.value) {
-      activeOrg.value.data = orgData as any
-    }
+    await refreshActiveOrg()
   } catch (e: any) {
     toast.add({
       title: 'Error updating role',
@@ -171,10 +176,7 @@ async function removeMember(memberId: string) {
 
     toast.add({ title: 'Member removed successfully', color: 'success' })
     await fetchSession()
-    const orgData = await $fetch('/api/auth/organization/get-full-organization')
-    if (orgData && activeOrg.value) {
-      activeOrg.value.data = orgData as any
-    }
+    await refreshActiveOrg()
   } catch (e: any) {
     toast.add({
       title: 'Error removing member',
@@ -206,7 +208,7 @@ async function handleUpgrade() {
       metadata: {
         quantity: quantity > 0 ? quantity : 1
       },
-      successUrl: `${window.location.origin}/${activeOrg.value.data.slug}/members?success=true`,
+      successUrl: `${window.location.origin}/${activeOrg.value.data.slug}/members?success=true${inviteEmail.value ? `&pendingInviteEmail=${encodeURIComponent(inviteEmail.value)}&pendingInviteRole=${inviteRole.value}` : ''}`,
       cancelUrl: `${window.location.origin}/${activeOrg.value.data.slug}/members?canceled=true`
     })
 
@@ -289,10 +291,7 @@ async function inviteMember() {
     toast.add({ title: 'Invitation sent', color: 'success' })
     inviteEmail.value = ''
     await fetchSession()
-    const orgData = await $fetch('/api/auth/organization/get-full-organization')
-    if (orgData && activeOrg.value) {
-      activeOrg.value.data = orgData as any
-    }
+    await refreshActiveOrg()
   } catch (e: any) {
     console.error('InviteMember Error:', e)
     toast.add({
@@ -420,10 +419,7 @@ async function revokeInvitation(invitationId: string) {
 
     toast.add({ title: 'Invitation revoked', color: 'success' })
     await fetchSession()
-    const orgData = await $fetch('/api/auth/organization/get-full-organization')
-    if (orgData && activeOrg.value) {
-      activeOrg.value.data = orgData as any
-    }
+    await refreshActiveOrg()
   } catch (e: any) {
     toast.add({
       title: 'Error revoking invitation',
@@ -662,82 +658,12 @@ async function revokeInvitation(invitationId: string) {
     </div>
 
     <!-- Upgrade Modal -->
-    <UModal
+    <UpgradeModal
       v-model:open="showUpgradeModal"
-      title="Upgrade to Pro"
-      :description="activeStripeSubscription?.status === 'trialing'
-        ? 'Note: You will be removed from the trial and charged once you upgrade and invite a user.'
-        : undefined"
-    >
-      <template #body>
-        <div class="space-y-4">
-          <label class="block text-sm font-medium mb-3">Select billing cycle</label>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div
-              v-for="plan in [PLANS.PRO_MONTHLY, PLANS.PRO_YEARLY]"
-              :key="plan.interval"
-              class="border rounded-lg p-4 cursor-pointer transition-all"
-              :class="selectedUpgradeInterval === plan.interval ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'"
-              @click="selectedUpgradeInterval = plan.interval as 'month' | 'year'"
-            >
-              <div class="flex justify-between items-start mb-2">
-                <h3 class="font-semibold">
-                  {{ plan.label }}
-                </h3>
-                <UIcon
-                  v-if="selectedUpgradeInterval === plan.interval"
-                  name="i-lucide-check-circle"
-                  class="w-5 h-5 text-primary"
-                />
-                <div
-                  v-else
-                  class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
-                />
-              </div>
-              <div class="text-2xl font-bold mb-1">
-                ${{ plan.priceNumber.toFixed(2) }}
-                <span class="text-sm font-normal text-muted-foreground">/ {{ plan.interval }}</span>
-              </div>
-              <p class="text-xs text-muted-foreground mb-3">
-                <span class="font-semibold text-green-600 dark:text-green-400">{{ plan.trialDays }}-day free trial</span><br>
-                Base Plan ({{ plan.price }}).<br>
-                Each additional member adds ${{ (plan.seatPriceNumber || 0).toFixed(2) }}/{{ plan.interval === 'year' ? 'yr' : 'mo' }}.
-              </p>
-
-              <div class="space-y-2">
-                <ul class="text-xs space-y-1.5 text-muted-foreground">
-                  <li
-                    v-for="(feature, i) in plan.features"
-                    :key="i"
-                    class="flex items-center gap-2"
-                  >
-                    <UIcon
-                      name="i-lucide-check"
-                      class="w-3 h-3 text-green-500"
-                    /> {{ feature }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <template #footer>
-        <UButton
-          color="neutral"
-          variant="outline"
-          label="Cancel"
-          @click="showUpgradeModal = false"
-        />
-        <UButton
-          :loading="loading"
-          label="Upgrade to Pro"
-          color="primary"
-          @click="handleUpgrade"
-        />
-      </template>
-    </UModal>
+      reason="invite"
+      :organization-id="activeOrg?.data?.id"
+      @upgraded="handleUpgrade"
+    />
 
     <!-- Add Seat Modal -->
     <UModal

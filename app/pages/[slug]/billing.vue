@@ -9,14 +9,64 @@ const { useActiveOrganization, subscription: stripeSubscription, client } = useA
 const activeOrg = useActiveOrganization()
 const loading = ref(false)
 const billingInterval = ref<'month' | 'year'>('month')
+const route = useRoute()
+const showDowngradeModal = ref(false)
+const downgradeData = ref<{ membersToRemove: any[], nextChargeDate: string }>({ membersToRemove: [], nextChargeDate: '' })
+const showUpgradeModal = ref(false)
 
-// Fetch subscription for the active organization
-const { data: subscriptions, refresh } = await useFetch('/api/auth/subscription/list', {
-  query: computed(() => ({
-    referenceId: activeOrg.value?.data?.id
-  })),
-  headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
+// Show upgrade modal if showUpgrade query param is present
+watchEffect(() => {
+  if (route.query.showUpgrade === 'true') {
+    showUpgradeModal.value = true
+  }
 })
+
+// Fetch organization data FIRST, then use its ID to fetch subscriptions
+const { data: pageData } = await useAsyncData(
+  `billing-page-${route.params.slug}`,
+  async () => {
+    // Fetch org data first
+    const orgData = await $fetch('/api/auth/organization/get-full-organization', {
+      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    })
+
+    // Now fetch subscriptions using the org ID
+    const subsData = await $fetch('/api/auth/subscription/list', {
+      query: { referenceId: (orgData as any)?.id || '' },
+      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    }).catch(() => null)
+
+    return {
+      organization: orgData,
+      subscriptions: subsData
+    }
+  }
+)
+
+// Sync fetched org data with activeOrg
+if (pageData.value?.organization && activeOrg.value) {
+  activeOrg.value.data = pageData.value.organization as any
+}
+
+// Watch for pageData changes and sync
+watch(() => pageData.value?.organization, (newOrg) => {
+  if (newOrg && activeOrg.value) {
+    activeOrg.value.data = newOrg as any
+  }
+})
+
+// Use the fetched data
+const subscriptions = computed(() => pageData.value?.subscriptions || null)
+
+// Refresh function for after mutations
+const refresh = async () => {
+  const subsData = await $fetch('/api/auth/subscription/list', {
+    query: { referenceId: activeOrg.value?.data?.id || '' }
+  })
+  if (pageData.value) {
+    pageData.value.subscriptions = subsData
+  }
+}
 
 const activeSub = computed(() => {
   if (!subscriptions.value)
@@ -180,9 +230,7 @@ async function cancelSubscription() {
   loading.value = true // Show loading while fetching members
 
   try {
-    let message = `Are you sure you want to cancel? Your plan will remain active until ${nextChargeDate.value || 'the end of the billing period'}.`
-
-    // Check for member limit (Free plan allows 3)
+    // Check for member limit (Free plan allows 1 member - the owner)
     const { data: response, error } = await client.organization.listMembers({
       query: {
         organizationId: activeOrg.value.data.id,
@@ -197,52 +245,50 @@ async function cancelSubscription() {
     const membersList = response?.members || []
     console.log('Cancellation Member Check:', { count: membersList.length, members: membersList })
 
+    // Prepare downgrade data
     if (membersList.length > 1) {
-      // Sort by createdAt desc (most recent first)
+      // Sort by createdAt desc (most recent first) to remove newest members
       const sortedMembers = [...membersList].sort((a, b) => {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       })
-
-      const membersToRemove = sortedMembers.slice(0, membersList.length - 1)
-      const removeList = membersToRemove.map(m => `- ${m.user.name || m.user.email}`).join('\n')
-
-      message += `\n\nYour team has ${membersList.length} members, but the Free plan only allows 1 member (you). The following most recent members will be removed:\n${removeList}`
+      downgradeData.value.membersToRemove = sortedMembers.slice(0, membersList.length - 1)
     } else {
-      message += `\n\nYour team has ${membersList.length} member, which fits within the Free plan limits (1). No members will be removed.`
+      downgradeData.value.membersToRemove = []
     }
 
-    loading.value = false // Reset loading before opening modal
-
-    openModal(
-      'Cancel Subscription',
-      message,
-      'Yes, Cancel',
-      'red',
-      async () => {
-        loading.value = true
-        try {
-          // Use custom API endpoint for cancellation to handle organization-based billing correctly
-          await $fetch('/api/stripe/cancel', {
-            method: 'POST',
-            body: {
-              subscriptionId: activeSub.value!.stripeSubscriptionId,
-              referenceId: activeOrg.value!.data!.id
-            }
-          })
-
-          // Refresh subscription data to update UI
-          await refresh()
-        } catch (e: any) {
-          console.error(e)
-          // eslint-disable-next-line no-alert
-          alert(`Failed to cancel subscription: ${e.message || 'Unknown error'}`)
-        } finally {
-          loading.value = false
-        }
-      }
-    )
+    downgradeData.value.nextChargeDate = nextChargeDate.value || 'the end of your billing cycle'
+    loading.value = false
+    showDowngradeModal.value = true
   } catch (e) {
     console.error('Error preparing cancellation:', e)
+    loading.value = false
+  }
+}
+
+async function confirmDowngrade() {
+  if (!activeOrg.value?.data?.id || !activeSub.value?.stripeSubscriptionId)
+    return
+
+  loading.value = true
+  showDowngradeModal.value = false
+
+  try {
+    // Use custom API endpoint for cancellation to handle organization-based billing correctly
+    await $fetch('/api/stripe/cancel', {
+      method: 'POST',
+      body: {
+        subscriptionId: activeSub.value.stripeSubscriptionId,
+        referenceId: activeOrg.value.data.id
+      }
+    })
+
+    // Refresh subscription data to update UI
+    await refresh()
+  } catch (e: any) {
+    console.error(e)
+    // eslint-disable-next-line no-alert
+    alert(`Failed to cancel subscription: ${e.message || 'Unknown error'}`)
+  } finally {
     loading.value = false
   }
 }
@@ -1017,5 +1063,109 @@ async function confirmPlanChange() {
         />
       </template>
     </UModal>
+
+    <!-- Downgrade Confirmation Modal -->
+    <UModal
+      v-model:open="showDowngradeModal"
+      title="Downgrade to Free Plan"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm">
+            Your subscription will be canceled.
+          </p>
+
+          <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+            <div class="flex items-center gap-2 text-sm">
+              <UIcon
+                name="i-lucide-calendar"
+                class="w-4 h-4 text-blue-600 dark:text-blue-400"
+              />
+              <span class="font-medium">Active Until:</span>
+              <span>{{ downgradeData.nextChargeDate }}</span>
+            </div>
+          </div>
+
+          <div
+            v-if="downgradeData.membersToRemove.length > 0"
+            class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 space-y-3"
+          >
+            <div class="flex items-start gap-2">
+              <UIcon
+                name="i-lucide-alert-triangle"
+                class="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0"
+              />
+              <div class="space-y-2 flex-1">
+                <p class="font-semibold text-sm text-amber-900 dark:text-amber-100">
+                  IMPORTANT
+                </p>
+                <p class="text-sm text-amber-800 dark:text-amber-200">
+                  The Free plan only allows 1 member (you).
+                </p>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-amber-900 dark:text-amber-100">
+                {{ downgradeData.membersToRemove.length }} member{{ downgradeData.membersToRemove.length > 1 ? 's' : '' }} will be removed when your plan downgrades:
+              </p>
+              <ul class="space-y-1.5 pl-1">
+                <li
+                  v-for="member in downgradeData.membersToRemove"
+                  :key="member.id"
+                  class="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200"
+                >
+                  <UIcon
+                    name="i-lucide-user-minus"
+                    class="w-4 h-4 shrink-0"
+                  />
+                  <span class="font-mono">{{ member.user.email }}</span>
+                </li>
+              </ul>
+            </div>
+
+            <p class="text-xs text-amber-700 dark:text-amber-300 pt-2 border-t border-amber-200 dark:border-amber-700">
+              {{ downgradeData.membersToRemove.length > 1 ? 'These users' : 'This user' }} will lose access to this organization on {{ downgradeData.nextChargeDate }}.
+            </p>
+          </div>
+
+          <div
+            v-else
+            class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3"
+          >
+            <div class="flex items-center gap-2 text-sm text-green-800 dark:text-green-200">
+              <UIcon
+                name="i-lucide-check-circle"
+                class="w-4 h-4 text-green-600 dark:text-green-400"
+              />
+              <span>No members will be removed. Your team has 1 member, which fits within the Free plan limit.</span>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <template #footer>
+        <UButton
+          label="Cancel"
+          color="neutral"
+          variant="outline"
+          @click="showDowngradeModal = false"
+        />
+        <UButton
+          label="Yes, Downgrade"
+          color="red"
+          :loading="loading"
+          @click="confirmDowngrade"
+        />
+      </template>
+    </UModal>
+
+    <!-- Upgrade Modal for new teams -->
+    <UpgradeModal
+      v-model:open="showUpgradeModal"
+      :organization-id="activeOrg?.data?.id"
+      :team-name="activeOrg?.data?.name"
+      :team-slug="activeOrg?.data?.slug"
+    />
   </div>
 </template>

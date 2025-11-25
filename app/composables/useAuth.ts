@@ -93,6 +93,21 @@ export function useAuth() {
     })
   }
 
+  // Centralized function to refresh organization data
+  const refreshActiveOrg = async () => {
+    try {
+      const orgData = await $fetch('/api/auth/organization/get-full-organization')
+      const activeOrg = client.useActiveOrganization()
+      if (orgData && activeOrg.value) {
+        activeOrg.value.data = orgData as any
+      }
+      return orgData
+    } catch (error) {
+      console.error('Failed to refresh organization:', error)
+      return null
+    }
+  }
+
   return {
     session,
     user,
@@ -106,6 +121,7 @@ export function useAuth() {
         sub => sub.status === 'active' || sub.status === 'trialing'
       )
     }),
+    refreshActiveOrg,
     signIn: client.signIn,
     signUp: client.signUp,
     forgetPassword: client.forgetPassword,

@@ -28,15 +28,26 @@ onMounted(async () => {
   }
 
   try {
-    const { error: apiError } = await organization.acceptInvitation({
+    const { data: result, error: apiError } = await organization.acceptInvitation({
       invitationId
     })
     if (apiError)
       throw apiError
 
-    toast.add({ title: 'Invitation accepted', color: 'green' })
-    // Force full reload to ensure session and organization data is fresh
-    window.location.href = '/t/dashboard'
+    // Fetch the organization details to get the slug
+    await fetchSession()
+    const { data: orgs } = await organization.list()
+
+    // Find the organization we just joined (should be the active one or match the invitation)
+    const joinedOrg = orgs?.find((o: any) => o.id === result?.organizationId) || orgs?.[0]
+
+    if (joinedOrg) {
+      toast.add({ title: 'Invitation accepted', color: 'success' })
+      // Redirect to the specific organization's dashboard
+      window.location.href = `/${joinedOrg.slug}/dashboard`
+    } else {
+      throw new Error('Could not find organization')
+    }
   } catch (e: any) {
     error.value = e.message || 'Failed to accept invitation'
   } finally {

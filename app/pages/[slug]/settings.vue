@@ -22,22 +22,8 @@ onMounted(() => {
   })
 })
 
-// SSR: Prefetch session and full organization data
-const { data: preloadedOrg } = await useAsyncData('settings-page-data', async () => {
-  const [_sessionRes, orgRes] = await Promise.all([
-    $fetch('/api/auth/get-session', { headers: useRequestHeaders(['cookie']) }),
-    $fetch('/api/auth/organization/get-full-organization', { headers: useRequestHeaders(['cookie']) })
-  ])
-  return orgRes
-}, {
-  server: true,
-  lazy: false
-})
-
-// Initialize activeOrg with preloaded data if available
-if (preloadedOrg.value && activeOrg.value) {
-  activeOrg.value.data = preloadedOrg.value as any
-}
+// Organization data is already available via useActiveOrganization()
+// No need to fetch it again on page load
 
 const loading = ref(false)
 const teamName = ref('')

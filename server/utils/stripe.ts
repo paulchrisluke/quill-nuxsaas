@@ -2,10 +2,12 @@ import type { Subscription } from '@better-auth/stripe'
 import { stripe } from '@better-auth/stripe'
 import { and, eq } from 'drizzle-orm'
 import Stripe from 'stripe'
+import { PLANS } from '~~/shared/utils/plans'
 import { member as memberTable, organization as organizationTable } from '../database/schema'
 import { logAuditEvent } from './auditLogger'
 import { useDB } from './db'
 import { runtimeConfig } from './runtimeConfig'
+import { removeExcessMembersOnExpiration } from './subscription-handlers'
 
 /**
  * STRIPE ORGANIZATION BILLING IMPLEMENTATION
@@ -201,7 +203,7 @@ export const setupStripe = () => stripe({
 
       return null
     },
-    authorizeReference: async ({ user, referenceId }) => {
+    authorizeReference: async ({ user, referenceId }, ctx) => {
       const db = await useDB()
       const member = await db.query.member.findFirst({
         where: and(
@@ -210,10 +212,19 @@ export const setupStripe = () => stripe({
         )
       })
 
-      if (member?.role === 'owner') {
-        // Ensure Stripe Customer exists for the Organization before allowing action
-        await ensureStripeCustomer(referenceId)
-        return true
+      // Allow all members to view subscription data (for badges, etc.)
+      if (member) {
+        // For read-only operations (GET requests), allow all members
+        if (ctx?.method === 'GET') {
+          return true
+        }
+
+        // For write operations (POST, PUT, DELETE), only allow owners
+        if (member.role === 'owner') {
+          // Ensure Stripe Customer exists for the Organization before allowing action
+          await ensureStripeCustomer(referenceId)
+          return true
+        }
       }
 
       return false
@@ -275,7 +286,7 @@ export const setupStripe = () => stripe({
           name: 'pro-monthly',
           priceId: runtimeConfig.stripePriceIdProMonth,
           freeTrial: {
-            days: 14,
+            days: PLANS.PRO_MONTHLY.trialDays,
             onTrialStart: async (subscription: Subscription) => {
               await addPaymentLog('trial_start', subscription)
             },
@@ -284,6 +295,10 @@ export const setupStripe = () => stripe({
             },
             onTrialExpired: async (subscription: Subscription) => {
               await addPaymentLog('trial_expired', subscription)
+              // Remove excess members when trial expires without conversion
+              if (subscription.referenceId) {
+                await removeExcessMembersOnExpiration(subscription.referenceId)
+              }
             }
           }
         },
@@ -291,7 +306,7 @@ export const setupStripe = () => stripe({
           name: 'pro-yearly',
           priceId: runtimeConfig.stripePriceIdProYear,
           freeTrial: {
-            days: 14,
+            days: PLANS.PRO_YEARLY.trialDays,
             onTrialStart: async (subscription: Subscription) => {
               await addPaymentLog('trial_start', subscription)
             },
@@ -300,6 +315,10 @@ export const setupStripe = () => stripe({
             },
             onTrialExpired: async (subscription: Subscription) => {
               await addPaymentLog('trial_expired', subscription)
+              // Remove excess members when trial expires without conversion
+              if (subscription.referenceId) {
+                await removeExcessMembersOnExpiration(subscription.referenceId)
+              }
             }
           }
         }
@@ -315,9 +334,17 @@ export const setupStripe = () => stripe({
     },
     onSubscriptionCancel: async ({ subscription }) => {
       await addPaymentLog('subscription_canceled', subscription)
+      // Remove excess members when subscription is canceled
+      if (subscription.referenceId) {
+        await removeExcessMembersOnExpiration(subscription.referenceId)
+      }
     },
     onSubscriptionDeleted: async ({ subscription }) => {
       await addPaymentLog('subscription_deleted', subscription)
+      // Remove excess members when subscription is deleted/expired
+      if (subscription.referenceId) {
+        await removeExcessMembersOnExpiration(subscription.referenceId)
+      }
     }
   }
 })

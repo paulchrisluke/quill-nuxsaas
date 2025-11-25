@@ -5,7 +5,7 @@ import { useDebounceFn } from '@vueuse/core'
 import SearchPalette from './components/SearchPalette.vue'
 import { getUserMenus } from './menu'
 
-const { user, signOut, organization, useActiveOrganization, session } = useAuth()
+const { user, signOut, organization, useActiveOrganization, session: _session } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 
@@ -16,7 +16,44 @@ const localePath = useLocalePath()
 const isCollapsed = ref(false)
 const runtimeConfig = useRuntimeConfig()
 
+// Fetch organization data with SSR to ensure members data is available for canManageTeam
+// Watch route.params.slug to refetch when switching teams
+const { data: layoutOrgData, refresh: _refreshLayoutOrg } = await useAsyncData(
+  `layout-org-${route.params.slug}`,
+  async () => {
+    return await $fetch('/api/auth/organization/get-full-organization', {
+      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
+    }).catch(() => null)
+  },
+  {
+    immediate: true,
+    watch: [() => route.params.slug]
+  }
+)
+
+// Sync with activeOrg immediately
+onMounted(() => {
+  if (layoutOrgData.value && activeOrg.value) {
+    activeOrg.value.data = layoutOrgData.value as any
+  }
+})
+
+// Watch for changes
+watch(() => layoutOrgData.value, (newOrg) => {
+  if (newOrg && activeOrg.value) {
+    // Safety check: Ensure the fetched org matches the current route slug
+    // This prevents overwriting activeOrg with stale data due to race conditions
+    const routeSlug = route.params.slug
+    if (routeSlug && routeSlug !== 't' && newOrg.slug !== routeSlug) {
+      return
+    }
+    activeOrg.value.data = newOrg as any
+  }
+}, { immediate: true })
+
 const isCreateTeamModalOpen = ref(false)
+const showUpgradeModal = ref(false)
+const upgradeOrgId = ref<string | undefined>(undefined)
 const newTeamName = ref('')
 const newTeamSlug = ref('')
 const isSlugManuallyEdited = ref(false)
@@ -24,7 +61,7 @@ const creatingTeam = ref(false)
 const slugError = ref('')
 const isCheckingSlug = ref(false)
 const ownedTeamsCount = ref(0)
-const selectedPlan = ref('launch') // 'launch' or 'scale'
+const _selectedInterval = ref<'month' | 'year'>('month')
 
 const fetchOwnedCount = async () => {
   try {
@@ -35,7 +72,8 @@ const fetchOwnedCount = async () => {
   }
 }
 
-const handleOpenCreateModal = () => {
+const handleOpenCreateModal = async () => {
+  // Just open the create team modal
   isCreateTeamModalOpen.value = true
 }
 
@@ -51,12 +89,12 @@ watch(isCreateTeamModalOpen, async (isOpen) => {
     slugError.value = ''
     isSlugManuallyEdited.value = false
 
-    // Re-fetch to ensure fresh data
+    // Fetch owned count to determine if we need to show plan selection
     await fetchOwnedCount()
   }
 })
 
-const showBilling = computed(() => ownedTeamsCount.value > 0)
+const _showBilling = computed(() => ownedTeamsCount.value > 0)
 
 const checkSlug = useDebounceFn(async (slug: string) => {
   if (!slug || slug.length < 3) {
@@ -102,58 +140,39 @@ onMounted(async () => {
   // Prefetch owned count for smoother UI
   fetchOwnedCount()
 
-  if (!organization)
-    return
-
-  const { data: orgs } = await organization.list()
-  const routeSlug = route.params.slug as string
-
-  if (!orgs || orgs.length === 0) {
-    navigateTo('/onboarding')
-    return
-  }
-
-  // If URL has a specific slug (not 't' or empty), try to activate that org
-  if (routeSlug && routeSlug !== 't') {
-    const targetOrg = orgs.find(o => o.slug === routeSlug)
-    if (targetOrg && targetOrg.id !== (session.value as any)?.activeOrganizationId) {
-      await organization.setActive({ organizationId: targetOrg.id })
-      await useAuth().fetchSession()
-      // No reload needed, we are on the right URL, just state updated
-    } else if (!targetOrg) {
-      // Invalid slug, redirect to first available org
-      navigateTo(`/${orgs[0].slug}/dashboard`)
-    }
-  }
-  // If generic URL or no active org, ensure one is active and redirect to its slug
-  else {
-    const activeId = (session.value as any)?.activeOrganizationId
-    const activeOrg = activeId ? orgs.find(o => o.id === activeId) : orgs[0]
-
-    if (activeOrg) {
-      if (activeOrg.id !== activeId) {
-        await organization.setActive({ organizationId: activeOrg.id })
-        await useAuth().fetchSession()
-      }
-      // Redirect to canonical URL
-      if (routeSlug !== activeOrg.slug) {
-        const newPath = route.path.replace(/^\/t\//, `/${activeOrg.slug}/`)
-        navigateTo(newPath)
-      }
-    }
-  }
+  // Organization sync is now handled by app/middleware/organization.global.ts
 })
 
-// Check if current user is owner or admin
-const canManageTeam = computed(() => {
-  if (!activeOrg.value?.data?.members || !user.value?.id)
-    return false
+// Get current user's role in the organization
+const currentUserRole = computed(() => {
+  const orgData = layoutOrgData.value || activeOrg.value?.data
+  if (!orgData?.members || !user.value?.id)
+    return undefined
   const userId = user.value.id
-  const member = activeOrg.value.data.members.find(m => m.userId === userId)
-  return member?.role === 'owner' || member?.role === 'admin'
+  const member = orgData.members.find((m: any) => m.userId === userId)
+  return member?.role as 'owner' | 'admin' | 'member' | undefined
 })
 
-const activeOrgSlug = computed(() => activeOrg.value?.data?.slug || 't')
+// Check if current user is owner or admin (kept for backward compatibility)
+const _canManageTeam = computed(() => {
+  const role = currentUserRole.value
+  return role === 'owner' || role === 'admin'
+})
+
+// Check if current user is owner (kept for backward compatibility)
+const _isOwner = computed(() => {
+  return currentUserRole.value === 'owner'
+})
+
+const activeOrgSlug = computed(() => {
+  // Use route slug as source of truth to prevent reverting to previous team
+  const routeSlug = route.params.slug as string
+  if (routeSlug && routeSlug !== 't') {
+    return routeSlug
+  }
+  // Fallback to activeOrg if no route slug
+  return activeOrg.value?.data?.slug || 't'
+})
 
 defineShortcuts({
   'g-1': () => router.push(localePath(`/${activeOrgSlug.value}/dashboard`))
@@ -161,7 +180,8 @@ defineShortcuts({
 const pathNameItemMap: StringDict<NavigationMenuItem> = {}
 const pathNameParentMap: StringDict<NavigationMenuItem | undefined> = {}
 
-const menus = computed(() => getUserMenus(t, localePath, runtimeConfig.public.appRepo, activeOrgSlug.value, canManageTeam.value))
+// Pass user role to menu instead of boolean flags
+const menus = computed(() => getUserMenus(t, localePath, runtimeConfig.public.appRepo, activeOrgSlug.value, currentUserRole.value))
 
 const menuIterator = (menus: NavigationMenuItem[], parent?: NavigationMenuItem) => {
   for (const menu of menus) {
@@ -192,10 +212,56 @@ const clickSignOut = () => {
 }
 
 async function createTeam() {
-  if (!newTeamName.value.trim() || !newTeamSlug.value.trim() || slugError.value)
+  if (!newTeamName.value.trim() || !newTeamSlug.value.trim())
     return
-  creatingTeam.value = true
 
+  // Check if user owns 1+ teams
+  await fetchOwnedCount()
+
+  if (ownedTeamsCount.value >= 1) {
+    // User owns 1+ teams - just create the team, they can upgrade from billing page
+    creatingTeam.value = true
+    try {
+      const { data: newTeam, error: createError } = await organization.create({
+        name: newTeamName.value,
+        slug: newTeamSlug.value
+      })
+
+      if (createError || !newTeam) {
+        throw createError || new Error('Failed to create team')
+      }
+
+      // Team created successfully - mark it as needing upgrade
+      await organization.setActive({ organizationId: newTeam.id })
+
+      // Store flag in localStorage - this team needs Pro upgrade
+      localStorage.setItem(`org_${newTeam.id}_needsUpgrade`, 'true')
+
+      toast.add({
+        title: 'Team created successfully',
+        description: 'Upgrade to Pro to unlock all features',
+        color: 'success'
+      })
+      newTeamName.value = ''
+      newTeamSlug.value = ''
+      isSlugManuallyEdited.value = false
+      isCreateTeamModalOpen.value = false
+      // Navigate to new team billing page to upgrade
+      window.location.href = `/${newTeam.slug}/billing?showUpgrade=true`
+    } catch (e: any) {
+      toast.add({
+        title: 'Failed to create team',
+        description: e.message,
+        color: 'error'
+      })
+    } finally {
+      creatingTeam.value = false
+    }
+    return
+  }
+
+  // First team - create it for free
+  creatingTeam.value = true
   try {
     const { data, error } = await organization.create({
       name: newTeamName.value,
@@ -406,118 +472,14 @@ async function createTeam() {
             </p>
           </UFormField>
 
+          <!-- Info message for 2nd+ teams -->
           <div
-            v-if="showBilling"
-            class="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800"
+            v-if="ownedTeamsCount >= 1"
+            class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg"
           >
-            <label class="block text-sm font-medium mb-3">Select plan</label>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div
-                class="border rounded-lg p-4 cursor-pointer transition-all"
-                :class="selectedPlan === 'launch' ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'"
-                @click="selectedPlan = 'launch'"
-              >
-                <div class="flex justify-between items-start mb-2">
-                  <h3 class="font-semibold">
-                    Launch
-                  </h3>
-                  <UIcon
-                    v-if="selectedPlan === 'launch'"
-                    name="i-lucide-check-circle"
-                    class="w-5 h-5 text-primary"
-                  />
-                  <div
-                    v-else
-                    class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
-                  />
-                </div>
-                <div class="text-2xl font-bold mb-1">
-                  $5 <span class="text-sm font-normal text-muted-foreground">/ month</span>
-                </div>
-                <p class="text-xs text-muted-foreground mb-3">
-                  minimum spend
-                </p>
-
-                <div class="space-y-2">
-                  <p class="text-xs font-medium">
-                    Included:
-                  </p>
-                  <ul class="text-xs space-y-1.5 text-muted-foreground">
-                    <li class="flex items-center gap-2">
-                      <UIcon
-                        name="i-lucide-check"
-                        class="w-3 h-3 text-green-500"
-                      /> Free limits removed
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <UIcon
-                        name="i-lucide-check"
-                        class="w-3 h-3 text-green-500"
-                      /> Autoscale to 16 CU
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <UIcon
-                        name="i-lucide-check"
-                        class="w-3 h-3 text-green-500"
-                      /> Scale to zero after 5m
-                    </li>
-                  </ul>
-                </div>
-              </div>
-
-              <div
-                class="border rounded-lg p-4 cursor-pointer transition-all"
-                :class="selectedPlan === 'scale' ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'"
-                @click="selectedPlan = 'scale'"
-              >
-                <div class="flex justify-between items-start mb-2">
-                  <h3 class="font-semibold">
-                    Scale
-                  </h3>
-                  <UIcon
-                    v-if="selectedPlan === 'scale'"
-                    name="i-lucide-check-circle"
-                    class="w-5 h-5 text-primary"
-                  />
-                  <div
-                    v-else
-                    class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
-                  />
-                </div>
-                <div class="text-2xl font-bold mb-1">
-                  $5 <span class="text-sm font-normal text-muted-foreground">/ month</span>
-                </div>
-                <p class="text-xs text-muted-foreground mb-3">
-                  minimum spend
-                </p>
-
-                <div class="space-y-2">
-                  <p class="text-xs font-medium">
-                    Included:
-                  </p>
-                  <ul class="text-xs space-y-1.5 text-muted-foreground">
-                    <li class="flex items-center gap-2">
-                      <UIcon
-                        name="i-lucide-check"
-                        class="w-3 h-3 text-green-500"
-                      /> Compute sizes up to 56 CU
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <UIcon
-                        name="i-lucide-check"
-                        class="w-3 h-3 text-green-500"
-                      /> Configurable scale to zero
-                    </li>
-                    <li class="flex items-center gap-2">
-                      <UIcon
-                        name="i-lucide-check"
-                        class="w-3 h-3 text-green-500"
-                      /> Up to 1000 projects
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
+            <p class="text-sm text-blue-800 dark:text-blue-200">
+              Creating a second organization requires a Pro plan. You'll be redirected to select your plan after creating the team.
+            </p>
           </div>
         </div>
       </template>
@@ -538,5 +500,14 @@ async function createTeam() {
         />
       </template>
     </UModal>
+
+    <!-- Upgrade Modal for Creating Second Org -->
+    <UpgradeModal
+      v-model:open="showUpgradeModal"
+      reason="create-org"
+      :organization-id="upgradeOrgId"
+      :team-name="newTeamName"
+      :team-slug="newTeamSlug"
+    />
   </div>
 </template>
