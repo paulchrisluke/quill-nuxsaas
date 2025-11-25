@@ -66,7 +66,7 @@ All new tables are **org‑scoped** and follow existing Nuxt SaaS conventions.
 
 ## 3. End‑to‑End Pipeline Stages
 
-For a YouTube video, the pipeline is:
+For a YouTube video, the **target** pipeline is:
 
 1. **Ingest + transcript + chunks**
 2. **Plan / outline (content plan)**
@@ -76,7 +76,24 @@ For a YouTube video, the pipeline is:
 6. **SEO analysis**
 7. **Section patching (chat‑driven editing)**
 
-Each stage has a conceptual API and a note on current **Python parity**.
+Each stage has a conceptual API and a brief note on **what exists today vs what to build**.
+
+### 3.0 Current implementation (baseline)
+
+Today, `POST /api/content/generate` calls `generateContentDraft`, which:
+
+- Resolves `inputText` from either `text` or `sourceContent.sourceText`.
+- Calls `composeBlogFromText(inputText, options)` once via AI Gateway to get:
+  - Full `markdown` body.
+  - `meta` (engine/model/SEO-ish info).
+- Parses headings from `markdown` to build a `sections[]` array (with `id`, `index`, `type`, `level`, `title`, `startOffset`, `endOffset`, `anchor`, `wordCount`, `meta`).
+- Creates a `content` row (or updates an existing one) and a single `content_version` with:
+  - `frontmatter` (title, slug, status, contentType, sourceContentId).
+  - `bodyMdx` = full markdown.
+  - `sections` = parsed heading blocks.
+  - `assets.generator` + `seoSnapshot`.
+
+This is our **monolithic baseline**. The stages below describe how we evolve this into a reusable, section‑driven pipeline without breaking the existing `/api/content/generate` entrypoint.
 
 ---
 
@@ -104,10 +121,13 @@ Each stage has a conceptual API and a note on current **Python parity**.
 - Chunk `source_text` into overlapping segments and write `chunk` rows.
 - Compute embeddings and index them in vector store.
 
-**Python parity**: **YES**
+**Existing building blocks**
 
-- Python already ingests transcripts, creates chunk rows, and indexes embeddings.
-- Python uses these chunks for section patching via `_gather_transcript_context`.
+- In the current backend, ingest logic already fetches transcripts, creates chunk rows, and indexes embeddings.
+
+**What to implement**
+
+- Port this ingest + chunking behaviour into Nuxt, wiring it to `source_content` and `chunk` tables and your chosen vector store.
 
 ---
 
@@ -135,10 +155,13 @@ Each stage has a conceptual API and a note on current **Python parity**.
   - `instructions`, `targetKeywords`, `schemaHint`.
 - Produces a structured outline + initial SEO plan but **no full article yet**.
 
-**Python parity**: **PARTIAL**
+**Existing building blocks**
 
-- Python currently derives heading structure after full article generation (`extract_sections_from_version`).
-- No explicit standalone "plan first" step; this is **new work** for Nuxt.
+- Existing logic can already derive headings/sections from finished MDX.
+
+**What to implement**
+
+- Add a dedicated "plan first" LLM call that works from transcript summaries and org SEO config before any full article exists.
 
 ---
 
@@ -161,10 +184,13 @@ Each stage has a conceptual API and a note on current **Python parity**.
 - Applies org‑level branding (tone, persona, etc.).
 - Emits a stable `frontmatter` object persisted on `content_version`.
 
-**Python parity**: **PARTIAL**
+**Existing building blocks**
 
-- Python fills frontmatter and SEO hints as part of `compose_blog_from_text` + `analyze_seo_document`.
-- There is no separated frontmatter‑only step; this is a **refactor/port**.
+- Current generation flow already produces reasonable titles/descriptions and later runs an SEO analyser.
+
+**What to implement**
+
+- Factor out frontmatter generation as a discrete step using the plan output, so frontmatter is stable before section writing.
 
 ---
 
@@ -194,13 +220,13 @@ For each planned section:
 - Produce `body_mdx` for that section.
 - Save/update corresponding section entry.
 
-**Python parity**: **PARTIAL**
+**Existing building blocks**
 
-- You already:
-  - Chunk + embed transcripts.
-  - Use `_gather_transcript_context` + `_call_ai_gateway_for_section` for **patching** existing sections.
-- New in this plan:
-  - Drive **initial** article creation via section‑by‑section generation instead of a monolithic `compose_blog_from_text` call.
+- Transcript chunking + embeddings are already in place, and there is a section‑level editor that uses RAG for patching.
+
+**What to implement**
+
+- Reuse the same RAG + section prompts for **initial** section writing, iterating over the outline instead of calling a single monolithic "compose blog from text" helper.
 
 ---
 
@@ -230,9 +256,13 @@ For each planned section:
 - Render MDX → HTML for previews/publishing.
 - Persist new `content_version` row and update `content.current_version_id`.
 
-**Python parity**: **YES (building block)**
+**Existing building blocks**
 
-- Nuxt should implement a general `assembleFromSections` helper, and call it for both initial generation and patching.
+- There is already logic that can rebuild `body_mdx` from an updated list of sections and write a new version.
+
+**What to implement**
+
+- Generalise that into an `assembleFromSections` helper and use it for both initial assembly and subsequent edits.
 
 ---
 
@@ -255,12 +285,13 @@ For each planned section:
   - Attach `json_ld` if missing but derivable from content type / sections.
   - Return suggestions (like the current Python SEO analyzer).
 
-**Python parity**: **YES**
+**Existing building blocks**
 
-- Python already has `analyze_seo_document(...)` doing this work.
-- Nuxt can either:
-  - Port this logic, or
-  - Call the Python service until parity is achieved.
+- A full SEO analyser already exists that understands frontmatter, sections, and schema‑aware content.
+
+**What to implement**
+
+- Either port the analyser to Nuxt or call the existing service, then store its output in `seo_snapshot` for each version.
 
 ---
 
@@ -286,15 +317,13 @@ For each planned section:
 - Build prompts and call AI Gateway to rewrite only that section.
 - Replace that section’s body, rebuild `body_mdx` via `assembleFromSections`, and write a new `content_version`.
 
-**Python parity**: **YES**
+**Existing building blocks**
 
-- Implemented today as `patch_project_blog_section` with:
-  - `_gather_transcript_context` (RAG).
-  - `_build_section_patch_prompts`.
-  - `_call_ai_gateway_for_section`.
-  - `_rebuild_body_with_patched_section` + new version write.
+- A complete section‑patch flow exists: RAG over transcript chunks, section‑specific prompts, AI Gateway call, and reassembly into a new version.
 
-Nuxt’s implementation should mirror this behaviour, scoped by `organization_id`.
+**What to implement**
+
+- Mirror that behaviour in Nuxt, scoped by `organization_id`, using the `content_version.sections` shape defined here.
 
 ---
 
@@ -322,10 +351,9 @@ Sections are the structured index over `body_mdx` used for:
   - `body_mdx?: string` — body for this section (used heavily in patch flow).
   - `meta?: Record<string, any>` — arbitrary hints (importance, SEO flags, todos, etc.).
 
-**Python parity**: **YES (conceptually)**
+**Notes**
 
-- Python’s `extract_sections_from_version` already yields a similar structure and is used for patching and SEO.
-- Nuxt should match field names where practical (e.g. `section_id`, `index`, `title`, `body_mdx`, `summary`).
+- Existing section extraction utilities already work with a very similar shape; Nuxt should align field names where practical (e.g. `section_id`, `index`, `title`, `body_mdx`, `summary`).
 
 ---
 
@@ -356,15 +384,13 @@ This keeps conversation natural while still using the reusable pipeline.
   - `server/database/schema/sourceContent.ts`, `content.ts`, `chunk.ts` (and exports in `index.ts`).
   - Migrations create `source_content`, `chunk`, `content`, `content_version`, `publication`.
 
-- **AI Gateway helper**
+-- **AI Gateway helper**
   - `server/utils/aiGateway.ts`:
     - `callChatCompletions` (wraps CF AI Gateway `/chat/completions`).
-    - Higher‑level helpers:
-      - `composeBlogFromText` (optional transitional helper ported from Python).
-      - `callAiGatewayForSection` (section‑level writer/editor).
+    - Higher‑level helpers for section‑level writing/editing.
 
-- **Reuse from Python**
-  - Ingest, chunking, embeddings: behaviour and prompts.
+-- **Reuse from existing backend**
+  - Ingest, chunking, embeddings: behaviour and prompt patterns.
   - Section patching prompts and context assembly.
   - SEO analyser logic, either ported or called remotely.
 

@@ -84,8 +84,14 @@ const hasContent = computed(() => {
   return contents.value && Array.isArray(contents.value) && contents.value.length > 0
 })
 
-const contentOptions = computed(() => {
-  const options = [
+interface ContentOption {
+  label: string
+  value: string
+  icon?: string
+}
+
+const contentOptions = computed<ContentOption[]>(() => {
+  const options: ContentOption[] = [
     { label: 'New Draft', value: 'new-draft', icon: 'i-lucide-file-plus' }
   ]
   if (hasContent.value) {
@@ -99,6 +105,10 @@ const contentOptions = computed(() => {
     options.push(...existingContent)
   }
   return options
+})
+
+const selectedContentOption = computed<ContentOption | undefined>(() => {
+  return contentOptions.value.find(option => option.value === selectedContentId.value)
 })
 
 function handleContentSelect(contentId: string | null) {
@@ -152,39 +162,50 @@ function handleQuickChat(action: QuickChatAction) {
 }
 
 const autoActionKey = ref<string | null>(null)
+const autoActionBusy = ref(false)
 
 async function handleAction(action: ChatActionSuggestion) {
   await executeAction(action)
 }
 
 if (import.meta.client) {
-  watch(actions, async (newActions) => {
-    if (!newActions?.length) {
-      autoActionKey.value = null
-      return
-    }
+  watch(
+    () => actions.value.length,
+    async () => {
+      const currentActions = actions.value
 
-    if (isBusy.value) {
-      return
-    }
+      if (!currentActions.length) {
+        autoActionKey.value = null
+        return
+      }
 
-    const autoAction = newActions.find(action => action.type === 'suggest_generate_from_source')
-    if (!autoAction) {
-      return
-    }
+      if (isBusy.value || autoActionBusy.value) {
+        return
+      }
 
-    const key = `${autoAction.type}:${autoAction.sourceContentId ?? autoAction.label ?? 'auto'}`
-    if (autoActionKey.value === key) {
-      return
-    }
+      const index = currentActions.findIndex(action => action.type === 'suggest_generate_from_source')
+      if (index === -1) {
+        return
+      }
 
-    autoActionKey.value = key
-    try {
-      await handleAction(autoAction)
-    } catch (error) {
-      console.error('Automatic action execution failed', error)
+      const autoAction = currentActions[index]!
+      const key = `${autoAction.type}:${autoAction.sourceContentId ?? autoAction.label ?? 'auto'}:${index}`
+      if (autoActionKey.value === key) {
+        return
+      }
+
+      autoActionKey.value = key
+      autoActionBusy.value = true
+
+      try {
+        await handleAction(autoAction)
+      } catch (error) {
+        console.error('Automatic action execution failed', error)
+      } finally {
+        autoActionBusy.value = false
+      }
     }
-  }, { deep: true })
+  )
 }
 
 const formatter = new Intl.DateTimeFormat(undefined, {
@@ -245,7 +266,7 @@ watch(() => slug.value, () => {
           <USelectMenu
             v-model="selectedContentId"
             :items="contentOptions"
-            :icon="contentOptions.find((opt: any) => opt.value === selectedContentId)?.icon || 'i-lucide-file-plus'"
+            :icon="selectedContentOption?.icon ?? 'i-lucide-file-plus'"
             variant="ghost"
             value-key="value"
             class="hover:bg-default focus:bg-default data-[state=open]:bg-default"

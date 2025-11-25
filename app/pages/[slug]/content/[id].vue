@@ -19,7 +19,7 @@ const {
   errorMessage,
   sendMessage,
   resetSession
-} = useContentChatSession(contentId.value)
+} = useContentChatSession(contentId)
 
 const { data: content, pending, error, refresh } = await useFetch(() => `/api/content/${contentId.value}`, {
   key: () => `content-${contentId.value}`,

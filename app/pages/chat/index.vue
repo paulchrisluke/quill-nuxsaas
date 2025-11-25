@@ -12,17 +12,16 @@ onMounted(async () => {
   try {
     await fetchSession()
 
+    const { data: orgs } = await organization.list()
+
     const activeId = session.value?.activeOrganizationId
     if (activeId) {
-      const { data: orgs } = await organization.list()
       const activeOrg = orgs?.find(o => o.id === activeId)
       if (activeOrg) {
         await router.push(`/${activeOrg.slug}/chat`)
         return
       }
     }
-
-    const { data: orgs } = await organization.list()
 
     if (orgs && orgs.length > 0) {
       await organization.setActive({ organizationId: orgs[0].id })

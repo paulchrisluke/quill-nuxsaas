@@ -1,9 +1,8 @@
 import type { ChatMessage } from '#shared/utils/types'
+import type { Ref } from 'vue'
 import { useState } from '#app'
 
 type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
-
-let fallbackIdCounter = 0
 
 const createId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -11,7 +10,6 @@ const createId = () => {
   }
 
   const timestamp = Date.now()
-  const counter = fallbackIdCounter++
 
   let randomHex = ''
 
@@ -23,11 +21,12 @@ const createId = () => {
     randomHex = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER).toString(16)
   }
 
-  return `${timestamp}-${counter}-${randomHex}`
+  return `${timestamp}-${randomHex}`
 }
 
-export function useContentChatSession(contentId: string) {
-  const stateKey = (suffix: string) => `content-chat-${contentId}-${suffix}`
+export function useContentChatSession(contentId: string | Ref<string>) {
+  const id = typeof contentId === 'string' ? contentId : contentId.value
+  const stateKey = (suffix: string) => `content-chat-${id}-${suffix}`
 
   const messages = useState<ChatMessage[]>(stateKey('messages'), () => ([
     {
@@ -41,31 +40,39 @@ export function useContentChatSession(contentId: string) {
   const errorMessage = useState<string | null>(stateKey('error'), () => null)
 
   async function sendMessage(prompt: string) {
-    const trimmed = prompt.trim()
-    if (!trimmed) {
-      return
+    try {
+      const trimmed = prompt.trim()
+      if (!trimmed) {
+        return
+      }
+
+      status.value = 'submitted'
+      errorMessage.value = null
+
+      messages.value.push({
+        id: createId(),
+        role: 'user',
+        content: trimmed,
+        createdAt: new Date()
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      messages.value.push({
+        id: createId(),
+        role: 'assistant',
+        content: `(Mock) Noted. I will apply "${trimmed}" to this draft.`,
+        createdAt: new Date()
+      })
+    } catch (error: any) {
+      console.error('Failed to send content chat message', error)
+      errorMessage.value = error?.message || 'Something went wrong while sending your message.'
+      status.value = 'error'
+    } finally {
+      if (status.value !== 'error') {
+        status.value = 'ready'
+      }
     }
-
-    messages.value.push({
-      id: createId(),
-      role: 'user',
-      content: trimmed,
-      createdAt: new Date()
-    })
-
-    status.value = 'submitted'
-    errorMessage.value = null
-
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    messages.value.push({
-      id: createId(),
-      role: 'assistant',
-      content: `(Mock) Noted. I will apply "${trimmed}" to this draft.`,
-      createdAt: new Date()
-    })
-
-    status.value = 'ready'
   }
 
   function resetSession() {

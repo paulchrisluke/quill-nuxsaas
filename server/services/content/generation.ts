@@ -143,15 +143,29 @@ export const generateContentDraft = async (
     meta = response.meta
 
     // Extract title from markdown if not already resolved
-    // Look for first H1 (# Title) or use first line as fallback
+    // Look for first H1 (# Title) or use first meaningful non-empty line as fallback
     if (!resolvedTitle) {
       const h1Match = markdown.match(/^# ([^\r\n]*)$/m)
       if (h1Match && h1Match[1]) {
         resolvedTitle = h1Match[1].trim()
       } else {
-        // Use first non-empty line as title
-        const firstLine = markdown.split('\n').find(line => line.trim().length > 0)
-        resolvedTitle = firstLine ? firstLine.replace(/^#+\s*/, '').trim().slice(0, 100) : 'New Codex Draft'
+        const lines = markdown.split('\n')
+        let fallbackTitle: string | null = null
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) {
+            continue
+          }
+
+          const stripped = trimmed.replace(/^#+\s*/, '').trim()
+          if (stripped.length > 0) {
+            fallbackTitle = stripped.slice(0, 100)
+            break
+          }
+        }
+
+        resolvedTitle = fallbackTitle || 'New Codex Draft'
       }
     }
   } catch (error: any) {
