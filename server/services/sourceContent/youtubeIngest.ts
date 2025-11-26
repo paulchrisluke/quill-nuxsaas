@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import * as schema from '../../database/schema'
+import { chunkSourceContentText } from './chunkSourceContent'
 
 const YOUTUBE_SCOPE_KEYWORDS = ['youtube', 'youtube.force-ssl']
 const TOKEN_REFRESH_BUFFER_MS = 60_000
@@ -249,12 +250,26 @@ export async function ingestYouTubeSource(options: IngestYouTubeOptions) {
       }
     }
 
-    const [updated] = await db
+    const [processing] = await db
       .update(schema.sourceContent)
       .set({
         sourceText: text,
-        ingestStatus: 'ingested',
+        ingestStatus: 'processing',
         metadata,
+        updatedAt: new Date()
+      })
+      .where(eq(schema.sourceContent.id, sourceContentId))
+      .returning()
+
+    await chunkSourceContentText({
+      db,
+      sourceContent: processing
+    })
+
+    const [updated] = await db
+      .update(schema.sourceContent)
+      .set({
+        ingestStatus: 'ingested',
         updatedAt: new Date()
       })
       .where(eq(schema.sourceContent.id, sourceContentId))
