@@ -76,7 +76,9 @@ const getStatusColor = (status: string): 'primary' | 'success' | 'info' | 'warni
   }
 }
 
-const { data: statusCount } = await useFetch<ColumnCount[]>('/api/admin/count/subscription/status')
+const { data: statusCount } = await useLazyFetch<ColumnCount[]>('/api/admin/count/subscription/status', {
+  server: false
+})
 statusCount.value?.forEach((item) => {
   const status = (filters[0] as FilterTabs).items?.find(status => status.id === item.column)
   if (status) {

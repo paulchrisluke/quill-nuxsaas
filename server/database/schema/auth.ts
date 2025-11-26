@@ -79,10 +79,6 @@ export const organization = pgTable('organization', {
   polarCustomerId: text('polar_customer_id')
 })
 
-// Integration table removed - we now use Better Auth's account table directly
-// See: server/api/organization/integrations.get.ts for implementation
-// export const integration = pgTable(...)
-
 export const member = pgTable(
   'member',
   {
@@ -177,7 +173,6 @@ export const accountRelations = relations(account, ({ one }) => ({
 export const organizationRelations = relations(organization, ({ many }) => ({
   members: many(member),
   invitations: many(invitation)
-  // integrations removed - using Better Auth's account table instead
 }))
 
 export const memberRelations = relations(member, ({ one }) => ({
@@ -201,6 +196,3 @@ export const invitationRelations = relations(invitation, ({ one }) => ({
     references: [user.id]
   })
 }))
-
-// Integration relations removed - using Better Auth's account table instead
-// export const integrationRelations = relations(integration, ({ one }) => ({...}))

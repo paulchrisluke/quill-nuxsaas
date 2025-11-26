@@ -5,7 +5,8 @@ import BanUserModal from './components/BanUserModal.vue'
 import CreateUserModal from './components/CreateUserModal.vue'
 
 const { t } = useI18n()
-const { client } = useAuth()
+const { client, user: currentUser } = useAuth()
+const toast = useToast()
 const isUserModalOpen = ref(false)
 const isBanModalOpen = ref(false)
 const selectedUserId = ref('')
@@ -39,11 +40,38 @@ const { refresh } = useAdminTable()
 
 const getActionItems = (row: Row<User>) => {
   const user = row.original
-  return [
+  const items: any[] = [
     {
       type: 'label',
       label: t('global.page.actions')
-    },
+    }
+  ]
+
+  const viewerId = currentUser.value?.id
+
+  if (viewerId && user.id !== viewerId) {
+    items.push({
+      label: t('user.actions.impersonate'),
+      icon: 'i-lucide-scan-face',
+      async onSelect() {
+        try {
+          await client.admin.impersonateUser({
+            userId: user.id
+          })
+          window.location.href = '/'
+        } catch (error: any) {
+          console.error('Failed to impersonate user', error)
+          toast.add({
+            title: t('user.actions.impersonateError') || 'Failed to impersonate user',
+            description: error?.message ?? 'Please try again later.',
+            color: 'error'
+          })
+        }
+      }
+    })
+  }
+
+  items.push(
     {
       type: 'separator'
     },
@@ -80,7 +108,8 @@ const getActionItems = (row: Row<User>) => {
         }
       }
     }
-  ]
+  )
+  return items
 }
 
 const getRoleDropdownItems = (original: User) => {

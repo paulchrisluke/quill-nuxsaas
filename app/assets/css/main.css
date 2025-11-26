@@ -8,4 +8,29 @@
   body {
     @apply bg-neutral-100 dark:bg-neutral-950;
   }
+
+  /* Make all clickable elements have pointer cursor */
+  button,
+  a,
+  [role="button"],
+  [type="button"],
+  [type="submit"],
+  [type="reset"],
+  label[for],
+  select,
+  summary {
+    @apply cursor-pointer;
+  }
+
+  /* Disabled elements should not have pointer cursor */
+  button:disabled,
+  [type="button"]:disabled,
+  [type="submit"]:disabled,
+  [type="reset"]:disabled,
+  select:disabled,
+  a[aria-disabled="true"],
+  [role="button"][aria-disabled="true"],
+  [aria-disabled="true"] {
+    @apply cursor-not-allowed;
+  }
 }

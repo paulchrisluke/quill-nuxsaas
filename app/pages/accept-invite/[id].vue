@@ -28,15 +28,52 @@ onMounted(async () => {
   }
 
   try {
-    const { error: apiError } = await organization.acceptInvitation({
+    const { data: result, error: apiError } = await organization.acceptInvitation({
       invitationId
     })
     if (apiError)
       throw apiError
 
-    toast.add({ title: 'Invitation accepted', color: 'success' })
-    // Force full reload to ensure session and organization data is fresh
-    window.location.href = localePath('/t/dashboard')
+    // Fetch the organization details to get the slug
+    await fetchSession()
+
+    // Retry fetching orgs a few times if the new org isn't immediately visible
+    let joinedOrg = null
+    let attempts = 0
+    let orgFetchFailed = false
+    while (attempts < 3 && !joinedOrg) {
+      try {
+        const { data: orgs } = await organization.list()
+        orgFetchFailed = false
+        joinedOrg = orgs?.find((o: any) => o.id === result?.invitation?.organizationId)
+      } catch (fetchError) {
+        console.error('[Accept Invite] Failed to fetch organizations', fetchError)
+        orgFetchFailed = true
+      }
+
+      if (!joinedOrg) {
+        attempts++
+        if (attempts < 3) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+    }
+
+    if (joinedOrg) {
+      toast.add({ title: 'Invitation accepted', color: 'success' })
+      // Redirect to the specific organization's dashboard
+      window.location.href = `/${joinedOrg.slug}/dashboard`
+    } else {
+      if (orgFetchFailed) {
+        toast.add({
+          title: 'Invitation accepted',
+          description: 'Failed to load organization details. Redirecting you to the dashboard.',
+          color: 'warning'
+        })
+      }
+      // Fallback: Redirect to root, middleware will route to active org
+      window.location.href = '/'
+    }
   } catch (e: any) {
     error.value = e.message || 'Failed to accept invitation'
   } finally {

@@ -15,7 +15,9 @@
       "actions": {
         "createUser": "Create User",
         "ban": "Ban",
-        "unban": "Unban"
+        "unban": "Unban",
+        "impersonate": "Impersonate",
+        "impersonateError": "Failed to impersonate user"
       },
       "form": {
         "email": "Email",
@@ -65,7 +67,9 @@
       "actions": {
         "createUser": "创建用户",
         "ban": "封禁",
-        "unban": "解封"
+        "unban": "解封",
+        "impersonate": "切换身份",
+        "impersonateError": "切换身份失败"
       },
       "form": {
         "email": "邮箱",
@@ -115,7 +119,9 @@
       "actions": {
         "createUser": "ユーザー作成",
         "ban": "禁止",
-        "unban": "解除"
+        "unban": "解除",
+        "impersonate": "代理ログイン",
+        "impersonateError": "代理ログインに失敗しました"
       },
       "form": {
         "email": "メールアドレス",
@@ -165,7 +171,9 @@
       "actions": {
         "createUser": "Créer un utilisateur",
         "ban": "Bannir",
-        "unban": "Débannir"
+        "unban": "Débannir",
+        "impersonate": "Usurper",
+        "impersonateError": "Échec de l'usurpation de l'utilisateur"
       },
       "form": {
         "email": "Email",

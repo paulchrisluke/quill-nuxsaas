@@ -14,7 +14,9 @@
       "conflicts": "Conflicts",
       "deadlocks": "Deadlocks",
       "tempFiles": "Temporary Files",
-      "tempBytes": "Temporary Bytes"
+      "tempBytes": "Temporary Bytes",
+      "errorLoading": "Failed to load database statistics.",
+      "retry": "Retry"
     }
   },
   "zh-CN": {
@@ -32,7 +34,9 @@
       "conflicts": "冲突数",
       "deadlocks": "死锁数",
       "tempFiles": "临时文件",
-      "tempBytes": "临时文件大小"
+      "tempBytes": "临时文件大小",
+      "errorLoading": "数据库统计加载失败。",
+      "retry": "重试"
     }
   },
   "ja": {
@@ -50,7 +54,9 @@
       "conflicts": "競合数",
       "deadlocks": "デッドロック数",
       "tempFiles": "一時ファイル",
-      "tempBytes": "一時ファイルサイズ"
+      "tempBytes": "一時ファイルサイズ",
+      "errorLoading": "データベース統計の読み込みに失敗しました。",
+      "retry": "再試行"
     }
   },
   "fr": {
@@ -68,7 +74,9 @@
       "conflicts": "Conflits",
       "deadlocks": "Verrous Mortels",
       "tempFiles": "Fichiers Temporaires",
-      "tempBytes": "Taille Temporaire"
+      "tempBytes": "Taille Temporaire",
+      "errorLoading": "Échec du chargement des statistiques de base de données.",
+      "retry": "Réessayer"
     }
   }
 }

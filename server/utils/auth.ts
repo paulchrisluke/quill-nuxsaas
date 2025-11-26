@@ -3,14 +3,16 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
-import { admin, openAPI, organization } from 'better-auth/plugins'
+import { admin as adminPlugin, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
+import { ac, admin, member, owner } from '~~/shared/utils/permissions'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
 import { getDB } from './db'
 import { cacheClient, resendInstance } from './drivers'
 import { runtimeConfig } from './runtimeConfig'
+import { setupStripe } from './stripe'
 
 console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 
@@ -29,6 +31,12 @@ export const createBetterAuth = () => betterAuth({
     runtimeConfig.public.baseURL
   ],
   secret: runtimeConfig.betterAuthSecret,
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60 // Cache for 5 minutes
+    }
+  },
   database: drizzleAdapter(
     getDB(),
     {
@@ -83,9 +91,8 @@ export const createBetterAuth = () => betterAuth({
               ))
               .limit(1)
 
-            if (member.length === 0) {
+            if (member.length === 0)
               activeOrgId = null
-            }
           }
 
           // 3. Fallback to first organization
@@ -96,9 +103,8 @@ export const createBetterAuth = () => betterAuth({
               .where(eq(schema.member.userId, session.userId))
               .limit(1)
 
-            if (members.length > 0) {
+            if (members.length > 0)
               activeOrgId = members[0].organizationId
-            }
           }
 
           if (activeOrgId) {
@@ -120,6 +126,30 @@ export const createBetterAuth = () => betterAuth({
               .set({ lastActiveOrganizationId: activeOrgId })
               .where(eq(schema.user.id, session.userId))
           }
+        }
+      }
+    },
+    member: {
+      create: {
+        after: async (_member: any) => {
+          // await syncSubscriptionQuantity(member.organizationId)
+        }
+      },
+      delete: {
+        after: async (_member: any) => {
+          // await syncSubscriptionQuantity(member.organizationId)
+        }
+      }
+    },
+    invitation: {
+      create: {
+        after: async (_invitation: any) => {
+          // await syncSubscriptionQuantity(invitation.organizationId)
+        }
+      },
+      delete: {
+        after: async (_invitation: any) => {
+          // await syncSubscriptionQuantity(invitation.organizationId)
         }
       }
     }
@@ -197,8 +227,7 @@ export const createBetterAuth = () => betterAuth({
   account: {
     accountLinking: {
       enabled: true,
-      allowDifferentEmails: true, // Allow linking accounts with different emails
-      allowUnlinkingAll: true // Allow unlinking even if it's the last account (needed for integrations)
+      allowDifferentEmails: true
     }
   },
   hooks: {
@@ -245,10 +274,6 @@ export const createBetterAuth = () => betterAuth({
           })
         }
       } else {
-        // Note: OAuth callback handling for YouTube is now done via database hook
-        // (account.create.after) which has access to the account's userId
-        // This allows us to get the user's email from the database
-
         if (['/sign-in/email', '/sign-up/email', '/forget-password', '/reset-password'].includes(ctx.path)) {
           let userId: string | undefined
           if (['/sign-in/email', '/sign-up/email'].includes(ctx.path)) {
@@ -272,10 +297,16 @@ export const createBetterAuth = () => betterAuth({
   },
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
-    admin(),
-    organization(),
-    // setupStripe(), // Disabled until API key is fixed
-    setupPolar()
+    adminPlugin(),
+    organization({
+      ac,
+      roles: {
+        owner,
+        admin,
+        member
+      }
+    }),
+    setupStripe()
   ]
 })
 
@@ -300,7 +331,13 @@ export const useServerAuth = () => {
 }
 
 export const getAuthSession = async (event: H3Event) => {
-  const headers = event.headers
+  const reqHeaders = getRequestHeaders(event)
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(reqHeaders)) {
+    if (value)
+      headers.append(key, value)
+  }
+
   const serverAuth = useServerAuth()
   const session = await serverAuth.api.getSession({
     headers
