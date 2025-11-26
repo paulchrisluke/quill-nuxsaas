@@ -126,29 +126,54 @@ export function useAuth() {
   }
 
   // Centralized function to refresh organization data
+  let refreshActiveOrgPromise: Promise<any> | null = null
+  let lastRefreshTime = 0
+
   const refreshActiveOrg = async () => {
-    try {
-      const orgData: any = await $fetch('/api/organization/full-data')
+    const now = Date.now()
 
-      // Flatten the structure to match what components expect
-      // orgData comes as { organization: {...}, subscriptions: [...], user: ... }
-      // We want activeOrg.value.data to be { ...organization, subscriptions: [...] }
-      const flattenedData = {
-        ...orgData.organization,
-        subscriptions: orgData.subscriptions
-      }
+    // Prevent multiple simultaneous calls
+    if (refreshActiveOrgPromise) {
+      console.log('[refreshActiveOrg] Already refreshing, returning existing promise')
+      return refreshActiveOrgPromise
+    }
 
-      const state = useActiveOrgState()
-      if (state.value) {
-        state.value.data = flattenedData
-      } else {
-        state.value = { data: flattenedData }
-      }
-      return flattenedData
-    } catch (error) {
-      console.error('Failed to refresh active org:', error)
+    // Prevent calls within 1 second of each other
+    if (now - lastRefreshTime < 1000) {
+      console.log('[refreshActiveOrg] Called too recently, skipping')
       return null
     }
+
+    lastRefreshTime = now
+
+    refreshActiveOrgPromise = (async () => {
+      try {
+        const orgData: any = await $fetch('/api/organization/full-data')
+
+        // Flatten the structure to match what components expect
+        // orgData comes as { organization: {...}, subscriptions: [...], user: ... }
+        // We want activeOrg.value.data to be { ...organization, subscriptions: [...] }
+        const flattenedData = {
+          ...orgData.organization,
+          subscriptions: orgData.subscriptions
+        }
+
+        const state = useActiveOrgState()
+        if (state.value) {
+          state.value.data = flattenedData
+        } else {
+          state.value = { data: flattenedData }
+        }
+        return flattenedData
+      } catch (error) {
+        console.error('Failed to refresh active org:', error)
+        return null
+      } finally {
+        refreshActiveOrgPromise = null
+      }
+    })()
+
+    return refreshActiveOrgPromise
   }
 
   return {

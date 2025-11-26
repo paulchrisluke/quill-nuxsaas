@@ -216,6 +216,9 @@ onMounted(async () => {
   // Organization sync is now handled by app/middleware/organization.global.ts
 })
 
+// Cache for role computation logging to prevent spam
+const _roleComputeCache = { lastLoggedKey: '', lastLoggedTime: 0 }
+
 // Get current user's role in the organization
 const currentUserRole = computed(() => {
   // layoutOrgData is the raw API response: { organization: {...}, subscriptions: [...] }
@@ -229,21 +232,34 @@ const currentUserRole = computed(() => {
     orgData = rawData.organization ? { ...rawData.organization, subscriptions: rawData.subscriptions } : rawData
   }
 
-  console.log('Computing role:', {
-    hasOrgData: !!orgData,
-    hasMembers: !!orgData?.members,
-    userId: user.value?.id,
-    members: orgData?.members
-  })
-
   if (!orgData?.members || !user.value?.id)
     return undefined
 
-  const userId = user.value.id
-  const member = orgData.members.find((m: any) => m.userId === userId)
-  console.log('Found member:', member, 'role:', member?.role)
+  const member = orgData.members.find((m: any) => m.userId === user.value?.id)
   return member?.role as 'owner' | 'admin' | 'member' | undefined
 })
+
+// Watch for role changes and log them (separate from computed to avoid side effects)
+watch([currentUserRole, activeOrg], ([newRole]) => {
+  const now = Date.now()
+  const orgData = activeOrg.value?.data
+  const cacheKey = `${!!orgData}-${!!orgData?.members}-${user.value?.id}-${orgData?.id}-${newRole}`
+
+  // Only log if data changed and not too recently
+  if (cacheKey !== _roleComputeCache.lastLoggedKey && (now - _roleComputeCache.lastLoggedTime) > 1000) {
+    console.log('Computing role:', {
+      hasOrgData: !!orgData,
+      hasMembers: !!orgData?.members,
+      userId: user.value?.id,
+      members: orgData?.members
+    })
+    if (newRole) {
+      console.log('Found member role:', newRole)
+    }
+    _roleComputeCache.lastLoggedKey = cacheKey
+    _roleComputeCache.lastLoggedTime = now
+  }
+}, { immediate: true })
 
 // Check if current user is owner or admin (kept for backward compatibility)
 const _canManageTeam = computed(() => {

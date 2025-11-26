@@ -25,10 +25,33 @@ const safeStorage = {
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+// Track middleware execution to prevent infinite loops
+const billingExecutionTracker = new Map<string, number>()
+
 export default defineNuxtRouteMiddleware(async (to, from) => {
   // 1. Never run on server
   if (import.meta.server)
     return
+
+  // Prevent infinite loops by tracking execution
+  const executionKey = `${to.path}-${from.path}`
+  const now = Date.now()
+  const lastExecution = billingExecutionTracker.get(executionKey)
+
+  // If executed within the last 2000ms, skip to prevent loops
+  if (lastExecution && (now - lastExecution) < 2000) {
+    console.log('[Billing Guard] Skipping execution to prevent loop:', executionKey)
+    return
+  }
+
+  billingExecutionTracker.set(executionKey, now)
+
+  // Clean up old entries (older than 10 seconds)
+  for (const [key, timestamp] of billingExecutionTracker.entries()) {
+    if (now - timestamp > 10000) {
+      billingExecutionTracker.delete(key)
+    }
+  }
 
   console.log('[Billing Guard] to:', to.path, 'from:', from.path)
 
