@@ -1,4 +1,3 @@
-import { generateContentDraft } from '~~/server/services/content/generation'
 import {
   addChatLog,
   addChatMessage,
@@ -6,6 +5,7 @@ import {
   getSessionLogs,
   getSessionMessages
 } from '~~/server/services/chatSession'
+import { generateContentDraft } from '~~/server/services/content/generation'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { ingestYouTubeSource } from '~~/server/services/sourceContent/youtubeIngest'
 import { requireAuth } from '~~/server/utils/auth'
@@ -255,8 +255,8 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const messages = await getSessionMessages(db, session.id)
-  const logs = await getSessionLogs(db, session.id)
+  const messages = await getSessionMessages(db, session.id, organizationId)
+  const logs = await getSessionLogs(db, session.id, organizationId)
 
   return {
     assistantMessage: assistantMessageBody,

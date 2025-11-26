@@ -1,7 +1,7 @@
+import type { ChatMessage } from '#shared/utils/types'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { and, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
-import type { ChatMessage } from '#shared/utils/types'
 import * as schema from '~~/server/database/schema'
 
 export interface EnsureChatSessionInput {
@@ -13,7 +13,7 @@ export interface EnsureChatSessionInput {
   metadata?: Record<string, any> | null
 }
 
-export async function findChatSession (
+export async function findChatSession(
   db: NodePgDatabase<typeof schema>,
   organizationId: string,
   contentId?: string | null
@@ -35,7 +35,7 @@ export async function findChatSession (
   return session ?? null
 }
 
-export async function getChatSessionById (
+export async function getChatSessionById(
   db: NodePgDatabase<typeof schema>,
   sessionId: string,
   organizationId: string
@@ -52,7 +52,7 @@ export async function getChatSessionById (
   return session ?? null
 }
 
-export async function ensureChatSession (
+export async function ensureChatSession(
   db: NodePgDatabase<typeof schema>,
   input: EnsureChatSessionInput
 ) {
@@ -84,7 +84,7 @@ export interface AddChatMessageInput {
   payload?: Record<string, any> | null
 }
 
-export async function addChatMessage (
+export async function addChatMessage(
   db: NodePgDatabase<typeof schema>,
   input: AddChatMessageInput
 ) {
@@ -117,7 +117,7 @@ export interface AddChatLogInput {
   payload?: Record<string, any> | null
 }
 
-export async function addChatLog (
+export async function addChatLog(
   db: NodePgDatabase<typeof schema>,
   input: AddChatLogInput
 ) {
@@ -142,24 +142,32 @@ export async function addChatLog (
   return log
 }
 
-export async function getSessionMessages (
+export async function getSessionMessages(
   db: NodePgDatabase<typeof schema>,
-  sessionId: string
+  sessionId: string,
+  organizationId: string
 ) {
   return await db
     .select()
     .from(schema.contentChatMessage)
-    .where(eq(schema.contentChatMessage.sessionId, sessionId))
+    .where(and(
+      eq(schema.contentChatMessage.sessionId, sessionId),
+      eq(schema.contentChatMessage.organizationId, organizationId)
+    ))
     .orderBy(schema.contentChatMessage.createdAt)
 }
 
-export async function getSessionLogs (
+export async function getSessionLogs(
   db: NodePgDatabase<typeof schema>,
-  sessionId: string
+  sessionId: string,
+  organizationId: string
 ) {
   return await db
     .select()
     .from(schema.contentChatLog)
-    .where(eq(schema.contentChatLog.sessionId, sessionId))
+    .where(and(
+      eq(schema.contentChatLog.sessionId, sessionId),
+      eq(schema.contentChatLog.organizationId, organizationId)
+    ))
     .orderBy(schema.contentChatLog.createdAt)
 }

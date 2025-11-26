@@ -79,9 +79,7 @@ export function useChatSession() {
       actions.value = response.actions ?? []
       sources.value = response.sources ?? []
       const firstSourceId = sources.value[0]?.id ?? null
-      if (firstSourceId) {
-        activeSourceId.value = firstSourceId
-      }
+      activeSourceId.value = firstSourceId
       generation.value = response.generation ?? null
       status.value = 'ready'
       return response

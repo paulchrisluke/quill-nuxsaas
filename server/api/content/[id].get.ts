@@ -1,6 +1,11 @@
 import { and, eq } from 'drizzle-orm'
 import { createError, getRouterParams } from 'h3'
 import * as schema from '~~/server/database/schema'
+import {
+  findChatSession,
+  getSessionLogs,
+  getSessionMessages
+} from '~~/server/services/chatSession'
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
@@ -43,5 +48,38 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  return record
+  const session = await findChatSession(db, organizationId, record.content.id)
+
+  if (!session) {
+    return {
+      ...record,
+      chatSession: null,
+      chatMessages: [],
+      chatLogs: []
+    }
+  }
+
+  const [messages, logs] = await Promise.all([
+    getSessionMessages(db, session.id, organizationId),
+    getSessionLogs(db, session.id, organizationId)
+  ])
+
+  return {
+    ...record,
+    chatSession: session,
+    chatMessages: messages.map(message => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      payload: message.payload,
+      createdAt: message.createdAt
+    })),
+    chatLogs: logs.map(log => ({
+      id: log.id,
+      type: log.type,
+      message: log.message,
+      payload: log.payload,
+      createdAt: log.createdAt
+    }))
+  }
 })
