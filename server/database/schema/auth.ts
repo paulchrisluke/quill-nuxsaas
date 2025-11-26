@@ -146,7 +146,34 @@ export const session = pgTable('session', {
   userId: text('user_id')
     .notNull()
     .references(() => user.id, { onDelete: 'cascade' }),
-  activeOrganizationId: text('active_organization_id')
+  activeOrganizationId: text('active_organization_id'),
+  impersonatedBy: text('impersonated_by')
+})
+
+export const apiKey = pgTable('apiKey', {
+  id: text('id').primaryKey(),
+  name: text('name'),
+  start: text('start'),
+  prefix: text('prefix'),
+  key: text('key').notNull(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  refillInterval: integer('refill_interval'),
+  refillAmount: integer('refill_amount'),
+  lastRefillAt: timestamp('last_refill_at'),
+  enabled: boolean('enabled'),
+  rateLimitEnabled: boolean('rate_limit_enabled'),
+  rateLimitTimeWindow: integer('rate_limit_time_window'),
+  rateLimitMax: integer('rate_limit_max'),
+  requestCount: integer('request_count'),
+  remaining: integer('remaining'),
+  lastRequest: timestamp('last_request'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull(),
+  permissions: text('permissions'),
+  metadata: text('metadata')
 })
 
 export const userRelations = relations(user, ({ many }) => ({
@@ -172,7 +199,8 @@ export const accountRelations = relations(account, ({ one }) => ({
 
 export const organizationRelations = relations(organization, ({ many }) => ({
   members: many(member),
-  invitations: many(invitation)
+  invitations: many(invitation),
+  apiKeys: many(apiKey)
 }))
 
 export const memberRelations = relations(member, ({ one }) => ({

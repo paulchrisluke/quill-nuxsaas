@@ -3,10 +3,10 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
-import { admin as adminPlugin, openAPI, organization } from 'better-auth/plugins'
+import { admin as adminPlugin, apiKey, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
-import { ac, admin, member, owner } from '~~/shared/utils/permissions'
+import { ac, admin, member, owner } from '../../shared/utils/permissions'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
 import { getDB } from './db'
@@ -15,6 +15,7 @@ import { runtimeConfig } from './runtimeConfig'
 import { setupStripe } from './stripe'
 
 console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
+console.log('Schema keys:', Object.keys(schema))
 
 export const createBetterAuth = () => betterAuth({
   baseURL: runtimeConfig.public.baseURL,
@@ -150,6 +151,20 @@ export const createBetterAuth = () => betterAuth({
       delete: {
         after: async (_invitation: any) => {
           // await syncSubscriptionQuantity(invitation.organizationId)
+        }
+      }
+    },
+    apiKey: {
+      create: {
+        before: async (record: any) => {
+          if (!record.organizationId && record.metadata?.organizationId) {
+            return {
+              data: {
+                ...record,
+                organizationId: record.metadata.organizationId
+              }
+            }
+          }
         }
       }
     }
@@ -303,6 +318,22 @@ export const createBetterAuth = () => betterAuth({
         owner,
         admin,
         member
+      }
+    }),
+    apiKey({
+      enableMetadata: true,
+      schema: {
+        apikey: {
+          modelName: 'apiKey',
+          fields: {},
+          // @ts-expect-error - Additional fields are supported at runtime but missing from type definition
+          additionalFields: {
+            organizationId: {
+              type: 'string',
+              required: false
+            }
+          }
+        }
       }
     }),
     setupStripe() // Disabled until API key is fixed

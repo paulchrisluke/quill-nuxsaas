@@ -5,10 +5,88 @@ definePageMeta({
   layout: 'dashboard'
 })
 
-const { organization, useActiveOrganization, fetchSession, user } = useAuth()
+const { organization, useActiveOrganization, fetchSession, user, client } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
+
+// API Keys State
+const apiKeys = ref<any[]>([])
+const apiKeysLoading = ref(false)
+const isCreateKeyModalOpen = ref(false)
+const newKeyName = ref('')
+const newKeyExpiresIn = ref<number | undefined>(undefined) // Default never? or 30 days?
+const createdKey = ref<string | null>(null)
+const createKeyLoading = ref(false)
+
+async function fetchApiKeys() {
+  if (!activeOrg.value?.data?.id)
+    return
+  apiKeysLoading.value = true
+  try {
+    const { data } = await client.apiKey.list()
+    if (data) {
+      // Filter for this org using metadata
+      apiKeys.value = data.filter((k: any) => {
+        const meta = k.metadata ? (typeof k.metadata === 'string' ? JSON.parse(k.metadata) : k.metadata) : {}
+        return meta.organizationId === activeOrg.value?.data?.id
+      })
+    }
+  } catch (e) {
+    console.error(e)
+  } finally {
+    apiKeysLoading.value = false
+  }
+}
+
+async function createApiKey() {
+  if (!activeOrg.value?.data?.id || !newKeyName.value)
+    return
+  createKeyLoading.value = true
+  try {
+    const { data, error } = await client.apiKey.create({
+      name: newKeyName.value,
+      expiresIn: newKeyExpiresIn.value,
+      metadata: {
+        organizationId: activeOrg.value.data.id
+      }
+    })
+    if (error)
+      throw error
+
+    if (data) {
+      createdKey.value = data.key
+      toast.add({ title: 'API Key created', color: 'success' })
+      await fetchApiKeys()
+    }
+  } catch (e: any) {
+    toast.add({ title: 'Error creating API Key', description: e.message, color: 'error' })
+  } finally {
+    createKeyLoading.value = false
+  }
+}
+
+async function deleteApiKey(id: string) {
+  // eslint-disable-next-line no-alert
+  const confirmed = window.confirm('Are you sure you want to delete this API Key?')
+  if (!confirmed)
+    return
+
+  try {
+    await client.apiKey.delete({
+      keyId: id
+    })
+    toast.add({ title: 'API Key deleted', color: 'success' })
+    await fetchApiKeys()
+  } catch (e: any) {
+    toast.add({ title: 'Error deleting API Key', description: e.message, color: 'error' })
+  }
+}
+
+const copyKey = (key: string) => {
+  copy(key)
+  toast.add({ title: 'Copied to clipboard' })
+}
 
 // Computed permissions
 const currentUserRole = computed(() => {
@@ -20,6 +98,13 @@ const currentUserRole = computed(() => {
 
 const canUpdateSettings = computed(() => {
   return currentUserRole.value === 'owner' || currentUserRole.value === 'admin'
+})
+
+// Fetch keys on mount if allowed
+onMounted(() => {
+  if (canUpdateSettings.value) {
+    fetchApiKeys()
+  }
 })
 
 const canDeleteTeam = computed(() => {
@@ -247,6 +332,145 @@ async function deleteTeam() {
         @click="updateTeam"
       />
     </div>
+
+    <!-- API Keys Section -->
+    <div
+      v-if="canUpdateSettings"
+      class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 bg-white dark:bg-gray-900 mb-8"
+    >
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">
+          API Keys
+        </h2>
+        <UButton
+          label="Create New Key"
+          icon="i-lucide-plus"
+          size="sm"
+          @click="isCreateKeyModalOpen = true"
+        />
+      </div>
+      <p class="text-sm text-gray-500 mb-6">
+        Manage API keys for accessing the organization programmatically.
+      </p>
+
+      <div
+        v-if="apiKeysLoading"
+        class="py-4 text-center"
+      >
+        <UIcon
+          name="i-lucide-loader-2"
+          class="animate-spin"
+        />
+      </div>
+      <div
+        v-else-if="!apiKeys || apiKeys.length === 0"
+        class="text-sm text-gray-500"
+      >
+        No API keys found.
+      </div>
+      <div
+        v-else
+        class="space-y-4"
+      >
+        <div
+          v-for="key in apiKeys"
+          :key="key.id"
+          class="flex items-center justify-between p-3 border border-gray-100 dark:border-gray-800 rounded-lg"
+        >
+          <div>
+            <div class="font-medium">
+              {{ key.name }}
+            </div>
+            <div class="text-xs text-gray-500 font-mono">
+              {{ key.start }}... <span v-if="key.prefix">({{ key.prefix }})</span>
+            </div>
+            <div class="text-xs text-gray-400 mt-1">
+              Created: {{ new Date(key.createdAt).toLocaleDateString() }}
+              <span> • Last used: {{ key.lastRequest ? new Date(key.lastRequest).toLocaleDateString() : 'Never' }}</span>
+              <span v-if="key.expiresAt"> • Expires: {{ new Date(key.expiresAt).toLocaleDateString() }}</span>
+            </div>
+          </div>
+          <UButton
+            color="red"
+            variant="ghost"
+            icon="i-lucide-trash-2"
+            size="xs"
+            @click="deleteApiKey(key.id)"
+          />
+        </div>
+      </div>
+    </div>
+
+    <UModal
+      v-model:open="isCreateKeyModalOpen"
+      title="Create API Key"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <div
+            v-if="createdKey"
+            class="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800"
+          >
+            <p class="text-sm text-green-800 dark:text-green-200 font-medium mb-2">
+              API Key Created! Copy it now, you won't see it again.
+            </p>
+            <div class="flex gap-2">
+              <UInput
+                :model-value="createdKey"
+                readonly
+                class="flex-1 font-mono"
+              />
+              <UButton
+                icon="i-lucide-copy"
+                color="gray"
+                @click="copyKey(createdKey)"
+              />
+            </div>
+            <UButton
+              class="mt-4"
+              block
+              @click="isCreateKeyModalOpen = false; createdKey = null; newKeyName = ''"
+            >
+              Done
+            </UButton>
+          </div>
+          <div
+            v-else
+            class="space-y-4"
+          >
+            <UFormField label="Key Name">
+              <UInput
+                v-model="newKeyName"
+                placeholder="e.g. CI/CD Pipeline"
+              />
+            </UFormField>
+            <UFormField label="Expiration (Seconds)">
+              <UInput
+                v-model="newKeyExpiresIn"
+                type="number"
+                placeholder="Leave empty for never"
+              />
+              <p class="text-xs text-gray-500 mt-1">
+                Default is never if empty.
+              </p>
+            </UFormField>
+            <div class="flex justify-end gap-2 pt-4">
+              <UButton
+                label="Cancel"
+                color="gray"
+                variant="ghost"
+                @click="isCreateKeyModalOpen = false"
+              />
+              <UButton
+                label="Create"
+                :loading="createKeyLoading"
+                @click="createApiKey"
+              />
+            </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <div
       v-if="canLeaveTeam"
