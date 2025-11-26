@@ -5,40 +5,71 @@ definePageMeta({
   layout: 'dashboard'
 })
 
-const { organization, useActiveOrganization, fetchSession, user, client: authClient } = useAuth()
+const { organization, useActiveOrganization, fetchSession, user } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
 
-// Security check: Redirect if not owner or admin
-onMounted(() => {
-  watchEffect(() => {
-    if (activeOrg.value?.data?.members && user.value?.id) {
-      const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
-      if (member?.role !== 'owner' && member?.role !== 'admin') {
-        navigateTo(`/${activeOrg.value.data.slug}/dashboard`)
-      }
+// Computed permissions
+const currentUserRole = computed(() => {
+  if (!activeOrg.value?.data?.members || !user.value?.id)
+    return null
+  const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
+  return member?.role
+})
+
+const canUpdateSettings = computed(() => {
+  return currentUserRole.value === 'owner' || currentUserRole.value === 'admin'
+})
+
+const canDeleteTeam = computed(() => {
+  return currentUserRole.value === 'owner'
+})
+
+// Leave team logic
+const leaveLoading = ref(false)
+const canLeaveTeam = computed(() => {
+  // Owners cannot leave (must delete or transfer), others can
+  return currentUserRole.value !== 'owner'
+})
+
+async function leaveTeam() {
+  if (!activeOrg.value?.data?.id)
+    return
+
+  // eslint-disable-next-line no-alert
+  const confirmed = window.confirm(`Are you sure you want to leave "${activeOrg.value.data.name}"?`)
+  if (!confirmed)
+    return
+
+  leaveLoading.value = true
+  try {
+    const { error } = await organization.leave({
+      organizationId: activeOrg.value.data.id
+    })
+    if (error)
+      throw error
+
+    toast.add({ title: 'Left team successfully', color: 'success' })
+
+    // Refresh and redirect
+    const { data: orgs } = await organization.list()
+    if (orgs && orgs.length > 0) {
+      await organization.setActive({ organizationId: orgs[0].id })
+      await fetchSession()
+      window.location.href = `/${orgs[0].slug}/dashboard`
+    } else {
+      window.location.href = '/onboarding'
     }
-  })
-})
-
-// SSR: Prefetch session and full organization data
-const { data: preloadedOrg } = await useAsyncData('settings-page-data', async () => {
-  const [_, orgRes] = await Promise.all([
-    $fetch('/api/auth/get-session', { headers: useRequestHeaders(['cookie']) }),
-    $fetch('/api/auth/organization/get-full-organization', { headers: useRequestHeaders(['cookie']) })
-  ])
-  return orgRes
-}, {
-  server: true,
-  lazy: false
-})
-
-// Initialize activeOrg with preloaded data if available
-if (preloadedOrg.value && activeOrg.value) {
-  // @ts-expect-error - forcing update for hydration
-  activeOrg.value.data = preloadedOrg.value
+  } catch (e: any) {
+    toast.add({ title: 'Error leaving team', description: e.message, color: 'error' })
+  } finally {
+    leaveLoading.value = false
+  }
 }
+
+// Organization data is already available via useActiveOrganization()
+// No need to fetch it again on page load
 
 const loading = ref(false)
 const teamName = ref('')
@@ -69,80 +100,6 @@ watch(() => activeOrg.value?.data?.id, (newId) => {
     teamSlug.value = activeOrg.value.data.slug
   }
 }, { immediate: true })
-
-const { data: integrations, refresh: refreshIntegrations } = await useFetch('/api/organization/integrations', {
-  query: computed(() => {
-    // Ensure activeOrg.value is defined before accessing data
-    if (!activeOrg.value || !activeOrg.value.data) {
-      return { organizationId: undefined }
-    }
-    return { organizationId: activeOrg.value.data.id }
-  }),
-  immediate: false, // Wait for ID to be available
-  watch: [() => activeOrg.value?.data?.id]
-})
-
-// Trigger initial fetch when ID is available
-watch(() => activeOrg.value?.data?.id, (newId) => {
-  if (newId) {
-    refreshIntegrations()
-  }
-}, { immediate: true })
-
-const route = useRoute()
-onMounted(() => {
-  if (route.query.integration === 'success') {
-    toast.add({ title: 'Integration connected successfully', color: 'success' })
-    const query = { ...route.query }
-    delete query.integration
-    navigateTo({ query }, { replace: true })
-    refreshIntegrations()
-  }
-})
-
-const connectYouTube = async () => {
-  if (!activeOrg.value?.data?.id)
-    return
-  try {
-    await authClient.linkSocial({
-      provider: 'google',
-      scopes: [
-        'https://www.googleapis.com/auth/youtube',
-        'https://www.googleapis.com/auth/youtube.force-ssl'
-      ],
-      callbackURL: `/${activeOrg.value.data.slug}/settings?integration=success`
-    })
-  } catch (e: any) {
-    toast.add({ title: 'Error initiating YouTube integration', description: e.message, color: 'error' })
-  }
-}
-
-const disconnectLoading = ref(false)
-const disconnectIntegration = async (provider: string) => {
-  if (!activeOrg.value?.data?.id)
-    return
-
-  // eslint-disable-next-line no-alert
-  if (!confirm('Are you sure you want to disconnect this integration?'))
-    return
-
-  disconnectLoading.value = true
-  try {
-    await $fetch('/api/organization/integration/disconnect', {
-      method: 'DELETE',
-      query: {
-        organizationId: activeOrg.value.data.id,
-        provider
-      }
-    })
-    toast.add({ title: 'Integration disconnected', color: 'success' })
-    refreshIntegrations()
-  } catch (e: any) {
-    toast.add({ title: 'Error disconnecting integration', description: e.message, color: 'error' })
-  } finally {
-    disconnectLoading.value = false
-  }
-}
 
 async function updateTeam() {
   if (!activeOrg.value?.data?.id)
@@ -192,14 +149,6 @@ const copyId = () => {
   }
 }
 
-// Check if user can delete this team (owner only)
-const canDeleteTeam = computed(() => {
-  if (!activeOrg.value?.data?.members || !user.value?.id)
-    return false
-  const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
-  return member?.role === 'owner'
-})
-
 const deleteLoading = ref(false)
 
 async function deleteTeam() {
@@ -207,6 +156,7 @@ async function deleteTeam() {
     return
 
   const name = activeOrg.value.data.name
+  // TODO: Replace with proper modal confirmation
   // eslint-disable-next-line no-alert
   const confirmed = confirm(
     `Are you sure you want to delete "${name}"? This action cannot be undone and will remove all members and data.`
@@ -230,7 +180,7 @@ async function deleteTeam() {
     // Fetch remaining teams to determine where to redirect
     const { data: orgs } = await organization.list()
 
-    if (orgs && orgs.length > 0 && orgs[0]) {
+    if (orgs && orgs.length > 0) {
       // Switch to first available team
       await organization.setActive({ organizationId: orgs[0].id })
       await fetchSession()
@@ -257,7 +207,10 @@ async function deleteTeam() {
       Organization settings
     </h1>
 
-    <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 bg-white dark:bg-gray-900 mb-8">
+    <div
+      v-if="canUpdateSettings"
+      class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 bg-white dark:bg-gray-900 mb-8"
+    >
       <h2 class="text-xl font-semibold mb-4">
         General information
       </h2>
@@ -295,63 +248,27 @@ async function deleteTeam() {
       />
     </div>
 
-    <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 bg-white dark:bg-gray-900 mb-8">
-      <h2 class="text-xl font-semibold mb-4">
-        Integrations
+    <div
+      v-if="canLeaveTeam"
+      class="border border-red-200 dark:border-red-900/50 rounded-lg p-6 bg-red-50/50 dark:bg-red-900/10 mb-8"
+    >
+      <h2 class="text-xl font-semibold mb-4 text-red-600 dark:text-red-400">
+        Leave organization
       </h2>
       <p class="text-sm text-gray-500 mb-6">
-        Connect your organization with third-party services.
+        Revoke your access to this organization. You will need to be re-invited to join again.
       </p>
 
-      <div class="space-y-4">
-        <div class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-800 rounded-lg">
-          <div class="flex items-center gap-3">
-            <Icon
-              name="simple-icons:youtube"
-              class="w-6 h-6"
-            />
-            <div>
-              <div class="font-medium">
-                YouTube
-              </div>
-              <div class="text-sm text-gray-500">
-                Connect your YouTube account
-              </div>
-            </div>
-          </div>
-          <div>
-            <UButton
-              v-if="!integrations?.find((i: any) => i?.provider === 'youtube' && i?.status === 'connected')"
-              label="Connect"
-              color="white"
-              class="cursor-pointer"
-              @click="connectYouTube"
-            />
-            <div
-              v-else
-              class="flex items-center gap-2"
-            >
-              <UButton
-                color="success"
-                variant="subtle"
-                size="sm"
-                icon="i-lucide-check-circle"
-                label="Connected"
-                class="cursor-default opacity-100"
-              />
-              <UButton
-                color="error"
-                variant="ghost"
-                icon="i-lucide-trash-2"
-                size="sm"
-                :loading="disconnectLoading"
-                class="cursor-pointer"
-                @click="disconnectIntegration('youtube')"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+      <UButton
+        color="red"
+        variant="outline"
+        icon="i-lucide-log-out"
+        :loading="leaveLoading"
+        class="cursor-pointer"
+        @click="leaveTeam"
+      >
+        Leave Team
+      </UButton>
     </div>
 
     <div

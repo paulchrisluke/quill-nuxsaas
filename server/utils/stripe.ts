@@ -2,10 +2,12 @@ import type { Subscription } from '@better-auth/stripe'
 import { stripe } from '@better-auth/stripe'
 import { and, eq } from 'drizzle-orm'
 import Stripe from 'stripe'
+import { PLANS } from '~~/shared/utils/plans'
 import { member as memberTable, organization as organizationTable } from '../database/schema'
 import { logAuditEvent } from './auditLogger'
 import { useDB } from './db'
 import { runtimeConfig } from './runtimeConfig'
+import { removeExcessMembersOnExpiration } from './subscription-handlers'
 
 /**
  * STRIPE ORGANIZATION BILLING IMPLEMENTATION
@@ -28,7 +30,7 @@ import { runtimeConfig } from './runtimeConfig'
  *    - `organizationId` is the primary reference.
  */
 
-const createStripeClient = () => {
+export const createStripeClient = () => {
   return new Stripe(runtimeConfig.stripeSecretKey!)
 }
 
@@ -91,62 +93,240 @@ const getOrgByStripeCustomerId = async (stripeCustomerId: string) => {
   return org
 }
 
-const addPaymentLog = async (action: string, subscription: Subscription) => {
-  const org = await getOrgByStripeCustomerId(subscription.stripeCustomerId!)
+export const addPaymentLog = async (action: string, subscription: any) => {
+  // Handle both Better Auth subscription object and raw Stripe subscription object
+  const customerId = subscription.stripeCustomerId ||
+    (typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id)
+
+  if (!customerId)
+    return
+
+  const org = await getOrgByStripeCustomerId(customerId)
   if (!org)
     return
 
   await logAuditEvent({
-    userId: 'system', // Webhook event, no specific user
+    userId: undefined, // Webhook event, no specific user
     category: 'payment',
-    action: `${action}:${subscription.plan}`,
+    action: `${action}:${subscription.plan?.id || subscription.plan?.name || 'unknown'}`,
     targetType: 'stripeCustomerId',
-    targetId: subscription.stripeCustomerId,
+    targetId: customerId,
     status: 'success',
     details: `Organization: ${org.name} (${org.id})`
   })
 }
 
+export const syncSubscriptionQuantity = async (organizationId: string) => {
+  const db = await useDB()
+  const org = await db.query.organization.findFirst({
+    where: eq(organizationTable.id, organizationId),
+    with: {
+      members: true,
+      invitations: true
+    }
+  })
+
+  if (!org?.stripeCustomerId)
+    return
+
+  const client = createStripeClient()
+
+  // Find active subscription
+  const subscriptions = await client.subscriptions.list({
+    customer: org.stripeCustomerId,
+    status: 'active',
+    limit: 1
+  })
+
+  if (subscriptions.data.length === 0)
+    return
+
+  const subscription = subscriptions.data[0]
+  const currentQuantity = subscription.items.data[0].quantity
+
+  // Calculate new quantity
+  const memberCount = org.members.length
+  const inviteCount = org.invitations.filter(i => i.status === 'pending').length
+  const newQuantity = memberCount + inviteCount
+
+  if (currentQuantity !== newQuantity && newQuantity > 0) {
+    await client.subscriptions.update(subscription.id, {
+      items: [{
+        id: subscription.items.data[0].id,
+        quantity: newQuantity
+      }]
+    })
+
+    await logAuditEvent({
+      userId: undefined,
+      category: 'payment',
+      action: 'update_quantity',
+      targetType: 'subscription',
+      targetId: subscription.id,
+      status: 'success',
+      details: `Updated quantity from ${currentQuantity} to ${newQuantity}`
+    })
+  }
+}
+
 export const setupStripe = () => stripe({
   stripeClient: createStripeClient(),
   stripeWebhookSecret: runtimeConfig.stripeWebhookSecret,
+  onEvent: async (_event) => {
+    // console.log('Stripe Webhook Received:', event.type, event.id)
+  },
   createCustomerOnSignUp: false, // Disable for Org-based billing
   subscription: {
     enabled: true,
-    plans: [
-      {
-        name: 'pro-monthly',
-        priceId: runtimeConfig.stripePriceIdProMonth,
-        freeTrial: {
-          days: 14,
-          onTrialStart: async (subscription) => {
-            await addPaymentLog('trial_start', subscription)
-          },
-          onTrialEnd: async ({ subscription }) => {
-            await addPaymentLog('trial_end', subscription)
-          },
-          onTrialExpired: async (subscription) => {
-            await addPaymentLog('trial_expired', subscription)
-          }
+    getSubscriptionReference: async (subscription: any) => {
+      // Try to get organizationId from metadata first
+      if (subscription.metadata?.organizationId) {
+        return subscription.metadata.organizationId
+      }
+
+      // Fallback to stripeCustomerId lookup
+      let customerId = subscription.stripeCustomerId
+      if (!customerId) {
+        if (typeof subscription.customer === 'string') {
+          customerId = subscription.customer
+        } else if (subscription.customer && typeof subscription.customer === 'object' && 'id' in subscription.customer) {
+          customerId = subscription.customer.id
         }
-      },
-      {
-        name: 'pro-yearly',
-        priceId: runtimeConfig.stripePriceIdProYear,
-        freeTrial: {
-          days: 14,
-          onTrialStart: async (subscription) => {
-            await addPaymentLog('trial_start', subscription)
+      }
+
+      if (customerId) {
+        const org = await getOrgByStripeCustomerId(customerId)
+        if (org) {
+          return org.id
+        }
+      }
+
+      return null
+    },
+    authorizeReference: async ({ user, referenceId }, ctx) => {
+      const db = await useDB()
+      const member = await db.query.member.findFirst({
+        where: and(
+          eq(memberTable.organizationId, referenceId),
+          eq(memberTable.userId, user.id)
+        )
+      })
+
+      // Allow all members to view subscription data (for badges, etc.)
+      if (member) {
+        // For read-only operations (GET requests), allow all members
+        if (ctx?.method === 'GET') {
+          return true
+        }
+
+        // For write operations (POST, PUT, DELETE), only allow owners
+        if (member.role === 'owner') {
+          // Ensure Stripe Customer exists for the Organization before allowing action
+          await ensureStripeCustomer(referenceId)
+          return true
+        }
+      }
+
+      return false
+    },
+    getCheckoutSessionParams: async ({ session, plan }, ctx) => {
+      // Try to find referenceId from the request body or session
+      let customerId
+      const body = ctx?.body as any
+      const activeOrganizationId = (session as any)?.activeOrganizationId
+
+      const targetOrgId = body?.referenceId || activeOrganizationId
+      let quantity = 1
+
+      if (targetOrgId) {
+        // We need to look up the org by ID
+        const db = await useDB()
+        const organization = await db.query.organization.findFirst({
+          where: eq(organizationTable.id, targetOrgId),
+          with: {
+            members: true,
+            invitations: true
+          }
+        })
+        if (organization) {
+          if (organization.stripeCustomerId) {
+            customerId = organization.stripeCustomerId
+          }
+          // Calculate quantity: Members + Pending Invites
+          // Default to 1 if count is 0 (should be at least 1 owner)
+          const memberCount = organization.members.length
+          const inviteCount = organization.invitations.filter(i => i.status === 'pending').length
+          const count = memberCount + inviteCount
+          quantity = count > 0 ? count : 1
+        }
+      }
+
+      return {
+        params: {
+          customer: customerId, // Explicitly set the Org's customer ID
+          allow_promotion_codes: true,
+          line_items: [{
+            price: plan.priceId,
+            quantity
+          }],
+          tax_id_collection: {
+            enabled: true
           },
-          onTrialEnd: async ({ subscription }) => {
-            await addPaymentLog('trial_end', subscription)
-          },
-          onTrialExpired: async (subscription) => {
-            await addPaymentLog('trial_expired', subscription)
+          billing_address_collection: 'required',
+          metadata: {
+            // Ensure metadata is preserved/set
+            ...(body?.metadata || {}),
+            organizationId: targetOrgId // Explicitly add org ID to metadata
           }
         }
       }
-    ],
+    },
+    plans: async () => {
+      const plans = [
+        {
+          name: 'pro-monthly',
+          priceId: runtimeConfig.stripePriceIdProMonth,
+          freeTrial: {
+            days: PLANS.PRO_MONTHLY.trialDays,
+            onTrialStart: async (subscription: Subscription) => {
+              await addPaymentLog('trial_start', subscription)
+            },
+            onTrialEnd: async ({ subscription }: { subscription: Subscription }) => {
+              await addPaymentLog('trial_end', subscription)
+            },
+            onTrialExpired: async (subscription: Subscription) => {
+              await addPaymentLog('trial_expired', subscription)
+              // Remove excess members when trial expires without conversion
+              if (subscription.referenceId) {
+                await removeExcessMembersOnExpiration(subscription.referenceId)
+              }
+            }
+          }
+        },
+        {
+          name: 'pro-yearly',
+          priceId: runtimeConfig.stripePriceIdProYear,
+          freeTrial: {
+            days: PLANS.PRO_YEARLY.trialDays,
+            onTrialStart: async (subscription: Subscription) => {
+              await addPaymentLog('trial_start', subscription)
+            },
+            onTrialEnd: async ({ subscription }: { subscription: Subscription }) => {
+              await addPaymentLog('trial_end', subscription)
+            },
+            onTrialExpired: async (subscription: Subscription) => {
+              await addPaymentLog('trial_expired', subscription)
+              // Remove excess members when trial expires without conversion
+              if (subscription.referenceId) {
+                await removeExcessMembersOnExpiration(subscription.referenceId)
+              }
+            }
+          }
+        }
+      ]
+      // console.log('Stripe Configured Plans:', JSON.stringify(plans, null, 2))
+      return plans
+    },
     onSubscriptionComplete: async ({ subscription }) => {
       await addPaymentLog('subscription_created', subscription)
     },
@@ -155,9 +335,17 @@ export const setupStripe = () => stripe({
     },
     onSubscriptionCancel: async ({ subscription }) => {
       await addPaymentLog('subscription_canceled', subscription)
+      // Remove excess members when subscription is canceled
+      if (subscription.referenceId) {
+        await removeExcessMembersOnExpiration(subscription.referenceId)
+      }
     },
     onSubscriptionDeleted: async ({ subscription }) => {
       await addPaymentLog('subscription_deleted', subscription)
+      // Remove excess members when subscription is deleted/expired
+      if (subscription.referenceId) {
+        await removeExcessMembersOnExpiration(subscription.referenceId)
+      }
     }
   }
 })

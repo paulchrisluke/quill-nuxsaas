@@ -2,7 +2,7 @@
 import { useDebounceFn } from '@vueuse/core'
 
 definePageMeta({
-  layout: 'simple' as any
+  layout: 'simple'
 })
 
 const { user, organization, fetchSession } = useAuth()
@@ -107,19 +107,25 @@ async function acceptInvite(inviteId: string, orgId?: string) {
 
     // Refresh session to update active org
     await fetchSession()
-    // Get active org to find slug
-    const { data: activeOrg } = await organization.list()
-    if (activeOrg && activeOrg.length > 0) {
-      // Since we set it active, it should be the first one or we can find it
-      const targetOrg = activeOrg.find(o => o.id === orgId) || activeOrg[0]
-      if (targetOrg) {
-        window.location.href = `/${targetOrg.slug}/dashboard`
-      } else {
-        window.location.href = '/t/dashboard'
+
+    // Find the org in the list to get its slug
+    // Retry loop just in case of caching/latency
+    let joinedOrg = null
+    let attempts = 0
+    while (attempts < 3 && !joinedOrg) {
+      const { data: orgs } = await organization.list()
+      joinedOrg = orgs?.find((o: any) => o.id === orgId)
+      if (!joinedOrg) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        attempts++
       }
+    }
+
+    if (joinedOrg) {
+      window.location.href = `/${joinedOrg.slug}/dashboard`
     } else {
-      // Fallback: Go to generic dashboard and let layout handle activation
-      window.location.href = '/t/dashboard'
+      // Fallback: Go to root and let middleware handle routing
+      window.location.href = '/'
     }
   } catch (e: any) {
     toast.add({

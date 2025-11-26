@@ -2,7 +2,9 @@
 
 <script setup lang="ts">
 const { t } = useI18n()
-const { data: dbStats } = await useFetch('/api/admin/maintenance/db-stats')
+const { data: dbStats } = await useLazyFetch('/api/admin/maintenance/db-stats', {
+  server: false
+})
 
 // Format bytes to human readable format
 function formatBytes(bytes: number) {

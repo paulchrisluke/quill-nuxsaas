@@ -1,14 +1,12 @@
-import type { Subscription } from '@better-auth/stripe'
-import type { CustomerState } from '@polar-sh/sdk/models/components/customerstate.js'
 import type {
   ClientOptions,
   InferSessionFromClient
 } from 'better-auth/client'
 import type { RouteLocationRaw } from 'vue-router'
 import { stripeClient } from '@better-auth/stripe/client'
-import { polarClient } from '@polar-sh/better-auth'
 import { adminClient, inferAdditionalFields, organizationClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
+import { ac, admin, member, owner } from '~~/shared/utils/permissions'
 
 export function useAuth() {
   const url = useRequestURL()
@@ -29,19 +27,32 @@ export function useAuth() {
         }
       }),
       adminClient(),
-      organizationClient(),
-      polarClient(),
+      organizationClient({
+        ac,
+        roles: {
+          owner,
+          admin,
+          member
+        }
+      }),
       stripeClient({
         subscription: true
       })
     ]
   })
 
+  // Create global state for active organization (SSR friendly)
+  const useActiveOrgState = () => useState<any>('active-org-state', () => ({ data: null }))
+
   const session = useState<InferSessionFromClient<ClientOptions> | null>('auth:session', () => null)
   const user = useState<User | null>('auth:user', () => null)
-  const subscriptions = useState<Subscription[]>('auth:subscriptions', () => [])
-  const polarState = useState<CustomerState | null>('auth:polarState', () => null)
   const sessionFetching = import.meta.server ? ref(false) : useState('auth:sessionFetching', () => false)
+
+  // Subscriptions are derived from the active org state
+  const subscriptions = computed(() => {
+    const activeOrgState = useActiveOrgState()
+    return (activeOrgState.value?.data as any)?.subscriptions || []
+  })
 
   const fetchSession = async () => {
     if (sessionFetching.value) {
@@ -70,20 +81,10 @@ export function useAuth() {
     user.value = data?.user
       ? Object.assign({}, userDefaults, data.user)
       : null
-    subscriptions.value = []
+
     if (user.value) {
-      try {
-        if (payment == 'stripe') {
-          const { data: subscriptionData } = await client.subscription.list()
-          subscriptions.value = subscriptionData || []
-        } else if (payment == 'polar') {
-          const { data: customerState } = await client.customer.state()
-          polarState.value = customerState
-        }
-      } catch (error) {
-        // Ignore subscription fetch errors (e.g., 404 if not configured)
-        console.debug('Subscription fetch failed:', error)
-      }
+      // Subscriptions are now fetched via activeOrg (SSR)
+      // No need to fetch them here separately
     }
     sessionFetching.value = false
     return data
@@ -97,22 +98,57 @@ export function useAuth() {
     })
   }
 
+  const useActiveOrganization = () => {
+    const state = useActiveOrgState()
+    return state
+  }
+
+  // Centralized function to refresh organization data
+  const refreshActiveOrg = async () => {
+    try {
+      const orgData: any = await $fetch('/api/organization/full-data')
+
+      // Flatten the structure to match what components expect
+      // orgData comes as { organization: {...}, subscriptions: [...], user: ... }
+      // We want activeOrg.value.data to be { ...organization, subscriptions: [...] }
+      const flattenedData = {
+        ...orgData.organization,
+        subscriptions: orgData.subscriptions
+      }
+
+      const state = useActiveOrgState()
+      if (state.value) {
+        state.value.data = flattenedData
+      } else {
+        state.value = { data: flattenedData }
+      }
+      return flattenedData
+    } catch (error) {
+      console.error('Failed to refresh active org:', error)
+      return null
+    }
+  }
+
   return {
+    client,
     session,
     user,
     organization: client.organization,
-    useActiveOrganization: client.useActiveOrganization,
+    useActiveOrganization, // Use our singleton wrapper
     subscription: client.subscription,
     subscriptions,
     loggedIn: computed(() => !!session.value),
     activeStripeSubscription: computed(() => {
-      return subscriptions.value.find(
-        sub => sub.status === 'active' || sub.status === 'trialing'
+      const activeOrgState = useActiveOrgState()
+      const subs = (activeOrgState.value?.data as any)?.subscriptions || []
+      if (!Array.isArray(subs))
+        return undefined
+
+      return subs.find(
+        (sub: any) => sub.status === 'active' || sub.status === 'trialing'
       )
     }),
-    activePolarSubscriptions: computed(() => {
-      return polarState.value?.activeSubscriptions
-    }),
+    refreshActiveOrg,
     signIn: client.signIn,
     signUp: client.signUp,
     forgetPassword: client.forgetPassword,
@@ -135,7 +171,6 @@ export function useAuth() {
       })
     },
     fetchSession,
-    payment,
-    client
+    payment
   }
 }

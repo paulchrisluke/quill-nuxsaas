@@ -1,4 +1,5 @@
 import type { LocalePathFunction } from '#i18n'
+import { hasPermission } from '~~/shared/utils/permissions'
 
 export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string): NavigationMenuItem[][] => {
   return [
@@ -61,7 +62,7 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
   ]
 }
 
-export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string, slug: string, canManage = false): NavigationMenuItem[][] => {
+export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string, slug: string, userRole?: 'owner' | 'admin' | 'member'): NavigationMenuItem[][] => {
   const items: NavigationMenuItem[] = [
     {
       label: t('menu.dashboard'),
@@ -80,7 +81,17 @@ export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, ap
     }
   ]
 
-  if (canManage) {
+  // Only owners can see billing (using permissions system)
+  if (hasPermission(userRole, 'VIEW_BILLING_NAV')) {
+    items.push({
+      label: 'Billing',
+      icon: 'i-lucide-credit-card',
+      to: localePath(`/${slug}/billing`)
+    })
+  }
+
+  // Owners and admins can see settings (using permissions system)
+  if (hasPermission(userRole, 'VIEW_SETTINGS_NAV')) {
     items.push({
       label: 'Settings',
       icon: 'i-lucide-settings',

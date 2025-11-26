@@ -1,29 +1,77 @@
 <script setup lang="ts">
-const { organization, session, useActiveOrganization, fetchSession } = useAuth()
+const { organization, session, useActiveOrganization, user } = useAuth()
 
-// Use useAsyncData for SSR prefetching
-const { data: organizations, status } = await useAsyncData('user-organizations', async () => {
+// Use lazy fetch for organizations to not block navigation
+const { data: organizations, status } = await useLazyAsyncData('user-organizations', async () => {
   const { data } = await organization.list()
   return data
 })
 
 const isPending = computed(() => status.value === 'pending')
 const activeOrg = useActiveOrganization()
+const route = useRoute()
 
-// Get active organization ID from session
-const activeOrgId = computed(() => session.value?.activeOrganizationId)
+// Get active organization ID - prioritize route slug over session for immediate UI updates
+const activeOrgId = computed(() => {
+  // Use route slug first for immediate reactivity
+  const routeSlug = route.params.slug as string
+  if (routeSlug && routeSlug !== 't' && organizations.value) {
+    const org = organizations.value.find((o: any) => o.slug === routeSlug)
+    if (org?.id)
+      return org.id
+  }
+  // Fallback to session
+  if (session.value?.activeOrganizationId) {
+    return session.value.activeOrganizationId
+  }
+  return null
+})
 
 // Get active org name
 const activeOrgName = computed(() => {
-  if (!activeOrgId.value || !organizations.value)
+  if (!organizations.value)
     return 'Select team'
-  const org = organizations.value.find((o: any) => o.id === activeOrgId.value)
+
+  // Find by ID or slug
+  const routeSlug = route.params.slug as string
+  const org = activeOrgId.value
+    ? organizations.value.find((o: any) => o.id === activeOrgId.value)
+    : organizations.value.find((o: any) => o.slug === routeSlug)
+
   return org?.name || 'Select team'
 })
 
+// Compute active subscription from activeOrg state (populated by layout)
+const activeStripeSubscription = computed(() => {
+  const data = activeOrg.value?.data
+
+  // Check if the data matches the currently selected org
+  // If not, it means we are switching and still have stale data
+  if (!data || data.id !== activeOrgId.value) {
+    return null
+  }
+
+  const subs = (data as any)?.subscriptions || []
+
+  if (!subs || !Array.isArray(subs))
+    return null
+
+  return subs.find(
+    (sub: any) => sub.status === 'active' || sub.status === 'trialing'
+  )
+})
+
+// Check if current user is owner or admin
+const _canManageTeam = computed(() => {
+  if (!activeOrg.value?.data?.members || !user.value?.id)
+    return false
+  const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
+  return member?.role === 'owner' || member?.role === 'admin'
+})
+
 const activeOrgSlug = computed(() => activeOrg.value?.data?.slug || 't')
-const route = useRoute()
 const switching = ref(false)
+const { start, finish } = useLoadingIndicator()
 
 // Handle org change
 async function handleOrgChange(orgId: string) {
@@ -33,17 +81,14 @@ async function handleOrgChange(orgId: string) {
     return
 
   switching.value = true
+  start()
 
   try {
     const org = organizations.value.find((o: any) => o.id === orgId)
     if (!org)
       throw new Error('Organization not found')
 
-    await organization.setActive({ organizationId: orgId })
-    // Refetch session to update activeOrganizationId
-    await fetchSession()
-
-    // Calculate new path replacing old slug with new slug
+    // Calculate new path BEFORE switching (using current slug)
     let newPath = route.path
     const currentSlug = activeOrgSlug.value
 
@@ -57,26 +102,38 @@ async function handleOrgChange(orgId: string) {
       newPath = `/${org.slug}/dashboard`
     }
 
-    // Force full page reload to get fresh data
+    // Set active organization and wait for it to complete
+    const { error } = await organization.setActive({ organizationId: orgId })
+
+    if (error) {
+      throw new Error(error.message || 'Failed to set active organization')
+    }
+
+    // Force a full page reload to ensure SSR picks up the new active org context
     window.location.href = newPath
   } catch (error) {
     console.error('Failed to switch organization:', error)
     switching.value = false
+    finish()
   }
 }
 
-// Dropdown items
+// Dropdown items - use click handler for hard reload
 const dropdownItems = computed(() => {
   if (!organizations.value)
     return []
+
+  const currentActiveOrgId = activeOrgId.value // Access to ensure reactivity
 
   const items = organizations.value.map((org: any) => ({
     label: org.name,
     icon: 'i-lucide-building-2',
     slot: 'item',
     orgId: org.id,
-    active: org.id === activeOrgId.value,
-    click: () => handleOrgChange(org.id)
+    active: org.id === currentActiveOrgId,
+    // Use click handler instead of 'to' prop to force manual handling
+    click: () => handleOrgChange(org.id),
+    disabled: org.id === currentActiveOrgId
   }))
 
   // Add create option at the end
@@ -84,17 +141,10 @@ const dropdownItems = computed(() => {
     label: 'Create organization',
     icon: 'i-lucide-plus',
     slot: 'create',
-    click: () => {
-      // Trigger modal via event bus or global state if possible.
-      // For now, we might need to emit an event, but this component is deep in sidebar.
-      // We can use a router query or hash to trigger it, or provide/inject.
-      // Assuming the Dashboard Layout watches for a trigger or we can access the modal ref.
-      // Simpler: Navigate to onboarding? Or emit 'create'
-      // Let's try setting a query param that Dashboard Layout watches?
-      // Or just reuse the create button logic from layout.
-      // Since this is inside Layout -> Sidebar -> Switcher, we can emit.
-      // But Switcher is inside a slot or deep structure.
-      // Let's dispatch a custom window event for simplicity in this context
+    orgId: '',
+    active: false,
+    disabled: false,
+    click: async () => {
       window.dispatchEvent(new CustomEvent('open-create-team-modal'))
     }
   })
@@ -119,7 +169,12 @@ const dropdownItems = computed(() => {
             {{ activeOrgName.charAt(0).toUpperCase() }}
           </div>
           <span class="font-medium text-sm truncate">{{ activeOrgName }}</span>
-          <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 font-medium">Free</span>
+          <span
+            class="text-[10px] px-1.5 py-0.5 rounded-full border font-medium"
+            :class="activeStripeSubscription ? 'bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800 text-primary-600 dark:text-primary-400' : 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500'"
+          >
+            {{ activeStripeSubscription ? 'Pro' : 'Free' }}
+          </span>
         </div>
         <UIcon
           name="i-lucide-chevrons-up-down"
