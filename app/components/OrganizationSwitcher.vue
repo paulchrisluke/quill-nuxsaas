@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { organization, session, useActiveOrganization, fetchSession, user } = useAuth()
+const { organization, session, useActiveOrganization, user } = useAuth()
 
 // Use lazy fetch for organizations to not block navigation
 const { data: organizations, status } = await useLazyAsyncData('user-organizations', async () => {
@@ -41,39 +41,22 @@ const activeOrgName = computed(() => {
   return org?.name || 'Select team'
 })
 
-// Fetch subscription with SSR to avoid Free -> Pro flicker
-// Watch activeOrgId to refetch when switching teams
-const { data: subscriptions, status: subStatus } = await useAsyncData(
-  () => `org-switcher-subs-${activeOrgId.value}`,
-  async () => {
-    const orgId = activeOrgId.value
-    if (!orgId) {
-      console.log('OrganizationSwitcher: No active org ID')
-      return []
-    }
-
-    console.log('OrganizationSwitcher: Fetching subscriptions for org', orgId)
-    const response = await $fetch('/api/auth/subscription/list', {
-      query: { referenceId: orgId },
-      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
-    })
-    console.log('OrganizationSwitcher: Subscription response', response)
-    return Array.isArray(response) ? response : []
-  },
-  {
-    watch: [() => activeOrgId.value]
-  }
-)
-
-// Compute active subscription from fetched data
+// Compute active subscription from activeOrg state (populated by layout)
 const activeStripeSubscription = computed(() => {
-  // Return null while fetching to avoid showing stale data from previous org
-  if (subStatus.value === 'pending')
+  const data = activeOrg.value?.data
+
+  // Check if the data matches the currently selected org
+  // If not, it means we are switching and still have stale data
+  if (!data || data.id !== activeOrgId.value) {
+    return null
+  }
+
+  const subs = (data as any)?.subscriptions || []
+
+  if (!subs || !Array.isArray(subs))
     return null
 
-  if (!subscriptions.value)
-    return null
-  return subscriptions.value.find(
+  return subs.find(
     (sub: any) => sub.status === 'active' || sub.status === 'trialing'
   )
 })
@@ -91,7 +74,7 @@ const switching = ref(false)
 const { start, finish } = useLoadingIndicator()
 
 // Handle org change
-async function _handleOrgChange(orgId: string) {
+async function handleOrgChange(orgId: string) {
   if (switching.value)
     return
   if (!organizations.value)
@@ -126,16 +109,8 @@ async function _handleOrgChange(orgId: string) {
       throw new Error(error.message || 'Failed to set active organization')
     }
 
-    // Refetch session to ensure activeOrganizationId is updated
-    await fetchSession()
-
-    // Small delay to ensure session is persisted
-    await new Promise(resolve => setTimeout(resolve, 100))
-
-    // Use navigateTo with replace to prevent going back to old team
-    await navigateTo(newPath, { replace: true })
-    switching.value = false
-    finish()
+    // Force a full page reload to ensure SSR picks up the new active org context
+    window.location.href = newPath
   } catch (error) {
     console.error('Failed to switch organization:', error)
     switching.value = false
@@ -143,12 +118,11 @@ async function _handleOrgChange(orgId: string) {
   }
 }
 
-// Dropdown items - use NuxtLink for navigation instead of click handlers
+// Dropdown items - use click handler for hard reload
 const dropdownItems = computed(() => {
   if (!organizations.value)
     return []
 
-  const localePath = useLocalePath()
   const currentActiveOrgId = activeOrgId.value // Access to ensure reactivity
 
   const items = organizations.value.map((org: any) => ({
@@ -157,7 +131,8 @@ const dropdownItems = computed(() => {
     slot: 'item',
     orgId: org.id,
     active: org.id === currentActiveOrgId,
-    to: localePath(`/${org.slug}${route.path.replace(/^\/[^/]+/, '')}`), // Replace slug in current path
+    // Use click handler instead of 'to' prop to force manual handling
+    click: () => handleOrgChange(org.id),
     disabled: org.id === currentActiveOrgId
   }))
 
@@ -166,7 +141,10 @@ const dropdownItems = computed(() => {
     label: 'Create organization',
     icon: 'i-lucide-plus',
     slot: 'create',
-    click: () => {
+    orgId: '',
+    active: false,
+    disabled: false,
+    click: async () => {
       window.dispatchEvent(new CustomEvent('open-create-team-modal'))
     }
   })

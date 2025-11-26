@@ -30,6 +30,12 @@ export const createBetterAuth = () => betterAuth({
     runtimeConfig.public.baseURL
   ],
   secret: runtimeConfig.betterAuthSecret,
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60 // Cache for 5 minutes
+    }
+  },
   database: drizzleAdapter(
     getDB(),
     {
@@ -317,7 +323,13 @@ export const useServerAuth = () => {
 }
 
 export const getAuthSession = async (event: H3Event) => {
-  const headers = event.headers
+  const reqHeaders = getRequestHeaders(event)
+  const headers = new Headers()
+  for (const [key, value] of Object.entries(reqHeaders)) {
+    if (value)
+      headers.append(key, value)
+  }
+
   const serverAuth = useServerAuth()
   const session = await serverAuth.api.getSession({
     headers

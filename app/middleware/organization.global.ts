@@ -13,12 +13,17 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   // Check if we need to switch organization
   const activeOrgId = (session.value as any)?.activeOrganizationId
-  const { data: orgs } = await organization.list()
 
-  if (!orgs || orgs.length === 0)
+  // Use cached org list to avoid fetching on every navigation
+  const { data: orgs } = await useAsyncData('user-organizations', async () => {
+    const { data } = await organization.list()
+    return data
+  })
+
+  if (!orgs.value || orgs.value.length === 0)
     return
 
-  const targetOrg = orgs.find((o: any) => o.slug === routeSlug)
+  const targetOrg = orgs.value.find((o: any) => o.slug === routeSlug)
 
   if (targetOrg) {
     if (targetOrg.id !== activeOrgId) {
@@ -35,7 +40,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   } else {
     // Invalid slug, redirect to first available org or handle error
     // We can redirect to the first org's dashboard if the user has access to any orgs
-    const firstOrg = orgs[0]
+    const firstOrg = orgs.value?.[0]
     if (firstOrg) {
       // Prevent infinite redirect if we are already redirected
       const localePath = useLocalePath()

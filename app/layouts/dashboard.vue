@@ -7,6 +7,7 @@ import { getUserMenus } from './menu'
 
 const { user, signOut, organization, useActiveOrganization, session: _session } = useAuth()
 const activeOrg = useActiveOrganization()
+console.log('[Dashboard Layout] activeOrg initialized:', activeOrg.value?.data?.slug)
 const toast = useToast()
 
 const router = useRouter()
@@ -17,37 +18,107 @@ const isCollapsed = ref(false)
 const runtimeConfig = useRuntimeConfig()
 
 // Fetch organization data with SSR to ensure members data is available for canManageTeam
-// Watch route.params.slug to refetch when switching teams
+// SSR-only to prevent flicker on page load
 const { data: layoutOrgData, refresh: _refreshLayoutOrg } = await useAsyncData(
   `layout-org-${route.params.slug}`,
   async () => {
-    return await $fetch('/api/auth/organization/get-full-organization', {
-      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
-    }).catch(() => null)
+    // Check if we have cached data in payload (initial SSR load)
+    const nuxtApp = useNuxtApp()
+    const key = `layout-org-${route.params.slug}`
+    const cached = nuxtApp.payload.data[key] || nuxtApp.static.data[key]
+
+    console.log(`[Dashboard] useAsyncData running. Client: ${import.meta.client}, Hydrating: ${nuxtApp.isHydrating}, Cached: ${!!cached}`)
+
+    // Only use cached data if we are hydrating (initial load)
+    if (import.meta.client && nuxtApp.isHydrating && cached) {
+      console.log('[Dashboard] Using cached payload data during hydration')
+      return cached
+    }
+
+    console.log('[Dashboard] Fetching fresh data from API...')
+
+    // Otherwise (server side OR client navigation), fetch fresh data
+    return await $fetch('/api/organization/full-data', {
+      headers: useRequestHeaders(['cookie'])
+    }).catch((e) => {
+      console.error('[Dashboard] Failed to fetch full data:', e)
+      return null
+    })
   },
   {
     immediate: true,
-    watch: [() => route.params.slug]
+    watch: [() => route.params.slug],
+    lazy: false,
+    server: true,
+    getCachedData: (key) => {
+      // On client, use cached data from Nuxt payload
+      const data = useNuxtApp().payload.data[key] || useNuxtApp().static.data[key]
+      if (data) {
+        console.log('[Dashboard] getCachedData found data for:', key)
+        return data
+      }
+      console.log('[Dashboard] getCachedData MISS for:', key)
+      return undefined // Return undefined to force fetch
+    }
   }
 )
 
-// Sync with activeOrg immediately
-onMounted(() => {
-  if (layoutOrgData.value && activeOrg.value) {
-    activeOrg.value.data = layoutOrgData.value as any
+// Sync SSR data to activeOrg immediately
+// Since activeOrg is now a Nuxt useState, this works on server and client
+// and hydration handles the rest!
+if (layoutOrgData.value) {
+  // Flatten the structure: org data + subscriptions at top level
+  const flattenedData = {
+    ...layoutOrgData.value.organization,
+    subscriptions: layoutOrgData.value.subscriptions
   }
-})
 
-// Watch for changes
+  if (!activeOrg.value) {
+    activeOrg.value = { data: flattenedData }
+  } else {
+    activeOrg.value.data = flattenedData
+  }
+}
+
+// Watch for changes and sync
 watch(() => layoutOrgData.value, (newOrg) => {
-  if (newOrg && activeOrg.value) {
+  if (newOrg) {
     // Safety check: Ensure the fetched org matches the current route slug
-    // This prevents overwriting activeOrg with stale data due to race conditions
     const routeSlug = route.params.slug
-    if (routeSlug && routeSlug !== 't' && newOrg.slug !== routeSlug) {
+    // Check if newOrg has organization property (server response) or if it's flattened (from cache?)
+    const orgSlug = (newOrg as any).organization?.slug || (newOrg as any).slug
+
+    if (routeSlug && routeSlug !== 't' && orgSlug && orgSlug !== routeSlug) {
       return
     }
-    activeOrg.value.data = newOrg as any
+
+    // Flatten the structure if it has nested organization property
+    let flattenedData = newOrg as any
+    if ((newOrg as any).organization) {
+      flattenedData = {
+        ...(newOrg as any).organization,
+        subscriptions: (newOrg as any).subscriptions
+      }
+    }
+
+    if (!activeOrg.value) {
+      activeOrg.value = { data: flattenedData }
+    } else {
+      activeOrg.value.data = flattenedData
+    }
+  } else {
+    // If no org data found (e.g. 403 Forbidden, 404 Not Found)
+    // This handles the case where user has no access to the requested dashboard
+    if (import.meta.client) {
+      console.warn('[Dashboard] No organization data found or access denied. Clearing cache and redirecting.')
+
+      // Clear cached organization list to force middleware to re-fetch
+      clearNuxtData('user-organizations')
+
+      // Redirect to root - middleware will pick up fresh org list and route to first available team
+      // or onboarding if none exist
+      window.location.href = '/'
+    }
   }
 }, { immediate: true })
 
@@ -145,11 +216,30 @@ onMounted(async () => {
 
 // Get current user's role in the organization
 const currentUserRole = computed(() => {
-  const orgData = layoutOrgData.value || activeOrg.value?.data
+  // layoutOrgData is the raw API response: { organization: {...}, subscriptions: [...] }
+  // activeOrg.data is the flattened version: { ...organization, subscriptions: [...] }
+
+  let orgData = activeOrg.value?.data
+
+  // Fallback to layoutOrgData if activeOrg isn't set yet
+  if (!orgData && layoutOrgData.value) {
+    const rawData = layoutOrgData.value as any
+    orgData = rawData.organization ? { ...rawData.organization, subscriptions: rawData.subscriptions } : rawData
+  }
+
+  console.log('Computing role:', {
+    hasOrgData: !!orgData,
+    hasMembers: !!orgData?.members,
+    userId: user.value?.id,
+    members: orgData?.members
+  })
+
   if (!orgData?.members || !user.value?.id)
     return undefined
+
   const userId = user.value.id
   const member = orgData.members.find((m: any) => m.userId === userId)
+  console.log('Found member:', member, 'role:', member?.role)
   return member?.role as 'owner' | 'admin' | 'member' | undefined
 })
 

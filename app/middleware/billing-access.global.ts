@@ -16,12 +16,16 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
 
   console.log('[Billing Guard] routeSlug:', routeSlug)
 
-  // Fetch organizations to get the ID
-  const { data: orgs } = await organization.list()
-  if (!orgs || orgs.length === 0)
+  // Use cached org list to avoid fetching on every navigation
+  const { data: orgs } = await useAsyncData('user-organizations', async () => {
+    const { data } = await organization.list()
+    return data
+  })
+
+  if (!orgs.value || orgs.value.length === 0)
     return
 
-  const targetOrg = orgs.find((o: any) => o.slug === routeSlug)
+  const targetOrg = orgs.value.find((o: any) => o.slug === routeSlug)
   if (!targetOrg)
     return
 
@@ -57,12 +61,22 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
 
   // 6. Check subscription status
   let subs = []
-  try {
-    subs = await $fetch('/api/auth/subscription/list', {
-      query: { referenceId: orgId }
-    })
-  } catch (e) {
-    console.error('Subscription check failed:', e)
+
+  // Optimization: Check if activeOrg state already has the data for this org
+  const { useActiveOrganization } = useAuth()
+  const activeOrg = useActiveOrganization()
+
+  if (activeOrg.value?.data?.id === orgId && Array.isArray((activeOrg.value.data as any).subscriptions)) {
+    console.log('[Billing Guard] Using cached activeOrg subscriptions')
+    subs = (activeOrg.value.data as any).subscriptions
+  } else {
+    try {
+      subs = await $fetch('/api/auth/subscription/list', {
+        query: { referenceId: orgId }
+      })
+    } catch (e) {
+      console.error('Subscription check failed:', e)
+    }
   }
 
   console.log('[Billing Guard] subs:', subs)

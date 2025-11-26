@@ -275,7 +275,8 @@ export const setupStripe = () => stripe({
           billing_address_collection: 'required',
           metadata: {
             // Ensure metadata is preserved/set
-            ...(body?.metadata || {})
+            ...(body?.metadata || {}),
+            organizationId: targetOrgId // Explicitly add org ID to metadata
           }
         }
       }

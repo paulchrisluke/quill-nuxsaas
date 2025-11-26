@@ -107,13 +107,25 @@ async function acceptInvite(inviteId: string, orgId?: string) {
 
     // Refresh session to update active org
     await fetchSession()
-    // Get active org to find slug
-    const { data: activeOrg } = await organization.get()
-    if (activeOrg) {
-      window.location.href = `/${activeOrg.slug}/dashboard`
+
+    // Find the org in the list to get its slug
+    // Retry loop just in case of caching/latency
+    let joinedOrg = null
+    let attempts = 0
+    while (attempts < 3 && !joinedOrg) {
+      const { data: orgs } = await organization.list()
+      joinedOrg = orgs?.find((o: any) => o.id === orgId)
+      if (!joinedOrg) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        attempts++
+      }
+    }
+
+    if (joinedOrg) {
+      window.location.href = `/${joinedOrg.slug}/dashboard`
     } else {
-      // Fallback: Go to generic dashboard and let layout handle activation
-      window.location.href = '/t/dashboard'
+      // Fallback: Go to root and let middleware handle routing
+      window.location.href = '/'
     }
   } catch (e: any) {
     toast.add({

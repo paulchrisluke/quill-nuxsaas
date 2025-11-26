@@ -110,7 +110,7 @@ export const PERMISSIONS = {
 
   // Navigation Visibility
   VIEW_BILLING_NAV: ['owner'], // Only owners see billing in nav
-  VIEW_SETTINGS_NAV: ['owner', 'admin'], // Owners and admins see settings
+  VIEW_SETTINGS_NAV: ['owner', 'admin', 'member'], // Everyone sees settings (members can only leave)
   VIEW_MEMBERS_NAV: ['owner', 'admin', 'member'], // Everyone sees members
   VIEW_DASHBOARD_NAV: ['owner', 'admin', 'member'] // Everyone sees dashboard
 } as const

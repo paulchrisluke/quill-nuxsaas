@@ -1,4 +1,3 @@
-import type { Subscription } from '@better-auth/stripe'
 import type {
   ClientOptions,
   InferSessionFromClient
@@ -34,10 +33,18 @@ export function useAuth() {
     ]
   })
 
+  // Create global state for active organization (SSR friendly)
+  const useActiveOrgState = () => useState<any>('active-org-state', () => ({ data: null }))
+
   const session = useState<InferSessionFromClient<ClientOptions> | null>('auth:session', () => null)
   const user = useState<User | null>('auth:user', () => null)
-  const subscriptions = useState<Subscription[]>('auth:subscriptions', () => [])
   const sessionFetching = import.meta.server ? ref(false) : useState('auth:sessionFetching', () => false)
+
+  // Subscriptions are derived from the active org state
+  const subscriptions = computed(() => {
+    const activeOrgState = useActiveOrgState()
+    return (activeOrgState.value?.data as any)?.subscriptions || []
+  })
 
   const fetchSession = async () => {
     if (sessionFetching.value) {
@@ -66,20 +73,10 @@ export function useAuth() {
     user.value = data?.user
       ? Object.assign({}, userDefaults, data.user)
       : null
-    subscriptions.value = []
+
     if (user.value) {
-      try {
-        if (payment == 'stripe') {
-          const activeOrgId = data?.session?.activeOrganizationId
-          const { data: subscriptionData } = await client.subscription.list({
-            query: activeOrgId ? { referenceId: activeOrgId } : undefined
-          })
-          subscriptions.value = subscriptionData || []
-        }
-      } catch (error) {
-        // Ignore subscription fetch errors (e.g., 404 if not configured)
-        console.debug('Subscription fetch failed:', error)
-      }
+      // Subscriptions are now fetched via activeOrg (SSR)
+      // No need to fetch them here separately
     }
     sessionFetching.value = false
     return data
@@ -93,32 +90,54 @@ export function useAuth() {
     })
   }
 
+  const useActiveOrganization = () => {
+    const state = useActiveOrgState()
+    return state
+  }
+
   // Centralized function to refresh organization data
   const refreshActiveOrg = async () => {
     try {
-      const orgData = await $fetch('/api/auth/organization/get-full-organization')
-      const activeOrg = client.useActiveOrganization()
-      if (orgData && activeOrg.value) {
-        activeOrg.value.data = orgData as any
+      const orgData: any = await $fetch('/api/organization/full-data')
+
+      // Flatten the structure to match what components expect
+      // orgData comes as { organization: {...}, subscriptions: [...], user: ... }
+      // We want activeOrg.value.data to be { ...organization, subscriptions: [...] }
+      const flattenedData = {
+        ...orgData.organization,
+        subscriptions: orgData.subscriptions
       }
-      return orgData
+
+      const state = useActiveOrgState()
+      if (state.value) {
+        state.value.data = flattenedData
+      } else {
+        state.value = { data: flattenedData }
+      }
+      return flattenedData
     } catch (error) {
-      console.error('Failed to refresh organization:', error)
+      console.error('Failed to refresh active org:', error)
       return null
     }
   }
 
   return {
+    client,
     session,
     user,
     organization: client.organization,
-    useActiveOrganization: client.useActiveOrganization,
+    useActiveOrganization, // Use our singleton wrapper
     subscription: client.subscription,
     subscriptions,
     loggedIn: computed(() => !!session.value),
     activeStripeSubscription: computed(() => {
-      return subscriptions.value.find(
-        sub => sub.status === 'active' || sub.status === 'trialing'
+      const activeOrgState = useActiveOrgState()
+      const subs = (activeOrgState.value?.data as any)?.subscriptions || []
+      if (!Array.isArray(subs))
+        return undefined
+
+      return subs.find(
+        (sub: any) => sub.status === 'active' || sub.status === 'trialing'
       )
     }),
     refreshActiveOrg,
@@ -144,7 +163,6 @@ export function useAuth() {
       })
     },
     fetchSession,
-    payment,
-    client
+    payment
   }
 }

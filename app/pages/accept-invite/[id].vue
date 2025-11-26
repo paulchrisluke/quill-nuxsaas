@@ -36,17 +36,26 @@ onMounted(async () => {
 
     // Fetch the organization details to get the slug
     await fetchSession()
-    const { data: orgs } = await organization.list()
 
-    // Find the organization we just joined (should be the active one or match the invitation)
-    const joinedOrg = orgs?.find((o: any) => o.id === result?.organizationId) || orgs?.[0]
+    // Retry fetching orgs a few times if the new org isn't immediately visible
+    let joinedOrg = null
+    let attempts = 0
+    while (attempts < 3 && !joinedOrg) {
+      const { data: orgs } = await organization.list()
+      joinedOrg = orgs?.find((o: any) => o.id === result?.invitation?.organizationId)
+      if (!joinedOrg) {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        attempts++
+      }
+    }
 
     if (joinedOrg) {
       toast.add({ title: 'Invitation accepted', color: 'success' })
       // Redirect to the specific organization's dashboard
       window.location.href = `/${joinedOrg.slug}/dashboard`
     } else {
-      throw new Error('Could not find organization')
+      // Fallback: Redirect to root, middleware will route to active org
+      window.location.href = '/'
     }
   } catch (e: any) {
     error.value = e.message || 'Failed to accept invitation'

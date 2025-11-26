@@ -5,8 +5,10 @@ definePageMeta({
   layout: 'dashboard'
 })
 
-const { useActiveOrganization, subscription: stripeSubscription, client } = useAuth()
+const { useActiveOrganization, subscription: stripeSubscription, client, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
+const router = useRouter()
+const toast = useToast()
 const loading = ref(false)
 const billingInterval = ref<'month' | 'year'>('month')
 const route = useRoute()
@@ -21,51 +23,64 @@ watchEffect(() => {
   }
 })
 
-// Fetch organization data FIRST, then use its ID to fetch subscriptions
-const { data: pageData } = await useAsyncData(
-  `billing-page-${route.params.slug}`,
-  async () => {
-    // Fetch org data first
-    const orgData = await $fetch('/api/auth/organization/get-full-organization', {
-      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
-    })
+// Handle Stripe success redirect - poll for updated subscription
+onMounted(async () => {
+  if (route.query.success === 'true') {
+    loading.value = true
 
-    // Now fetch subscriptions using the org ID
-    const subsData = await $fetch('/api/auth/subscription/list', {
-      query: { referenceId: (orgData as any)?.id || '' },
-      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
-    }).catch(() => null)
+    // Poll for up to 10 seconds (5 attempts x 2s)
+    let attempts = 0
+    const maxAttempts = 5
 
-    return {
-      organization: orgData,
-      subscriptions: subsData
+    while (attempts < maxAttempts) {
+      // Wait 2s between checks
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      console.log(`Checking for subscription update... (Attempt ${attempts + 1}/${maxAttempts})`)
+      await refreshActiveOrg()
+
+      // Check if we have a Pro subscription now
+      const currentSubs = (activeOrg.value?.data as any)?.subscriptions || []
+      const hasPro = currentSubs.some((s: any) => s.status === 'active' || s.status === 'trialing')
+
+      if (hasPro) {
+        console.log('Pro subscription found!')
+        break
+      }
+
+      attempts++
     }
-  }
-)
 
-// Sync fetched org data with activeOrg
-if (pageData.value?.organization && activeOrg.value) {
-  activeOrg.value.data = pageData.value.organization as any
-}
+    loading.value = false
 
-// Watch for pageData changes and sync
-watch(() => pageData.value?.organization, (newOrg) => {
-  if (newOrg && activeOrg.value) {
-    activeOrg.value.data = newOrg as any
+    // Clear the success param to clean up URL
+    const newQuery = { ...route.query }
+    delete newQuery.success
+    router.replace({ query: newQuery })
+
+    toast.add({
+      title: 'Subscription updated',
+      description: 'Your plan has been successfully updated.',
+      color: 'success'
+    })
   }
 })
 
-// Use the fetched data
-const subscriptions = computed(() => pageData.value?.subscriptions || null)
+// We don't need to fetch subscriptions here because:
+// 1. The layout already fetches 'get-full-organization' via SSR
+// 2. That endpoint includes subscriptions
+// 3. We just fixed useActiveOrganization() to use global state populated by the layout
+// So we can just read the data directly!
+const subscriptions = computed(() => {
+  const data = activeOrg.value?.data
+  // Check both direct subscriptions property (from get-full-organization response)
+  // and if it's nested inside data (depending on how activeOrg is structured)
+  return (data as any)?.subscriptions || []
+})
 
-// Refresh function for after mutations
+// Refresh function for after mutations - re-fetches the whole org data
 const refresh = async () => {
-  const subsData = await $fetch('/api/auth/subscription/list', {
-    query: { referenceId: activeOrg.value?.data?.id || '' }
-  })
-  if (pageData.value) {
-    pageData.value.subscriptions = subsData
-  }
+  await refreshActiveOrg()
 }
 
 const activeSub = computed(() => {

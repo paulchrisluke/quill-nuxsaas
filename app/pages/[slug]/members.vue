@@ -16,22 +16,17 @@ const inviteRole = ref('member')
 const loading = ref(false)
 const route = useRoute()
 
-// Fetch subscription data for this org
-const { data: subscriptionData } = await useAsyncData(
-  () => `members-subs-${activeOrg.value?.data?.id}`,
-  async () => {
-    if (!activeOrg.value?.data?.id)
-      return null
-    const subs = await $fetch('/api/auth/subscription/list', {
-      query: { referenceId: activeOrg.value.data.id },
-      headers: import.meta.server ? useRequestHeaders(['cookie']) : undefined
-    })
-    return Array.isArray(subs) ? subs.find((s: any) => s.status === 'active' || s.status === 'trialing') : null
-  },
-  {
-    watch: [() => activeOrg.value?.data?.id]
-  }
-)
+// Get subscription data from activeOrg (already fetched by layout via full-data endpoint)
+const subscriptionData = computed(() => {
+  // Check if activeOrg has subscription data
+  const subs = (activeOrg.value?.data as any)?.subscriptions
+
+  console.log('[Members] Checking subscriptions:', subs)
+
+  if (!subs || !Array.isArray(subs))
+    return null
+  return subs.find((s: any) => s.status === 'active' || s.status === 'trialing')
+})
 
 // Organization data is already available via useActiveOrganization()
 // No need to fetch it again on page load
@@ -48,11 +43,8 @@ const canManageMembers = computed(() => {
   return currentUserRole.value === 'admin' || currentUserRole.value === 'owner'
 })
 
-// Check subscription status - use fetched data as source of truth
+// Check subscription status - use data from activeOrg
 const isPro = computed(() => {
-  // subscriptionData.value will be:
-  // - null or undefined if no active/trialing subscription
-  // - subscription object if active/trialing subscription exists
   const result = subscriptionData.value !== null && subscriptionData.value !== undefined
   console.log('isPro:', result, 'subscriptionData:', subscriptionData.value)
   return result

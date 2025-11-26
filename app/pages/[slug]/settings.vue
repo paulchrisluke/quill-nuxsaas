@@ -10,17 +10,63 @@ const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
 
-// Security check: Redirect if not owner or admin
-onMounted(() => {
-  watchEffect(() => {
-    if (activeOrg.value?.data?.members && user.value?.id) {
-      const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
-      if (member?.role !== 'owner' && member?.role !== 'admin') {
-        navigateTo(`/${activeOrg.value.data.slug}/dashboard`)
-      }
-    }
-  })
+// Computed permissions
+const currentUserRole = computed(() => {
+  if (!activeOrg.value?.data?.members || !user.value?.id)
+    return null
+  const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
+  return member?.role
 })
+
+const canUpdateSettings = computed(() => {
+  return currentUserRole.value === 'owner' || currentUserRole.value === 'admin'
+})
+
+const canDeleteTeam = computed(() => {
+  return currentUserRole.value === 'owner'
+})
+
+// Leave team logic
+const leaveLoading = ref(false)
+const canLeaveTeam = computed(() => {
+  // Owners cannot leave (must delete or transfer), others can
+  return currentUserRole.value !== 'owner'
+})
+
+async function leaveTeam() {
+  if (!activeOrg.value?.data?.id)
+    return
+
+  // eslint-disable-next-line no-alert
+  const confirmed = window.confirm(`Are you sure you want to leave "${activeOrg.value.data.name}"?`)
+  if (!confirmed)
+    return
+
+  leaveLoading.value = true
+  try {
+    const { error } = await organization.leave({
+      organizationId: activeOrg.value.data.id
+    })
+    if (error)
+      throw error
+
+    toast.add({ title: 'Left team successfully', color: 'success' })
+
+    // Refresh and redirect
+    const { data: orgs } = await organization.list()
+    if (orgs && orgs.length > 0) {
+      await organization.setActive({ organizationId: orgs[0].id })
+      await fetchSession()
+      window.location.href = `/${orgs[0].slug}/dashboard`
+    } else {
+      window.location.href = '/onboarding'
+    }
+  } catch (e: any) {
+    toast.add({ title: 'Error leaving team', description: e.message, color: 'error' })
+  } finally {
+    leaveLoading.value = false
+  }
+}
 
 // Organization data is already available via useActiveOrganization()
 // No need to fetch it again on page load
@@ -103,14 +149,6 @@ const copyId = () => {
   }
 }
 
-// Check if user can delete this team (owner only)
-const canDeleteTeam = computed(() => {
-  if (!activeOrg.value?.data?.members || !user.value?.id)
-    return false
-  const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
-  return member?.role === 'owner'
-})
-
 const deleteLoading = ref(false)
 
 async function deleteTeam() {
@@ -169,7 +207,10 @@ async function deleteTeam() {
       Organization settings
     </h1>
 
-    <div class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 bg-white dark:bg-gray-900 mb-8">
+    <div
+      v-if="canUpdateSettings"
+      class="border border-gray-200 dark:border-gray-800 rounded-lg p-6 bg-white dark:bg-gray-900 mb-8"
+    >
       <h2 class="text-xl font-semibold mb-4">
         General information
       </h2>
@@ -205,6 +246,29 @@ async function deleteTeam() {
         :loading="loading"
         @click="updateTeam"
       />
+    </div>
+
+    <div
+      v-if="canLeaveTeam"
+      class="border border-red-200 dark:border-red-900/50 rounded-lg p-6 bg-red-50/50 dark:bg-red-900/10 mb-8"
+    >
+      <h2 class="text-xl font-semibold mb-4 text-red-600 dark:text-red-400">
+        Leave organization
+      </h2>
+      <p class="text-sm text-gray-500 mb-6">
+        Revoke your access to this organization. You will need to be re-invited to join again.
+      </p>
+
+      <UButton
+        color="red"
+        variant="outline"
+        icon="i-lucide-log-out"
+        :loading="leaveLoading"
+        class="cursor-pointer"
+        @click="leaveTeam"
+      >
+        Leave Team
+      </UButton>
     </div>
 
     <div
