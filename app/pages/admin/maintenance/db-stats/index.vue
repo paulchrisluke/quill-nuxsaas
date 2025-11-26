@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
 const { t } = useI18n()
-const { data: dbStats } = await useLazyFetch('/api/admin/maintenance/db-stats', {
+const { data: dbStats, error, pending, refresh } = useLazyFetch('/api/admin/maintenance/db-stats', {
   server: false
 })
 
@@ -148,13 +148,28 @@ function formatBytes(bytes: number) {
       </div>
 
       <div
-        v-if="!dbStats"
+        v-if="pending"
         class="text-center"
       >
         <UIcon
           name="i-lucide-loader-2"
           class="animate-spin"
         />
+      </div>
+      <div
+        v-else-if="error"
+        class="text-center space-y-3"
+      >
+        <p class="text-red-500">
+          {{ t('dbStats.errorLoading') || 'Failed to load database statistics.' }}
+        </p>
+        <UButton
+          color="primary"
+          variant="soft"
+          @click="refresh"
+        >
+          {{ t('dbStats.retry') || 'Retry' }}
+        </UButton>
       </div>
     </UCard>
   </NuxtLayout>

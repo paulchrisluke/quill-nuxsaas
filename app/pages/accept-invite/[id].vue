@@ -40,12 +40,21 @@ onMounted(async () => {
     // Retry fetching orgs a few times if the new org isn't immediately visible
     let joinedOrg = null
     let attempts = 0
+    let orgFetchFailed = false
     while (attempts < 3 && !joinedOrg) {
-      const { data: orgs } = await organization.list()
-      joinedOrg = orgs?.find((o: any) => o.id === result?.invitation?.organizationId)
+      try {
+        const { data: orgs } = await organization.list()
+        joinedOrg = orgs?.find((o: any) => o.id === result?.invitation?.organizationId)
+      } catch (fetchError) {
+        console.error('[Accept Invite] Failed to fetch organizations', fetchError)
+        orgFetchFailed = true
+      }
+
       if (!joinedOrg) {
-        await new Promise(resolve => setTimeout(resolve, 500))
         attempts++
+        if (attempts < 3) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
       }
     }
 
@@ -54,6 +63,9 @@ onMounted(async () => {
       // Redirect to the specific organization's dashboard
       window.location.href = `/${joinedOrg.slug}/dashboard`
     } else {
+      if (orgFetchFailed) {
+        error.value = 'Invitation accepted but failed to load organization details. Redirecting to dashboard.'
+      }
       // Fallback: Redirect to root, middleware will route to active org
       window.location.href = '/'
     }

@@ -31,38 +31,40 @@ onMounted(async () => {
     // Poll for up to 10 seconds (5 attempts x 2s)
     let attempts = 0
     const maxAttempts = 5
+    let hasPro = false
 
-    while (attempts < maxAttempts) {
-      // Wait 2s between checks
+    while (attempts < maxAttempts && !hasPro) {
       await new Promise(resolve => setTimeout(resolve, 2000))
 
       console.log(`Checking for subscription update... (Attempt ${attempts + 1}/${maxAttempts})`)
       await refreshActiveOrg()
 
-      // Check if we have a Pro subscription now
       const currentSubs = (activeOrg.value?.data as any)?.subscriptions || []
-      const hasPro = currentSubs.some((s: any) => s.status === 'active' || s.status === 'trialing')
+      hasPro = currentSubs.some((s: any) => s.status === 'active' || s.status === 'trialing')
 
-      if (hasPro) {
-        console.log('Pro subscription found!')
-        break
-      }
-
-      attempts++
+      if (!hasPro)
+        attempts++
     }
 
     loading.value = false
 
-    // Clear the success param to clean up URL
-    const newQuery = { ...route.query }
-    delete newQuery.success
-    router.replace({ query: newQuery })
+    if (hasPro) {
+      const newQuery = { ...route.query }
+      delete newQuery.success
+      router.replace({ query: newQuery })
 
-    toast.add({
-      title: 'Subscription updated',
-      description: 'Your plan has been successfully updated.',
-      color: 'success'
-    })
+      toast.add({
+        title: 'Subscription updated',
+        description: 'Your plan has been successfully updated.',
+        color: 'success'
+      })
+    } else {
+      toast.add({
+        title: 'Still processing',
+        description: 'We are still finalizing your subscription. Please refresh or try again shortly.',
+        color: 'warning'
+      })
+    }
   }
 })
 
@@ -135,11 +137,18 @@ const nextChargeDate = computed(() => {
 })
 
 // Cost breakdown
+const resolvePlanFromSubscription = () => {
+  if (!activeSub.value?.plan)
+    return null
+  const planKey = activeSub.value.plan.includes('year') ? 'PRO_YEARLY' : 'PRO_MONTHLY'
+  return PLANS[planKey as keyof typeof PLANS]
+}
+
 const costBreakdown = computed(() => {
   if (!activeSub.value)
     return null
 
-  const plan = activePlan.value
+  const plan = resolvePlanFromSubscription() ?? activePlan.value
   const seats = activeSub.value.seats || 1
   const additionalSeats = Math.max(0, seats - 1)
 
@@ -255,6 +264,13 @@ async function cancelSubscription() {
 
     if (error) {
       console.error('Failed to fetch members:', error)
+      toast.add({
+        title: 'Unable to prepare downgrade',
+        description: 'Failed to load team members. Please try again.',
+        color: 'error'
+      })
+      loading.value = false
+      return
     }
 
     const membersList = response?.members || []
@@ -370,14 +386,15 @@ async function initiateSeatChange() {
   if (activeOrg.value.data.members) {
     memberCount = activeOrg.value.data.members.length
   } else {
-    // Optimistic or fallback?
-    // Let's fetch to be safe
-    const { data } = await client.organization.listMembers({
-      query: { organizationId: activeOrg.value.data.id, limit: 1 }
+    const { data, error } = await client.organization.listMembers({
+      query: { organizationId: activeOrg.value.data.id, limit: 100 }
     })
-    if (data?.total)
-      memberCount = data.total // listMembers usually returns total
-    // Or we can rely on existing 'cancelSubscription' logic which fetches members.
+    if (error) {
+      // eslint-disable-next-line no-alert
+      alert('Failed to verify member count. Please try again.')
+      return
+    }
+    memberCount = data?.members?.length || data?.total || 0
   }
 
   if (targetSeats.value < memberCount) {

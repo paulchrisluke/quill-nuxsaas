@@ -1,5 +1,14 @@
+interface SimpleOrganization {
+  id: string
+  slug: string
+  [key: string]: any
+}
+
 export default defineNuxtRouteMiddleware(async (to) => {
   const { loggedIn, organization, useActiveOrganization, fetchSession, session } = useAuth()
+
+  const _nuxtApp = useNuxtApp()
+  const toast = import.meta.client ? useToast() : null
 
   if (!loggedIn.value)
     return
@@ -15,26 +24,48 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const activeOrgId = (session.value as any)?.activeOrganizationId
 
   // Use cached org list to avoid fetching on every navigation
-  const { data: orgs } = await useAsyncData('user-organizations', async () => {
-    const { data } = await organization.list()
-    return data
+  const { data: orgs, error: orgsError, refresh: _refreshOrgs } = await useAsyncData('user-organizations', async () => {
+    try {
+      const { data } = await organization.list()
+      return data as SimpleOrganization[]
+    } catch (error) {
+      console.error('[Organization Guard] Failed to load organizations', error)
+      throw error
+    }
   })
+
+  if (orgsError.value) {
+    if (import.meta.client) {
+      toast?.add({
+        title: 'Organization sync failed',
+        description: 'Unable to load your organizations. Please retry.',
+        color: 'error'
+      })
+    }
+    return
+  }
 
   if (!orgs.value || orgs.value.length === 0)
     return
 
-  const targetOrg = orgs.value.find((o: any) => o.slug === routeSlug)
+  const targetOrg = orgs.value.find((o: SimpleOrganization) => o.slug === routeSlug)
 
   if (targetOrg) {
     if (targetOrg.id !== activeOrgId) {
-      // Organization mismatch, set active organization
-      await organization.setActive({ organizationId: targetOrg.id })
-      await fetchSession()
-
-      // Update activeOrg ref immediately to update UI
-      const activeOrg = useActiveOrganization()
-      if (activeOrg.value) {
-        activeOrg.value.data = targetOrg
+      try {
+        await organization.setActive({ organizationId: targetOrg.id })
+        await fetchSession()
+        const activeOrg = useActiveOrganization()
+        if (activeOrg.value) {
+          activeOrg.value.data = targetOrg
+        }
+      } catch (error) {
+        console.error('[Organization Guard] Failed to set active organization', error)
+        toast?.add({
+          title: 'Unable to switch organization',
+          description: 'Please try again or refresh the page.',
+          color: 'error'
+        })
       }
     }
   } else {
@@ -45,8 +76,13 @@ export default defineNuxtRouteMiddleware(async (to) => {
       // Prevent infinite redirect if we are already redirected
       const localePath = useLocalePath()
       const targetPath = localePath(`/${firstOrg.slug}/dashboard`)
-      if (to.path !== targetPath) {
-        return navigateTo(targetPath)
+      if (to.fullPath !== targetPath) {
+        toast?.add({
+          title: 'Organization unavailable',
+          description: 'Navigated to your first available team.',
+          color: 'warning'
+        })
+        return navigateTo(targetPath, { replace: true })
       }
     }
   }

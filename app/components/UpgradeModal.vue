@@ -31,13 +31,38 @@ const description = computed(() => {
 
 const message = computed(() => {
   if (props.reason === 'create-org') {
-    return 'The Free plan only allows 1 organization per user. Each additional orginizations under the same account require a Pro plan.'
+    return 'The Free plan only allows 1 organization per user. Each additional organization under the same account requires a Pro plan.'
   }
   if (props.reason === 'invite') {
     return 'The Free plan only allows 1 team member. Upgrade this organization to Pro to invite members and unlock additional features.'
   }
   return 'The Free plan only allows 1 organization per user. Upgrade to Pro to create unlimited organizations and unlock additional features.'
 })
+
+function getOrgSlug() {
+  const { useActiveOrganization } = useAuth()
+  const activeOrg = useActiveOrganization()
+  return props.teamSlug || activeOrg.value?.data?.slug || null
+}
+
+function handleMissingSlug() {
+  console.error('[UpgradeModal] Missing organization slug for upgrade redirect', {
+    teamSlug: props.teamSlug
+  })
+  toast.add({
+    title: 'Missing organization slug',
+    description: 'Unable to determine the organization URL for checkout. Please try again.',
+    color: 'error'
+  })
+}
+
+function setSelectedInterval(interval: string) {
+  if (interval === 'month' || interval === 'year') {
+    selectedInterval.value = interval
+  } else {
+    console.warn('[UpgradeModal] Ignoring unsupported interval', interval)
+  }
+}
 
 async function handleUpgrade() {
   if (!props.organizationId) {
@@ -47,9 +72,13 @@ async function handleUpgrade() {
 
   loading.value = true
   try {
-    const { useActiveOrganization, client } = useAuth()
-    const activeOrg = useActiveOrganization()
-    const orgSlug = activeOrg.value?.data?.slug || props.teamSlug || 't'
+    const { client } = useAuth()
+    const orgSlug = getOrgSlug()
+
+    if (!orgSlug) {
+      handleMissingSlug()
+      return
+    }
 
     // Use Better Auth subscription.upgrade
     await client.subscription.upgrade({
@@ -127,7 +156,7 @@ async function handleUpgrade() {
               :key="plan.interval"
               class="border rounded-lg p-4 cursor-pointer transition-all"
               :class="selectedInterval === plan.interval ? 'border-primary ring-1 ring-primary bg-primary/5' : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'"
-              @click="selectedInterval = plan.interval as 'month' | 'year'"
+              @click="setSelectedInterval(plan.interval)"
             >
               <div class="flex justify-between items-start mb-2">
                 <h3 class="font-semibold">

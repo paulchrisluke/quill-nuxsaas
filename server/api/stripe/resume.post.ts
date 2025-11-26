@@ -15,8 +15,18 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const body = await readBody(event)
-  const { subscriptionId, referenceId } = body
+  let body: any
+  try {
+    body = await readBody(event)
+  } catch (error) {
+    console.error('Failed to parse resume request body:', error)
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Invalid JSON in request body'
+    })
+  }
+
+  const { subscriptionId, referenceId } = body || {}
 
   if (!subscriptionId) {
     throw createError({
@@ -48,7 +58,46 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const stripe = new Stripe(runtimeConfig.stripeSecretKey!)
+  if (!runtimeConfig.stripeSecretKey) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Stripe configuration is missing'
+    })
+  }
+
+  const stripe = new Stripe(runtimeConfig.stripeSecretKey)
+
+  const remoteSubscription = await stripe.subscriptions.retrieve(subscriptionId)
+  const subscriptionOrgId = remoteSubscription.metadata?.organizationId
+  const subscriptionCustomerId = remoteSubscription.customer && typeof remoteSubscription.customer === 'object'
+    ? remoteSubscription.customer.id
+    : remoteSubscription.customer
+
+  if (subscriptionOrgId && subscriptionOrgId !== referenceId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden: Subscription does not belong to this organization'
+    })
+  }
+
+  if (!subscriptionOrgId && subscriptionCustomerId) {
+    const org = await db.query.member.findFirst({
+      where: eq(memberTable.organizationId, referenceId)
+    })
+    if (org && org.organization && org.organization.stripeCustomerId && org.organization.stripeCustomerId !== subscriptionCustomerId) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'Forbidden: Subscription customer mismatch'
+      })
+    }
+  }
+
+  if (!remoteSubscription.cancel_at_period_end) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Subscription is not scheduled to cancel'
+    })
+  }
 
   try {
     // Resume subscription (disable cancel_at_period_end)
@@ -57,17 +106,24 @@ export default defineEventHandler(async (event) => {
     })
 
     // Log the event
-    await addPaymentLog('subscription_resumed', subscription)
+    try {
+      await addPaymentLog('subscription_resumed', subscription)
+    } catch (logError) {
+      console.warn('Failed to log subscription resume event', logError)
+    }
 
     return {
       success: true,
       subscription
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = typeof error === 'object' && error && 'message' in error
+      ? String((error as any).message)
+      : 'Failed to resume subscription'
     console.error('Stripe resume error:', error)
     throw createError({
       statusCode: 500,
-      statusMessage: error.message || 'Failed to resume subscription'
+      statusMessage: message
     })
   }
 })

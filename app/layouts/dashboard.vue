@@ -146,6 +146,8 @@ const fetchOwnedCount = async () => {
 const handleOpenCreateModal = async () => {
   // Just open the create team modal
   isCreateTeamModalOpen.value = true
+  showUpgradeModal.value = false
+  upgradeOrgId.value = undefined
 }
 
 onUnmounted(() => {
@@ -309,7 +311,6 @@ async function createTeam() {
   await fetchOwnedCount()
 
   if (ownedTeamsCount.value >= 1) {
-    // User owns 1+ teams - just create the team, they can upgrade from billing page
     creatingTeam.value = true
     try {
       const { data: newTeam, error: createError } = await organization.create({
@@ -321,10 +322,8 @@ async function createTeam() {
         throw createError || new Error('Failed to create team')
       }
 
-      // Team created successfully - mark it as needing upgrade
       await organization.setActive({ organizationId: newTeam.id })
 
-      // Store flag in localStorage - this team needs Pro upgrade
       localStorage.setItem(`org_${newTeam.id}_needsUpgrade`, 'true')
 
       toast.add({
@@ -332,12 +331,10 @@ async function createTeam() {
         description: 'Upgrade to Pro to unlock all features',
         color: 'success'
       })
-      newTeamName.value = ''
-      newTeamSlug.value = ''
-      isSlugManuallyEdited.value = false
+
+      upgradeOrgId.value = newTeam.id
+      showUpgradeModal.value = true
       isCreateTeamModalOpen.value = false
-      // Navigate to new team billing page to upgrade
-      window.location.href = `/${newTeam.slug}/billing?showUpgrade=true`
     } catch (e: any) {
       toast.add({
         title: 'Failed to create team',
@@ -368,6 +365,8 @@ async function createTeam() {
       newTeamSlug.value = ''
       isSlugManuallyEdited.value = false
       isCreateTeamModalOpen.value = false
+      showUpgradeModal.value = false
+      upgradeOrgId.value = undefined
       // Navigate to new team dashboard
       window.location.href = `/${data.slug}/dashboard`
     }

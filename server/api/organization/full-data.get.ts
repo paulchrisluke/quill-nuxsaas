@@ -3,10 +3,23 @@
  * Queries database directly - NO HTTP calls, NO Better Auth API calls
  */
 
+import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { organization as organizationTable, subscription as subscriptionTable } from '../../database/schema'
 import { getAuthSession } from '../../utils/auth'
 import { useDB } from '../../utils/db'
+
+const anonymizeId = (value?: string | null) => {
+  if (!value)
+    return 'unknown'
+  return createHash('sha256').update(value).digest('hex').slice(0, 8)
+}
+
+const sanitizeError = (error: any) => ({
+  message: error?.message ?? 'Unknown error',
+  statusCode: error?.statusCode,
+  code: error?.code
+})
 
 export default defineEventHandler(async (event) => {
   try {
@@ -23,12 +36,10 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    console.log('Session found:', { userId: session.user.id, activeOrgId: session.session.activeOrganizationId })
-
     const activeOrgId = session.session.activeOrganizationId
 
     if (!activeOrgId) {
-      console.error('No activeOrganizationId in session:', session)
+      console.warn('[Organization full-data] Missing active organization in session')
       throw createError({
         statusCode: 400,
         message: 'No active organization'
@@ -56,9 +67,12 @@ export default defineEventHandler(async (event) => {
     }
 
     // Verify that the current user is a member of this organization
-    const isMember = org.members.some((m: any) => m.userId === session.user.id)
+    const isMember = org.members.some(m => m.userId === session.user.id)
     if (!isMember) {
-      console.warn(`User ${session.user.id} attempted to access org ${activeOrgId} without membership`)
+      console.warn('[Organization full-data] Membership check failed', {
+        user: anonymizeId(session.user.id),
+        organization: anonymizeId(activeOrgId)
+      })
       throw createError({
         statusCode: 403,
         message: 'You are not a member of this organization'
@@ -70,11 +84,39 @@ export default defineEventHandler(async (event) => {
       where: eq(subscriptionTable.referenceId, activeOrgId)
     })
 
-    console.log('[API] Full Data - Org:', activeOrgId, 'Subs found:', subscriptions.length)
+    const sanitizedMembers = org.members.map((member) => {
+      const { user, ...memberData } = member
+      return {
+        ...memberData,
+        user: user
+          ? {
+              id: user.id,
+              name: user.name,
+              email: user.email
+            }
+          : null
+      }
+    })
+
+    const sanitizedInvitations = org.invitations.map((invitation: any) => {
+      const { token, secret, ...safeInvitation } = invitation
+      return safeInvitation
+    })
+
+    const sanitizedOrg = {
+      ...org,
+      members: sanitizedMembers,
+      invitations: sanitizedInvitations
+    }
+
+    console.log('[Organization full-data] Returning organization payload', {
+      organization: anonymizeId(activeOrgId),
+      subscriptions: subscriptions.length
+    })
 
     return {
-      organization: org,
-      subscriptions: subscriptions || [],
+      organization: sanitizedOrg,
+      subscriptions,
       user: {
         id: session.user.id,
         email: session.user.email,
@@ -82,7 +124,7 @@ export default defineEventHandler(async (event) => {
       }
     }
   } catch (error: any) {
-    console.error('Error fetching full organization data:', error)
+    console.error('Error fetching full organization data:', sanitizeError(error))
     throw createError({
       statusCode: error.statusCode || 500,
       message: error.message || 'Failed to fetch organization data'

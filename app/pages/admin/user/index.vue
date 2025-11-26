@@ -6,6 +6,7 @@ import CreateUserModal from './components/CreateUserModal.vue'
 
 const { t } = useI18n()
 const { client, user: currentUser } = useAuth()
+const toast = useToast()
 const isUserModalOpen = ref(false)
 const isBanModalOpen = ref(false)
 const selectedUserId = ref('')
@@ -46,15 +47,26 @@ const getActionItems = (row: Row<User>) => {
     }
   ]
 
-  if (user.id !== currentUser.value?.id) {
+  const viewerId = currentUser.value?.id
+
+  if (viewerId && user.id !== viewerId) {
     items.push({
-      label: 'Impersonate',
+      label: t('user.actions.impersonate'),
       icon: 'i-lucide-scan-face',
       async onSelect() {
-        await client.admin.impersonateUser({
-          userId: user.id
-        })
-        window.location.href = '/'
+        try {
+          await client.admin.impersonateUser({
+            userId: user.id
+          })
+          window.location.href = '/'
+        } catch (error: any) {
+          console.error('Failed to impersonate user', error)
+          toast.add({
+            title: t('user.actions.impersonateError') || 'Failed to impersonate user',
+            description: error?.message ?? 'Please try again later.',
+            color: 'error'
+          })
+        }
       }
     })
   }

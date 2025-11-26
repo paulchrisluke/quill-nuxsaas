@@ -24,11 +24,13 @@
 
   /* Disabled elements should not have pointer cursor */
   button:disabled,
-  a:disabled,
-  [role="button"]:disabled,
   [type="button"]:disabled,
   [type="submit"]:disabled,
-  [type="reset"]:disabled {
+  [type="reset"]:disabled,
+  select:disabled,
+  a[aria-disabled="true"],
+  [role="button"][aria-disabled="true"],
+  [aria-disabled="true"] {
     @apply cursor-not-allowed;
   }
 }

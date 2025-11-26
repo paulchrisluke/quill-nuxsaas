@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { organization as organizationTable } from '~~/server/database/schema'
 import { useDB } from '~~/server/utils/db'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
@@ -26,7 +27,12 @@ export default defineEventHandler(async (event) => {
         continue
       }
       try {
-        await ensureStripeCustomer(org.id)
+        const customer = await ensureStripeCustomer(org.id)
+        if (customer?.id && customer.id !== org.stripeCustomerId) {
+          await db.update(organizationTable)
+            .set({ stripeCustomerId: customer.id })
+            .where(eq(organizationTable.id, org.id))
+        }
         results.stripeResults.push({
           organizationId: org.id,
           status: 'success'

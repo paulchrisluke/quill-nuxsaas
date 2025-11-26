@@ -18,10 +18,19 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const { organizationId, seats, newInterval } = body
 
-  if (!organizationId || !seats) {
+  const parsedSeats = Number.parseInt(`${seats}`, 10)
+
+  if (!organizationId || Number.isNaN(parsedSeats)) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Missing required fields'
+    })
+  }
+
+  if (!Number.isFinite(parsedSeats) || parsedSeats < 1 || parsedSeats > 10000) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Seats must be an integer between 1 and 10000'
     })
   }
 
@@ -55,33 +64,45 @@ export default defineEventHandler(async (event) => {
 
   const stripe = createStripeClient()
 
-  // Find subscription
-  const subscriptions = await stripe.subscriptions.list({
-    customer: org.stripeCustomerId,
-    limit: 10,
-    status: 'all'
-  })
+  const listSubscriptions = async (status: 'active' | 'trialing') => {
+    const subs: Stripe.ApiList<Stripe.Subscription> = await stripe.subscriptions.list({
+      customer: org.stripeCustomerId,
+      status,
+      limit: 100
+    })
+    return subs.data
+  }
 
-  const subscription = subscriptions.data.find(sub =>
-    sub.status === 'active' || sub.status === 'trialing'
-  )
+  let candidateSubscriptions = await listSubscriptions('active')
+  if (!candidateSubscriptions.length) {
+    candidateSubscriptions = await listSubscriptions('trialing')
+  }
 
-  if (!subscription) {
+  if (!candidateSubscriptions.length) {
     throw createError({
-      statusCode: 400,
-      statusMessage: 'No active subscription found'
+      statusCode: 404,
+      statusMessage: 'Subscription not found'
     })
   }
 
+  const subscription = candidateSubscriptions.reduce((latest, current) => {
+    if (!latest)
+      return current
+    const latestStart = latest.current_period_start ?? 0
+    const currentStart = current.current_period_start ?? 0
+    return currentStart > latestStart ? current : latest
+  })
+
   // If currently trialing, calculate locally and return immediately (No Proration/Stripe API needed)
   if (subscription.status === 'trialing') {
-    const interval = newInterval || subscription.plan.interval
+    const currentInterval = subscription.items.data[0]?.price?.recurring?.interval || 'month'
+    const interval = newInterval || currentInterval
     const planConfig = interval === 'year' ? PLANS.PRO_YEARLY : PLANS.PRO_MONTHLY
 
     // Calculate total: Base Price + (Additional Seats * Seat Price)
     // Base Plan covers 1st seat. Additional seats = seats - 1.
     // Example: Base $99.99 + ((2-1) Seat * $50.00) = $149.99
-    const additionalSeats = Math.max(0, seats - 1)
+    const additionalSeats = Math.max(0, parsedSeats - 1)
     const totalCents = Math.round((planConfig.priceNumber + (additionalSeats * planConfig.seatPriceNumber)) * 100)
 
     return {
@@ -97,13 +118,27 @@ export default defineEventHandler(async (event) => {
   // Determine new price if interval changes
   let newPriceId
   if (newInterval) {
+    if (newInterval !== 'month' && newInterval !== 'year') {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Invalid newInterval; must be "month" or "year"'
+      })
+    }
     newPriceId = newInterval === 'month'
       ? runtimeConfig.stripePriceIdProMonth
       : runtimeConfig.stripePriceIdProYear
   }
 
-  const subscriptionItemId = subscription.items.data[0].id
-  const currentItem = subscription.items.data[0]
+  const firstItem = subscription.items.data[0]
+  if (!firstItem) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Subscription has no items to update'
+    })
+  }
+
+  const subscriptionItemId = firstItem.id
+  const currentItem = firstItem
   const priceId = newPriceId || currentItem.price.id
 
   // Use Stripe SDK v20 - createPreview supports flexible billing mode
@@ -116,7 +151,7 @@ export default defineEventHandler(async (event) => {
         items: [
           {
             id: subscriptionItemId,
-            quantity: seats,
+            quantity: parsedSeats,
             price: priceId
           }
         ]

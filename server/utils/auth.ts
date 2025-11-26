@@ -305,7 +305,7 @@ export const createBetterAuth = () => betterAuth({
         member
       }
     }),
-    setupStripe() // Disabled until API key is fixed
+    setupStripe()
   ]
 })
 

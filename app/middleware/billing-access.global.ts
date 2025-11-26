@@ -1,3 +1,30 @@
+const safeStorage = {
+  get(key: string) {
+    try {
+      return localStorage.getItem(key)
+    } catch (error) {
+      console.warn('[Billing Guard] Failed to read localStorage key', key, error)
+      return null
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value)
+    } catch (error) {
+      console.warn('[Billing Guard] Failed to write localStorage key', key, error)
+    }
+  },
+  remove(key: string) {
+    try {
+      localStorage.removeItem(key)
+    } catch (error) {
+      console.warn('[Billing Guard] Failed to remove localStorage key', key, error)
+    }
+  }
+}
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 export default defineNuxtRouteMiddleware(async (to, from) => {
   // 1. Never run on server
   if (import.meta.server)
@@ -10,7 +37,7 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
   if (!loggedIn.value)
     return
 
-  const routeSlug = to.params.slug as string || from.params.slug as string
+  const routeSlug = to.params.slug as string
   if (!routeSlug)
     return
 
@@ -37,13 +64,13 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     to.path.includes('/billing') &&
     to.query?.showUpgrade === 'true'
   ) {
-    localStorage.setItem(`org_${orgId}_needsUpgrade`, 'true')
+    safeStorage.set(`org_${orgId}_needsUpgrade`, 'true')
     console.log('[Billing Guard] Stored needsUpgrade flag for org:', orgId)
     return
   }
 
   // 4. Check if this org needs upgrade
-  const needsUpgrade = localStorage.getItem(`org_${orgId}_needsUpgrade`) === 'true'
+  const needsUpgrade = safeStorage.get(`org_${orgId}_needsUpgrade`) === 'true'
   console.log('[Billing Guard] needsUpgrade:', needsUpgrade)
 
   if (!needsUpgrade)
@@ -60,7 +87,7 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
   }
 
   // 6. Check subscription status
-  let subs = []
+  let subs: any[] | null = []
 
   // Optimization: Check if activeOrg state already has the data for this org
   const { useActiveOrganization } = useAuth()
@@ -70,13 +97,33 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
     console.log('[Billing Guard] Using cached activeOrg subscriptions')
     subs = (activeOrg.value.data as any).subscriptions
   } else {
-    try {
-      subs = await $fetch('/api/auth/subscription/list', {
-        query: { referenceId: orgId }
-      })
-    } catch (e) {
-      console.error('Subscription check failed:', e)
+    const maxAttempts = 2
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        subs = await $fetch('/api/auth/subscription/list', {
+          query: { referenceId: orgId }
+        })
+        break
+      } catch (error: any) {
+        const status = error?.response?.status ?? error?.statusCode ?? error?.status
+        console.error(`[Billing Guard] Subscription check failed (attempt ${attempt}/${maxAttempts}) for org ${orgId}:`, error)
+
+        if (status && status >= 400 && status < 600) {
+          throw error
+        }
+
+        if (attempt === maxAttempts) {
+          subs = null
+        } else {
+          await delay(500)
+        }
+      }
     }
+  }
+
+  if (subs === null) {
+    console.warn('[Billing Guard] Allowing navigation due to transient subscription lookup failure.')
+    return
   }
 
   console.log('[Billing Guard] subs:', subs)
@@ -98,5 +145,5 @@ export default defineNuxtRouteMiddleware(async (to, from) => {
 
   // 7. If they upgraded, clear the flag
   console.log('[Billing Guard] Has subscription, clearing flag')
-  localStorage.removeItem(`org_${orgId}_needsUpgrade`)
+  safeStorage.remove(`org_${orgId}_needsUpgrade`)
 })

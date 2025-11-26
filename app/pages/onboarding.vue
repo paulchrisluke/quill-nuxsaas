@@ -108,16 +108,22 @@ async function acceptInvite(inviteId: string, orgId?: string) {
     // Refresh session to update active org
     await fetchSession()
 
+    if (!orgId) {
+      window.location.href = '/'
+      return
+    }
+
     // Find the org in the list to get its slug
     // Retry loop just in case of caching/latency
     let joinedOrg = null
     let attempts = 0
-    while (attempts < 3 && !joinedOrg) {
+    const maxAttempts = 3
+    while (attempts < maxAttempts && !joinedOrg) {
       const { data: orgs } = await organization.list()
       joinedOrg = orgs?.find((o: any) => o.id === orgId)
-      if (!joinedOrg) {
+      attempts++
+      if (!joinedOrg && attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 500))
-        attempts++
       }
     }
 

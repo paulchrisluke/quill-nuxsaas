@@ -17,11 +17,13 @@ export default defineEventHandler(async (event) => {
         headers: { cookie: cookieHeader }
       }).catch((err) => {
         console.error('Failed to fetch organization:', err)
-        return null
+        throw err
       }),
       // Get subscriptions (Better Auth endpoint)
       $fetch(`${baseUrl}/api/auth/subscription/list`, {
-        query: { referenceId: (event.context.session as any)?.activeOrganizationId || '' },
+        query: {
+          referenceId: event.context.session?.activeOrganizationId || ''
+        },
         headers: { cookie: cookieHeader }
       }).catch((err) => {
         console.error('Failed to fetch subscriptions:', err)

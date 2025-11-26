@@ -9,6 +9,11 @@ import { useDB } from './db'
 import { runtimeConfig } from './runtimeConfig'
 import { removeExcessMembersOnExpiration } from './subscription-handlers'
 
+type _PaymentLogSubscription = Subscription | Stripe.Subscription
+interface _InvitationLike { status?: string | null }
+
+let cachedStripeClient: Stripe | null = null
+
 /**
  * STRIPE ORGANIZATION BILLING IMPLEMENTATION
  *
@@ -31,7 +36,15 @@ import { removeExcessMembersOnExpiration } from './subscription-handlers'
  */
 
 export const createStripeClient = () => {
-  return new Stripe(runtimeConfig.stripeSecretKey!)
+  if (!runtimeConfig.stripeSecretKey) {
+    throw new Error('Stripe configuration is missing')
+  }
+
+  if (!cachedStripeClient) {
+    cachedStripeClient = new Stripe(runtimeConfig.stripeSecretKey)
+  }
+
+  return cachedStripeClient
 }
 
 export const ensureStripeCustomer = async (organizationId: string) => {

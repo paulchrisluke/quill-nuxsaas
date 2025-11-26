@@ -1,3 +1,4 @@
+import type Stripe from 'stripe'
 import { and, eq } from 'drizzle-orm'
 import { member as memberTable, organization as organizationTable, subscription as subscriptionTable } from '~~/server/database/schema'
 import { getAuthSession } from '~~/server/utils/auth'
@@ -21,6 +22,14 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage: 'Missing required fields'
+    })
+  }
+
+  const normalizedInterval = String(newInterval)
+  if (!['month', 'year'].includes(normalizedInterval)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Invalid newInterval; must be "month" or "year"'
     })
   }
 
@@ -56,8 +65,8 @@ export default defineEventHandler(async (event) => {
 
   const subscriptions = await stripe.subscriptions.list({
     customer: org.stripeCustomerId,
-    limit: 1,
-    status: 'all'
+    status: 'all',
+    limit: 100
   })
 
   const subscription = subscriptions.data.find(sub =>
@@ -75,14 +84,14 @@ export default defineEventHandler(async (event) => {
   const monthlyPriceId = runtimeConfig.stripePriceIdProMonth
   const yearlyPriceId = runtimeConfig.stripePriceIdProYear
 
-  const newPriceId = newInterval === 'month' ? monthlyPriceId : yearlyPriceId
+  const newPriceId = normalizedInterval === 'month' ? monthlyPriceId : yearlyPriceId
 
   if (currentPriceId === newPriceId) {
     return { success: true, message: 'Already on this plan' }
   }
 
   // Only allow upgrades (monthly to yearly)
-  if (newInterval === 'month') {
+  if (normalizedInterval === 'month') {
     throw createError({
       statusCode: 400,
       statusMessage: 'Downgrading from yearly to monthly is not supported'
@@ -92,7 +101,7 @@ export default defineEventHandler(async (event) => {
   const quantity = subscription.items.data[0].quantity
 
   // Upgrade (M -> Y): Immediate with Proration
-  const updateParams: any = {
+  const updateParams: Stripe.SubscriptionUpdateParams = {
     items: [{
       id: subscription.items.data[0].id,
       price: newPriceId,
@@ -105,7 +114,16 @@ export default defineEventHandler(async (event) => {
     updateParams.trial_end = 'now'
   }
 
-  const updatedSub = await stripe.subscriptions.update(subscription.id, updateParams)
+  let updatedSub: Stripe.Subscription
+  try {
+    updatedSub = await stripe.subscriptions.update(subscription.id, updateParams)
+  } catch (err: any) {
+    console.error('[change-plan] Stripe update failed', err)
+    throw createError({
+      statusCode: err?.statusCode || 400,
+      statusMessage: err?.message || 'Unable to update subscription'
+    })
+  }
 
   // Update local database immediately
   const updateData: any = {

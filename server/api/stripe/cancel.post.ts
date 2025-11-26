@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import Stripe from 'stripe'
-import { member as memberTable } from '~~/server/database/schema'
+import { member as memberTable, organization as organizationTable } from '~~/server/database/schema'
 import { getAuthSession } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
@@ -47,7 +47,39 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const org = await db.query.organization.findFirst({
+    where: eq(organizationTable.id, referenceId)
+  })
+
+  if (!org) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Organization not found'
+    })
+  }
+
   const stripe = new Stripe(runtimeConfig.stripeSecretKey!)
+
+  // Verify subscription belongs to organization
+  const remoteSubscription = await stripe.subscriptions.retrieve(subscriptionId)
+  const subscriptionOrgId = remoteSubscription.metadata?.organizationId
+  const subscriptionCustomerId = remoteSubscription.customer && typeof remoteSubscription.customer === 'object'
+    ? remoteSubscription.customer.id
+    : remoteSubscription.customer
+
+  if (subscriptionOrgId && subscriptionOrgId !== referenceId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden: Subscription does not belong to this organization'
+    })
+  }
+
+  if (!subscriptionOrgId && subscriptionCustomerId && org.stripeCustomerId && subscriptionCustomerId !== org.stripeCustomerId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden: Subscription customer mismatch'
+    })
+  }
 
   try {
     // Cancel at period end

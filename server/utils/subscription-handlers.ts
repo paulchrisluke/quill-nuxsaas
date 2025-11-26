@@ -34,9 +34,13 @@ export async function removeExcessMembersOnExpiration(organizationId: string) {
     const membersToRemove = members.filter(m => m.role !== 'owner')
 
     if (membersToRemove.length === 0) {
-      console.log(`No members to remove from organization ${organizationId}`)
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[subscription-handlers] No members to remove from organization ${organizationId}`)
+      }
       return
     }
+
+    const removableMembers = membersToRemove.filter(m => m.user)
 
     // Remove all non-owner members
     const { and, eq, ne } = await import('drizzle-orm')
@@ -48,18 +52,18 @@ export async function removeExcessMembersOnExpiration(organizationId: string) {
         )
       )
 
-    console.log(`Removed ${membersToRemove.length} members from organization ${organizationId}`)
-
-    // Optionally: Send notification emails to removed members
-    for (const member of membersToRemove) {
-      // TODO: Send email notification
-      console.log(`Member ${member.user.email} removed from organization ${organizationId}`)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[subscription-handlers] Removed ${membersToRemove.length} members from organization ${organizationId}`)
+      for (const member of removableMembers) {
+        console.log(`[subscription-handlers] Member ${member.user?.id ?? member.id} removed from organization ${organizationId}`)
+      }
     }
 
     return {
-      removedCount: membersToRemove.length,
-      removedMembers: membersToRemove.map(m => ({
-        email: m.user.email,
+      removedCount: removableMembers.length,
+      removedMembers: removableMembers.map(m => ({
+        userId: m.user?.id ?? null,
+        email: m.user?.email ?? null,
         role: m.role
       }))
     }
