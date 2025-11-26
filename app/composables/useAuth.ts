@@ -48,7 +48,24 @@ export function useAuth() {
     ]
   })
 
-  const forgetPassword = (client as { forgetPassword?: ForgetPasswordHandler }).forgetPassword
+  const ensureForgetPasswordAvailable = () => {
+    const handler = (client as { forgetPassword?: ForgetPasswordHandler }).forgetPassword
+    if (!handler) {
+      const message = '[useAuth] Password reset is not enabled for this deployment.'
+      console.warn(message)
+      throw new Error('Password reset is not enabled for this deployment.')
+    }
+    return handler
+  }
+
+  /**
+   * Optional Better Auth password reset helper.
+   * Consumers must check that `forgetPassword` is defined before calling; this wrapper throws if the handler was not configured.
+   */
+  const forgetPassword: ForgetPasswordHandler | undefined = client.forgetPassword
+    ? async params => ensureForgetPasswordAvailable()(params)
+    : undefined
+  const _maybeForgetPassword = forgetPassword
 
   // Create global state for active organization (SSR friendly)
   const useActiveOrgState = () => useState<any>('active-org-state', () => ({ data: null }))
