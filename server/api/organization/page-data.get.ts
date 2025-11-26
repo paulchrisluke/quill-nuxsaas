@@ -12,6 +12,14 @@ export default defineEventHandler(async (event) => {
 
     // Fetch organization and subscriptions in parallel
     // These endpoints handle their own auth checks
+    const activeOrgId = session?.session?.activeOrganizationId
+    if (!activeOrgId) {
+      throw createError({
+        statusCode: 400,
+        message: 'No active organization'
+      })
+    }
+
     const [orgData, subscriptions] = await Promise.all([
       // Get full organization data (Better Auth endpoint)
       $fetch(`${baseUrl}/api/auth/organization/get-full-organization`, {
@@ -23,7 +31,7 @@ export default defineEventHandler(async (event) => {
       // Get subscriptions (Better Auth endpoint)
       $fetch(`${baseUrl}/api/auth/subscription/list`, {
         query: {
-          referenceId: session?.session?.activeOrganizationId || ''
+          referenceId: activeOrgId
         },
         headers: { cookie: cookieHeader }
       }).catch((err) => {
