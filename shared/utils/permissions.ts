@@ -1,3 +1,39 @@
+import { createAccessControl } from 'better-auth/plugins/access'
+
+// ============================================
+// BETTER AUTH ACCESS CONTROL
+// ============================================
+const statement = {
+  organization: ['update', 'delete', 'view', 'leave'],
+  member: ['create', 'update', 'delete', 'view'],
+  invitation: ['create', 'cancel', 'resend'],
+  billing: ['manage', 'view'],
+  settings: ['view', 'update']
+} as const
+
+export const ac = createAccessControl(statement)
+
+export const member = ac.newRole({
+  organization: ['view', 'leave'],
+  member: ['view'],
+  settings: ['view']
+})
+
+export const admin = ac.newRole({
+  organization: ['update', 'view', 'leave'],
+  member: ['create', 'update', 'delete', 'view'],
+  invitation: ['create', 'cancel', 'resend'],
+  settings: ['view', 'update']
+})
+
+export const owner = ac.newRole({
+  organization: ['update', 'delete', 'view'],
+  member: ['create', 'update', 'delete', 'view'],
+  invitation: ['create', 'cancel', 'resend'],
+  billing: ['manage', 'view'],
+  settings: ['view', 'update']
+})
+
 // ============================================
 // ROLE DEFINITIONS
 // ============================================

@@ -3,9 +3,10 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
-import { admin, openAPI, organization } from 'better-auth/plugins'
+import { admin as adminPlugin, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
+import { ac, admin, member, owner } from '~~/shared/utils/permissions'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
 import { getDB } from './db'
@@ -295,8 +296,15 @@ export const createBetterAuth = () => betterAuth({
   },
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
-    admin(),
-    organization(),
+    adminPlugin(),
+    organization({
+      ac,
+      roles: {
+        owner,
+        admin,
+        member
+      }
+    }),
     setupStripe() // Disabled until API key is fixed
     // setupPolar()
   ]
