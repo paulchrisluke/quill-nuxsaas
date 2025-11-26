@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
 
@@ -12,8 +12,9 @@ interface ChunkSourceContentOptions {
 
 const DEFAULT_CHUNK_SIZE = 1200
 const DEFAULT_CHUNK_OVERLAP = 200
+const MAX_CHUNK_SIZE = 8000
 
-export async function chunkSourceContentText ({
+export async function chunkSourceContentText({
   db,
   sourceContent,
   chunkSize = DEFAULT_CHUNK_SIZE,
@@ -26,15 +27,41 @@ export async function chunkSourceContentText ({
     })
   }
 
+  const normalizedChunkSize = Number.isFinite(chunkSize) ? Math.floor(chunkSize) : Number.NaN
+  if (!Number.isFinite(normalizedChunkSize) || normalizedChunkSize <= 0) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'chunkSize must be a positive integer greater than zero.'
+    })
+  }
+
+  if (normalizedChunkSize > MAX_CHUNK_SIZE) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `chunkSize cannot exceed ${MAX_CHUNK_SIZE} characters.`
+    })
+  }
+
+  const normalizedChunkOverlap = Number.isFinite(chunkOverlap) ? Math.floor(chunkOverlap) : Number.NaN
+  if (!Number.isFinite(normalizedChunkOverlap) || normalizedChunkOverlap < 0) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'chunkOverlap must be an integer greater than or equal to zero.'
+    })
+  }
+
+  if (normalizedChunkOverlap >= normalizedChunkSize) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'chunkOverlap must be smaller than chunkSize.'
+    })
+  }
+
   const text = sourceContent.sourceText.replace(/\s+/g, ' ').trim()
 
-  await db
-    .delete(schema.chunk)
-    .where(eq(schema.chunk.sourceContentId, sourceContent.id))
-
   const segments: Array<typeof schema.chunk.$inferInsert> = []
-  const effectiveSize = Math.max(chunkSize, 200)
-  const overlap = Math.min(chunkOverlap, Math.floor(effectiveSize / 2))
+  const effectiveSize = normalizedChunkSize
+  const overlap = normalizedChunkOverlap
 
   let index = 0
   let start = 0
@@ -63,20 +90,23 @@ export async function chunkSourceContentText ({
       break
     }
 
-    start = end - overlap
-    if (start < 0) {
-      start = 0
-    }
+    start = Math.max(end - overlap, 0)
   }
 
   if (!segments.length) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Unable to generate transcript chunks from the provided text.'
+      statusMessage: 'Unable to generate chunks from the provided text.'
     })
   }
 
-  await db.insert(schema.chunk).values(segments)
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.chunk)
+      .where(eq(schema.chunk.sourceContentId, sourceContent.id))
+
+    await tx.insert(schema.chunk).values(segments)
+  })
 
   return segments
 }

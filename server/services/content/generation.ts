@@ -3,9 +3,9 @@ import { and, asc, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/database/schema'
+import { chunkSourceContentText } from '~~/server/services/sourceContent/chunkSourceContent'
 import { callChatCompletions } from '~~/server/utils/aiGateway'
 import { CONTENT_STATUSES, CONTENT_TYPES, ensureUniqueContentSlug, slugifyTitle } from '~~/server/utils/content'
-import { chunkSourceContentText } from '~~/server/services/sourceContent/chunkSourceContent'
 
 interface GenerateContentOverrides {
   title?: string | null
@@ -106,7 +106,7 @@ interface GeneratedSection {
 
 const PLAN_SYSTEM_PROMPT = 'You are an editorial strategist planning SEO-friendly long-form content. Always respond with valid JSON.'
 const SECTION_SYSTEM_PROMPT = 'You are an expert SEO content writer. Write the requested section content in MDX-compatible markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
-const SECTION_PATCH_SYSTEM_PROMPT = 'You are revising a single section of an existing article. Only update that section using the author instructions and contextual transcript snippets. Do NOT include the section heading in your response - only write the body content. Respond with JSON.';
+const SECTION_PATCH_SYSTEM_PROMPT = 'You are revising a single section of an existing article. Only update that section using the author instructions and contextual transcript snippets. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
 const PLAN_SECTION_LIMIT = 10
 const SECTION_CONTEXT_LIMIT = 3
 
@@ -144,13 +144,19 @@ const buildVirtualChunksFromText = (text: string, chunkSize = 1200, overlap = 20
     return []
   }
 
+  const effectiveChunkSize = Number.isFinite(chunkSize) ? Math.max(1, Math.floor(chunkSize)) : 1200
+  const normalizedOverlap = Number.isFinite(overlap) ? Math.floor(overlap) : 0
+  const effectiveOverlap = Math.min(Math.max(normalizedOverlap, 0), effectiveChunkSize - 1)
+  const step = Math.max(1, effectiveChunkSize - effectiveOverlap)
+  // Ensure overlap is always smaller than the chunk size so the sliding window advances.
+
   const normalized = text.replace(/\s+/g, ' ').trim()
   const segments: PipelineChunk[] = []
   let index = 0
   let start = 0
 
   while (start < normalized.length) {
-    const end = Math.min(start + chunkSize, normalized.length)
+    const end = Math.min(start + effectiveChunkSize, normalized.length)
     const slice = normalized.slice(start, end).trim()
     if (slice) {
       segments.push({
@@ -165,7 +171,7 @@ const buildVirtualChunksFromText = (text: string, chunkSize = 1200, overlap = 20
       break
     }
 
-    start = Math.max(end - overlap, 0)
+    start += step
   }
 
   return segments
@@ -462,7 +468,7 @@ const assembleMarkdownFromSections = (params: {
   let markdown = `# ${params.frontmatter.title}\n\n`
   let currentOffset = markdown.length
 
-  const sectionsWithOffsets = ordered.map(section => {
+  const sectionsWithOffsets = ordered.map((section) => {
     const level = Math.min(Math.max(section.level || 2, 2), 6)
     const headingLine = section.title ? `${'#'.repeat(level)} ${section.title}` : ''
     const pieces = [headingLine, section.body.trim()].filter(Boolean)
@@ -480,7 +486,7 @@ const assembleMarkdownFromSections = (params: {
     }
   })
 
-  markdown = markdown.trim() + '\n'
+  markdown = `${markdown.trim()}\n`
 
   return {
     markdown,
@@ -1015,7 +1021,7 @@ export const patchContentSection = async (
     })
   }
 
-  const updatedSections = normalizedSections.map(section => {
+  const updatedSections = normalizedSections.map((section) => {
     if (section.id !== targetSection.id) {
       return section
     }

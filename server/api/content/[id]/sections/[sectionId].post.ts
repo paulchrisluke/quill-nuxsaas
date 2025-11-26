@@ -1,4 +1,4 @@
-import { createError, getRouterParams } from 'h3'
+import { createError, getRouterParams, readBody } from 'h3'
 import { patchContentSection } from '~~/server/services/content/generation'
 import { requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
@@ -25,13 +25,17 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<PatchSectionBody>(event)
   const instructions = typeof body?.instructions === 'string' ? body.instructions : ''
 
+  const temperature = typeof body?.temperature === 'number' && Number.isFinite(body.temperature)
+    ? body.temperature
+    : undefined
+
   const result = await patchContentSection(db, {
     organizationId,
     userId: user.id,
     contentId: id,
     sectionId,
     instructions,
-    temperature: body?.temperature
+    temperature
   })
 
   return result

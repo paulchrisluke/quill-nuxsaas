@@ -250,11 +250,11 @@ export async function ingestYouTubeSource(options: IngestYouTubeOptions) {
       }
     }
 
-    const [updated] = await db
+    const [processing] = await db
       .update(schema.sourceContent)
       .set({
         sourceText: text,
-        ingestStatus: 'ingested',
+        ingestStatus: 'processing',
         metadata,
         updatedAt: new Date()
       })
@@ -263,8 +263,17 @@ export async function ingestYouTubeSource(options: IngestYouTubeOptions) {
 
     await chunkSourceContentText({
       db,
-      sourceContent: updated
+      sourceContent: processing
     })
+
+    const [updated] = await db
+      .update(schema.sourceContent)
+      .set({
+        ingestStatus: 'ingested',
+        updatedAt: new Date()
+      })
+      .where(eq(schema.sourceContent.id, sourceContentId))
+      .returning()
 
     return updated
   } catch (error) {

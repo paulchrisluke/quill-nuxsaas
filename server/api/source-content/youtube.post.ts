@@ -1,9 +1,9 @@
-import { requireAuth } from '~~/server/utils/auth'
-import { useDB } from '~~/server/utils/db'
-import { requireActiveOrganization } from '~~/server/utils/organization'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { ingestYouTubeSource } from '~~/server/services/sourceContent/youtubeIngest'
+import { requireAuth } from '~~/server/utils/auth'
 import { extractYouTubeId } from '~~/server/utils/chat'
+import { useDB } from '~~/server/utils/db'
+import { requireActiveOrganization } from '~~/server/utils/organization'
 
 interface YouTubeIngestBody {
   youtubeUrl: string

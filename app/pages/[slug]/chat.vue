@@ -64,16 +64,27 @@ const contentEntries = computed(() => {
   const list = Array.isArray(contents.value) ? contents.value : []
   return list.map((entry) => {
     const sections = Array.isArray(entry.currentVersion?.sections) ? entry.currentVersion.sections : []
-    const wordCount = sections.reduce((sum: number, section: Record<string, any>) => sum + (Number(section.wordCount) || 0), 0)
+    const wordCount = sections.reduce((sum: number, section: Record<string, any>) => {
+      const rawValue = typeof section.wordCount === 'string' ? Number.parseInt(section.wordCount, 10) : Number(section.wordCount)
+      const safeValue = Number.isFinite(rawValue) ? rawValue : 0
+      return sum + safeValue
+    }, 0)
+
+    let updatedAt: Date | null = null
+    if (entry.content.updatedAt) {
+      const parsedDate = new Date(entry.content.updatedAt)
+      updatedAt = Number.isFinite(parsedDate.getTime()) ? parsedDate : null
+    }
+
     return {
       id: entry.content.id,
       title: entry.content.title || 'Untitled draft',
       status: entry.content.status,
-      updatedAt: entry.content.updatedAt ? new Date(entry.content.updatedAt) : null,
+      updatedAt,
       contentType: entry.currentVersion?.frontmatter?.contentType || entry.content.contentType,
       sectionsCount: sections.length,
-      wordCount,
-      sourceType: entry.sourceContent?.sourceType || null
+      wordCount: Number.isFinite(wordCount) ? wordCount : 0,
+      sourceType: entry.sourceContent?.sourceType ?? null
     }
   })
 })
@@ -411,8 +422,12 @@ watch(() => slug.value, () => {
             <span v-if="row.wordCount">
               {{ row.wordCount }} words
             </span>
-            <span v-if="row.sourceType" class="capitalize">
-              Source: {{ row.sourceType.replace('_', ' ') }}
+            <span
+              v-if="row.sourceType"
+              class="capitalize"
+            >
+              Source:
+              {{ typeof row.sourceType === 'string' ? row.sourceType.replace('_', ' ') : String(row.sourceType).replace('_', ' ') }}
             </span>
           </div>
           <div class="flex flex-wrap gap-2">
