@@ -8,6 +8,7 @@ export default defineEventHandler(async (event) => {
     // Get the base URL for internal API calls
     const baseUrl = getRequestURL(event).origin
     const cookieHeader = getHeader(event, 'cookie') || ''
+    const session = await getAuthSession(event)
 
     // Fetch organization and subscriptions in parallel
     // These endpoints handle their own auth checks
@@ -22,7 +23,7 @@ export default defineEventHandler(async (event) => {
       // Get subscriptions (Better Auth endpoint)
       $fetch(`${baseUrl}/api/auth/subscription/list`, {
         query: {
-          referenceId: event.context.session?.activeOrganizationId || ''
+          referenceId: session?.session?.activeOrganizationId || ''
         },
         headers: { cookie: cookieHeader }
       }).catch((err) => {

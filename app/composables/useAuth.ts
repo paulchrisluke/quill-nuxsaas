@@ -8,6 +8,13 @@ import { adminClient, inferAdditionalFields, organizationClient } from 'better-a
 import { createAuthClient } from 'better-auth/vue'
 import { ac, admin, member, owner } from '~~/shared/utils/permissions'
 
+interface AuthSessionPayload {
+  session: InferSessionFromClient<ClientOptions> | null
+  user: User | null
+}
+
+type ForgetPasswordHandler = (params: { email: string, redirectTo?: string }) => Promise<{ error?: { message?: string, statusText?: string } | null }>
+
 export function useAuth() {
   const url = useRequestURL()
   const headers = import.meta.server ? useRequestHeaders() : undefined
@@ -41,6 +48,8 @@ export function useAuth() {
     ]
   })
 
+  const forgetPassword = (client as { forgetPassword?: ForgetPasswordHandler }).forgetPassword
+
   // Create global state for active organization (SSR friendly)
   const useActiveOrgState = () => useState<any>('active-org-state', () => ({ data: null }))
 
@@ -61,7 +70,7 @@ export function useAuth() {
     sessionFetching.value = true
 
     // Use useFetch for better SSR support and hydration
-    const { data: sessionData } = await useFetch('/api/auth/get-session', {
+    const { data: sessionData } = await useFetch<AuthSessionPayload>('/api/auth/get-session', {
       headers: import.meta.server ? useRequestHeaders() : undefined,
       key: 'auth-session',
       retry: 0
@@ -82,10 +91,6 @@ export function useAuth() {
       ? Object.assign({}, userDefaults, data.user)
       : null
 
-    if (user.value) {
-      // Subscriptions are now fetched via activeOrg (SSR)
-      // No need to fetch them here separately
-    }
     sessionFetching.value = false
     return data
   }
@@ -151,7 +156,7 @@ export function useAuth() {
     refreshActiveOrg,
     signIn: client.signIn,
     signUp: client.signUp,
-    forgetPassword: client.forgetPassword,
+    forgetPassword,
     resetPassword: client.resetPassword,
     sendVerificationEmail: client.sendVerificationEmail,
     errorCodes: client.$ERROR_CODES,

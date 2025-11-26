@@ -223,22 +223,33 @@ async function deleteTeam() {
           <UInput v-model="teamName" />
         </UFormField>
 
-        <UFormField label="Organization ID">
-          <div class="flex gap-2">
-            <UInput
-              :model-value="activeOrg?.data?.id"
-              readonly
-              class="flex-1 font-mono text-sm bg-gray-50 dark:bg-gray-800"
-            />
-            <UButton
-              :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-              color="neutral"
-              variant="ghost"
-              @click="copyId"
-            />
-          </div>
+        <UFormField label="Organization slug">
+          <UInput
+            v-model="teamSlug"
+            readonly
+            icon="i-lucide-link"
+          />
         </UFormField>
       </div>
+
+      <UFormField
+        label="Organization ID"
+        class="mb-6"
+      >
+        <div class="flex gap-2">
+          <UInput
+            :model-value="activeOrg?.data?.id"
+            readonly
+            class="flex-1 font-mono text-sm bg-gray-50 dark:bg-gray-800"
+          />
+          <UButton
+            :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+            color="neutral"
+            variant="ghost"
+            @click="copyId"
+          />
+        </div>
+      </UFormField>
 
       <UButton
         label="Save"

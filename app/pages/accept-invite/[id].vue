@@ -64,7 +64,11 @@ onMounted(async () => {
       window.location.href = `/${joinedOrg.slug}/dashboard`
     } else {
       if (orgFetchFailed) {
-        error.value = 'Invitation accepted but failed to load organization details. Redirecting to dashboard.'
+        toast.add({
+          title: 'Invitation accepted',
+          description: 'Failed to load organization details. Redirecting you to the dashboard.',
+          color: 'warning'
+        })
       }
       // Fallback: Redirect to root, middleware will route to active org
       window.location.href = '/'

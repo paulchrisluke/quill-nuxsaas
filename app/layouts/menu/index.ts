@@ -90,7 +90,7 @@ export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, ap
     })
   }
 
-  // Owners and admins can see settings (using permissions system)
+  // Owners, admins, and members with VIEW_SETTINGS_NAV permission can see settings
   if (hasPermission(userRole, 'VIEW_SETTINGS_NAV')) {
     items.push({
       label: 'Settings',

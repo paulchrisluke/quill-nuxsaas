@@ -5,7 +5,7 @@ interface SimpleOrganization {
 }
 
 export default defineNuxtRouteMiddleware(async (to) => {
-  const { loggedIn, organization, useActiveOrganization, fetchSession, session } = useAuth()
+  const { loggedIn, organization, fetchSession, session, refreshActiveOrg } = useAuth()
 
   const _nuxtApp = useNuxtApp()
   const toast = import.meta.client ? useToast() : null
@@ -47,10 +47,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
       try {
         await organization.setActive({ organizationId: targetOrg.id })
         await fetchSession()
-        const activeOrg = useActiveOrganization()
-        if (activeOrg.value) {
-          activeOrg.value.data = targetOrg
-        }
+        await refreshActiveOrg()
       } catch (error) {
         console.error('[Organization Guard] Failed to set active organization', error)
         toast?.add({

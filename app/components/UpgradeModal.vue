@@ -76,6 +76,7 @@ async function handleUpgrade() {
     const orgSlug = getOrgSlug()
 
     if (!orgSlug) {
+      loading.value = false
       handleMissingSlug()
       return
     }

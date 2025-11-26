@@ -378,7 +378,6 @@ async function confirmAddSeat() {
     })
 
     showAddSeatModal.value = false
-    await fetchSession()
     await refreshPage()
   } catch (e: any) {
     console.error(e)
@@ -704,9 +703,9 @@ async function revokeInvitation(invitationId: string) {
               </div>
               <div class="text-muted-foreground">
                 ${{ (
-                  (activeStripeSubscription?.plan?.includes('year') || seatInterval === 'year' ? PLANS.PRO_YEARLY.priceNumber : PLANS.PRO_MONTHLY.priceNumber)
-                  + (Math.max(0, (activeStripeSubscription?.seats || 1) - 1) * (activeStripeSubscription?.plan?.includes('year') || seatInterval === 'year' ? PLANS.PRO_YEARLY.seatPriceNumber : PLANS.PRO_MONTHLY.seatPriceNumber))
-                ).toFixed(2) }}/{{ seatInterval === 'year' ? 'yr' : 'mo' }}
+                  (activeStripeSubscription?.plan?.includes('year') ? PLANS.PRO_YEARLY.priceNumber : PLANS.PRO_MONTHLY.priceNumber)
+                  + (Math.max(0, (activeStripeSubscription?.seats || 1) - 1) * (activeStripeSubscription?.plan?.includes('year') ? PLANS.PRO_YEARLY.seatPriceNumber : PLANS.PRO_MONTHLY.seatPriceNumber))
+                ).toFixed(2) }}/{{ activeStripeSubscription?.plan?.includes('year') ? 'yr' : 'mo' }}
               </div>
             </div>
 
@@ -735,11 +734,11 @@ async function revokeInvitation(invitationId: string) {
           <div class="text-xs text-muted-foreground space-y-1 px-1">
             <div class="flex justify-between">
               <span>Base Plan (Includes 1 Seat):</span>
-              <span>${{ (activeStripeSubscription?.plan?.includes('year') || seatInterval === 'year' ? PLANS.PRO_YEARLY.priceNumber : PLANS.PRO_MONTHLY.priceNumber).toFixed(2) }}</span>
+              <span>${{ (activeStripeSubscription?.plan?.includes('year') ? PLANS.PRO_YEARLY.priceNumber : PLANS.PRO_MONTHLY.priceNumber).toFixed(2) }}</span>
             </div>
             <div class="flex justify-between">
-              <span>Additional Seats ({{ (activeStripeSubscription?.seats || 1) }} x ${{ (activeStripeSubscription?.plan?.includes('year') || seatInterval === 'year' ? PLANS.PRO_YEARLY.seatPriceNumber : PLANS.PRO_MONTHLY.seatPriceNumber).toFixed(2) }}):</span>
-              <span>${{ ((activeStripeSubscription?.seats || 1) * (activeStripeSubscription?.plan?.includes('year') || seatInterval === 'year' ? PLANS.PRO_YEARLY.seatPriceNumber : PLANS.PRO_MONTHLY.seatPriceNumber)).toFixed(2) }}</span>
+              <span>Additional Seats ({{ (activeStripeSubscription?.seats || 1) }} x ${{ (activeStripeSubscription?.plan?.includes('year') ? PLANS.PRO_YEARLY.seatPriceNumber : PLANS.PRO_MONTHLY.seatPriceNumber).toFixed(2) }}):</span>
+              <span>${{ ((activeStripeSubscription?.seats || 1) * (activeStripeSubscription?.plan?.includes('year') ? PLANS.PRO_YEARLY.seatPriceNumber : PLANS.PRO_MONTHLY.seatPriceNumber)).toFixed(2) }}</span>
             </div>
           </div>
 
