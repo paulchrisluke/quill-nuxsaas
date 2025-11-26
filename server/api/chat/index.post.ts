@@ -1,3 +1,10 @@
+import {
+  addChatLog,
+  addChatMessage,
+  ensureChatSession,
+  getSessionLogs,
+  getSessionMessages
+} from '~~/server/services/chatSession'
 import { generateContentDraft } from '~~/server/services/content/generation'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { ingestYouTubeSource } from '~~/server/services/sourceContent/youtubeIngest'
@@ -166,7 +173,70 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const assistantMessages = []
+  const sessionContentId = body.action?.contentId ?? generationResult?.content?.id ?? null
+  const sessionSourceId = body.action?.sourceContentId ?? processedSources[0]?.source.id ?? null
+
+  const session = await ensureChatSession(db, {
+    organizationId,
+    contentId: sessionContentId,
+    sourceContentId: sessionSourceId,
+    createdByUserId: user.id,
+    metadata: {
+      lastAction: body.action?.type ?? (message.trim() ? 'message' : null)
+    }
+  })
+
+  if (message.trim()) {
+    await db.transaction(async (tx) => {
+      await addChatMessage(tx, {
+        sessionId: session.id,
+        organizationId,
+        role: 'user',
+        content: message.trim()
+      })
+      await addChatLog(tx, {
+        sessionId: session.id,
+        organizationId,
+        type: 'user_message',
+        message: 'User sent a chat prompt'
+      })
+    })
+  }
+
+  if (processedSources.length > 0) {
+    await db.transaction(async (tx) => {
+      await addChatLog(tx, {
+        sessionId: session.id,
+        organizationId,
+        type: 'source_detected',
+        message: `Detected ${processedSources.length} source link${processedSources.length > 1 ? 's' : ''}`,
+        payload: {
+          sources: processedSources.map(item => ({
+            id: item.source.id,
+            sourceType: item.sourceType,
+            url: item.url
+          }))
+        }
+      })
+    })
+  }
+
+  if (generationResult) {
+    await db.transaction(async (tx) => {
+      await addChatLog(tx, {
+        sessionId: session.id,
+        organizationId,
+        type: 'generation_complete',
+        message: 'Draft generation completed',
+        payload: {
+          contentId: generationResult.content.id,
+          versionId: generationResult.version.id
+        }
+      })
+    })
+  }
+
+  const assistantMessages: string[] = []
 
   if (processedSources.length > 0) {
     assistantMessages.push(`I saved ${processedSources.length} source link${processedSources.length > 1 ? 's' : ''} for this organization.`)
@@ -180,8 +250,24 @@ export default defineEventHandler(async (event) => {
     assistantMessages.push('Got it. I\'m ready whenever you want to start a draft or share a link.')
   }
 
+  const assistantMessageBody = assistantMessages.join(' ')
+
+  if (assistantMessageBody) {
+    await db.transaction(async (tx) => {
+      await addChatMessage(tx, {
+        sessionId: session.id,
+        organizationId,
+        role: 'assistant',
+        content: assistantMessageBody
+      })
+    })
+  }
+
+  const messages = await getSessionMessages(db, session.id, organizationId, { limit: 50 })
+  const logs = await getSessionLogs(db, session.id, organizationId, { limit: 100 })
+
   return {
-    assistantMessage: assistantMessages.join(' '),
+    assistantMessage: assistantMessageBody,
     actions,
     sources: processedSources.map(item => ({
       ...item.source,
@@ -194,6 +280,20 @@ export default defineEventHandler(async (event) => {
           markdown: generationResult.markdown,
           meta: generationResult.meta
         }
-      : null
+      : null,
+    sessionId: session.id,
+    messages: messages.map(message => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt
+    })),
+    logs: logs.map(log => ({
+      id: log.id,
+      type: log.type,
+      message: log.message,
+      payload: log.payload,
+      createdAt: log.createdAt
+    }))
   }
 })

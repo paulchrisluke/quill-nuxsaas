@@ -1,5 +1,6 @@
 export * from './auditLog'
 export * from './auth'
+export * from './chat'
 export * from './chunk'
 export * from './content'
 export * from './file'
