@@ -13,11 +13,16 @@ const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
 
+interface ActiveOrgMember {
+  userId?: string | null
+  role?: string | null
+}
+
 // Computed permissions
 const currentUserRole = computed(() => {
   if (!activeOrg.value?.data?.members || !user.value?.id)
     return null
-  const member = activeOrg.value.data.members.find(m => m.userId === user.value!.id)
+  const member = activeOrg.value.data.members.find((m: ActiveOrgMember) => m.userId === user.value!.id)
   return member?.role
 })
 
@@ -56,11 +61,13 @@ async function leaveTeam() {
     toast.add({ title: 'Left team successfully', color: 'success' })
 
     // Refresh and redirect
-    const { data: orgs } = await organization.list()
-    if (orgs && orgs.length > 0) {
-      await organization.setActive({ organizationId: orgs[0].id })
+    const { data } = await organization.list()
+    const orgs = Array.isArray(data) ? data : []
+    const nextOrg = orgs[0]
+    if (nextOrg) {
+      await organization.setActive({ organizationId: nextOrg.id })
       await fetchSession()
-      window.location.href = `/${orgs[0].slug}/dashboard`
+      window.location.href = `/${nextOrg.slug}/dashboard`
     } else {
       window.location.href = '/onboarding'
     }
@@ -169,13 +176,15 @@ async function deleteTeam() {
     toast.add({ title: 'Team deleted successfully', color: 'success' })
 
     // Fetch remaining teams to determine where to redirect
-    const { data: orgs } = await organization.list()
+    const { data } = await organization.list()
+    const orgs = Array.isArray(data) ? data : []
 
-    if (orgs && orgs.length > 0) {
+    const nextOrg = orgs[0]
+    if (nextOrg) {
       // Switch to first available team
-      await organization.setActive({ organizationId: orgs[0].id })
+      await organization.setActive({ organizationId: nextOrg.id })
       await fetchSession()
-      window.location.href = `/${orgs[0].slug}/dashboard`
+      window.location.href = `/${nextOrg.slug}/dashboard`
     } else {
       // No teams left
       window.location.href = '/onboarding'
@@ -223,7 +232,7 @@ async function deleteTeam() {
             />
             <UButton
               :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-              color="gray"
+              color="neutral"
               variant="ghost"
               @click="copyId"
             />
@@ -233,7 +242,7 @@ async function deleteTeam() {
 
       <UButton
         label="Save"
-        color="black"
+        color="primary"
         :loading="loading"
         @click="updateTeam"
       />
@@ -253,7 +262,7 @@ async function deleteTeam() {
           </p>
         </div>
         <UButton
-          color="black"
+          color="primary"
           icon="i-lucide-arrow-up-right"
           :to="`/${slug}/settings/integrations`"
         >
@@ -274,7 +283,7 @@ async function deleteTeam() {
       </p>
 
       <UButton
-        color="red"
+        color="error"
         variant="outline"
         icon="i-lucide-log-out"
         :loading="leaveLoading"
@@ -297,7 +306,7 @@ async function deleteTeam() {
       </p>
 
       <UButton
-        color="red"
+        color="error"
         variant="outline"
         icon="i-lucide-trash-2"
         :loading="deleteLoading"

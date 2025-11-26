@@ -19,7 +19,14 @@ const youtubeScopes = [
 ]
 
 const organizationId = computed(() => activeOrg.value?.data?.id ?? null)
-const members = computed(() => activeOrg.value?.data?.members ?? [])
+interface OrgMember {
+  userId?: string | null
+  name?: string | null
+  email?: string | null
+  role?: string | null
+}
+
+const members = computed<OrgMember[]>(() => activeOrg.value?.data?.members ?? [])
 
 const currentUserRole = computed(() => {
   if (!members.value.length || !user.value?.id)
