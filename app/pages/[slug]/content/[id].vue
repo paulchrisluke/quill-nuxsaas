@@ -482,7 +482,11 @@ watch(() => contentId.value, async () => {
             <div class="space-y-2 text-sm">
               <p>
                 <span class="text-muted-500">Type:</span>
-                <span class="capitalize"> {{ sourceDetails.sourceType.replace('_', ' ') }}</span>
+                <span class="capitalize">
+                  {{ typeof sourceDetails.sourceType === 'string'
+                    ? sourceDetails.sourceType.replace('_', ' ')
+                    : String(sourceDetails.sourceType ?? '—') }}
+                </span>
               </p>
               <p>
                 <span class="text-muted-500">Ingest status:</span>
