@@ -341,7 +341,8 @@ export default defineEventHandler(async (event) => {
       id: message.id,
       role: message.role,
       content: message.content,
-      createdAt: message.createdAt
+      createdAt: message.createdAt,
+      payload: message.payload
     })),
     logs: logs.map(log => ({
       id: log.id,
