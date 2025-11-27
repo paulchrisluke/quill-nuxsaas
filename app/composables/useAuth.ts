@@ -187,7 +187,11 @@ export function useAuth() {
     anonymousSignInPromise = (async () => {
       try {
         await $fetch('/api/auth/sign-in/anonymous', {
-          method: 'POST'
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: '{}'
         })
         await fetchSession()
       } catch (error) {

@@ -121,7 +121,7 @@ export const createBetterAuth = () => betterAuth({
                 .values({
                   id: uuidv7(),
                   name: 'Anonymous Workspace',
-                  slug: `anonymous-${user.id.slice(0, 8)}`,
+                  slug: `anonymous-${user.id}`,
                   createdAt: new Date(),
                   updatedAt: new Date()
                 })

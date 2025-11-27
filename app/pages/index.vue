@@ -21,6 +21,7 @@ const {
   isBusy: heroChatBusy
 } = useChatSession()
 const heroPrompt = ref('')
+const heroTranscript = ref('')
 const heroSubmitting = ref(false)
 const heroPromptStatus = computed(() => {
   if (heroSubmitting.value || heroChatStatus.value === 'submitted' || heroChatStatus.value === 'streaming') {
@@ -41,6 +42,20 @@ const handleHeroPromptSubmit = async () => {
   try {
     await heroSendMessage(trimmed)
     heroPrompt.value = ''
+  } finally {
+    heroSubmitting.value = false
+  }
+}
+
+const handleTranscriptSubmit = async () => {
+  const trimmed = heroTranscript.value.trim()
+  if (!trimmed) {
+    return
+  }
+  heroSubmitting.value = true
+  try {
+    await heroSendMessage(`Here is a transcript I'd like to turn into content:\n\n${trimmed}`)
+    heroTranscript.value = ''
   } finally {
     heroSubmitting.value = false
   }
@@ -253,7 +268,7 @@ const activeScreenshot = ref('0')
         </UContainer>
       </section>
 
-      <!-- Live Codex chat preview -->
+      <!-- Live Quillio chat preview -->
       <section class="relative py-16">
         <UContainer>
           <CodexChatLayout
@@ -263,7 +278,7 @@ const activeScreenshot = ref('0')
             <template #header>
               <div class="flex flex-col gap-2 text-center">
                 <p class="text-xl font-semibold">
-                  Chat with Codex instantly
+                  Chat with Quillio instantly
                 </p>
                 <p class="text-sm text-muted-500">
                   We create an anonymous session so you can try real prompts before signing up.
@@ -280,13 +295,31 @@ const activeScreenshot = ref('0')
 
             <template #sidebar>
               <div class="space-y-3 text-sm text-muted-600">
+                <label class="text-xs uppercase tracking-wide text-muted-500">
+                  Paste a transcript
+                </label>
+                <UTextarea
+                  v-model="heroTranscript"
+                  placeholder="Drop the transcript from your video or interview…"
+                  :disabled="heroChatBusy || heroSubmitting"
+                  autoresize
+                />
+                <UButton
+                  block
+                  color="primary"
+                  :loading="heroSubmitting"
+                  :disabled="heroChatBusy || heroSubmitting || !heroTranscript.trim()"
+                  @click="handleTranscriptSubmit"
+                >
+                  Start from transcript
+                </UButton>
                 <p class="font-semibold text-muted-800">
-                  Try asking:
+                  Or try asking:
                 </p>
                 <ul class="space-y-2">
-                  <li>• Summarize my YouTube link into a 5-point outline.</li>
-                  <li>• Draft an intro paragraph for an email course.</li>
-                  <li>• Rewrite this paragraph to be more authoritative.</li>
+                  <li>• Summarize this transcript into a brief outline.</li>
+                  <li>• Draft an intro paragraph for a launch email.</li>
+                  <li>• Rewrite a section to sound more authoritative.</li>
                 </ul>
                 <p class="text-xs text-muted-500">
                   When you sign up, this chat history can be converted into a production draft.
@@ -308,7 +341,7 @@ const activeScreenshot = ref('0')
                 v-else
                 class="rounded-2xl border border-dashed border-muted-200/70 bg-muted/20 p-6 text-center text-sm text-muted-500"
               >
-                Ask Codex anything about the content you want to create.
+                Ask Quillio anything about the content you want to create.
               </div>
             </template>
 
