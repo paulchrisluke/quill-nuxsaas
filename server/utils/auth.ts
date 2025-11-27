@@ -3,7 +3,7 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware } from 'better-auth/api'
-import { admin as adminPlugin, openAPI, organization } from 'better-auth/plugins'
+import { admin as adminPlugin, anonymous, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import { ac, admin, member, owner } from '~~/shared/utils/permissions'
@@ -105,6 +105,44 @@ export const createBetterAuth = () => betterAuth({
 
             if (members.length > 0)
               activeOrgId = members[0].organizationId
+          }
+
+          // 4. For anonymous users without organizations, create a default one
+          if (!activeOrgId) {
+            const user = users[0]
+            if (user && user.email?.includes('@anonymous.')) {
+              // Create a default organization for anonymous users
+              const [newOrg] = await db
+                .insert(schema.organization)
+                .values({
+                  id: uuidv7(),
+                  name: 'Anonymous Workspace',
+                  slug: `anonymous-${user.id.slice(0, 8)}`,
+                  createdAt: new Date(),
+                  updatedAt: new Date()
+                })
+                .returning()
+
+              // Add user as owner of the organization
+              await db
+                .insert(schema.member)
+                .values({
+                  id: uuidv7(),
+                  userId: user.id,
+                  organizationId: newOrg.id,
+                  role: 'owner',
+                  createdAt: new Date(),
+                  updatedAt: new Date()
+                })
+
+              // Update user's active organization
+              await db
+                .update(schema.user)
+                .set({ lastActiveOrganizationId: newOrg.id })
+                .where(eq(schema.user.id, user.id))
+
+              activeOrgId = newOrg.id
+            }
           }
 
           if (activeOrgId) {
@@ -297,6 +335,16 @@ export const createBetterAuth = () => betterAuth({
   },
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
+    anonymous({
+      emailDomainName: (() => {
+        try {
+          const host = new URL(runtimeConfig.public.baseURL).hostname
+          return host.replace(/^www\./, '') || undefined
+        } catch {
+          return undefined
+        }
+      })()
+    }),
     adminPlugin(),
     organization({
       ac,

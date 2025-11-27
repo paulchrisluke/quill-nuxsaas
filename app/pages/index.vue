@@ -1,6 +1,9 @@
 <i18n src="./index.json"></i18n>
 
 <script setup lang="ts">
+// Explicitly import the component to ensure it's available
+import CodexChatLayout from '~/components/chat/CodexChatLayout.vue'
+
 definePageMeta({
   auth: false,
   layout: false
@@ -9,7 +12,47 @@ definePageMeta({
 const { t } = useI18n()
 const localePath = useLocalePath()
 const runtimeConfig = useRuntimeConfig()
-const { user } = useAuth()
+const { user, loggedIn, signInAnonymous } = useAuth()
+const {
+  messages: heroMessages,
+  status: heroChatStatus,
+  errorMessage: heroChatError,
+  sendMessage: heroSendMessage,
+  isBusy: heroChatBusy
+} = useChatSession()
+const heroPrompt = ref('')
+const heroSubmitting = ref(false)
+const heroPromptStatus = computed(() => {
+  if (heroSubmitting.value || heroChatStatus.value === 'submitted' || heroChatStatus.value === 'streaming') {
+    return heroChatStatus.value === 'streaming' ? 'streaming' : 'submitted'
+  }
+  if (heroChatStatus.value === 'error') {
+    return 'error'
+  }
+  return 'ready'
+})
+
+const handleHeroPromptSubmit = async () => {
+  const trimmed = heroPrompt.value.trim()
+  if (!trimmed) {
+    return
+  }
+  heroSubmitting.value = true
+  try {
+    await heroSendMessage(trimmed)
+    heroPrompt.value = ''
+  } finally {
+    heroSubmitting.value = false
+  }
+}
+
+if (import.meta.client) {
+  watch(loggedIn, (value) => {
+    if (!value) {
+      signInAnonymous()
+    }
+  }, { immediate: true })
+}
 
 const title = `${t('global.appName')}: ${t('home.slogan')}`
 const desc = t('home.slogan')
@@ -207,6 +250,80 @@ const activeScreenshot = ref('0')
               </UButton>
             </div>
           </div>
+        </UContainer>
+      </section>
+
+      <!-- Live Codex chat preview -->
+      <section class="relative py-16">
+        <UContainer>
+          <CodexChatLayout
+            sidebar-label="How it works"
+            conversation-label="Live preview"
+          >
+            <template #header>
+              <div class="flex flex-col gap-2 text-center">
+                <p class="text-xl font-semibold">
+                  Chat with Codex instantly
+                </p>
+                <p class="text-sm text-muted-500">
+                  We create an anonymous session so you can try real prompts before signing up.
+                </p>
+                <UAlert
+                  v-if="heroChatError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-alert-triangle"
+                  :description="heroChatError"
+                />
+              </div>
+            </template>
+
+            <template #sidebar>
+              <div class="space-y-3 text-sm text-muted-600">
+                <p class="font-semibold text-muted-800">
+                  Try asking:
+                </p>
+                <ul class="space-y-2">
+                  <li>• Summarize my YouTube link into a 5-point outline.</li>
+                  <li>• Draft an intro paragraph for an email course.</li>
+                  <li>• Rewrite this paragraph to be more authoritative.</li>
+                </ul>
+                <p class="text-xs text-muted-500">
+                  When you sign up, this chat history can be converted into a production draft.
+                </p>
+              </div>
+            </template>
+
+            <template #messages>
+              <div
+                v-if="heroMessages.length"
+                class="rounded-2xl border border-muted-200/60 bg-background/30 p-4"
+              >
+                <ChatMessagesList
+                  :messages="heroMessages"
+                  :status="heroChatStatus"
+                />
+              </div>
+              <div
+                v-else
+                class="rounded-2xl border border-dashed border-muted-200/70 bg-muted/20 p-6 text-center text-sm text-muted-500"
+              >
+                Ask Codex anything about the content you want to create.
+              </div>
+            </template>
+
+            <template #composer>
+              <UChatPrompt
+                v-model="heroPrompt"
+                placeholder="Describe what you need..."
+                variant="subtle"
+                :disabled="heroChatBusy || heroSubmitting"
+                @submit="handleHeroPromptSubmit"
+              >
+                <UChatPromptSubmit :status="heroPromptStatus" />
+              </UChatPrompt>
+            </template>
+          </CodexChatLayout>
         </UContainer>
       </section>
 

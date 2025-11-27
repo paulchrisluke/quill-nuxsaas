@@ -176,6 +176,29 @@ export function useAuth() {
     return refreshActiveOrgPromise
   }
 
+  let anonymousSignInPromise: Promise<void> | null = null
+  const signInAnonymous = async () => {
+    if (session.value) {
+      return
+    }
+    if (anonymousSignInPromise) {
+      return anonymousSignInPromise
+    }
+    anonymousSignInPromise = (async () => {
+      try {
+        await $fetch('/api/auth/sign-in/anonymous', {
+          method: 'POST'
+        })
+        await fetchSession()
+      } catch (error) {
+        console.error('[useAuth] Failed to establish anonymous session', error)
+      } finally {
+        anonymousSignInPromise = null
+      }
+    })()
+    return anonymousSignInPromise
+  }
+
   return {
     client,
     session,
@@ -198,6 +221,7 @@ export function useAuth() {
     refreshActiveOrg,
     signIn: client.signIn,
     signUp: client.signUp,
+    signInAnonymous,
     forgetPassword,
     resetPassword: client.resetPassword,
     sendVerificationEmail: client.sendVerificationEmail,
