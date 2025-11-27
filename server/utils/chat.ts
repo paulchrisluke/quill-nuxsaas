@@ -2,6 +2,7 @@ const YOUTUBE_HOSTS = ['youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.
 const GOOGLE_DOCS_HOSTS = ['docs.google.com']
 
 const urlRegex = /https?:\/\/[^\s<>"']+/gi
+const domainRegex = /(?:^|\s)(((?:[a-z0-9-]+\.)+[a-z]{2,})(?:\/[^\s<>"']*)?)/gi
 
 export interface ParsedUrlResult {
   url: string
@@ -15,7 +16,25 @@ export const extractUrls = (message: string): string[] => {
     return []
   }
 
-  return [...message.matchAll(urlRegex)].map(match => match[0])
+  const urls: string[] = []
+
+  // Extract URLs with protocols (http:// or https://)
+  const protocolUrls = [...message.matchAll(urlRegex)].map(match => match[0])
+  urls.push(...protocolUrls)
+
+  // Extract domain-like patterns without protocols
+  const domainMatches = [...message.matchAll(domainRegex)]
+  for (const match of domainMatches) {
+    const fullMatch = match[1] // Full domain + path
+    const domain = match[2] // Just the domain part
+    // Only add if it looks like a known domain and isn't already captured
+    if ((domain.includes('youtube.com') || domain.includes('youtu.be') || domain.includes('docs.google.com'))
+      && !urls.some(url => url.includes(domain))) {
+      // Add https:// prefix for parsing
+      urls.push(`https://${fullMatch}`)
+    }
+  }
+  return urls
 }
 
 export const extractYouTubeId = (url: URL): string | null => {
