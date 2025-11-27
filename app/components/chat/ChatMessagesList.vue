@@ -2,7 +2,7 @@
 import type { ChatMessage } from '#shared/utils/types'
 import { useClipboard } from '@vueuse/core'
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   messages: ChatMessage[]
 }>(), {})
 
@@ -93,10 +93,10 @@ function roleLabel(role: ChatMessage['role']) {
               },
               message.role === 'user'
                 ? {
-                    label: 'Send again',
-                    icon: 'i-lucide-rotate-ccw',
-                    click: () => handleRegenerate(message)
-                  }
+                  label: 'Send again',
+                  icon: 'i-lucide-rotate-ccw',
+                  click: () => handleRegenerate(message)
+                }
                 : null
             ].filter(Boolean) as any]"
           >

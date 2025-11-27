@@ -293,7 +293,7 @@ const sections = computed(() => {
   }).sort((a, b) => a.index - b.index)
 })
 
-const totalWordCount = computed(() => sections.value.reduce((sum, section) => sum + (section.wordCount || 0), 0))
+const _totalWordCount = computed(() => sections.value.reduce((sum, section) => sum + (section.wordCount || 0), 0))
 const contentUpdatedAtLabel = computed(() => {
   const value = contentRecord.value?.updatedAt
   return value ? formatDate(value) : '—'
@@ -730,7 +730,10 @@ onBeforeUnmount(() => {
           <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between text-xs uppercase tracking-wide text-muted-500">
               <span>Status</span>
-              <UBadge size="xs" class="capitalize">
+              <UBadge
+                size="xs"
+                class="capitalize"
+              >
                 {{ contentStatus }}
               </UBadge>
             </div>
@@ -744,7 +747,10 @@ onBeforeUnmount(() => {
               v-if="_sourceLink"
               class="text-xs text-primary-500"
             >
-              <NuxtLink :href="_sourceLink" target="_blank">
+              <NuxtLink
+                :href="_sourceLink"
+                target="_blank"
+              >
                 View source
               </NuxtLink>
             </div>
@@ -836,8 +842,14 @@ onBeforeUnmount(() => {
           class="w-full"
         />
 
-        <div v-if="activeViewTab === 'conversation'" class="space-y-4">
-          <UCard v-if="sections.length" class="divide-y divide-muted-200/60">
+        <div
+          v-if="activeViewTab === 'conversation'"
+          class="space-y-4"
+        >
+          <UCard
+            v-if="sections.length"
+            class="divide-y divide-muted-200/60"
+          >
             <div
               v-for="section in sections"
               :id="`section-${section.id}`"
@@ -877,11 +889,14 @@ onBeforeUnmount(() => {
             color="neutral"
             variant="soft"
             icon="i-lucide-info"
-            :description="'Sections will appear once the draft is generated.'"
+            description="Sections will appear once the draft is generated."
           />
         </div>
 
-        <div v-else-if="activeViewTab === 'diff'" class="space-y-4">
+        <div
+          v-else-if="activeViewTab === 'diff'"
+          class="space-y-4"
+        >
           <UCard v-if="hasGeneratedContent">
             <template #header>
               <div class="flex items-center justify-between">
@@ -910,7 +925,11 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div v-else class="space-y-4" id="logs">
+        <div
+          v-else
+          id="logs"
+          class="space-y-4"
+        >
           <div
             v-if="!chatLogs.length"
             class="rounded-xl border border-dashed border-muted-200/70 bg-muted/30 p-4 text-sm text-muted-500 text-center"

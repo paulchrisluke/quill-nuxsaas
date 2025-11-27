@@ -4,8 +4,14 @@ definePageMeta({
 })
 
 const route = useRoute()
-const slug = computed(() => route.params.slug as string)
-const contentId = computed(() => route.params.id as string)
+const slug = computed(() => {
+  const param = route.params.slug
+  return Array.isArray(param) ? param[0] : param || ''
+})
+const contentId = computed(() => {
+  const param = route.params.id
+  return Array.isArray(param) ? param[0] : param || ''
+})
 </script>
 
 <template>

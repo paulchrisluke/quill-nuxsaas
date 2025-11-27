@@ -274,7 +274,7 @@ const _isOwner = computed(() => {
 
 const activeOrgSlug = computed(() => {
   // Use route slug as source of truth to prevent reverting to previous team
-  const routeSlug = route.params.slug as string
+  const routeSlug = Array.isArray(route.params.slug) ? route.params.slug[0] : route.params.slug || ''
   if (routeSlug && routeSlug !== 't') {
     return routeSlug
   }

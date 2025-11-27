@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { ChatActionSuggestion, ChatMessage } from '#shared/utils/types'
 import type { ContentType } from '#shared/constants/contentTypes'
+import type { ChatActionSuggestion, ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
 import { useLocalStorage } from '@vueuse/core'
 
 const router = useRouter()
-const { loggedIn, user, signInAnonymous, useActiveOrganization, refreshActiveOrg } = useAuth()
+const { loggedIn, signInAnonymous, useActiveOrganization, refreshActiveOrg } = useAuth()
 const activeOrgState = useActiveOrganization()
 
 const {
@@ -17,8 +17,7 @@ const {
   actions,
   sessionId,
   createContentFromConversation,
-  executeAction,
-  logs
+  executeAction
 } = useChatSession()
 
 const prompt = ref('')
@@ -252,7 +251,10 @@ if (import.meta.client) {
           v-if="isWorkspaceLoading"
           class="flex items-center gap-3 rounded-2xl border border-muted-200/70 bg-muted/20 px-4 py-3 text-sm text-muted-500"
         >
-          <UIcon name="i-lucide-loader" class="h-4 w-4 animate-spin" />
+          <UIcon
+            name="i-lucide-loader"
+            class="h-4 w-4 animate-spin"
+          />
           Loading workspace…
         </div>
 
@@ -267,9 +269,15 @@ if (import.meta.client) {
       </div>
 
       <template v-else>
-        <div v-if="messages.length" class="space-y-4">
+        <div
+          v-if="messages.length"
+          class="space-y-4"
+        >
           <div class="max-w-3xl mx-auto">
-            <div v-if="isStreaming" class="flex items-center justify-center gap-2 text-sm text-muted-500 mb-4">
+            <div
+              v-if="isStreaming"
+              class="flex items-center justify-center gap-2 text-sm text-muted-500 mb-4"
+            >
               <span class="h-2 w-2 rounded-full bg-primary-500 animate-pulse" />
               <span>Quillio is thinking...</span>
             </div>
@@ -282,7 +290,10 @@ if (import.meta.client) {
             </div>
           </div>
 
-          <div v-if="actions.length" class="max-w-2xl mx-auto space-y-3">
+          <div
+            v-if="actions.length"
+            class="max-w-2xl mx-auto space-y-3"
+          >
             <p class="text-xs uppercase tracking-wide text-primary-600 text-center">
               Source detected
             </p>
@@ -368,67 +379,77 @@ if (import.meta.client) {
           />
         </div>
       </template>
-
+    </div>
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="text-sm font-semibold">
+          Workspace drafts
+        </p>
+        <UButton
+          size="xs"
+          color="primary"
+          variant="ghost"
+          @click="router.push('/content')"
+        >
+          View all
+        </UButton>
       </div>
-      <section class="space-y-3">
-        <div class="flex items-center justify-between">
-          <p class="text-sm font-semibold">
-            Workspace drafts
-          </p>
-          <UButton
-            size="xs"
-            color="primary"
-            variant="ghost"
-            @click="router.push('/content')"
-          >
-            View all
-          </UButton>
-        </div>
 
-        <div v-if="draftsPending" class="space-y-2">
-          <div class="h-12 rounded-md bg-muted animate-pulse" />
-          <div class="h-12 rounded-md bg-muted animate-pulse" />
-          <div class="h-12 rounded-md bg-muted animate-pulse" />
-        </div>
-        <div v-else-if="hasContent" class="rounded-2xl border border-muted-200/60 divide-y divide-muted-200/60">
-          <article
-            v-for="entry in contentEntries"
-            :key="entry.id"
-            class="p-4 sm:p-5 space-y-3"
-          >
-            <div class="flex flex-wrap justify-between gap-4">
-              <div>
-                <p class="font-medium leading-tight">
+      <div
+        v-if="draftsPending"
+        class="space-y-2"
+      >
+        <div class="h-12 rounded-md bg-muted animate-pulse" />
+        <div class="h-12 rounded-md bg-muted animate-pulse" />
+        <div class="h-12 rounded-md bg-muted animate-pulse" />
+      </div>
+      <div
+        v-else-if="hasContent"
+        class="rounded-2xl border border-muted-200/60 divide-y divide-muted-200/60"
+      >
+        <article
+          v-for="entry in contentEntries"
+          :key="entry.id"
+          class="p-4 sm:p-5 space-y-3"
+        >
+          <div class="flex flex-wrap justify-between gap-4">
+            <div>
+              <p class="font-medium leading-tight">
                 {{ entry.title }}
               </p>
               <p class="text-xs text-muted-500">
                 Updated {{ entry.updatedAt ? entry.updatedAt.toLocaleDateString() : '—' }}
               </p>
-              </div>
-              <UButton
-                size="xs"
-                color="primary"
-                variant="soft"
-                @click="openWorkspace(entry)"
-              >
-                Open workspace
-              </UButton>
             </div>
-            <div class="flex flex-wrap gap-4 text-xs text-muted-500">
-              <span>{{ entry.sectionsCount }} sections</span>
-              <span v-if="entry.wordCount">
-                {{ entry.wordCount }} words
-              </span>
-              <span v-if="entry.sourceType" class="capitalize">
-                Source: {{ entry.sourceType.replace('_', ' ') }}
-              </span>
-            </div>
-          </article>
-        </div>
-        <div v-else class="rounded-2xl border border-dashed border-muted-200/70 p-5 text-center text-sm text-muted-500">
-          No drafts yet. Turn this conversation into your first piece.
-        </div>
-      </section>
-
+            <UButton
+              size="xs"
+              color="primary"
+              variant="soft"
+              @click="openWorkspace(entry)"
+            >
+              Open workspace
+            </UButton>
+          </div>
+          <div class="flex flex-wrap gap-4 text-xs text-muted-500">
+            <span>{{ entry.sectionsCount }} sections</span>
+            <span v-if="entry.wordCount">
+              {{ entry.wordCount }} words
+            </span>
+            <span
+              v-if="entry.sourceType"
+              class="capitalize"
+            >
+              Source: {{ entry.sourceType.replace('_', ' ') }}
+            </span>
+          </div>
+        </article>
+      </div>
+      <div
+        v-else
+        class="rounded-2xl border border-dashed border-muted-200/70 p-5 text-center text-sm text-muted-500"
+      >
+        No drafts yet. Turn this conversation into your first piece.
+      </div>
+    </section>
   </UContainer>
 </template>

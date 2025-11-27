@@ -20,6 +20,7 @@ export default defineEventHandler(async (event) => {
     .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
     .where(eq(schema.content.organizationId, organizationId))
     .orderBy(desc(schema.content.updatedAt))
+    .limit(100)
 
   return rows
 })
