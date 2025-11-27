@@ -13,6 +13,8 @@ let runtimeConfigInstance: NitroRuntimeConfig
 export const generateRuntimeConfig = () => ({
   preset: process.env.NUXT_NITRO_PRESET,
   betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
+  // Feature Flags
+  enableYoutubeIngestion: process.env.NUXT_ENABLE_YOUTUBE_INGESTION !== 'false',
   // LLM / Cloudflare AI Gateway
   cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
   openAiApiKey: process.env.NUXT_OPENAI_API_KEY,
