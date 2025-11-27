@@ -6,8 +6,14 @@ defineProps<{
 </script>
 
 <template>
-  <div class="codex-chat-layout grid gap-4 lg:grid-cols-[320px,1fr]">
-    <aside class="flex flex-col gap-4 rounded-3xl border border-muted-200/70 bg-background/80 p-4">
+  <div
+    class="codex-chat-layout grid gap-4"
+    :class="sidebarLabel || $slots.sidebar ? 'lg:grid-cols-[320px,1fr]' : 'lg:grid-cols-1'"
+  >
+    <aside
+      v-if="sidebarLabel || $slots.sidebar"
+      class="flex flex-col gap-4 rounded-3xl border border-muted-200/70 bg-background/80 p-4"
+    >
       <div
         v-if="sidebarLabel"
         class="text-xs uppercase tracking-wide text-muted-500"
