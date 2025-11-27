@@ -181,7 +181,22 @@ export default defineEventHandler(async (event) => {
       systemPrompt: sanitizedSystemPrompt,
       temperature: sanitizedTemperature
     })
-  } else if (body.action?.type === 'patch_section') {
+  }
+
+  const sessionContentId = body.action?.contentId ?? generationResult?.content?.id ?? patchSectionResult?.content?.id ?? null
+  const sessionSourceId = body.action?.sourceContentId ?? processedSources[0]?.source.id ?? null
+
+  const session = await ensureChatSession(db, {
+    organizationId,
+    contentId: sessionContentId,
+    sourceContentId: sessionSourceId,
+    createdByUserId: user.id,
+    metadata: {
+      lastAction: body.action?.type ?? (message.trim() ? 'message' : null)
+    }
+  })
+
+  if (body.action?.type === 'patch_section') {
     const instructions = (typeof body.action.instructions === 'string' ? body.action.instructions : message).trim()
     if (!instructions) {
       throw createError({
@@ -224,19 +239,6 @@ export default defineEventHandler(async (event) => {
       }
     })
   }
-
-  const sessionContentId = body.action?.contentId ?? generationResult?.content?.id ?? patchSectionResult?.content?.id ?? null
-  const sessionSourceId = body.action?.sourceContentId ?? processedSources[0]?.source.id ?? null
-
-  const session = await ensureChatSession(db, {
-    organizationId,
-    contentId: sessionContentId,
-    sourceContentId: sessionSourceId,
-    createdByUserId: user.id,
-    metadata: {
-      lastAction: body.action?.type ?? (message.trim() ? 'message' : null)
-    }
-  })
 
   if (message.trim()) {
     await addChatMessage(db, {

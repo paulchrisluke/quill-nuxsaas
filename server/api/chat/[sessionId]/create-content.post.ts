@@ -107,7 +107,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const transcript = selectedMessages
-    .map(message => {
+    .map((message) => {
       const speaker = message.role === 'assistant'
         ? 'Assistant'
         : message.role === 'user'

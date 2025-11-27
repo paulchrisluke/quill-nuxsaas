@@ -2,8 +2,8 @@
 import type { ContentType, ContentTypeOption } from '#shared/constants/contentTypes'
 import type { ChatActionSuggestion } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
-import { computed, reactive, ref, watch } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
+import { computed, reactive, ref, watch } from 'vue'
 
 definePageMeta({
   layout: 'dashboard'
@@ -159,6 +159,10 @@ const selectedContentTypeOption = computed(() => {
   return schemaOptions.find((option: ContentTypeOption) => option.value === selectedContentType.value) ?? schemaOptions[0]
 })
 
+const modalContentTypeOption = computed(() => {
+  return schemaOptions.find(option => option.value === createContentForm.contentType)
+})
+
 const selectedMessageIdsSet = computed(() => new Set(selectedMessageIds.value))
 const transcriptPreview = computed(() => {
   if (!messages.value.length || !selectedMessageIds.value.length) {
@@ -167,7 +171,7 @@ const transcriptPreview = computed(() => {
   const allowed = selectedMessageIdsSet.value
   return messages.value
     .filter(message => allowed.has(message.id))
-    .map(message => {
+    .map((message) => {
       const speaker = message.role === 'assistant'
         ? 'Assistant'
         : message.role === 'user'
@@ -767,23 +771,31 @@ async function handleCreateContentSubmit() {
 
         <div class="space-y-4">
           <div class="space-y-2">
-            <label class="text-xs uppercase tracking-wide text-muted-500">
+            <label
+              for="draft-title"
+              class="text-xs uppercase tracking-wide text-muted-500"
+            >
               Working title
             </label>
             <UInput
+              id="draft-title"
               v-model="createContentForm.title"
               placeholder="e.g. AI Agent onboarding guide"
             />
           </div>
           <div class="space-y-2">
-            <label class="text-xs uppercase tracking-wide text-muted-500">
+            <label
+              for="draft-content-type"
+              class="text-xs uppercase tracking-wide text-muted-500"
+            >
               Content type
             </label>
             <USelectMenu
+              id="draft-content-type"
               v-model="createContentForm.contentType"
               :items="schemaOptions"
               value-key="value"
-              :icon="selectedContentTypeOption?.icon || 'i-lucide-file-text'"
+              :icon="modalContentTypeOption?.icon || 'i-lucide-file-text'"
             />
           </div>
           <p class="text-xs text-muted-500">
