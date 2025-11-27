@@ -263,7 +263,7 @@ if (import.meta.client) {
           :content-id="workspaceDetail.content.id"
           :organization-slug="workspaceDetail.content.slug || activeOrgState?.value?.data?.slug || null"
           :initial-payload="workspaceDetail"
-          :show-back-button="false"
+          :show-back-button="true"
           @close="closeWorkspace"
         />
       </div>

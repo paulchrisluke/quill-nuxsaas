@@ -293,6 +293,25 @@ const sections = computed(() => {
   }).sort((a, b) => a.index - b.index)
 })
 
+// Date formatting utilities (must be declared before computed properties)
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short'
+})
+
+function formatDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return '—'
+  }
+
+  const date = typeof value === 'string' ? new Date(value) : value
+  if (!date || Number.isNaN(date.getTime())) {
+    return '—'
+  }
+
+  return dateFormatter.format(date)
+}
+
 const _totalWordCount = computed(() => sections.value.reduce((sum, section) => sum + (section.wordCount || 0), 0))
 const contentUpdatedAtLabel = computed(() => {
   const value = contentRecord.value?.updatedAt
@@ -376,26 +395,6 @@ function slugify(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-}
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: 'medium',
-  timeStyle: 'short'
-})
-
-function formatDate(value: string | Date | null | undefined) {
-  if (!value) {
-    return '—'
-  }
-
-  const date = typeof value === 'string' ? new Date(value) : value
-  const timeValue = date instanceof Date ? date.getTime() : Number.NaN
-
-  if (!Number.isFinite(timeValue)) {
-    return '—'
-  }
-
-  return dateFormatter.format(date)
 }
 
 function sectionPreview(body: string, limit = 320) {
