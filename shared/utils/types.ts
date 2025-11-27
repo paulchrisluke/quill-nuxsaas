@@ -10,6 +10,15 @@ export interface ChatMessage {
   role: ChatRole
   content: string
   createdAt: Date
+  payload?: Record<string, any> | null
+}
+
+export interface ChatLogEntry {
+  id: string
+  type: string
+  message: string
+  payload?: Record<string, any> | null
+  createdAt: Date
 }
 
 export interface ChatActionSuggestion {

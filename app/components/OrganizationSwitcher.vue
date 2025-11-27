@@ -16,7 +16,7 @@ const route = useRoute()
 // Get active organization ID - prioritize route slug over session for immediate UI updates
 const activeOrgId = computed(() => {
   // Use route slug first for immediate reactivity
-  const routeSlug = route.params.slug as string
+  const routeSlug = Array.isArray(route.params.slug) ? route.params.slug[0] : route.params.slug || ''
   if (routeSlug && routeSlug !== 't' && organizations.value) {
     const org = organizations.value.find((o: any) => o.slug === routeSlug)
     if (org?.id)
@@ -36,7 +36,7 @@ const activeOrgName = computed(() => {
     return 'Select team'
 
   // Find by ID or slug
-  const routeSlug = route.params.slug as string
+  const routeSlug = Array.isArray(route.params.slug) ? route.params.slug[0] : route.params.slug || ''
   const org = activeOrgId.value
     ? organizations.value.find((o: any) => o.id === activeOrgId.value)
     : organizations.value.find((o: any) => o.slug === routeSlug)

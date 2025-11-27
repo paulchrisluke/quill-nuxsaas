@@ -6,7 +6,10 @@ definePageMeta({
 })
 
 const route = useRoute()
-const slug = computed(() => route.params.slug as string)
+const slug = computed(() => {
+  const param = route.params.slug
+  return Array.isArray(param) ? param[0] : param || ''
+})
 
 const { organization, useActiveOrganization, fetchSession, user } = useAuth()
 const activeOrg = useActiveOrganization()

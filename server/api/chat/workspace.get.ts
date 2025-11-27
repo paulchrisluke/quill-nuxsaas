@@ -1,5 +1,7 @@
 import { desc, eq } from 'drizzle-orm'
+import { getQuery } from 'h3'
 import * as schema from '~~/server/database/schema'
+import { getContentWorkspacePayload } from '~~/server/services/content/workspace'
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
@@ -9,7 +11,12 @@ export default defineEventHandler(async (event) => {
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 
-  const rows = await db
+  const query = getQuery(event)
+  const contentId = typeof query.contentId === 'string' && query.contentId.trim().length > 0
+    ? query.contentId.trim()
+    : null
+
+  const contents = await db
     .select({
       content: schema.content,
       sourceContent: schema.sourceContent,
@@ -22,5 +29,12 @@ export default defineEventHandler(async (event) => {
     .orderBy(desc(schema.content.updatedAt))
     .limit(100)
 
-  return rows
+  const workspace = contentId
+    ? await getContentWorkspacePayload(db, organizationId, contentId)
+    : null
+
+  return {
+    contents,
+    workspace
+  }
 })

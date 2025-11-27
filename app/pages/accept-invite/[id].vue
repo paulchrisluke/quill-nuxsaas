@@ -6,7 +6,7 @@ const toast = useToast()
 const loading = ref(true)
 const error = ref('')
 
-const invitationId = route.params.id as string
+const invitationId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id || ''
 
 onMounted(async () => {
   // Ensure session is up to date before checking login status

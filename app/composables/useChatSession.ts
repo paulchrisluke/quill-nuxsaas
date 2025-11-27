@@ -2,6 +2,7 @@ import type { ContentType } from '#shared/constants/contentTypes'
 import type {
   ChatActionSuggestion,
   ChatGenerationResult,
+  ChatLogEntry,
   ChatMessage,
   ChatSourceSnapshot
 } from '#shared/utils/types'
@@ -22,6 +23,14 @@ interface ChatResponse {
     id: string
     role: 'user' | 'assistant' | 'system'
     content: string
+    createdAt: string | Date
+    payload?: Record<string, any> | null
+  }>
+  logs?: Array<{
+    id: string
+    type: string
+    message: string
+    payload?: Record<string, any> | null
     createdAt: string | Date
   }>
 }
@@ -51,8 +60,22 @@ function normalizeMessages(list: ChatResponse['messages']) {
       id: message.id || createId(),
       role: message.role as ChatMessage['role'],
       content: message.content,
-      createdAt: toDate(message.createdAt)
+      createdAt: toDate(message.createdAt),
+      payload: message.payload ?? null
     }))
+}
+
+function normalizeLogs(list: ChatResponse['logs']) {
+  if (!Array.isArray(list)) {
+    return []
+  }
+  return list.map(log => ({
+    id: log.id,
+    type: log.type,
+    message: log.message,
+    payload: log.payload ?? null,
+    createdAt: toDate(log.createdAt)
+  }))
 }
 
 interface CreateContentFromConversationPayload {
@@ -67,12 +90,7 @@ interface CreateContentFromConversationResponse {
 }
 
 export function useChatSession() {
-  const messages = useState<ChatMessage[]>('chat/messages', () => [{
-    id: createId(),
-    role: 'assistant',
-    content: 'Hi! Share a link or describe what you want to write and I can prep a draft.',
-    createdAt: new Date()
-  }])
+  const messages = useState<ChatMessage[]>('chat/messages', () => [])
   const status = useState<ChatStatus>('chat/status', () => 'ready')
   const actions = useState<ChatActionSuggestion[]>('chat/actions', () => [])
   const sources = useState<ChatSourceSnapshot[]>('chat/sources', () => [])
@@ -82,6 +100,7 @@ export function useChatSession() {
   const activeSourceId = useState<string | null>('chat/active-source-id', () => null)
   const sessionId = useState<string | null>('chat/session-id', () => null)
   const sessionContentId = useState<string | null>('chat/session-content-id', () => null)
+  const logs = useState<ChatLogEntry[]>('chat/logs', () => [])
 
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
 
@@ -134,6 +153,7 @@ export function useChatSession() {
       const firstSourceId = sources.value[0]?.id ?? null
       activeSourceId.value = firstSourceId
       generation.value = response.generation ?? null
+      logs.value = normalizeLogs(response.logs)
       status.value = 'ready'
       return response
     } catch (error: any) {
@@ -261,6 +281,7 @@ export function useChatSession() {
     executeAction,
     sessionId,
     sessionContentId,
-    createContentFromConversation
+    createContentFromConversation,
+    logs
   }
 }
