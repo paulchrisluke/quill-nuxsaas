@@ -22,4 +22,4 @@ This document tracks the remaining UX features we want to adopt from the [AI Ele
 - Map our conversation state (`messages`, `status`, `actions`) to the toolkit’s provider/composables.
 - Replace Nuxt UI prompts with `AiMessageInput` once we wire attachments, slash commands, and multi-tool support.
 
-Once these items are complete we can remove the interim layout and rely entirely on AI Elements Vue for presentation while keeping the Codex business logic we implemented in this PR.***
+Once these items are complete we can remove the interim layout and rely entirely on AI Elements Vue for presentation while keeping the Codex business logic we implemented in this PR.

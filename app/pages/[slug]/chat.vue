@@ -453,12 +453,12 @@ async function handleCreateContentSubmit() {
               class="rounded-2xl border border-dashed border-primary/30 bg-primary/5 p-3 text-sm text-primary-600 dark:text-primary-300 space-y-2"
             >
               <p>
-                Detected a {{ actions[0]?.sourceType?.replace('_', ' ') || 'source' }} link. Draft generation is running automatically.
+                Detected a {{ actions[0]?.sourceType?.replaceAll('_', ' ') || 'source' }} link. Draft generation is running automatically.
               </p>
               <div class="flex flex-wrap gap-2">
                 <UButton
-                  v-for="action in actions"
-                  :key="`${action.type}-${action.sourceContentId || action.label || 'action'}`"
+                  v-for="(action, index) in actions"
+                  :key="`${action.type}-${action.sourceContentId || action.label || index}`"
                   size="xs"
                   color="primary"
                   variant="ghost"

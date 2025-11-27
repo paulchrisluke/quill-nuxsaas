@@ -28,7 +28,7 @@ const prompt = ref('')
 const promptSubmitting = ref(false)
 const createDraftLoading = ref(false)
 const createDraftError = ref<string | null>(null)
-const selectedContentType = ref<ContentType>(CONTENT_TYPE_OPTIONS[0].value)
+const selectedContentType = ref<ContentType>(CONTENT_TYPE_OPTIONS[0]?.value ?? 'blog_post')
 const anonymousDraftCount = import.meta.client ? useLocalStorage<number>('quillio-anon-draft-count', 0) : ref(0)
 const ANON_DRAFT_LIMIT = 5
 const remainingAnonDrafts = computed(() => Math.max(0, ANON_DRAFT_LIMIT - (anonymousDraftCount.value || 0)))
@@ -107,6 +107,8 @@ const handleCreateDraft = async () => {
 
   const ensureOrgSlug = activeOrgState.value?.data?.slug
   if (!ensureOrgSlug) {
+    // TODO: This should refresh organization data, not content data
+    // Consider: await refreshActiveOrganization() or similar
     await refreshContents()
   }
 
@@ -119,14 +121,18 @@ const handleCreateDraft = async () => {
       contentType: selectedContentType.value,
       messageIds: messages.value.map(message => message.id)
     })
+    // Increment draft count before navigation to ensure persistence
+    if (!loggedIn.value && !hasReachedAnonLimit.value) {
+      anonymousDraftCount.value = (anonymousDraftCount.value || 0) + 1
+    }
+
     const activeSlug = activeOrgState.value?.data?.slug
     if (response?.content?.id && activeSlug) {
       await router.push(`/${activeSlug}/content/${response.content.id}`)
     } else {
+      // TODO: Add success feedback when redirecting back to /chat
+      // Consider showing toast or refreshing content to display new draft
       await router.push('/chat')
-    }
-    if (!loggedIn.value && !hasReachedAnonLimit.value) {
-      anonymousDraftCount.value = (anonymousDraftCount.value || 0) + 1
     }
   } catch (error: any) {
     createDraftError.value = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to create a draft from this conversation.'
@@ -303,7 +309,7 @@ if (import.meta.client) {
                 v-if="entry.sourceType"
                 class="capitalize"
               >
-                Source: {{ entry.sourceType.replace('_', ' ') }}
+                Source: {{ entry.sourceType.replaceAll('_', ' ') }}
               </span>
             </div>
             <div class="flex justify-between items-center">
