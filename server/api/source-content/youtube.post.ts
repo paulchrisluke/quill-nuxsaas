@@ -4,6 +4,7 @@ import { requireAuth } from '~~/server/utils/auth'
 import { extractYouTubeId } from '~~/server/utils/chat'
 import { useDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 
 interface YouTubeIngestBody {
   youtubeUrl: string
@@ -14,6 +15,13 @@ export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = await useDB(event)
+
+  if (!runtimeConfig.enableYoutubeIngestion) {
+    throw createError({
+      statusCode: 503,
+      statusMessage: 'YouTube ingestion is currently disabled'
+    })
+  }
 
   const body = await readBody<YouTubeIngestBody>(event)
 

@@ -104,8 +104,8 @@ interface GeneratedSection {
   meta?: Record<string, any>
 }
 
-const PLAN_SYSTEM_PROMPT = 'You are an editorial strategist planning SEO-friendly long-form content. Always respond with valid JSON.'
-const SECTION_SYSTEM_PROMPT = 'You are an expert SEO content writer. Write the requested section content in MDX-compatible markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
+const PLAN_SYSTEM_PROMPT = 'You are an editorial strategist who preserves the authentic voice and personality of the original content while creating well-structured articles. Focus on maintaining the speaker\'s unique tone, expressions, and authentic voice over generic SEO optimization. Always respond with valid JSON.'
+const SECTION_SYSTEM_PROMPT = 'You are a skilled writer who preserves the original author\'s unique voice, personality, and authentic expressions while creating well-structured content. Maintain casual language, personal anecdotes, specific details, and the authentic tone from the source material. Write in MDX-compatible markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
 const SECTION_PATCH_SYSTEM_PROMPT = 'You are revising a single section of an existing article. Only update that section using the author instructions and contextual transcript snippets. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
 const PLAN_SECTION_LIMIT = 10
 const SECTION_CONTEXT_LIMIT = 3
@@ -177,7 +177,7 @@ const buildVirtualChunksFromText = (text: string, chunkSize = 1200, overlap = 20
   return segments
 }
 
-const gatherChunkPreview = (chunks: PipelineChunk[], maxChars = 4000) => {
+const gatherChunkPreview = (chunks: PipelineChunk[], maxChars = 6000) => {
   if (!chunks.length) {
     return 'No transcript snippets available.'
   }
@@ -186,7 +186,7 @@ const gatherChunkPreview = (chunks: PipelineChunk[], maxChars = 4000) => {
   let current = 0
 
   for (const chunk of chunks) {
-    const snippet = chunk.textPreview || chunk.text.slice(0, 280)
+    const snippet = chunk.textPreview || chunk.text.slice(0, 400)
     if (!snippet) {
       continue
     }
@@ -278,11 +278,12 @@ const generateContentPlan = async (params: {
 }): Promise<ContentPlanResult> => {
   const preview = gatherChunkPreview(params.chunks)
   const prompt = [
-    `We are planning a ${params.contentType}.`,
+    `We are planning a ${params.contentType} that preserves the authentic voice and personality of the original content.`,
     params.sourceTitle ? `Source Title: ${params.sourceTitle}` : 'Source Title: Unknown',
     'Transcript highlights:',
     preview,
-    params.instructions ? `Writer instructions: ${params.instructions}` : 'Writer instructions: none provided.',
+    params.instructions ? `Writer instructions: ${params.instructions}` : 'Writer instructions: Maintain the original speaker\'s authentic voice, casual expressions, and personal storytelling style.',
+    'Create an outline that reflects the natural flow and personality of the original content. Section titles should capture the speaker\'s authentic way of discussing topics.',
     'Return JSON with shape {"outline": [{"id": string, "index": number, "title": string, "type": string, "notes": string? }], "seo": {"title": string, "description": string, "keywords": string[], "slugSuggestion": string, "schemaType": string? }}.',
     `Limit outline to ${PLAN_SECTION_LIMIT} sections.`
   ].join('\n\n')
@@ -291,7 +292,8 @@ const generateContentPlan = async (params: {
   try {
     const raw = await callChatCompletions({
       systemPrompt: PLAN_SYSTEM_PROMPT,
-      userPrompt: prompt
+      userPrompt: prompt,
+      temperature: 0.7 // Higher temperature for more creative and personality-preserving planning
     })
 
     const parsed = parseJSONResponse<ContentPlanResult>(raw, 'content plan')
@@ -394,7 +396,7 @@ const generateSectionsFromOutline = async (params: {
   for (const item of params.outline) {
     const relevantChunks = selectRelevantChunks(params.chunks, item)
     const contextBlock = relevantChunks.length
-      ? relevantChunks.map(chunk => `Chunk ${chunk.chunkIndex}: ${chunk.text.slice(0, 600)}`).join('\n\n')
+      ? relevantChunks.map(chunk => `Chunk ${chunk.chunkIndex}: ${chunk.text.slice(0, 1200)}`).join('\n\n')
       : 'No transcript context available.'
 
     const prompt = [
@@ -407,17 +409,17 @@ const generateSectionsFromOutline = async (params: {
         tags: params.frontmatter.tags,
         contentType: params.frontmatter.contentType
       })}`,
-      params.instructions ? `Additional voice instructions: ${params.instructions}` : 'Additional voice instructions: default Codex editorial voice.',
+      params.instructions ? `Additional voice instructions: ${params.instructions}` : 'Voice instructions: Preserve the original speaker\'s authentic voice, personality, casual expressions, personal anecdotes, and unique phrasing. Maintain their natural speaking style and tone rather than converting to formal editorial language.',
       'Transcript context to ground this section:',
       contextBlock,
-      'Respond with JSON {"body": string, "summary": string?}. "body" must include only the prose content for this section - do NOT include the section heading or title, as it will be added automatically.'
+      'Write this section maintaining the original speaker\'s authentic voice and personality. Use their specific words, phrases, and expressions when possible. Keep their casual tone, personal stories, and unique way of explaining things. Respond with JSON {"body": string, "summary": string?}. "body" must include only the prose content for this section - do NOT include the section heading or title, as it will be added automatically.'
     ].join('\n\n')
 
     try {
       const raw = await callChatCompletions({
         systemPrompt: SECTION_SYSTEM_PROMPT,
         userPrompt: prompt,
-        temperature: params.temperature
+        temperature: params.temperature ?? 0.8 // Higher default temperature for personality preservation
       })
 
       const parsed = parseJSONResponse<{ body?: string, body_mdx?: string, summary?: string }>(raw, `section ${item.title}`)

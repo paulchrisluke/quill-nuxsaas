@@ -205,6 +205,14 @@ const activeScreenshot = ref('0')
               >
                 {{ t('home.viewOnGithub') }}
               </UButton>
+              <UButton
+                :to="localePath('/chat')"
+                color="neutral"
+                variant="soft"
+                size="lg"
+              >
+                {{ t('home.tryQuillioChat') }}
+              </UButton>
             </div>
           </div>
         </UContainer>

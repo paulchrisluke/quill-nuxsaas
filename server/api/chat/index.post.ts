@@ -13,6 +13,7 @@ import { classifyUrl, extractUrls } from '~~/server/utils/chat'
 import { CONTENT_STATUSES, CONTENT_TYPES } from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 
 interface ChatActionGenerateContent {
   type: 'generate_content'
@@ -97,7 +98,7 @@ export default defineEventHandler(async (event) => {
       sourceText: null
     })
 
-    if (classification.sourceType === 'youtube' && classification.externalId) {
+    if (classification.sourceType === 'youtube' && classification.externalId && runtimeConfig.enableYoutubeIngestion) {
       try {
         record = await ingestYouTubeSource({
           db,
@@ -112,6 +113,8 @@ export default defineEventHandler(async (event) => {
           error
         })
       }
+    } else if (classification.sourceType === 'youtube' && !runtimeConfig.enableYoutubeIngestion) {
+      console.log('YouTube ingestion disabled by feature flag, skipping ingest for:', record.id)
     }
 
     processedSources.push({
