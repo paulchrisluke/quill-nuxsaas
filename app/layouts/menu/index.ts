@@ -67,19 +67,21 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
   ]
 }
 
-export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string, slug: string, userRole?: 'owner' | 'admin' | 'member'): NavigationMenuItem[][] => {
-  const items: NavigationMenuItem[] = [
-    {
+export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string, slug: string, userRole?: 'owner' | 'admin' | 'member', needsUpgrade = false): NavigationMenuItem[][] => {
+  const items: NavigationMenuItem[] = []
+
+  if (!needsUpgrade) {
+    items.push({
       label: t('menu.dashboard'),
       icon: 'i-lucide-layout-dashboard',
       to: localePath(`/${slug}/dashboard`)
-    },
-    {
+    })
+    items.push({
       label: 'Members',
       icon: 'i-lucide-users',
       to: localePath(`/${slug}/members`)
-    }
-  ]
+    })
+  }
 
   // Only owners can see billing (using permissions system)
   if (hasPermission(userRole, 'VIEW_BILLING_NAV')) {

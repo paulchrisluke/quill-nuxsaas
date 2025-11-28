@@ -16,9 +16,10 @@ const showDowngradeModal = ref(false)
 const downgradeData = ref<{ membersToRemove: any[], nextChargeDate: string, legacyWarning?: string | null }>({ membersToRemove: [], nextChargeDate: '' })
 const showUpgradeModal = ref(false)
 
-// Show upgrade modal if showUpgrade query param is present
+// Show upgrade modal if showUpgrade query param is present or if upgrade is needed
 watchEffect(() => {
-  if (route.query.showUpgrade === 'true') {
+  const needsUpgrade = (activeOrg.value?.data as any)?.needsUpgrade
+  if (route.query.showUpgrade === 'true' || needsUpgrade) {
     showUpgradeModal.value = true
   }
 })
@@ -811,7 +812,10 @@ async function confirmPlanChange() {
             </div>
 
             <!-- Payment Method -->
-            <div class="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800">
+            <div
+              v-if="currentPlan !== 'free'"
+              class="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800"
+            >
               <h3 class="text-sm font-semibold mb-2">
                 Payment Method
               </h3>

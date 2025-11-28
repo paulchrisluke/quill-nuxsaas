@@ -70,7 +70,8 @@ if (layoutOrgData.value) {
   // Flatten the structure: org data + subscriptions at top level
   const flattenedData = {
     ...layoutOrgData.value.organization,
-    subscriptions: layoutOrgData.value.subscriptions
+    subscriptions: layoutOrgData.value.subscriptions,
+    needsUpgrade: layoutOrgData.value.needsUpgrade
   }
 
   if (!activeOrg.value) {
@@ -97,7 +98,8 @@ watch(() => layoutOrgData.value, (newOrg) => {
     if ((newOrg as any).organization) {
       flattenedData = {
         ...(newOrg as any).organization,
-        subscriptions: (newOrg as any).subscriptions
+        subscriptions: (newOrg as any).subscriptions,
+        needsUpgrade: (newOrg as any).needsUpgrade
       }
     }
 
@@ -262,6 +264,24 @@ const activeOrgSlug = computed(() => {
   return activeOrg.value?.data?.slug || 't'
 })
 
+// Get needsUpgrade from the SSR data
+const needsUpgrade = computed(() => {
+  // activeOrg.data is the flattened object. The server returns { organization: {...}, subscriptions: [], needsUpgrade: boolean }
+  // But the watcher flattens it into activeOrg.value.data
+  // We need to make sure needsUpgrade is preserved during flattening or accessed from layoutOrgData directly
+
+  if (activeOrg.value?.data?.needsUpgrade !== undefined) {
+    return activeOrg.value.data.needsUpgrade
+  }
+
+  // Fallback to layoutOrgData if activeOrg structure is different
+  if (layoutOrgData.value && 'needsUpgrade' in layoutOrgData.value) {
+    return (layoutOrgData.value as any).needsUpgrade
+  }
+
+  return false
+})
+
 defineShortcuts({
   'g-1': () => router.push(localePath(`/${activeOrgSlug.value}/dashboard`))
 })
@@ -269,7 +289,7 @@ const pathNameItemMap: StringDict<NavigationMenuItem> = {}
 const pathNameParentMap: StringDict<NavigationMenuItem | undefined> = {}
 
 // Pass user role to menu instead of boolean flags
-const menus = computed(() => getUserMenus(t, localePath, runtimeConfig.public.appRepo, activeOrgSlug.value, currentUserRole.value))
+const menus = computed(() => getUserMenus(t, localePath, runtimeConfig.public.appRepo, activeOrgSlug.value, currentUserRole.value, needsUpgrade.value))
 
 const menuIterator = (menus: NavigationMenuItem[], parent?: NavigationMenuItem) => {
   for (const menu of menus) {

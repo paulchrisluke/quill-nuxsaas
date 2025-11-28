@@ -258,6 +258,7 @@ export const setupStripe = () => stripe({
           const inviteCount = organization.invitations.filter(i => i.status === 'pending').length
           const count = memberCount + inviteCount
           quantity = count > 0 ? count : 1
+          console.log('[Stripe] Calculated Quantity:', quantity, 'Members:', memberCount, 'Invites:', inviteCount, 'Org:', targetOrgId)
         }
       }
 

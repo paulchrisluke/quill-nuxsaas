@@ -24,7 +24,6 @@ export const user = pgTable('user', {
   banReason: text('ban_reason'),
   banExpires: timestamp('ban_expires'),
   lastActiveOrganizationId: text('last_active_organization_id'),
-  stripeCustomerId: text('stripe_customer_id'),
   referralCode: text('referral_code')
 })
 

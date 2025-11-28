@@ -3,8 +3,8 @@
  * Queries database directly - NO HTTP calls, NO Better Auth API calls
  */
 
-import { eq } from 'drizzle-orm'
-import { organization as organizationTable, subscription as subscriptionTable } from '../../database/schema'
+import { and, eq } from 'drizzle-orm'
+import { member as memberTable, organization as organizationTable, subscription as subscriptionTable } from '../../database/schema'
 import { getAuthSession } from '../../utils/auth'
 import { useDB } from '../../utils/db'
 
@@ -23,16 +23,22 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    console.log('Session found:', { userId: session.user.id, activeOrgId: session.session.activeOrganizationId })
+    console.log('Session found:', { userId: session.user.id, activeOrgId: (session.session as any).activeOrganizationId })
 
-    const activeOrgId = session.session.activeOrganizationId
+    const activeOrgId = (session.session as any).activeOrganizationId
 
     if (!activeOrgId) {
-      console.error('No activeOrganizationId in session:', session)
-      throw createError({
-        statusCode: 400,
-        message: 'No active organization'
-      })
+      // If no active org, just return user data (e.g. for onboarding)
+      return {
+        organization: null,
+        subscriptions: [],
+        needsUpgrade: false,
+        user: {
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.name
+        }
+      }
     }
 
     // Fetch organization with all relations in a single database query
@@ -70,11 +76,75 @@ export default defineEventHandler(async (event) => {
       where: eq(subscriptionTable.referenceId, activeOrgId)
     })
 
-    console.log('[API] Full Data - Org:', activeOrgId, 'Subs found:', subscriptions.length)
+    // Calculate needsUpgrade Server-Side
+    // 1. Get all organizations owned by this user
+    const ownedMemberships = await db.query.member.findMany({
+      where: and(
+        eq(memberTable.userId, session.user.id),
+        eq(memberTable.role, 'owner')
+      ),
+      with: {
+        organization: true
+      }
+    })
+
+    // 2. Sort by creation date to find the "First (Free)" org
+    const sortedOrgs = ownedMemberships
+      .map(m => m.organization)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+    const firstOrgId = sortedOrgs[0]?.id
+
+    // If I am NOT the owner of the current org, I assume the Owner handles billing.
+    // But if the org is locked, members should also see the locked state.
+    // The logic relies on whether this org *itself* is the "Free One" of its *Owner*?
+    // Actually, simpler: If this org is NOT the user's first owned org, it needs a sub.
+    // BUT wait, if I am just a MEMBER, I don't own it. Does it count against MY limit? No.
+    // It counts against the OWNER'S limit.
+    // However, implementing "Check Owner's other orgs" is complex here.
+    // Simplified Rule: If *current user* is Owner, enforce logic.
+    // If current user is Member, we might trust `org.stripeCustomerId` presence?
+    // Let's stick to: If I am Owner -> Check my orgs.
+    // If I am Member -> Check if Subscription is Active (if it exists).
+    // If no subscription exists and I am member, assume it's the Owner's free org?
+
+    // To be robust: We should check the OWNER of this org.
+    const ownerMember = org.members.find(m => m.role === 'owner')
+    let isFreeOrg = false
+
+    if (ownerMember) {
+      // If I am the owner, I already fetched my orgs.
+      if (ownerMember.userId === session.user.id) {
+        isFreeOrg = activeOrgId === firstOrgId
+      } else {
+        // I am not the owner. I need to check the OWNER's orgs to see if this is THEIR first org.
+        // This requires fetching the Owner's memberships.
+        const ownerMemberships = await db.query.member.findMany({
+          where: and(
+            eq(memberTable.userId, ownerMember.userId),
+            eq(memberTable.role, 'owner')
+          ),
+          with: {
+            organization: true
+          }
+        })
+        const ownerSortedOrgs = ownerMemberships
+          .map(m => m.organization)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+        isFreeOrg = activeOrgId === ownerSortedOrgs[0]?.id
+      }
+    }
+
+    const hasActiveSub = subscriptions.some(s => s.status === 'active' || s.status === 'trialing')
+    const needsUpgrade = !isFreeOrg && !hasActiveSub
+
+    console.log('[API] Full Data - Org:', activeOrgId, 'Subs:', subscriptions.length, 'NeedsUpgrade:', needsUpgrade)
 
     return {
       organization: org,
       subscriptions: subscriptions || [],
+      needsUpgrade,
       user: {
         id: session.user.id,
         email: session.user.email,
