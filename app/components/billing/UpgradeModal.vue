@@ -83,8 +83,8 @@ async function handleUpgrade() {
       metadata: {
         quantity: 1
       },
-      successUrl: `${window.location.origin}/${orgSlug}/dashboard?upgraded=true`,
-      cancelUrl: `${window.location.origin}/${orgSlug}/dashboard?canceled=true`
+      successUrl: `${window.location.origin}/${orgSlug}/billing?upgraded=true`,
+      cancelUrl: `${window.location.href}`
     })
 
     emit('upgraded')

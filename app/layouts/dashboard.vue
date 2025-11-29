@@ -282,6 +282,21 @@ const needsUpgrade = computed(() => {
   return false
 })
 
+// Redirect to billing if needsUpgrade and on a restricted page
+watch([needsUpgrade, () => route.path], ([upgradeNeeded, currentPath]) => {
+  if (!upgradeNeeded || !import.meta.client)
+    return
+
+  // Pages that are allowed even when needsUpgrade
+  const allowedPaths = ['/billing', '/settings']
+  const isAllowedPage = allowedPaths.some(p => currentPath.includes(p))
+
+  if (!isAllowedPage) {
+    // Redirect to billing page with upgrade modal
+    router.replace(localePath(`/${activeOrgSlug.value}/billing?showUpgrade=true`))
+  }
+}, { immediate: true })
+
 defineShortcuts({
   'g-1': () => router.push(localePath(`/${activeOrgSlug.value}/dashboard`))
 })
@@ -407,7 +422,7 @@ async function createTeam() {
       class="fixed top-0 left-0 transition-all duration-300 hidden sm:block"
       :class="[isCollapsed ? 'w-15' : 'w-64']"
     >
-      <div class="h-screen flex flex-col px-3 py-4 bg-neutral-100 dark:bg-neutral-800">
+      <div class="h-screen-safe flex flex-col px-3 py-4 bg-neutral-100 dark:bg-neutral-800">
         <a
           v-if="!isCollapsed"
           class="flex items-center ps-2.5"
@@ -487,7 +502,7 @@ async function createTeam() {
       </div>
     </aside>
     <div
-      class="p-2 h-screen bg-white dark:bg-neutral-900 transition-all duration-300 overflow-hidden flex flex-col"
+      class="p-2 h-screen-safe bg-white dark:bg-neutral-900 transition-all duration-300 overflow-hidden flex flex-col"
       :class="[isCollapsed ? 'sm:ml-15' : 'sm:ml-64']"
     >
       <FlexThreeColumn class="mb-2 flex-none">
@@ -505,15 +520,42 @@ async function createTeam() {
               variant="ghost"
             />
             <template #content>
-              <div class="w-[60vw] p-4">
+              <div class="w-[70vw] h-full flex flex-col p-4">
                 <div class="mb-4">
                   <OrganizationSwitcher />
                 </div>
                 <UNavigationMenu
                   orientation="vertical"
                   :items="menus"
-                  class="data-[orientation=vertical]:w-full"
+                  class="data-[orientation=vertical]:w-full flex-1"
                 />
+                <!-- User Profile Section -->
+                <div class="mt-auto pt-4 border-t border-neutral-200 dark:border-neutral-700">
+                  <div class="flex items-center gap-3 mb-3">
+                    <UAvatar
+                      :src="user?.image || undefined"
+                      size="sm"
+                      class="border border-neutral-300 dark:border-neutral-700"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium truncate">
+                        {{ user?.name }}
+                      </p>
+                      <p class="text-xs text-muted-foreground truncate">
+                        {{ user?.email }}
+                      </p>
+                    </div>
+                  </div>
+                  <UButton
+                    icon="i-lucide-log-out"
+                    color="neutral"
+                    variant="ghost"
+                    class="w-full justify-start"
+                    @click="clickSignOut"
+                  >
+                    {{ t('global.auth.signOut') }}
+                  </UButton>
+                </div>
               </div>
             </template>
           </UDrawer>
