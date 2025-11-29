@@ -41,6 +41,7 @@ export function TrialExpired({
     >
       <Text style={text}>
         Hello
+        {' '}
         {name}
         ,
       </Text>
@@ -56,14 +57,13 @@ export function TrialExpired({
         has expired.
       </Text>
       <Text style={text}>
-        Your team has been downgraded to the free plan. To restore full access to all features,
-        please subscribe to a paid plan.
+        We couldn't process your payment. To continue using all Pro features, please update your payment method. Otherwise, your team will be downgraded to the free plan.
       </Text>
       <Section style={buttonContainer}>
-        <EmailButton href={billingUrl}>Subscribe Now</EmailButton>
+        <EmailButton href={billingUrl}>Update Payment Method</EmailButton>
       </Section>
       <Text style={mutedText}>
-        We'd love to have you back! If you have any questions, our support team is here to help.
+        If you have any questions or need help, our support team is here to assist you.
       </Text>
     </BaseEmail>
   )

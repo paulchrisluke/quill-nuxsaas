@@ -43,6 +43,7 @@ export function ResetPassword({
     >
       <Text style={text}>
         Hello
+        {' '}
         {name}
         ,
       </Text>

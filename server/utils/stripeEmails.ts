@@ -5,14 +5,17 @@
 
 import type Stripe from 'stripe'
 import { eq } from 'drizzle-orm'
-import { PLANS } from '~~/shared/utils/plans'
+import { findPlanById, findPlanByPriceId, PLANS } from '~~/shared/utils/plans'
 import { organization as organizationTable, user as userTable } from '../database/schema'
 import { useDB } from './db'
 import { resendInstance } from './drivers'
 import {
+  renderPaymentFailed,
   renderSubscriptionCanceled,
   renderSubscriptionConfirmed,
-  renderTrialExpired
+  renderSubscriptionResumed,
+  renderTrialExpired,
+  renderTrialStarted
 } from './email'
 import { runtimeConfig } from './runtimeConfig'
 import { createStripeClient } from './stripe'
@@ -85,18 +88,42 @@ async function getOrgOwnerInfo(organizationId: string): Promise<OrgOwnerInfo | n
 }
 
 /**
- * Get subscription details from Better Auth subscription object
+ * Get subscription details from Better Auth subscription object or Stripe API response
  */
 function getSubscriptionInfo(subscription: any): SubscriptionInfo {
-  const planId = subscription.plan?.id || subscription.plan?.name
-  const plan = Object.values(PLANS).find(p => p.id === planId || p.priceId === subscription.priceId)
+  // Handle both DB subscription (plan is string like 'pro-monthly-v2')
+  // and Stripe API response (plan.id is price ID like 'price_xxx')
+  const planId = typeof subscription.plan === 'string'
+    ? subscription.plan
+    : subscription.plan?.id || subscription.plan?.name
+
+  // Also check items array for Stripe API response
+  const priceId = subscription.priceId
+    || subscription.items?.data?.[0]?.price?.id
+    || subscription.plan?.id
+
+  // Use helper functions that handle -no-trial suffix automatically
+  const plan = findPlanById(planId) || findPlanByPriceId(priceId)
+
+  // Determine billing cycle from plan config or Stripe interval
+  const interval = plan?.interval
+    || subscription.plan?.interval
+    || subscription.items?.data?.[0]?.plan?.interval
+  const billingCycle = interval === 'year' ? 'yearly' : 'monthly'
+
+  // Get seats from subscription
+  const seats = subscription.seats || subscription.quantity || subscription.items?.data?.[0]?.quantity || 1
 
   return {
-    planName: plan?.label || planId || 'Pro',
-    billingCycle: planId?.includes('yearly') || plan?.interval === 'year' ? 'yearly' : 'monthly',
-    seats: 1,
+    planName: plan?.key === 'pro' ? 'Pro' : (plan?.label || 'Pro'),
+    billingCycle,
+    seats,
     amount: plan?.priceNumber ? `$${plan.priceNumber}` : 'See invoice',
-    periodEnd: subscription.periodEnd ? new Date(subscription.periodEnd) : null
+    periodEnd: subscription.periodEnd
+      ? new Date(subscription.periodEnd)
+      : subscription.current_period_end
+        ? new Date(subscription.current_period_end * 1000)
+        : null
   }
 }
 
@@ -106,27 +133,57 @@ function getSubscriptionInfo(subscription: any): SubscriptionInfo {
 async function getStripeSubscriptionDetails(subscription: any): Promise<{
   seats: number
   amount: string
-  periodEnd: Date
+  periodEnd: Date | null
 } | null> {
   try {
+    const subId = subscription.stripeSubscriptionId || subscription.id
+    if (!subId) {
+      console.warn('[Stripe Email] No subscription ID found in:', Object.keys(subscription))
+      return null
+    }
+
+    console.log('[Stripe Email] Fetching subscription details for:', subId)
+
     const client = createStripeClient()
-    const stripeSub = await client.subscriptions.retrieve(
-      subscription.stripeSubscriptionId || subscription.id
-    ) as Stripe.Subscription
+    const stripeSub = await client.subscriptions.retrieve(subId, {
+      expand: ['items.data.price']
+    }) as Stripe.Subscription
+
+    console.log('[Stripe Email] Stripe subscription:', {
+      id: stripeSub.id,
+      status: stripeSub.status,
+      current_period_end: stripeSub.current_period_end,
+      items: stripeSub.items.data.map(i => ({
+        quantity: i.quantity,
+        unit_amount: i.price?.unit_amount,
+        currency: i.price?.currency
+      }))
+    })
 
     const seats = stripeSub.items.data[0]?.quantity || 1
+    const unitAmount = stripeSub.items.data[0]?.price?.unit_amount || 0
+    const currency = stripeSub.currency || 'usd'
+
+    // Calculate total amount (unit price * seats)
+    const totalAmount = unitAmount * seats / 100
     const amount = new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: stripeSub.currency
-    }).format((stripeSub.items.data[0]?.price?.unit_amount || 0) * seats / 100)
+      currency
+    }).format(totalAmount)
+
+    const periodEnd = stripeSub.current_period_end
+      ? new Date(stripeSub.current_period_end * 1000)
+      : null
+
+    console.log('[Stripe Email] Calculated:', { seats, amount, periodEnd })
 
     return {
       seats,
       amount,
-      periodEnd: new Date(stripeSub.current_period_end * 1000)
+      periodEnd
     }
   } catch (e) {
-    console.warn('[Stripe] Failed to get subscription details:', e)
+    console.warn('[Stripe Email] Failed to get subscription details:', e)
     return null
   }
 }
@@ -169,28 +226,115 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
 // ============================================================================
 
 /**
+ * Build email data for subscription confirmation/update emails
+ */
+async function buildSubscriptionEmailData(organizationId: string, subscription: any) {
+  const info = await getOrgOwnerInfo(organizationId)
+  if (!info)
+    return null
+
+  const subInfo = getSubscriptionInfo(subscription)
+
+  // Handle both DB subscription and Stripe API response formats
+  const seats = subscription.seats || subscription.quantity || subscription.items?.data?.[0]?.quantity || subInfo.seats
+
+  // Get period end from various sources
+  const periodEnd = subscription.periodEnd
+    ? new Date(subscription.periodEnd)
+    : subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000)
+      : subscription.items?.data?.[0]?.current_period_end
+        ? new Date(subscription.items.data[0].current_period_end * 1000)
+        : null
+
+  // Get price info from plan config
+  const priceId = subscription.priceId
+    || subscription.plan?.id
+    || subscription.items?.data?.[0]?.price?.id
+  const planId = typeof subscription.plan === 'string' ? subscription.plan : null
+
+  // Use helper functions that handle -no-trial suffix automatically
+  const plan = findPlanById(planId) || findPlanByPriceId(priceId)
+
+  // Pricing: base price (includes 1 seat) + additional seats × seat price
+  const basePrice = plan?.priceNumber || 0
+  const seatPrice = plan?.seatPriceNumber || 0
+  const additionalSeats = Math.max(0, seats - 1)
+  const totalAmount = basePrice + (additionalSeats * seatPrice)
+  const amount = totalAmount > 0
+    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'usd' }).format(totalAmount)
+    : subInfo.amount
+
+  return {
+    info,
+    subInfo,
+    emailData: {
+      name: info.owner.name,
+      teamName: info.org.name,
+      planName: subInfo.planName,
+      seats,
+      billingCycle: subInfo.billingCycle,
+      basePrice: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'usd' }).format(basePrice),
+      additionalSeats,
+      seatPrice: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'usd' }).format(seatPrice),
+      amount,
+      nextBillingDate: periodEnd ? formatDate(periodEnd) : 'See billing portal',
+      dashboardUrl: `${runtimeConfig.public.baseURL}/${info.org.slug}/dashboard`
+    }
+  }
+}
+
+/**
  * Send subscription confirmation email to org owner
  */
 export async function sendSubscriptionConfirmedEmail(organizationId: string, subscription: any): Promise<void> {
-  const info = await getOrgOwnerInfo(organizationId)
-  if (!info)
+  const data = await buildSubscriptionEmailData(organizationId, subscription)
+  if (!data)
     return
 
-  const subInfo = getSubscriptionInfo(subscription)
-  const stripeDetails = await getStripeSubscriptionDetails(subscription)
+  const html = await renderSubscriptionConfirmed(data.emailData)
+  await sendEmail(data.info.owner.email, `Your ${data.subInfo.planName} subscription is confirmed`, html)
+}
 
-  const html = await renderSubscriptionConfirmed({
-    name: info.owner.name,
-    teamName: info.org.name,
-    planName: subInfo.planName,
-    seats: stripeDetails?.seats || subInfo.seats,
-    billingCycle: subInfo.billingCycle,
-    amount: stripeDetails?.amount || subInfo.amount,
-    nextBillingDate: stripeDetails?.periodEnd ? formatDate(stripeDetails.periodEnd) : 'See billing portal',
-    dashboardUrl: `${runtimeConfig.public.baseURL}/${info.org.slug}/dashboard`
-  })
+/**
+ * Send subscription updated email to org owner (for seat/plan changes)
+ */
+export async function sendSubscriptionUpdatedEmail(
+  organizationId: string,
+  subscription: any,
+  previousSeats?: number,
+  newSeats?: number,
+  previousInterval?: string,
+  newInterval?: string
+): Promise<void> {
+  const data = await buildSubscriptionEmailData(organizationId, subscription)
+  if (!data)
+    return
 
-  await sendEmail(info.owner.email, `Your ${subInfo.planName} subscription is confirmed`, html)
+  // Build a custom message showing what changed
+  let changeDescription = 'Your subscription update has been confirmed.'
+
+  // Check for seat changes
+  if (previousSeats !== undefined && newSeats !== undefined && previousSeats !== newSeats) {
+    if (newSeats > previousSeats) {
+      changeDescription = `You've added ${newSeats - previousSeats} seat${newSeats - previousSeats > 1 ? 's' : ''} (${previousSeats} → ${newSeats} seats).`
+    } else {
+      changeDescription = `You've removed ${previousSeats - newSeats} seat${previousSeats - newSeats > 1 ? 's' : ''} (${previousSeats} → ${newSeats} seats).`
+    }
+  }
+  // Check for plan interval changes
+  else if (previousInterval && newInterval && previousInterval !== newInterval) {
+    changeDescription = `You've switched from ${previousInterval} to ${newInterval} billing.`
+  }
+
+  // Override the email data with the change description
+  const emailData = {
+    ...data.emailData,
+    changeDescription
+  }
+
+  const html = await renderSubscriptionConfirmed(emailData)
+  await sendEmail(data.info.owner.email, `Your ${data.subInfo.planName} subscription has been updated`, html)
 }
 
 /**
@@ -235,4 +379,117 @@ export async function sendSubscriptionCanceledEmail(organizationId: string, subs
   })
 
   await sendEmail(info.owner.email, `Your ${subInfo.planName} subscription has been canceled`, html)
+}
+
+/**
+ * Send trial started email to org owner
+ */
+export async function sendTrialStartedEmail(organizationId: string, subscription: any): Promise<void> {
+  const info = await getOrgOwnerInfo(organizationId)
+  if (!info)
+    return
+
+  const subInfo = getSubscriptionInfo(subscription)
+
+  // Calculate trial end date
+  const trialEnd = subscription.trialEnd
+    ? new Date(subscription.trialEnd)
+    : subscription.trialEndDate
+      ? new Date(subscription.trialEndDate)
+      : null
+
+  // Get trial days from plan config
+  const planId = subscription.plan?.id || subscription.plan?.name
+  const plan = Object.values(PLANS).find(p => p.id === planId || p.priceId === subscription.priceId)
+  const trialDays = plan?.trialDays || 14
+
+  const html = await renderTrialStarted({
+    name: info.owner.name,
+    teamName: info.org.name,
+    planName: subInfo.planName,
+    trialDays,
+    trialEndDate: trialEnd ? formatDate(trialEnd) : `in ${trialDays} days`,
+    dashboardUrl: `${runtimeConfig.public.baseURL}/${info.org.slug}/dashboard`
+  })
+
+  await sendEmail(info.owner.email, `Your ${trialDays}-day free trial has started`, html)
+}
+
+/**
+ * Send subscription resumed email to org owner
+ */
+export async function sendSubscriptionResumedEmail(organizationId: string, subscription: any): Promise<void> {
+  const info = await getOrgOwnerInfo(organizationId)
+  if (!info)
+    return
+
+  const subInfo = getSubscriptionInfo(subscription)
+
+  // Calculate amount based on seats and plan pricing
+  const plan = Object.values(PLANS).find(p => p.priceId === subscription.items?.data?.[0]?.price?.id)
+  const basePrice = plan?.priceNumber || 0
+  const seatPrice = plan?.seatPriceNumber || 0
+  const additionalSeats = Math.max(0, subInfo.seats - 1)
+  const totalAmount = basePrice + (additionalSeats * seatPrice)
+  const amount = totalAmount > 0
+    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'usd' }).format(totalAmount)
+    : subInfo.amount
+
+  // Get period end from Stripe subscription or items
+  const periodEnd = subInfo.periodEnd
+    || (subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null)
+    || (subscription.items?.data?.[0]?.current_period_end ? new Date(subscription.items.data[0].current_period_end * 1000) : null)
+
+  const html = await renderSubscriptionResumed({
+    name: info.owner.name,
+    teamName: info.org.name,
+    planName: subInfo.planName,
+    billingCycle: subInfo.billingCycle,
+    seats: subInfo.seats,
+    amount,
+    nextBillingDate: periodEnd ? formatDate(periodEnd) : 'your next billing date',
+    dashboardUrl: `${runtimeConfig.public.baseURL}/${info.org.slug}/dashboard`
+  })
+
+  await sendEmail(info.owner.email, `Your ${subInfo.planName} subscription has been resumed`, html)
+}
+
+/**
+ * Send payment failed email when a payment is declined
+ * Triggered by payment_intent.payment_failed webhook
+ */
+export async function sendPaymentFailedEmail(customerId: string, amount?: number) {
+  console.log('[Email] Sending payment failed email for customer:', customerId)
+
+  // Look up organization by Stripe customer ID
+  const db = await useDB()
+  const org = await db.query.organization.findFirst({
+    where: eq(organizationTable.stripeCustomerId, customerId)
+  })
+
+  if (!org) {
+    console.log('[Email] No organization found for customer:', customerId)
+    return
+  }
+
+  // Get owner info
+  const info = await getOrgOwnerInfo(org.id)
+  if (!info) {
+    console.log('[Email] Could not get owner info for org:', org.id)
+    return
+  }
+
+  // Format amount if provided
+  const formattedAmount = amount
+    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'usd' }).format(amount / 100)
+    : undefined
+
+  const html = await renderPaymentFailed({
+    name: info.owner.name,
+    teamName: info.org.name,
+    amount: formattedAmount,
+    billingUrl: `${runtimeConfig.public.baseURL}/${info.org.slug}/billing`
+  })
+
+  await sendEmail(info.owner.email, 'Action required: Your payment failed', html)
 }

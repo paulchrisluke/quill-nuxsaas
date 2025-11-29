@@ -77,3 +77,30 @@ export const PLANS = {
     ]
   }
 }
+
+/**
+ * Normalize a plan ID by removing the -no-trial suffix
+ * This ensures consistent plan lookups regardless of how the subscription was created
+ */
+export function normalizePlanId(planId: string | null | undefined): string | null {
+  if (!planId)
+    return null
+  return planId.replace('-no-trial', '')
+}
+
+/**
+ * Find a plan by ID (handles -no-trial suffix automatically)
+ */
+export function findPlanById(planId: string | null | undefined): typeof PLANS[keyof typeof PLANS] | undefined {
+  const normalizedId = normalizePlanId(planId)
+  return Object.values(PLANS).find(p => p.id === normalizedId)
+}
+
+/**
+ * Find a plan by price ID
+ */
+export function findPlanByPriceId(priceId: string | null | undefined): typeof PLANS[keyof typeof PLANS] | undefined {
+  if (!priceId)
+    return undefined
+  return Object.values(PLANS).find(p => p.priceId === priceId)
+}

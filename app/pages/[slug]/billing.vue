@@ -191,6 +191,7 @@ const modal = reactive({
   message: '',
   confirmLabel: 'Confirm',
   confirmColor: 'primary',
+  loading: false,
   onConfirm: async () => {}
 })
 
@@ -200,8 +201,13 @@ function openModal(title: string, message: string, confirmLabel: string, confirm
   modal.confirmLabel = confirmLabel
   modal.confirmColor = confirmColor
   modal.onConfirm = async () => {
-    await onConfirm()
-    modal.isOpen = false
+    modal.loading = true
+    try {
+      await onConfirm()
+    } finally {
+      modal.loading = false
+      modal.isOpen = false
+    }
   }
   modal.isOpen = true
 }
@@ -212,7 +218,11 @@ async function handleUpgrade() {
 
   loading.value = true
   try {
-    const planName = billingInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id
+    // Use no-trial plan if user owns multiple orgs
+    let planName = billingInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id
+    if (hasUsedTrial.value) {
+      planName = `${planName}-no-trial`
+    }
 
     const redirectParam = route.query.redirect ? `&redirect=${route.query.redirect}` : ''
 
@@ -272,6 +282,9 @@ async function cancelSubscription() {
     return
 
   loading.value = true // Show loading while fetching members
+
+  // Refresh subscription data to get latest periodEnd
+  await refresh()
 
   try {
     // Check for member limit (Free plan allows 1 member - the owner)
@@ -1023,12 +1036,14 @@ async function confirmPlanChange() {
           label="Cancel"
           color="gray"
           variant="ghost"
+          :disabled="modal.loading"
           @click="modal.isOpen = false"
         />
         <UButton
           :label="modal.confirmLabel"
           :color="modal.confirmColor"
           variant="solid"
+          :loading="modal.loading"
           @click="modal.onConfirm"
         />
       </template>

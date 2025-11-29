@@ -51,7 +51,7 @@ const description = computed(() => {
   if (props.reason === 'create-org') {
     return 'Unlock unlimited team members for this organization'
   }
-  return 'Invite unlimited team members with a Pro plan'
+  return 'Each additional team members require an extra seat.'
 })
 
 const message = computed(() => {
@@ -61,7 +61,7 @@ const message = computed(() => {
   if (props.reason === 'invite') {
     return 'The Free plan only allows 1 team member. Upgrade this organization to Pro to invite members and unlock additional features.'
   }
-  return 'The Free plan only allows 1 organization per user. Upgrade to Pro to create unlimited organizations and unlock additional features.'
+  return 'The Free plan only allows 1 organization per user. Upgrade to Pro to unlock additional features for this organization.'
 })
 
 async function handleUpgrade() {
@@ -77,8 +77,14 @@ async function handleUpgrade() {
     const orgSlug = activeOrg.value?.data?.slug || props.teamSlug || 't'
 
     // Use Better Auth subscription.upgrade
+    // Use no-trial plan if user owns multiple orgs (no trial for 2nd+ org)
+    let planId = selectedInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id
+    if (hasUsedTrial.value) {
+      planId = `${planId}-no-trial`
+    }
+
     await client.subscription.upgrade({
-      plan: selectedInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id,
+      plan: planId,
       referenceId: props.organizationId,
       metadata: {
         quantity: 1

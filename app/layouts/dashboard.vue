@@ -71,7 +71,8 @@ if (layoutOrgData.value) {
   const flattenedData = {
     ...layoutOrgData.value.organization,
     subscriptions: layoutOrgData.value.subscriptions,
-    needsUpgrade: layoutOrgData.value.needsUpgrade
+    needsUpgrade: layoutOrgData.value.needsUpgrade,
+    userOwnsMultipleOrgs: layoutOrgData.value.userOwnsMultipleOrgs
   }
 
   if (!activeOrg.value) {
@@ -99,7 +100,8 @@ watch(() => layoutOrgData.value, (newOrg) => {
       flattenedData = {
         ...(newOrg as any).organization,
         subscriptions: (newOrg as any).subscriptions,
-        needsUpgrade: (newOrg as any).needsUpgrade
+        needsUpgrade: (newOrg as any).needsUpgrade,
+        userOwnsMultipleOrgs: (newOrg as any).userOwnsMultipleOrgs
       }
     }
 
@@ -653,6 +655,7 @@ async function createTeam() {
               v-model="newTeamName"
               placeholder="Acme Inc"
               icon="i-lucide-building-2"
+              @keyup.enter="createTeam"
             />
           </UFormField>
           <UFormField

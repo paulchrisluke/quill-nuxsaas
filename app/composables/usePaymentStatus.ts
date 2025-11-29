@@ -27,8 +27,15 @@ export function usePaymentStatus() {
   // Check if subscription has a failed payment
   const isPaymentFailed = computed(() => activeSub.value?.status === 'past_due')
 
-  // Check if user has already used their free trial
+  // Check if user should NOT get a free trial
+  // True if user owns multiple orgs (only first org gets trial)
   const hasUsedTrial = computed(() => {
+    const data = activeOrg.value?.data as any
+    // If user owns multiple orgs, no trial on additional orgs
+    if (data?.userOwnsMultipleOrgs) {
+      return true
+    }
+    // Fallback to checking current org's subscriptions
     const subs = subscriptions.value as any[]
     if (!subs || subs.length === 0)
       return false

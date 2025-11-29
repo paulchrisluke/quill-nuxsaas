@@ -117,11 +117,12 @@ export function useAuth() {
       const orgData: any = await $fetch('/api/organization/full-data')
 
       // Flatten the structure to match what components expect
-      // orgData comes as { organization: {...}, subscriptions: [...], user: ... }
-      // We want activeOrg.value.data to be { ...organization, subscriptions: [...] }
+      // orgData comes as { organization: {...}, subscriptions: [...], userOwnsMultipleOrgs: bool, user: ... }
+      // We want activeOrg.value.data to be { ...organization, subscriptions: [...], userOwnsMultipleOrgs: bool }
       const flattenedData = {
         ...orgData.organization,
-        subscriptions: orgData.subscriptions
+        subscriptions: orgData.subscriptions,
+        userOwnsMultipleOrgs: orgData.userOwnsMultipleOrgs
       }
 
       const state = useActiveOrgState()

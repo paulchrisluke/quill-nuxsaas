@@ -19,6 +19,7 @@ const emit = defineEmits<{
 const { organization, useActiveOrganization, fetchSession, refreshActiveOrg, activeStripeSubscription, user } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
+const { hasUsedTrial } = usePaymentStatus()
 
 const inviteEmail = ref('')
 const inviteRole = ref('member')
@@ -30,6 +31,8 @@ const addSeatPreview = ref<any>(null)
 const seatInterval = ref<'month' | 'year'>('month')
 const isEndingTrial = ref(false)
 const errorMessage = ref('')
+const paymentError = ref(false)
+const portalLoading = ref(false)
 
 // Check if current user is owner (can manage billing)
 const isOwner = computed(() => {
@@ -147,6 +150,7 @@ async function openAddSeatModal() {
 
   isEndingTrial.value = activeStripeSubscription.value.status === 'trialing'
   seatInterval.value = (activeStripeSubscription.value.plan === PLANS.PRO_YEARLY.id || activeStripeSubscription.value.plan?.includes('year')) ? 'year' : 'month'
+  paymentError.value = false // Reset payment error when opening modal
 
   showAddSeatModal.value = true
   await fetchSeatPreview()
@@ -218,13 +222,46 @@ async function confirmAddSeat() {
     emit('refresh')
   } catch (e: any) {
     console.error(e)
+    const message = e.data?.message || e.message || 'Unknown error'
+    // Check if this is a payment-related error
+    const isPaymentError = message.toLowerCase().includes('card')
+      || message.toLowerCase().includes('payment')
+      || message.toLowerCase().includes('declined')
+    paymentError.value = isPaymentError
     toast.add({
       title: 'Failed to add seat',
-      description: e.data?.message || e.message || 'Unknown error',
+      description: isPaymentError ? 'Your card was declined. Please update your payment method.' : message,
       color: 'error'
     })
   } finally {
     loading.value = false
+  }
+}
+
+async function openBillingPortal() {
+  if (!activeOrg.value?.data?.id)
+    return
+
+  portalLoading.value = true
+  try {
+    const { url } = await $fetch('/api/stripe/portal', {
+      method: 'POST',
+      body: {
+        organizationId: activeOrg.value.data.id,
+        returnUrl: window.location.href
+      }
+    })
+    if (url) {
+      window.location.href = url
+    }
+  } catch (e: any) {
+    toast.add({
+      title: 'Failed to open billing portal',
+      description: e.data?.message || e.message,
+      color: 'error'
+    })
+  } finally {
+    portalLoading.value = false
   }
 }
 
@@ -241,8 +278,14 @@ async function handleUpgrade() {
     const { useAuth: getAuth } = await import('~/composables/useAuth')
     const { client } = getAuth()
 
+    // Use no-trial plan if user owns multiple orgs
+    let planId = seatInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id
+    if (hasUsedTrial.value) {
+      planId = `${planId}-no-trial`
+    }
+
     const { error } = await client.subscription.upgrade({
-      plan: seatInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id,
+      plan: planId,
       referenceId: activeOrg.value.data.id,
       metadata: {
         quantity: quantity > 0 ? quantity : 1
@@ -459,18 +502,31 @@ async function handleUpgrade() {
       </template>
 
       <template #footer>
-        <UButton
-          color="neutral"
-          variant="outline"
-          label="Cancel"
-          @click="showAddSeatModal = false"
-        />
-        <UButton
-          :loading="loading"
-          :label="activeStripeSubscription?.status === 'trialing' ? 'End Trial & Pay' : 'Add Seat & Pay'"
-          color="primary"
-          @click="confirmAddSeat"
-        />
+        <div class="flex items-center justify-between w-full gap-2">
+          <div class="flex items-center gap-2">
+            <UButton
+              color="neutral"
+              variant="outline"
+              label="Cancel"
+              @click="showAddSeatModal = false"
+            />
+            <UButton
+              :loading="loading"
+              :label="activeStripeSubscription?.status === 'trialing' ? 'End Trial & Pay' : 'Add Seat & Pay'"
+              color="primary"
+              @click="confirmAddSeat"
+            />
+          </div>
+          <UButton
+            v-if="paymentError"
+            label="Update Payment Method"
+            color="orange"
+            variant="soft"
+            icon="i-lucide-credit-card"
+            :loading="portalLoading"
+            @click="openBillingPortal"
+          />
+        </div>
       </template>
     </UModal>
 

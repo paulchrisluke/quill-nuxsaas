@@ -373,6 +373,7 @@ watch(() => user.value?.name, (newName) => {
               v-model="name"
               placeholder="Your name"
               class="flex-1"
+              @keyup.enter="updateName"
             />
             <UButton
               :loading="updatingName"
@@ -416,6 +417,7 @@ watch(() => user.value?.name, (newName) => {
               type="email"
               placeholder="new@email.com"
               class="flex-1"
+              @keyup.enter="changeEmail"
             />
             <UButton
               :loading="updatingEmail"
@@ -480,6 +482,7 @@ watch(() => user.value?.name, (newName) => {
               type="password"
               placeholder="••••••••"
               autocomplete="new-password"
+              @keyup.enter="changePassword"
             />
           </UFormField>
         </div>

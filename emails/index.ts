@@ -10,9 +10,12 @@
 
 export { BaseEmail, EmailButton } from './BaseEmail'
 export { DeleteAccount } from './DeleteAccount'
+export { PaymentFailed } from './PaymentFailed'
 export { ResetPassword } from './ResetPassword'
 export { SubscriptionCanceled } from './SubscriptionCanceled'
 export { SubscriptionConfirmed } from './SubscriptionConfirmed'
+export { SubscriptionResumed } from './SubscriptionResumed'
 export { TeamInvite } from './TeamInvite'
 export { TrialExpired } from './TrialExpired'
+export { TrialStarted } from './TrialStarted'
 export { VerifyEmail } from './VerifyEmail'

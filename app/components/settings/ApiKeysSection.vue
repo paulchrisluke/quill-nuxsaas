@@ -234,6 +234,7 @@ onMounted(() => {
               <UInput
                 v-model="newKeyName"
                 placeholder="e.g. CI/CD Pipeline"
+                @keyup.enter="createApiKey"
               />
             </UFormField>
             <UFormField label="Expiration (Seconds)">
@@ -241,6 +242,7 @@ onMounted(() => {
                 v-model="newKeyExpiresIn"
                 type="number"
                 placeholder="Leave empty for never"
+                @keyup.enter="createApiKey"
               />
               <p class="text-xs text-gray-500 mt-1">
                 Default is never if empty.

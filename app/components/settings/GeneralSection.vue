@@ -110,7 +110,10 @@ function copyId() {
       For billing purposes you can use the organization ID below.
     </p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+    <form
+      class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6"
+      @submit.prevent="updateTeam"
+    >
       <UFormField label="Organization name (shows on invoices)">
         <UInput
           v-model="teamName"
@@ -145,14 +148,16 @@ function copyId() {
           </template>
         </UInput>
       </UFormField>
-    </div>
 
-    <UButton
-      v-if="canEdit"
-      label="Save"
-      color="black"
-      :loading="loading"
-      @click="updateTeam"
-    />
+      <div class="md:col-span-2">
+        <UButton
+          v-if="canEdit"
+          type="submit"
+          label="Save"
+          color="black"
+          :loading="loading"
+        />
+      </div>
+    </form>
   </div>
 </template>

@@ -18,27 +18,29 @@ const mutedText = {
   color: '#6b7280'
 }
 
-interface SubscriptionCanceledProps {
+interface TrialStartedProps {
   name: string
   teamName: string
   planName: string
-  endDate: string
-  billingUrl: string
+  trialDays: number
+  trialEndDate: string
+  dashboardUrl: string
   appName?: string
 }
 
-export function SubscriptionCanceled({
+export function TrialStarted({
   name,
   teamName,
   planName,
-  endDate,
-  billingUrl,
+  trialDays,
+  trialEndDate,
+  dashboardUrl,
   appName
-}: SubscriptionCanceledProps) {
+}: TrialStartedProps) {
   return (
     <BaseEmail
-      previewText={`Your ${planName} subscription has been canceled`}
-      heading="Subscription Canceled"
+      previewText={`Your ${trialDays}-day free trial has started`}
+      heading="Welcome to Your Free Trial! 🎉"
       appName={appName}
     >
       <Text style={text}>
@@ -48,31 +50,36 @@ export function SubscriptionCanceled({
         ,
       </Text>
       <Text style={text}>
-        Your
+        Great news! Your
+        {' '}
+        {trialDays}
+        -day free trial of
         {' '}
         <strong>{planName}</strong>
         {' '}
-        subscription for
+        for
         {' '}
         <strong>{teamName}</strong>
         {' '}
-        has been canceled.
+        has started.
       </Text>
       <Text style={text}>
-        You'll continue to have access to all features until
+        You now have full access to all Pro features. Your trial will end on
         {' '}
-        <strong>{endDate}</strong>
+        <strong>{trialEndDate}</strong>
         .
-        After that, your team will be downgraded to the free plan.
+      </Text>
+      <Text style={text}>
+        You will automatically be billed with your card on file when the trial is over.
       </Text>
       <Section style={buttonContainer}>
-        <EmailButton href={billingUrl}>Resubscribe</EmailButton>
+        <EmailButton href={dashboardUrl}>Go to Dashboard</EmailButton>
       </Section>
       <Text style={mutedText}>
-        Changed your mind? You can resubscribe anytime before your access ends.
+        No payment required during your trial. You can cancel anytime.
       </Text>
     </BaseEmail>
   )
 }
 
-export default SubscriptionCanceled
+export default TrialStarted

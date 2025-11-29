@@ -8,9 +8,11 @@ import { logAuditEvent } from './auditLogger'
 import { useDB } from './db'
 import { runtimeConfig } from './runtimeConfig'
 import {
+  sendPaymentFailedEmail,
   sendSubscriptionCanceledEmail,
   sendSubscriptionConfirmedEmail,
-  sendTrialExpiredEmail
+  sendTrialExpiredEmail,
+  sendTrialStartedEmail
 } from './stripeEmails'
 import { removeExcessMembersOnExpiration } from './subscription-handlers'
 
@@ -198,8 +200,19 @@ export const syncSubscriptionQuantity = async (organizationId: string) => {
 export const setupStripe = () => stripe({
   stripeClient: createStripeClient(),
   stripeWebhookSecret: runtimeConfig.stripeWebhookSecret,
-  onEvent: async (_event) => {
-    // console.log('Stripe Webhook Received:', event.type, event.id)
+  onEvent: async (event) => {
+    // Handle payment_intent.payment_failed - send email when card is declined
+    if (event.type === 'payment_intent.payment_failed') {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent
+      const customerId = typeof paymentIntent.customer === 'string'
+        ? paymentIntent.customer
+        : paymentIntent.customer?.id
+
+      if (customerId) {
+        console.log('[Stripe] Payment failed for customer:', customerId, 'Amount:', paymentIntent.amount)
+        await sendPaymentFailedEmail(customerId, paymentIntent.amount)
+      }
+    }
   },
   createCustomerOnSignUp: false, // Disable for Org-based billing
   subscription: {
@@ -265,8 +278,8 @@ export const setupStripe = () => stripe({
       let quantity = 1
 
       if (targetOrgId) {
-        // We need to look up the org by ID
         const db = await useDB()
+        // We need to look up the org by ID
         const organization = await db.query.organization.findFirst({
           where: eq(organizationTable.id, targetOrgId),
           with: {
@@ -288,25 +301,26 @@ export const setupStripe = () => stripe({
         }
       }
 
-      return {
-        params: {
-          customer: customerId, // Explicitly set the Org's customer ID
-          allow_promotion_codes: true,
-          line_items: [{
-            price: plan.priceId,
-            quantity
-          }],
-          tax_id_collection: {
-            enabled: true
-          },
-          billing_address_collection: 'required',
-          metadata: {
-            // Ensure metadata is preserved/set
-            ...(body?.metadata || {}),
-            organizationId: targetOrgId // Explicitly add org ID to metadata
-          }
+      // Build checkout params
+      const params: any = {
+        customer: customerId, // Explicitly set the Org's customer ID
+        allow_promotion_codes: true,
+        line_items: [{
+          price: plan.priceId,
+          quantity
+        }],
+        tax_id_collection: {
+          enabled: true
+        },
+        billing_address_collection: 'required',
+        metadata: {
+          // Ensure metadata is preserved/set
+          ...(body?.metadata || {}),
+          organizationId: targetOrgId // Explicitly add org ID to metadata
         }
       }
+
+      return { params }
     },
     plans: async () => {
       const plans = [
@@ -316,17 +330,29 @@ export const setupStripe = () => stripe({
           freeTrial: {
             days: PLANS.PRO_MONTHLY.trialDays,
             onTrialStart: async (subscription: Subscription) => {
+              console.log('[Stripe] PRO_MONTHLY onTrialStart fired:', { referenceId: subscription.referenceId })
               await addPaymentLog('trial_start', subscription)
+              // Send trial started email
+              if (subscription.referenceId) {
+                await sendTrialStartedEmail(subscription.referenceId, subscription)
+              }
             },
             onTrialEnd: async ({ subscription }: { subscription: Subscription }) => {
+              console.log('[Stripe] PRO_MONTHLY onTrialEnd fired:', { referenceId: subscription.referenceId, status: subscription.status })
               await addPaymentLog('trial_end', subscription)
+              // Only send confirmation if payment succeeded (status is active)
+              // If payment failed (past_due), onTrialExpired will handle it to avoid duplicate emails
+              if (subscription.referenceId && subscription.status === 'active') {
+                console.log('[Stripe] Sending subscription confirmed email for trial end')
+                await sendSubscriptionConfirmedEmail(subscription.referenceId, subscription)
+              }
             },
             onTrialExpired: async (subscription: Subscription) => {
               await addPaymentLog('trial_expired', subscription)
               if (subscription.referenceId) {
                 // Remove excess members when trial expires without conversion
                 await removeExcessMembersOnExpiration(subscription.referenceId)
-                // Send trial expired email
+                // Send trial expired email (payment failed or no payment method)
                 await sendTrialExpiredEmail(subscription.referenceId, subscription)
               }
             }
@@ -338,21 +364,44 @@ export const setupStripe = () => stripe({
           freeTrial: {
             days: PLANS.PRO_YEARLY.trialDays,
             onTrialStart: async (subscription: Subscription) => {
+              console.log('[Stripe] PRO_YEARLY onTrialStart fired:', { referenceId: subscription.referenceId })
               await addPaymentLog('trial_start', subscription)
+              // Send trial started email
+              if (subscription.referenceId) {
+                await sendTrialStartedEmail(subscription.referenceId, subscription)
+              }
             },
             onTrialEnd: async ({ subscription }: { subscription: Subscription }) => {
+              console.log('[Stripe] PRO_YEARLY onTrialEnd fired:', { referenceId: subscription.referenceId, status: subscription.status })
               await addPaymentLog('trial_end', subscription)
+              // Only send confirmation if payment succeeded (status is active)
+              // If payment failed (past_due), onTrialExpired will handle it to avoid duplicate emails
+              if (subscription.referenceId && subscription.status === 'active') {
+                console.log('[Stripe] Sending subscription confirmed email for trial end')
+                await sendSubscriptionConfirmedEmail(subscription.referenceId, subscription)
+              }
             },
             onTrialExpired: async (subscription: Subscription) => {
               await addPaymentLog('trial_expired', subscription)
               if (subscription.referenceId) {
                 // Remove excess members when trial expires without conversion
                 await removeExcessMembersOnExpiration(subscription.referenceId)
-                // Send trial expired email
+                // Send trial expired email (payment failed or no payment method)
                 await sendTrialExpiredEmail(subscription.referenceId, subscription)
               }
             }
           }
+        },
+        // No-trial versions of plans (for users who own multiple orgs)
+        {
+          name: `${PLANS.PRO_MONTHLY.id}-no-trial`,
+          priceId: PLANS.PRO_MONTHLY.priceId
+          // No freeTrial - charges immediately
+        },
+        {
+          name: `${PLANS.PRO_YEARLY.id}-no-trial`,
+          priceId: PLANS.PRO_YEARLY.priceId
+          // No freeTrial - charges immediately
         }
       ]
       return plans
@@ -362,22 +411,42 @@ export const setupStripe = () => stripe({
       // Sync customer name back to org name (in case payment method changed it)
       if (subscription.referenceId) {
         await syncStripeCustomerName(subscription.referenceId)
-        // Send confirmation email
-        await sendSubscriptionConfirmedEmail(subscription.referenceId, subscription)
+        // Only send confirmation email if subscription has NO trial
+        // If there's a trial, emails are handled by onTrialStart (trial started) and onTrialEnd (confirmed/expired)
+        const hasTrial = subscription.trialStart || subscription.trialEnd || subscription.status === 'trialing'
+        if (!hasTrial) {
+          await sendSubscriptionConfirmedEmail(subscription.referenceId, subscription)
+        }
       }
     },
     onSubscriptionUpdate: async ({ subscription }) => {
+      console.log('[Stripe] onSubscriptionUpdate fired:', {
+        referenceId: subscription.referenceId,
+        status: subscription.status,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd
+      })
       await addPaymentLog('subscription_updated', subscription)
       // Sync customer name back to org name (in case payment method changed it)
       if (subscription.referenceId) {
         await syncStripeCustomerName(subscription.referenceId)
+
+        // Check if this is a cancellation (cancel_at_period_end was just set to true)
+        // This happens when user clicks "Downgrade to Free"
+        if (subscription.cancelAtPeriodEnd) {
+          console.log('[Stripe] Subscription scheduled for cancellation, sending cancellation email')
+          await sendSubscriptionCanceledEmail(subscription.referenceId, subscription)
+        }
+
+        // Note: Confirmation emails are sent from onTrialEnd (trial → active)
+        // and onSubscriptionComplete (direct subscribe without trial)
+        // We don't send emails here to avoid duplicates on plan/seat changes
       }
     },
     onSubscriptionCancel: async ({ subscription }) => {
       await addPaymentLog('subscription_canceled', subscription)
       if (subscription.referenceId) {
-        // Send cancellation email
-        await sendSubscriptionCanceledEmail(subscription.referenceId, subscription)
+        // Note: Cancellation email is sent from onSubscriptionUpdate when cancelAtPeriodEnd is set
+        // This hook fires for immediate cancellations, not scheduled ones
         // Remove excess members when subscription is canceled
         await removeExcessMembersOnExpiration(subscription.referenceId)
       }

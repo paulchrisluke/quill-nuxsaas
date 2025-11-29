@@ -4,11 +4,14 @@
 
 import { render } from '@react-email/render'
 import { DeleteAccount } from '../../emails/DeleteAccount'
+import { PaymentFailed } from '../../emails/PaymentFailed'
 import { ResetPassword } from '../../emails/ResetPassword'
 import { SubscriptionCanceled } from '../../emails/SubscriptionCanceled'
 import { SubscriptionConfirmed } from '../../emails/SubscriptionConfirmed'
+import { SubscriptionResumed } from '../../emails/SubscriptionResumed'
 import { TeamInvite } from '../../emails/TeamInvite'
 import { TrialExpired } from '../../emails/TrialExpired'
+import { TrialStarted } from '../../emails/TrialStarted'
 import { VerifyEmail } from '../../emails/VerifyEmail'
 import { runtimeConfig } from './runtimeConfig'
 
@@ -40,9 +43,13 @@ export async function renderSubscriptionConfirmed(options: {
   planName: string
   seats: number
   billingCycle: 'monthly' | 'yearly'
+  basePrice: string
+  additionalSeats: number
+  seatPrice: string
   amount: string
   nextBillingDate: string
   dashboardUrl: string
+  changeDescription?: string
 }): Promise<string> {
   return await render(SubscriptionConfirmed({ ...options, appName: getAppName() }))
 }
@@ -64,4 +71,37 @@ export async function renderSubscriptionCanceled(options: {
   billingUrl: string
 }): Promise<string> {
   return await render(SubscriptionCanceled({ ...options, appName: getAppName() }))
+}
+
+export async function renderTrialStarted(options: {
+  name: string
+  teamName: string
+  planName: string
+  trialDays: number
+  trialEndDate: string
+  dashboardUrl: string
+}): Promise<string> {
+  return await render(TrialStarted({ ...options, appName: getAppName() }))
+}
+
+export async function renderSubscriptionResumed(options: {
+  name: string
+  teamName: string
+  planName: string
+  billingCycle: 'monthly' | 'yearly'
+  seats: number
+  amount: string
+  nextBillingDate: string
+  dashboardUrl: string
+}): Promise<string> {
+  return await render(SubscriptionResumed({ ...options, appName: getAppName() }))
+}
+
+export async function renderPaymentFailed(options: {
+  name: string
+  teamName: string
+  amount?: string
+  billingUrl: string
+}): Promise<string> {
+  return await render(PaymentFailed({ ...options, appName: getAppName() }))
 }

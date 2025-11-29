@@ -3,6 +3,7 @@ import { member as memberTable, organization as organizationTable, subscription 
 import { getAuthSession } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 import { createStripeClient } from '~~/server/utils/stripe'
+import { sendSubscriptionUpdatedEmail } from '~~/server/utils/stripeEmails'
 import { PLANS } from '~~/shared/utils/plans'
 
 export default defineEventHandler(async (event) => {
@@ -145,6 +146,13 @@ export default defineEventHandler(async (event) => {
   await db.update(subscriptionTable)
     .set(updateData)
     .where(eq(subscriptionTable.stripeSubscriptionId, subscription.id))
+
+  // Send updated email for plan change
+  if (updatedSub.status === 'active') {
+    const previousInterval = currentPriceId === monthlyPriceId ? 'monthly' : 'yearly'
+    const newIntervalLabel = newInterval === 'month' ? 'monthly' : 'yearly'
+    await sendSubscriptionUpdatedEmail(organizationId, updatedSub, undefined, undefined, previousInterval, newIntervalLabel)
+  }
 
   return { success: true, message: 'Upgraded to yearly plan' }
 })

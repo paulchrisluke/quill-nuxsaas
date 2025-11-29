@@ -57,10 +57,14 @@ interface SubscriptionConfirmedProps {
   planName: string
   seats: number
   billingCycle: 'monthly' | 'yearly'
+  basePrice: string
+  additionalSeats: number
+  seatPrice: string
   amount: string
   nextBillingDate: string
   dashboardUrl: string
   appName?: string
+  changeDescription?: string
 }
 
 export function SubscriptionConfirmed({
@@ -69,28 +73,38 @@ export function SubscriptionConfirmed({
   planName,
   seats,
   billingCycle,
+  basePrice,
+  additionalSeats,
+  seatPrice,
   amount,
   nextBillingDate,
   dashboardUrl,
-  appName
+  appName,
+  changeDescription
 }: SubscriptionConfirmedProps) {
+  const isUpdate = !!changeDescription
   return (
     <BaseEmail
-      previewText={`Your ${planName} subscription is confirmed`}
-      heading="Subscription Confirmed! 🎉"
+      previewText={isUpdate ? `Your ${planName} subscription has been updated` : `Your ${planName} subscription is confirmed`}
+      heading={isUpdate ? 'Subscription Updated! ✅' : 'Subscription Confirmed! 🎉'}
       appName={appName}
     >
       <Text style={text}>
         Hello
+        {' '}
         {name}
         ,
       </Text>
       <Text style={text}>
-        Great news! Your subscription for
-        {' '}
-        <strong>{teamName}</strong>
-        {' '}
-        has been confirmed.
+        {changeDescription || (
+          <>
+            Great news! Your subscription for
+            {' '}
+            <strong>{teamName}</strong>
+            {' '}
+            has been confirmed.
+          </>
+        )}
       </Text>
 
       <Section style={detailsBox}>
@@ -98,8 +112,18 @@ export function SubscriptionConfirmed({
         <table style={detailsTable}>
           <tbody>
             <tr>
+              <td style={labelCell}>Organization</td>
+              <td style={valueCell}>{teamName}</td>
+            </tr>
+            <tr>
               <td style={labelCell}>Plan</td>
-              <td style={valueCell}>{planName}</td>
+              <td style={valueCell}>
+                {planName}
+                {' '}
+                (
+                {billingCycle === 'monthly' ? 'Monthly' : 'Yearly'}
+                )
+              </td>
             </tr>
             <tr>
               <td style={labelCell}>Seats</td>
@@ -109,14 +133,42 @@ export function SubscriptionConfirmed({
                 {seats === 1 ? 'seat' : 'seats'}
               </td>
             </tr>
+          </tbody>
+        </table>
+
+        <Text style={detailsTitle}>Cost Breakdown</Text>
+        <table style={detailsTable}>
+          <tbody>
             <tr>
-              <td style={labelCell}>Billing</td>
-              <td style={valueCell}>{billingCycle === 'monthly' ? 'Monthly' : 'Yearly'}</td>
+              <td style={labelCell}>Base Plan (1 seat)</td>
+              <td style={valueCell}>{basePrice}</td>
             </tr>
+            {additionalSeats > 0 && (
+              <tr>
+                <td style={labelCell}>
+                  Additional Seats (
+                  {additionalSeats}
+                  {' '}
+                  ×
+                  {seatPrice}
+                  )
+                </td>
+                <td style={valueCell}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(additionalSeats * Number.parseFloat(seatPrice.replace(/[^0-9.]/g, '')))}</td>
+              </tr>
+            )}
             <tr>
-              <td style={labelCell}>Amount</td>
-              <td style={valueCell}>{amount}</td>
+              <td style={{ ...labelCell, fontWeight: '600', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
+                Total per
+                {' '}
+                {billingCycle === 'monthly' ? 'month' : 'year'}
+              </td>
+              <td style={{ ...valueCell, fontWeight: '600', borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>{amount}</td>
             </tr>
+          </tbody>
+        </table>
+
+        <table style={{ ...detailsTable, marginTop: '16px' }}>
+          <tbody>
             <tr>
               <td style={labelCell}>Next billing</td>
               <td style={valueCell}>{nextBillingDate}</td>

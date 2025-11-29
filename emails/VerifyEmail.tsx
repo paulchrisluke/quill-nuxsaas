@@ -43,6 +43,7 @@ export function VerifyEmail({
     >
       <Text style={text}>
         Hello
+        {' '}
         {name}
         ,
       </Text>

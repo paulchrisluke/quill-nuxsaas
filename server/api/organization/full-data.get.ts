@@ -139,12 +139,17 @@ export default defineEventHandler(async (event) => {
     const hasActiveSub = subscriptions.some(s => s.status === 'active' || s.status === 'trialing')
     const needsUpgrade = !isFreeOrg && !hasActiveSub
 
-    console.log('[API] Full Data - Org:', activeOrgId, 'Subs:', subscriptions.length, 'NeedsUpgrade:', needsUpgrade)
+    // Check if user owns more than 1 org - if so, no trial on additional orgs
+    // Only the first org gets a free trial
+    const userOwnsMultipleOrgs = ownedMemberships.length > 1
+
+    console.log('[API] Full Data - Org:', activeOrgId, 'Subs:', subscriptions.length, 'NeedsUpgrade:', needsUpgrade, 'UserOwnsMultipleOrgs:', userOwnsMultipleOrgs)
 
     return {
       organization: org,
       subscriptions: subscriptions || [],
       needsUpgrade,
+      userOwnsMultipleOrgs,
       user: {
         id: session.user.id,
         email: session.user.email,

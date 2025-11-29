@@ -43,6 +43,7 @@ export function DeleteAccount({
     >
       <Text style={text}>
         Hello
+        {' '}
         {name}
         ,
       </Text>

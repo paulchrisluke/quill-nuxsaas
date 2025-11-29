@@ -53,9 +53,11 @@ Very small Nuxt-based SaaS starter I’m using for my own project.
   - `useTimezone()` - Composable for timezone list and formatting utilities.
 
 - **Organizations & Limits**  
-  - First team gets **one free organization**.  
+  - First organization gets a **14-day free trial** of Pro features.  
+  - **One trial per account**: Users who already own an organization do not get a free trial on subsequent organizations—they must pay immediately.  
   - Every additional organization requires its own Pro subscription.  
-  - Good for “workspace per client” / “workspace per brand” setups.
+  - Good for "workspace per client" / "workspace per brand" setups.  
+  - Trial eligibility is checked server-side and enforced via separate Stripe plan configurations (no-trial variants).
 
 - **Seats, Members & Invites**  
   - Pro plan is seat-based: base plan includes 1 seat, extra members cost per-seat.  
@@ -98,16 +100,25 @@ Very small Nuxt-based SaaS starter I’m using for my own project.
   - **Owner Email Changes**: When an owner verifies a new email, Stripe customer email is updated for all their organizations.
 
 - **Transactional Emails** (React Email + Resend)  
-  - **Account Emails**  
-    - **Verify Email**: Sent when a user signs up or changes their email to verify the address.  
-    - **Reset Password**: Sent when a user requests to reset their password via forgot password.  
-    - **Delete Account**: Sent when a user requests account deletion, requiring email confirmation.  
-    - **Team Invite**: Sent when a user is invited to join an organization.  
-  - **Billing Emails** (sent to org owner)  
-    - **Subscription Confirmed**: Sent when a subscription is created, includes plan, seats, amount, and next billing date.  
-    - **Trial Expired**: Sent when a free trial expires without converting to a paid subscription.  
-    - **Subscription Canceled**: Sent when a subscription is canceled, includes the date when access ends.  
-    - *Coming soon: Trial Expiring, Payment Failed*
+
+  #### Account Emails
+  | Email | Trigger | Recipient |
+  |-------|---------|-----------|
+  | Verify Email | User signs up or changes their email | User |
+  | Reset Password | User requests password reset via forgot password | User |
+  | Delete Account | User requests account deletion | User |
+  | Team Invite | User is invited to join an organization | Invited user |
+
+  #### Billing Emails (sent to org owner)
+  | Email | Trigger | Details |
+  |-------|---------|--------|
+  | Trial Started | `onTrialStart` - User starts a free trial | Includes trial duration and end date |
+  | Subscription Confirmed | `onTrialEnd` (status=active) or `onSubscriptionComplete` (no trial) | Sent when trial ends with successful payment, or direct subscribe without trial |
+  | Subscription Updated | `/api/stripe/update-seats` or `/api/stripe/change-plan` | Sent when user changes seats or switches plan (monthly → yearly) |
+  | Trial Expired | `onTrialExpired` - Trial ends and payment fails | Prompts to update payment method |
+  | Subscription Canceled | `onSubscriptionUpdate` (cancelAtPeriodEnd=true) | Sent when user clicks "Downgrade to Free", includes access end date |
+  | Subscription Resumed | `/api/stripe/resume` endpoint | Sent when user resumes a canceled subscription |
+  | Payment Failed | `payment_intent.payment_failed` webhook | Sent when a card is declined during subscription updates or renewals |
 
 - **Auth & Org Handling (Better Auth style)**  
   - Most auth, organization, and subscription flows are implemented the "Better Auth way", using its primitives and conventions.  

@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { member as memberTable, organization as organizationTable, subscription as subscriptionTable } from '~~/server/database/schema'
 import { getAuthSession } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
+import { sendSubscriptionUpdatedEmail } from '~~/server/utils/stripeEmails'
 import { PLANS } from '~~/shared/utils/plans'
 
 export default defineEventHandler(async (event) => {
@@ -166,6 +167,13 @@ export default defineEventHandler(async (event) => {
   await db.update(subscriptionTable)
     .set(updateData)
     .where(eq(subscriptionTable.stripeSubscriptionId, subscription.id))
+
+  // Send updated email for seat/plan changes
+  if (updatedSubscription.status === 'active') {
+    const previousSeats = subscription.items.data[0].quantity
+    const newSeats = updatedSubscription.items.data[0].quantity
+    await sendSubscriptionUpdatedEmail(organizationId, updatedSubscription, previousSeats, newSeats)
+  }
 
   return { success: true, seats: updatedSubscription.items.data[0].quantity }
 })
