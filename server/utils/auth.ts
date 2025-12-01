@@ -29,6 +29,8 @@ export const createBetterAuth = () => betterAuth({
     'http://127.0.0.1:5173',
     'http://127.0.0.1:4000',
     'https://quill-nuxt-saas-v1.nuxt.dev',
+    'https://getquillio.com',
+    'http://getquillio.com',
     runtimeConfig.public.baseURL
   ],
   secret: runtimeConfig.betterAuthSecret,
