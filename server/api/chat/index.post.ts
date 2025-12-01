@@ -103,22 +103,18 @@ export default defineEventHandler(async (event) => {
     })
 
     if (classification.sourceType === 'youtube' && classification.externalId && runtimeConfig.enableYoutubeIngestion) {
-      try {
-        record = await ingestYouTubeSource({
-          db,
-          sourceContentId: record.id,
-          organizationId,
-          userId: user.id,
-          videoId: classification.externalId
-        })
-      } catch (error) {
-        console.error('YouTube ingest failed', {
-          sourceContentId: record.id,
-          error
-        })
-      }
+      record = await ingestYouTubeSource({
+        db,
+        sourceContentId: record.id,
+        organizationId,
+        userId: user.id,
+        videoId: classification.externalId
+      })
     } else if (classification.sourceType === 'youtube' && !runtimeConfig.enableYoutubeIngestion) {
-      console.log('YouTube ingestion disabled by feature flag, skipping ingest for:', record.id)
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'YouTube ingestion is disabled. Enable it in configuration to process YouTube links.'
+      })
     }
 
     processedSources.push({
@@ -139,6 +135,23 @@ export default defineEventHandler(async (event) => {
 
   let resolvedSourceContentId = body.action?.sourceContentId ?? processedSources[0]?.source.id ?? null
 
+  const initialSessionContentId = typeof body.action?.contentId === 'string'
+    ? body.action.contentId
+    : null
+
+  const sessionSourceId = resolvedSourceContentId ?? null
+
+  // Ensure session exists early so we can send progress messages
+  let session = await ensureChatSession(db, {
+    organizationId,
+    contentId: initialSessionContentId,
+    sourceContentId: sessionSourceId,
+    createdByUserId: user.id,
+    metadata: {
+      lastAction: body.action?.type ?? (message.trim() ? 'message' : null)
+    }
+  })
+
   let generationResult: Awaited<ReturnType<typeof generateContentDraft>> | null = null
   let patchSectionResult: Awaited<ReturnType<typeof patchContentSection>> | null = null
 
@@ -156,28 +169,31 @@ export default defineEventHandler(async (event) => {
         organizationId,
         userId: user.id,
         transcript: body.action.transcript,
-        metadata: { createdVia: 'chat_generate_action' }
+        metadata: { createdVia: 'chat_generate_action' },
+        onProgress: async (progressMessage) => {
+          await addChatMessage(db, {
+            sessionId: session.id,
+            organizationId,
+            role: 'assistant',
+            content: progressMessage
+          })
+        }
       })
 
       resolvedSourceContentId = manualSource.id
+
+      // Update session with the new source
+      const [updatedSession] = await db
+        .update(schema.contentChatSession)
+        .set({ sourceContentId: resolvedSourceContentId })
+        .where(eq(schema.contentChatSession.id, session.id))
+        .returning()
+
+      if (updatedSession) {
+        session = updatedSession
+      }
     }
   }
-
-  const initialSessionContentId = typeof body.action?.contentId === 'string'
-    ? body.action.contentId
-    : null
-
-  const sessionSourceId = resolvedSourceContentId ?? null
-
-  let session = await ensureChatSession(db, {
-    organizationId,
-    contentId: initialSessionContentId,
-    sourceContentId: sessionSourceId,
-    createdByUserId: user.id,
-    metadata: {
-      lastAction: body.action?.type ?? (message.trim() ? 'message' : null)
-    }
-  })
 
   if (body.action?.type === 'generate_content') {
     let sanitizedSystemPrompt: string | undefined
@@ -367,7 +383,17 @@ export default defineEventHandler(async (event) => {
   const assistantMessages: string[] = []
 
   if (processedSources.length > 0) {
-    assistantMessages.push(`I saved ${processedSources.length} source link${processedSources.length > 1 ? 's' : ''} for this organization.`)
+    const sourceTypes = processedSources.map(s => s.sourceType.replace('_', ' '))
+    const uniqueTypes = [...new Set(sourceTypes)]
+    const typeLabel = uniqueTypes.length === 1
+      ? uniqueTypes[0]
+      : 'source'
+
+    if (processedSources.some(s => s.sourceType === 'manual_transcript' || s.sourceType === 'youtube')) {
+      assistantMessages.push(`Processing your ${typeLabel}... Chunking and embedding the content. This may take a moment.`)
+    } else {
+      assistantMessages.push(`Saved ${processedSources.length} ${typeLabel}${processedSources.length > 1 ? 's' : ''} for this organization.`)
+    }
   }
 
   if (generationResult) {

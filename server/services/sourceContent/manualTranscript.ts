@@ -14,6 +14,7 @@ interface CreateManualTranscriptOptions {
   transcript: string
   title?: string | null
   metadata?: Record<string, any> | null
+  onProgress?: (message: string) => Promise<void> | void
 }
 
 export const createManualTranscriptSourceContent = async ({
@@ -22,7 +23,8 @@ export const createManualTranscriptSourceContent = async ({
   userId,
   transcript,
   title,
-  metadata
+  metadata,
+  onProgress
 }: CreateManualTranscriptOptions) => {
   console.log(`🚀 [MANUAL_TRANSCRIPT] Starting manual transcript creation...`)
   console.log(`🚀 [MANUAL_TRANSCRIPT] Transcript length: ${transcript.length} characters`)
@@ -34,6 +36,8 @@ export const createManualTranscriptSourceContent = async ({
       statusMessage: 'Transcript cannot be empty'
     })
   }
+
+  await onProgress?.('Saving transcript...')
 
   const result = await db.transaction(async (tx) => {
     const sourceContent = await upsertSourceContent(tx, {
@@ -53,16 +57,30 @@ export const createManualTranscriptSourceContent = async ({
     console.log(`✅ [MANUAL_TRANSCRIPT] Created sourceContent: ${sourceContent.id}`)
     console.log(`🔧 [MANUAL_TRANSCRIPT] About to call chunkSourceContentText...`)
 
+    await onProgress?.('Chunking transcript into searchable segments...')
+
     try {
-      await chunkSourceContentText({ db: tx, sourceContent })
+      await chunkSourceContentText({
+        db: tx,
+        sourceContent,
+        onProgress: async (progress) => {
+          if (progress.includes('embedding') || progress.includes('vector')) {
+            await onProgress?.(progress)
+          }
+        }
+      })
     } catch (error) {
       console.error(`❌ [MANUAL_TRANSCRIPT] Chunking failed for: ${sourceContent.id}`, error)
       throw error
     }
 
+    await onProgress?.('Generating embeddings for semantic search...')
+
     console.log(`🎉 [MANUAL_TRANSCRIPT] Completed chunking for: ${sourceContent.id}`)
     return sourceContent
   })
+
+  await onProgress?.('✓ Transcript processed and ready!')
 
   return result
 }

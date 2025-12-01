@@ -17,6 +17,7 @@ interface ChunkSourceContentOptions {
   sourceContent: typeof schema.sourceContent.$inferSelect
   chunkSize?: number
   chunkOverlap?: number
+  onProgress?: (message: string) => Promise<void> | void
 }
 
 const DEFAULT_CHUNK_SIZE = 1200
@@ -27,7 +28,8 @@ export async function chunkSourceContentText({
   db,
   sourceContent,
   chunkSize = DEFAULT_CHUNK_SIZE,
-  chunkOverlap = DEFAULT_CHUNK_OVERLAP
+  chunkOverlap = DEFAULT_CHUNK_OVERLAP,
+  onProgress
 }: ChunkSourceContentOptions) {
   if (!sourceContent.sourceText || !sourceContent.sourceText.trim()) {
     throw createError({
@@ -108,6 +110,8 @@ export async function chunkSourceContentText({
       statusMessage: 'Unable to generate chunks from the provided text.'
     })
   }
+
+  await onProgress?.(`Created ${segments.length} chunk${segments.length > 1 ? 's' : ''} from transcript`)
 
   await db.transaction(async (tx) => {
     await tx

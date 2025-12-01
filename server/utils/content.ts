@@ -1,20 +1,23 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { and, eq } from 'drizzle-orm'
+import { createError } from 'h3'
 import { CONTENT_TYPES } from '~~/shared/constants/contentTypes'
 import * as schema from '../database/schema'
 
 export const CONTENT_STATUSES = ['draft', 'in_review', 'ready_for_publish', 'published', 'archived'] as const
 export { CONTENT_TYPES }
 
-const FALLBACK_SLUG = 'untitled'
 const UNIQUE_SLUG_CONSTRAINTS = ['content_org_slug_idx']
 
 const normalizeToSlug = (input: string) => {
-  if (!input) {
-    return ''
+  if (!input || !input.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Input is required for slug generation'
+    })
   }
 
-  return input
+  const normalized = input
     .normalize('NFKD')
     .replace(/[\u0300-\u036F]/g, '')
     .toLowerCase()
@@ -22,16 +25,19 @@ const normalizeToSlug = (input: string) => {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/-{2,}/g, '-')
     .replace(/^-+|-+$/g, '')
+
+  if (!normalized || !normalized.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Input cannot be converted to a valid slug'
+    })
+  }
+
+  return normalized
 }
 
 export const slugifyTitle = (input: string) => {
-  const normalized = normalizeToSlug(input || '')
-  return normalized || FALLBACK_SLUG
-}
-
-const withFallbackSlug = (value: string) => {
-  const normalized = normalizeToSlug(value)
-  return normalized || `${FALLBACK_SLUG}-${Date.now()}`
+  return normalizeToSlug(input)
 }
 
 export const ensureUniqueContentSlug = async (
@@ -39,10 +45,18 @@ export const ensureUniqueContentSlug = async (
   organizationId: string,
   candidate: string
 ) => {
+  if (!candidate || !candidate.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Slug candidate is required'
+    })
+  }
+
   let slug = slugifyTitle(candidate)
   let attempt = 0
+  const maxAttempts = 5
 
-  while (attempt < 5) {
+  while (attempt < maxAttempts) {
     const existing = await db
       .select({ id: schema.content.id })
       .from(schema.content)
@@ -57,10 +71,15 @@ export const ensureUniqueContentSlug = async (
     }
 
     attempt += 1
-    slug = withFallbackSlug(`${candidate}-${Math.random().toString(36).slice(2, 6)}`)
+    const suffix = Math.random().toString(36).slice(2, 6)
+    const candidateWithSuffix = `${candidate}-${suffix}`
+    slug = slugifyTitle(candidateWithSuffix)
   }
 
-  return withFallbackSlug(`${candidate}-${Date.now()}`)
+  throw createError({
+    statusCode: 500,
+    statusMessage: `Unable to generate a unique slug after ${maxAttempts} attempts`
+  })
 }
 
 export const isContentSlugConstraintError = (error: any) => {

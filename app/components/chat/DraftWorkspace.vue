@@ -391,14 +391,14 @@ watch(heroPayload, (value) => {
   layoutHero.value = value
 }, { immediate: true })
 
-type ViewTabValue = 'conversation' | 'diff' | 'logs'
+type ViewTabValue = 'sections' | 'diff' | 'logs'
 const viewTabs: { label: string, value: ViewTabValue }[] = [
-  { label: 'Conversation', value: 'conversation' },
-  { label: 'Diff', value: 'diff' },
-  { label: 'Logs', value: 'logs' }
+  { label: 'Sections', value: 'sections' },
+  { label: 'Raw MDX', value: 'diff' },
+  { label: 'Activity', value: 'logs' }
 ]
 
-const activeViewTab = ref<ViewTabValue>('conversation')
+const activeViewTab = ref<ViewTabValue>('sections')
 
 function slugify(value: string) {
   return value
@@ -614,11 +614,10 @@ onBeforeUnmount(() => {
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <UBadge
-          v-if="diffStats.additions || diffStats.deletions"
-          variant="soft"
           size="sm"
+          class="capitalize"
         >
-          +{{ diffStats.additions }} / -{{ diffStats.deletions }}
+          {{ contentStatus }}
         </UBadge>
         <UButton
           icon="i-lucide-archive"
@@ -655,43 +654,12 @@ onBeforeUnmount(() => {
       :description="chatErrorMessage"
     />
 
-    <div class="grid gap-6 lg:grid-cols-[320px,1fr]">
+    <div class="grid gap-6 lg:grid-cols-[280px,1fr]">
       <aside class="space-y-4">
-        <UCard>
-          <div class="space-y-2 text-sm">
-            <div class="flex items-center justify-between text-xs uppercase tracking-wide text-muted-500">
-              <span>Status</span>
-              <UBadge
-                size="xs"
-                class="capitalize"
-              >
-                {{ contentStatus }}
-              </UBadge>
-            </div>
-            <p class="font-medium">
-              {{ title }}
-            </p>
-            <p class="text-xs text-muted-500">
-              {{ contentUpdatedAtLabel }}
-            </p>
-            <div
-              v-if="_sourceLink"
-              class="text-xs text-primary-500"
-            >
-              <NuxtLink
-                :href="_sourceLink"
-                target="_blank"
-              >
-                View source
-              </NuxtLink>
-            </div>
-          </div>
-        </UCard>
-
         <UCard>
           <template #header>
             <div class="text-sm font-semibold">
-              Section tools
+              Edit section
             </div>
           </template>
           <div class="space-y-3">
@@ -701,66 +669,44 @@ onBeforeUnmount(() => {
               value-key="value"
               placeholder="Select a section…"
             />
-            <p
+            <div
               v-if="selectedSection"
-              class="text-xs text-muted-500"
+              class="space-y-2"
             >
-              {{ selectedSection.wordCount }} words · {{ selectedSection.type }}
-            </p>
-            <div class="flex gap-2">
+              <div class="flex items-center justify-between text-xs text-muted-500">
+                <span>{{ selectedSection.wordCount }} words</span>
+                <UBadge
+                  size="xs"
+                  color="neutral"
+                  class="capitalize"
+                >
+                  {{ selectedSection.type }}
+                </UBadge>
+              </div>
               <UButton
-                v-if="selectedSection"
                 size="xs"
                 color="neutral"
                 variant="ghost"
-                icon="i-lucide-edit-3"
+                icon="i-lucide-arrow-down"
+                block
                 @click="focusSection(selectedSection.id)"
               >
                 Jump to section
               </UButton>
             </div>
-          </div>
-        </UCard>
-
-        <UCard>
-          <template #header>
-            <p class="text-sm font-semibold">
-              Activity
-            </p>
-          </template>
-          <div
-            v-if="chatLogs.length"
-            class="space-y-3"
-          >
             <div
-              v-for="log in chatLogs.slice(0, 4)"
-              :key="log.id"
-              class="rounded-lg border border-muted-200/60 px-3 py-2"
+              v-if="_sourceLink"
+              class="pt-2 border-t border-muted-200/60"
             >
-              <div class="flex items-center justify-between text-xs text-muted-500">
-                <span class="capitalize">
-                  {{ log.type.replace(/_/g, ' ') }}
-                </span>
-                <span>{{ formatDate(log.createdAt) }}</span>
-              </div>
-              <p class="text-sm mt-1">
-                {{ log.message }}
-              </p>
+              <NuxtLink
+                :href="_sourceLink"
+                target="_blank"
+                class="text-xs text-primary-500 hover:underline"
+              >
+                View source
+              </NuxtLink>
             </div>
-            <NuxtLink
-              v-if="chatLogs.length > 4"
-              to="#logs"
-              class="text-xs text-primary-500"
-            >
-              View all logs
-            </NuxtLink>
           </div>
-          <p
-            v-else
-            class="text-xs text-muted-500"
-          >
-            No activity yet.
-          </p>
         </UCard>
       </aside>
 
@@ -774,7 +720,7 @@ onBeforeUnmount(() => {
         />
 
         <div
-          v-if="activeViewTab === 'conversation'"
+          v-if="activeViewTab === 'sections'"
           class="space-y-4"
         >
           <UCard
@@ -893,57 +839,41 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div class="space-y-4">
-      <UCard>
-        <template #header>
-          <div class="text-sm font-semibold">
-            Draft conversation
-          </div>
-        </template>
-        <div
-          v-if="conversationMessages.length > 0"
-          class="max-h-[460px] overflow-y-auto pr-1"
-        >
-          <ChatMessagesList
-            :messages="conversationMessages"
-            :status="chatStatus"
-          />
-        </div>
-        <div
-          v-else
-          class="text-sm text-muted-500"
-        >
-          No chat history yet. Send instructions to start iterating on this section.
-        </div>
-      </UCard>
-
-      <UCard class="space-y-3">
+    <UCard class="space-y-3">
+      <div class="flex items-center justify-between">
         <p class="text-sm font-semibold">
-          Request changes
+          Edit section
         </p>
-        <UChatPrompt
-          v-model="prompt"
-          placeholder="Describe the change you want..."
-          variant="subtle"
-          :disabled="
-            loading
-              || chatStatus === 'submitted'
-              || chatStatus === 'streaming'
-              || !selectedSectionId
-          "
-          :autofocus="false"
-          @submit="_handleSubmit"
+        <UBadge
+          v-if="selectedSection"
+          size="xs"
+          color="neutral"
+        >
+          {{ selectedSection.title }}
+        </UBadge>
+      </div>
+      <UChatPrompt
+        v-model="prompt"
+        placeholder="Describe the change you want..."
+        variant="subtle"
+        :disabled="
+          loading
+            || chatStatus === 'submitted'
+            || chatStatus === 'streaming'
+            || !selectedSectionId
+        "
+        :autofocus="false"
+        @submit="_handleSubmit"
+      />
+      <div
+        v-if="conversationMessages.length > 0"
+        class="max-h-[300px] overflow-y-auto pr-1 border-t border-muted-200/60 pt-3 mt-3"
+      >
+        <ChatMessagesList
+          :messages="conversationMessages"
+          :status="chatStatus"
         />
-        <div class="flex items-center justify-between text-xs text-muted-500">
-          <span>{{ contentId }}</span>
-          <UBadge
-            :color="chatStatus === 'error' ? 'error' : 'primary'"
-            variant="soft"
-          >
-            {{ chatStatus }}
-          </UBadge>
-        </div>
-      </UCard>
-    </div>
+      </div>
+    </UCard>
   </UContainer>
 </template>

@@ -264,7 +264,16 @@ const handleCreateDraft = async () => {
       await refreshDrafts()
     }
   } catch (error: any) {
-    createDraftError.value = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to create a draft from this conversation.'
+    const errorMsg = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to create a draft from this conversation.'
+    createDraftError.value = errorMsg
+
+    // Also add error as a chat message
+    messages.value.push({
+      id: createLocalId(),
+      role: 'assistant',
+      content: `❌ Error: ${errorMsg}`,
+      createdAt: new Date()
+    })
   } finally {
     createDraftLoading.value = false
   }
@@ -297,7 +306,7 @@ if (import.meta.client) {
       <h1 class="text-3xl font-semibold">
         What should we write next?
       </h1>
-      <!-- Only show tools when there are NO messages yet -->
+      <!-- Show tools when there are NO messages yet -->
       <div
         v-if="!messages.length"
         class="w-full space-y-3"
@@ -315,8 +324,9 @@ if (import.meta.client) {
       </div>
     </div>
     <div class="space-y-6">
+      <!-- Error messages are now shown in chat, but keep banner as fallback for non-chat errors -->
       <UAlert
-        v-if="errorMessage"
+        v-if="errorMessage && !messages.length"
         color="error"
         variant="soft"
         icon="i-lucide-alert-triangle"

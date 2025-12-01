@@ -257,11 +257,24 @@ const gatherChunkPreview = (chunks: PipelineChunk[], maxChars = 6000) => {
     parts.push(label)
   }
 
-  return parts.join('\n') || chunks[0].text.slice(0, 400)
+  const result = parts.join('\n')
+  if (!result || !result.trim()) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to generate chunk preview - no valid chunks available'
+    })
+  }
+  return result
 }
 
 const tokenize = (input: string) => {
-  return (input || '')
+  if (!input || !input.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Input is required for tokenization'
+    })
+  }
+  return input
     .toLowerCase()
     .replace(/[^a-z0-9\s]+/g, ' ')
     .split(/\s+/)
@@ -303,35 +316,35 @@ const selectRelevantChunks = async (params: {
   let queryEmbedding: number[] | null = null
 
   if (isVectorizeConfigured && sourceContentId) {
-    try {
-      queryEmbedding = await embedText(`${outline.title} ${outline.notes ?? ''}`)
-      const matches = await queryVectorMatches({
-        vector: queryEmbedding,
-        topK: SECTION_CONTEXT_LIMIT,
-        filter: {
-          sourceContentId,
-          organizationId
-        }
+    queryEmbedding = await embedText(`${outline.title} ${outline.notes ?? ''}`)
+    if (!queryEmbedding || queryEmbedding.length === 0) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to generate embedding for section query'
       })
+    }
 
-      if (matches.length) {
-        const chunkMap = new Map(
-          chunks.map(item => [buildVectorId(item.sourceContentId || sourceContentId, item.chunkIndex), item])
-        )
-
-        const resolvedMatches = matches
-          .map(match => chunkMap.get(match.id))
-          .filter((item): item is PipelineChunk => Boolean(item))
-
-        if (resolvedMatches.length) {
-          return resolvedMatches
-        }
+    const matches = await queryVectorMatches({
+      vector: queryEmbedding,
+      topK: SECTION_CONTEXT_LIMIT,
+      filter: {
+        sourceContentId,
+        organizationId
       }
-    } catch (error) {
-      console.error('Vector match failed, falling back to lexical scores', {
-        outlineTitle: outline.title,
-        error
-      })
+    })
+
+    if (matches.length) {
+      const chunkMap = new Map(
+        chunks.map(item => [buildVectorId(item.sourceContentId || sourceContentId, item.chunkIndex), item])
+      )
+
+      const resolvedMatches = matches
+        .map(match => chunkMap.get(match.id))
+        .filter((item): item is PipelineChunk => Boolean(item))
+
+      if (resolvedMatches.length) {
+        return resolvedMatches
+      }
     }
   }
 
@@ -340,26 +353,26 @@ const selectRelevantChunks = async (params: {
     : []
 
   if (isVectorizeConfigured && chunksWithEmbeddings.length) {
-    try {
-      if (!queryEmbedding) {
-        queryEmbedding = await embedText(`${outline.title} ${outline.notes ?? ''}`)
+    if (!queryEmbedding) {
+      queryEmbedding = await embedText(`${outline.title} ${outline.notes ?? ''}`)
+      if (!queryEmbedding || queryEmbedding.length === 0) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to generate embedding for section query'
+        })
       }
+    }
 
-      if (queryEmbedding?.length) {
-        const scored = chunksWithEmbeddings
-          .map(chunk => ({
-            chunk,
-            score: cosineSimilarity(queryEmbedding!, chunk.embedding as number[])
-          }))
-          .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-          .slice(0, SECTION_CONTEXT_LIMIT)
+    const scored = chunksWithEmbeddings
+      .map(chunk => ({
+        chunk,
+        score: cosineSimilarity(queryEmbedding!, chunk.embedding as number[])
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, SECTION_CONTEXT_LIMIT)
 
-        if (scored.length && scored[0].score > 0) {
-          return scored.map(item => item.chunk)
-        }
-      }
-    } catch (error) {
-      console.error('Local embedding similarity failed', { error })
+    if (scored.length && scored[0].score > 0) {
+      return scored.map(item => item.chunk)
     }
   }
 
@@ -406,21 +419,7 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB))
 }
 
-const defaultPlan = (sourceTitle?: string): ContentPlanResult => ({
-  outline: [
-    { id: uuidv7(), index: 0, title: 'Introduction', type: 'intro', notes: `Set up the topic ${sourceTitle ? `based on ${sourceTitle}` : ''}`.trim() },
-    { id: uuidv7(), index: 1, title: 'Key Ideas', type: 'body', notes: 'Summarize the most important concepts from the source material.' },
-    { id: uuidv7(), index: 2, title: 'Actionable Takeaways', type: 'body', notes: 'Provide 3-5 actionable steps or insights for the reader.' },
-    { id: uuidv7(), index: 3, title: 'Conclusion', type: 'conclusion', notes: 'Wrap up the narrative and reinforce the call to action.' }
-  ],
-  seo: {
-    title: sourceTitle || 'New Codex Draft',
-    description: 'Draft generated from a Codex pipeline.',
-    keywords: [],
-    slugSuggestion: slugifyTitle(sourceTitle || 'new-codex-draft'),
-    schemaTypes: normalizeSchemaTypes()
-  }
-})
+// Removed defaultPlan - fail loudly instead of using fallbacks
 
 const generateContentPlan = async (params: {
   contentType: typeof CONTENT_TYPES[number]
@@ -441,41 +440,109 @@ const generateContentPlan = async (params: {
     `Limit outline to ${PLAN_SECTION_LIMIT} sections.`
   ].join('\n\n')
 
-  let plan: ContentPlanResult
-  try {
-    const raw = await callChatCompletions({
-      systemPrompt: PLAN_SYSTEM_PROMPT,
-      userPrompt: prompt,
-      temperature: 0.7 // Higher temperature for more creative and personality-preserving planning
+  const raw = await callChatCompletions({
+    systemPrompt: PLAN_SYSTEM_PROMPT,
+    userPrompt: prompt,
+    temperature: 0.7 // Higher temperature for more creative and personality-preserving planning
+  })
+
+  const parsed = parseJSONResponse<ContentPlanResult>(raw, 'content plan')
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to parse content plan from AI response'
     })
+  }
 
-    const parsed = parseJSONResponse<ContentPlanResult>(raw, 'content plan')
-    const outline = Array.isArray(parsed.outline)
-      ? parsed.outline.slice(0, PLAN_SECTION_LIMIT).map((item, idx) => ({
-          id: item.id || uuidv7(),
-          index: Number.isFinite(item.index) ? item.index : idx,
-          title: item.title?.trim() || `Section ${idx + 1}`,
-          type: item.type?.trim() || 'body',
-          notes: item.notes?.trim() || undefined
-        }))
-      : []
+  if (!Array.isArray(parsed.outline) || parsed.outline.length === 0) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Content plan must include a non-empty outline'
+    })
+  }
 
-    const parsedSchemaTypes = normalizeSchemaTypes(parsed.seo?.schemaTypes, parsed.seo?.schemaType)
-
-    plan = {
-      outline: outline.length ? outline : defaultPlan(params.sourceTitle ?? undefined).outline,
-      seo: {
-        title: parsed.seo?.title?.trim() || params.sourceTitle || 'New Codex Draft',
-        description: parsed.seo?.description?.trim() || 'Draft generated from Codex pipeline.',
-        keywords: Array.isArray(parsed.seo?.keywords) ? parsed.seo?.keywords : [],
-        schemaType: parsedSchemaTypes[0],
-        schemaTypes: parsedSchemaTypes,
-        slugSuggestion: slugifyTitle(parsed.seo?.slugSuggestion || parsed.seo?.title || params.sourceTitle || 'new-codex-draft')
-      }
+  const outline = parsed.outline.slice(0, PLAN_SECTION_LIMIT).map((item, idx) => {
+    if (!item.title || !item.title.trim()) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Content plan outline item at index ${idx} is missing a title`
+      })
     }
-  } catch (error) {
-    console.error('Failed to create structured plan, falling back to defaults', { error })
-    plan = defaultPlan(params.sourceTitle ?? undefined)
+    if (!item.id || !item.id.trim()) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Content plan outline item "${item.title}" at index ${idx} is missing an id`
+      })
+    }
+    if (!Number.isFinite(item.index)) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Content plan outline item "${item.title}" at index ${idx} is missing a valid index`
+      })
+    }
+    if (!item.type || !item.type.trim()) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Content plan outline item "${item.title}" at index ${idx} is missing a type`
+      })
+    }
+    return {
+      id: item.id,
+      index: item.index,
+      title: item.title.trim(),
+      type: item.type.trim(),
+      notes: item.notes?.trim() || undefined
+    }
+  })
+
+  if (!parsed.seo || typeof parsed.seo !== 'object') {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Content plan must include SEO metadata'
+    })
+  }
+
+  if (!parsed.seo.title || !parsed.seo.title.trim()) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Content plan must include a title in SEO metadata'
+    })
+  }
+
+  const parsedSchemaTypes = normalizeSchemaTypes(parsed.seo?.schemaTypes, parsed.seo?.schemaType)
+
+  if (parsedSchemaTypes.length === 0) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Content plan must include at least one schema type'
+    })
+  }
+
+  if (!parsed.seo.description || !parsed.seo.description.trim()) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Content plan must include a description in SEO metadata'
+    })
+  }
+
+  if (!parsed.seo.slugSuggestion || !parsed.seo.slugSuggestion.trim()) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Content plan must include a slugSuggestion in SEO metadata'
+    })
+  }
+
+  const plan: ContentPlanResult = {
+    outline,
+    seo: {
+      title: parsed.seo.title.trim(),
+      description: parsed.seo.description.trim(),
+      keywords: Array.isArray(parsed.seo.keywords) ? parsed.seo.keywords : [],
+      schemaType: parsedSchemaTypes[0],
+      schemaTypes: parsedSchemaTypes,
+      slugSuggestion: slugifyTitle(parsed.seo.slugSuggestion.trim())
+    }
   }
 
   return plan
@@ -489,16 +556,76 @@ const buildFrontmatterFromPlan = (params: {
 }): FrontmatterResult => {
   const { plan, overrides, existingContent, sourceContent } = params
 
-  const resolvedTitle = overrides?.title?.trim() || plan.seo.title || existingContent?.title || sourceContent?.title || 'New Codex Draft'
-  const slugInput = overrides?.slug?.trim() || plan.seo.slugSuggestion || resolvedTitle
+  if (!plan.seo.title || !plan.seo.title.trim()) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Plan must include a title'
+    })
+  }
 
-  const statusCandidate = overrides?.status && CONTENT_STATUSES.includes(overrides.status)
-    ? overrides.status
-    : (existingContent?.status ?? 'draft')
+  const resolvedTitle = overrides?.title?.trim() || plan.seo.title
+  if (!resolvedTitle || !resolvedTitle.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Title is required. Provide a title in overrides or ensure the plan includes one.'
+    })
+  }
 
-  const contentTypeCandidate = overrides?.contentType && CONTENT_TYPES.includes(overrides.contentType)
-    ? overrides.contentType
-    : (existingContent?.contentType ?? 'blog_post')
+  const slugInput = overrides?.slug?.trim() || plan.seo.slugSuggestion
+  if (!slugInput || !slugInput.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Slug is required. Provide a slug in overrides or ensure the plan includes slugSuggestion.'
+    })
+  }
+
+  // For new content, default to 'draft'. For existing content, require explicit status or use existing.
+  let statusCandidate: typeof CONTENT_STATUSES[number]
+  if (overrides?.status) {
+    if (!CONTENT_STATUSES.includes(overrides.status)) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Invalid status "${overrides.status}". Must be one of: ${CONTENT_STATUSES.join(', ')}`
+      })
+    }
+    statusCandidate = overrides.status
+  } else if (existingContent?.status) {
+    if (!CONTENT_STATUSES.includes(existingContent.status)) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Existing content has invalid status "${existingContent.status}". Must be one of: ${CONTENT_STATUSES.join(', ')}`
+      })
+    }
+    statusCandidate = existingContent.status
+  } else {
+    // New content defaults to 'draft' - this is a business rule, not a fallback
+    statusCandidate = 'draft'
+  }
+
+  // contentType must always be provided explicitly or exist on existing content
+  let contentTypeCandidate: typeof CONTENT_TYPES[number]
+  if (overrides?.contentType) {
+    if (!CONTENT_TYPES.includes(overrides.contentType)) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `Invalid contentType "${overrides.contentType}". Must be one of: ${CONTENT_TYPES.join(', ')}`
+      })
+    }
+    contentTypeCandidate = overrides.contentType
+  } else if (existingContent?.contentType) {
+    if (!CONTENT_TYPES.includes(existingContent.contentType)) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Existing content has invalid contentType "${existingContent.contentType}". Must be one of: ${CONTENT_TYPES.join(', ')}`
+      })
+    }
+    contentTypeCandidate = existingContent.contentType
+  } else {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `contentType is required and must be one of: ${CONTENT_TYPES.join(', ')}`
+    })
+  }
 
   const resolvedSchemaTypes = normalizeSchemaTypes(
     params.plan.seo.schemaTypes,
@@ -507,10 +634,17 @@ const buildFrontmatterFromPlan = (params: {
     CONTENT_TYPE_SCHEMA_EXTENSIONS[contentTypeCandidate]
   )
 
+  if (resolvedSchemaTypes.length === 0) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Schema types are required'
+    })
+  }
+
   return {
-    title: resolvedTitle,
-    description: plan.seo.description || sourceContent?.metadata?.description || undefined,
-    slugSuggestion: slugifyTitle(slugInput || resolvedTitle),
+    title: resolvedTitle.trim(),
+    description: plan.seo.description || undefined,
+    slugSuggestion: slugifyTitle(slugInput.trim()),
     tags: plan.seo.keywords,
     status: statusCandidate,
     contentType: contentTypeCandidate,
@@ -526,14 +660,44 @@ const buildFrontmatterFromVersion = (params: {
   version: typeof schema.contentVersion.$inferSelect | null
 }): FrontmatterResult => {
   const versionFrontmatter = params.version?.frontmatter || {}
-  const resolvedTitle = versionFrontmatter.title || params.content.title || 'New Codex Draft'
-  const slugInput = versionFrontmatter.slug || params.content.slug || resolvedTitle
+
+  const resolvedTitle = versionFrontmatter.title || params.content.title
+  if (!resolvedTitle || !resolvedTitle.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Content title is required'
+    })
+  }
+
+  const slugInput = versionFrontmatter.slug || params.content.slug
+  if (!slugInput || !slugInput.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Content slug is required'
+    })
+  }
+
   const statusCandidate = versionFrontmatter.status && CONTENT_STATUSES.includes(versionFrontmatter.status)
     ? versionFrontmatter.status
-    : (params.content.status ?? 'draft')
+    : params.content.status
+
+  if (!statusCandidate || !CONTENT_STATUSES.includes(statusCandidate)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Content status is required and must be one of: ${CONTENT_STATUSES.join(', ')}`
+    })
+  }
+
   const contentTypeCandidate = versionFrontmatter.contentType && CONTENT_TYPES.includes(versionFrontmatter.contentType)
     ? versionFrontmatter.contentType
-    : (params.content.contentType ?? 'blog_post')
+    : params.content.contentType
+
+  if (!contentTypeCandidate || !CONTENT_TYPES.includes(contentTypeCandidate)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Content type is required and must be one of: ${CONTENT_TYPES.join(', ')}`
+    })
+  }
   const schemaTypes = normalizeSchemaTypes(
     versionFrontmatter.schemaTypes,
     versionFrontmatter.schemaType,
@@ -541,9 +705,9 @@ const buildFrontmatterFromVersion = (params: {
   )
 
   return {
-    title: resolvedTitle,
-    description: versionFrontmatter.description,
-    slugSuggestion: slugifyTitle(slugInput || resolvedTitle),
+    title: resolvedTitle.trim(),
+    description: versionFrontmatter.description || undefined,
+    slugSuggestion: slugifyTitle(slugInput.trim()),
     tags: Array.isArray(versionFrontmatter.tags) ? versionFrontmatter.tags : undefined,
     status: statusCandidate,
     contentType: contentTypeCandidate,
@@ -593,41 +757,81 @@ const generateSectionsFromOutline = async (params: {
       'Write this section maintaining the original speaker\'s authentic voice and personality. Use their specific words, phrases, and expressions when possible. Keep their casual tone, personal stories, and unique way of explaining things. Respond with JSON {"body": string, "summary": string?}. "body" must include only the prose content for this section - do NOT include the section heading or title, as it will be added automatically.'
     ].join('\n\n')
 
-    try {
-      const raw = await callChatCompletions({
-        systemPrompt: SECTION_SYSTEM_PROMPT,
-        userPrompt: prompt,
-        temperature: params.temperature ?? 0.8 // Higher default temperature for personality preservation
+    if (!item.title || !item.title.trim()) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Outline item at index ${item.index} is missing a title`
       })
-
-      const parsed = parseJSONResponse<{ body?: string, body_mdx?: string, summary?: string }>(raw, `section ${item.title}`)
-      const body = (parsed.body ?? parsed.body_mdx ?? '').trim()
-      if (!body) {
-        continue
-      }
-
-      const headingLevel = item.type === 'subsection' ? 3 : 2
-      const anchor = slugifyTitle(item.title || `section-${item.index + 1}`)
-
-      sections.push({
-        id: item.id || uuidv7(),
-        index: item.index ?? sections.length,
-        type: item.type || 'body',
-        title: item.title || `Section ${sections.length + 1}`,
-        level: headingLevel,
-        anchor,
-        body,
-        summary: parsed.summary?.trim() || null,
-        wordCount: computeWordCount(body),
-        meta: {
-          planType: item.type,
-          notes: item.notes || null,
-          sourceChunks: relevantChunks.map(chunk => chunk.chunkIndex)
-        }
-      })
-    } catch (error) {
-      console.error('Failed to generate section', { sectionTitle: item.title, error })
     }
+
+    // Temperature is a configuration parameter with a reasonable default
+    const temperature = Number.isFinite(params.temperature) && params.temperature !== undefined
+      ? params.temperature
+      : 0.7
+
+    if (!item.id) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Outline item "${item.title}" is missing an id`
+      })
+    }
+
+    if (!Number.isFinite(item.index)) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Outline item "${item.title}" is missing a valid index`
+      })
+    }
+
+    if (!item.type || !item.type.trim()) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Outline item "${item.title}" is missing a type`
+      })
+    }
+
+    const raw = await callChatCompletions({
+      systemPrompt: SECTION_SYSTEM_PROMPT,
+      userPrompt: prompt,
+      temperature
+    })
+
+    const parsed = parseJSONResponse<{ body?: string, body_mdx?: string, summary?: string }>(raw, `section ${item.title}`)
+
+    if (!parsed.body && !parsed.body_mdx) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Section "${item.title}" generation failed: missing body content`
+      })
+    }
+
+    const body = (parsed.body || parsed.body_mdx || '').trim()
+    if (!body) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: `Section "${item.title}" generation failed: body content is empty`
+      })
+    }
+
+    const headingLevel = item.type === 'subsection' ? 3 : 2
+    const anchor = slugifyTitle(item.title)
+
+    sections.push({
+      id: item.id,
+      index: item.index,
+      type: item.type,
+      title: item.title,
+      level: headingLevel,
+      anchor,
+      body,
+      summary: parsed.summary?.trim() || undefined,
+      wordCount: computeWordCount(body),
+      meta: {
+        planType: item.type,
+        notes: item.notes || undefined,
+        sourceChunks: relevantChunks.map(chunk => chunk.chunkIndex)
+      }
+    })
   }
 
   if (!sections.length) {
@@ -764,16 +968,30 @@ const fetchOrCreateChunks = async (
   fallbackText: string | null
 ): Promise<PipelineChunk[]> => {
   if (!sourceContent?.id) {
-    const virtualChunks = fallbackText ? buildVirtualChunksFromText(fallbackText) : []
-    if (virtualChunks.length && isVectorizeConfigured) {
-      try {
-        const embeddings = await embedTexts(virtualChunks.map(chunk => chunk.text))
-        virtualChunks.forEach((chunk, idx) => {
-          chunk.embedding = embeddings[idx] ?? null
+    if (!fallbackText || !fallbackText.trim()) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Source content is required. Provide a sourceContentId or fallback text.'
+      })
+    }
+    const virtualChunks = buildVirtualChunksFromText(fallbackText)
+    if (virtualChunks.length === 0) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Failed to create chunks from fallback text'
+      })
+    }
+    if (isVectorizeConfigured) {
+      const embeddings = await embedTexts(virtualChunks.map(chunk => chunk.text))
+      if (embeddings.length !== virtualChunks.length) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to generate embeddings for all chunks'
         })
-      } catch (error) {
-        console.error('Failed to embed ad-hoc chunks', { error })
       }
+      virtualChunks.forEach((chunk, idx) => {
+        chunk.embedding = embeddings[idx] ?? null
+      })
     }
     return virtualChunks
   }
@@ -792,44 +1010,55 @@ const fetchOrCreateChunks = async (
     .where(eq(schema.chunk.sourceContentId, sourceContent.id))
     .orderBy(asc(schema.chunk.chunkIndex))
 
-  if (chunks.length === 0 && sourceContent.sourceText) {
+  if (chunks.length === 0) {
+    if (!sourceContent.sourceText || !sourceContent.sourceText.trim()) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Source content has no text to chunk'
+      })
+    }
     await chunkSourceContentText({ db, sourceContent })
     chunks = await db
       .select()
       .from(schema.chunk)
       .where(eq(schema.chunk.sourceContentId, sourceContent.id))
       .orderBy(asc(schema.chunk.chunkIndex))
-  }
 
-  if (chunks.length === 0) {
-    return fallbackText ? buildVirtualChunksFromText(fallbackText) : []
+    if (chunks.length === 0) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to create chunks from source content'
+      })
+    }
   }
 
   if (isVectorizeConfigured) {
     const missingEmbeddings = chunks.filter(chunk => !Array.isArray(chunk.embedding) || chunk.embedding.length === 0)
     if (missingEmbeddings.length) {
-      try {
-        const embeddings = await embedTexts(missingEmbeddings.map(chunk => chunk.text))
-        await Promise.all(missingEmbeddings.map((chunk, idx) => {
-          chunk.embedding = embeddings[idx]
-          return db
-            .update(schema.chunk)
-            .set({ embedding: embeddings[idx] })
-            .where(eq(schema.chunk.id, chunk.id))
-        }))
-
-        await upsertVectors(missingEmbeddings.map((chunk, idx) => ({
-          id: buildVectorId(chunk.sourceContentId, chunk.chunkIndex),
-          values: embeddings[idx],
-          metadata: {
-            sourceContentId: chunk.sourceContentId,
-            organizationId: chunk.organizationId,
-            chunkIndex: chunk.chunkIndex
-          }
-        })))
-      } catch (error) {
-        console.error('Failed to backfill embeddings for chunks', { error, sourceContentId: sourceContent.id })
+      const embeddings = await embedTexts(missingEmbeddings.map(chunk => chunk.text))
+      if (embeddings.length !== missingEmbeddings.length) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: `Failed to generate embeddings: expected ${missingEmbeddings.length}, got ${embeddings.length}`
+        })
       }
+      await Promise.all(missingEmbeddings.map((chunk, idx) => {
+        chunk.embedding = embeddings[idx]
+        return db
+          .update(schema.chunk)
+          .set({ embedding: embeddings[idx] })
+          .where(eq(schema.chunk.id, chunk.id))
+      }))
+
+      await upsertVectors(missingEmbeddings.map((chunk, idx) => ({
+        id: buildVectorId(chunk.sourceContentId, chunk.chunkIndex),
+        values: embeddings[idx],
+        metadata: {
+          sourceContentId: chunk.sourceContentId,
+          organizationId: chunk.organizationId,
+          chunkIndex: chunk.chunkIndex
+        }
+      })))
     }
   }
 
@@ -910,9 +1139,17 @@ export const generateContentDraft = async (
 
   const chunks = await fetchOrCreateChunks(db, sourceContent, sourceContent.sourceText)
 
+  if (!overrides?.contentType || !CONTENT_TYPES.includes(overrides.contentType)) {
+    if (!existingContent?.contentType || !CONTENT_TYPES.includes(existingContent.contentType)) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: `contentType is required and must be one of: ${CONTENT_TYPES.join(', ')}`
+      })
+    }
+  }
   const contentType = overrides?.contentType && CONTENT_TYPES.includes(overrides.contentType)
     ? overrides.contentType
-    : (existingContent?.contentType ?? 'blog_post')
+    : existingContent!.contentType
 
   const plan = await generateContentPlan({
     contentType,
@@ -968,54 +1205,41 @@ export const generateContentDraft = async (
     const baseSlugInput = overrides?.slug || frontmatter.slugSuggestion || frontmatter.title
 
     if (!contentRecord) {
-      let slugCandidate = await ensureUniqueContentSlug(tx, organizationId, baseSlugInput)
-      let createdContent: typeof schema.content.$inferSelect | null = null
-      let attempt = 0
-      const maxAttempts = 5
-
-      while (!createdContent && attempt < maxAttempts) {
-        try {
-          const [inserted] = await tx
-            .insert(schema.content)
-            .values({
-              id: uuidv7(),
-              organizationId,
-              createdByUserId: userId,
-              sourceContentId: resolvedSourceContentId,
-              title: frontmatter.title,
-              slug: slugCandidate,
-              status: selectedStatus,
-              primaryKeyword,
-              targetLocale,
-              contentType: selectedContentType,
-              currentVersionId: null
-            })
-            .returning()
-
-          createdContent = inserted
-        } catch (error: any) {
-          if (error?.code === '23505') {
-            attempt += 1
-            slugCandidate = await ensureUniqueContentSlug(
-              tx,
-              organizationId,
-              `${baseSlugInput}-${Math.random().toString(36).slice(2, 6)}`
-            )
-            continue
-          }
-          throw error
-        }
-      }
-
-      if (!createdContent) {
+      if (!baseSlugInput || !baseSlugInput.trim()) {
         throw createError({
-          statusCode: 500,
-          statusMessage: 'Unable to allocate a unique slug for this content'
+          statusCode: 400,
+          statusMessage: 'Slug is required. Provide a slug, slugSuggestion, or title in the plan.'
         })
       }
 
-      slug = createdContent.slug
-      contentRecord = createdContent
+      const slugCandidate = await ensureUniqueContentSlug(tx, organizationId, baseSlugInput)
+
+      const [inserted] = await tx
+        .insert(schema.content)
+        .values({
+          id: uuidv7(),
+          organizationId,
+          createdByUserId: userId,
+          sourceContentId: resolvedSourceContentId,
+          title: frontmatter.title,
+          slug: slugCandidate,
+          status: selectedStatus,
+          primaryKeyword,
+          targetLocale,
+          contentType: selectedContentType,
+          currentVersionId: null
+        })
+        .returning()
+
+      if (!inserted) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to create content record'
+        })
+      }
+
+      slug = inserted.slug
+      contentRecord = inserted
     } else {
       slug = contentRecord.slug
 

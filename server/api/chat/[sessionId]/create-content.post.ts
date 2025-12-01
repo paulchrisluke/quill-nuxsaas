@@ -84,9 +84,14 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const contentType = body.contentType && CONTENT_TYPES.includes(body.contentType)
-    ? body.contentType
-    : 'blog_post'
+  if (!body.contentType || !CONTENT_TYPES.includes(body.contentType)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `contentType is required and must be one of: ${CONTENT_TYPES.join(', ')}`
+    })
+  }
+
+  const contentType = body.contentType
 
   const allMessages = await getSessionMessages(db, session.id, organizationId)
 
@@ -129,12 +134,27 @@ export default defineEventHandler(async (event) => {
   // Transcript length check removed - transcripts are automatically chunked and vectorized
   // regardless of length, so no artificial limits are needed
 
+  await addChatMessage(db, {
+    sessionId: session.id,
+    organizationId,
+    role: 'assistant',
+    content: 'Processing your transcript... This may take a moment.'
+  })
+
   const manualSource = await createManualTranscriptSourceContent({
     db,
     organizationId,
     userId: user.id,
     transcript,
-    metadata: { createdVia: 'chat_session_create_content', sessionId: session.id }
+    metadata: { createdVia: 'chat_session_create_content', sessionId: session.id },
+    onProgress: async (progressMessage) => {
+      await addChatMessage(db, {
+        sessionId: session.id,
+        organizationId,
+        role: 'assistant',
+        content: progressMessage
+      })
+    }
   })
 
   const result = await generateContentDraft(db, {

@@ -159,7 +159,17 @@ export function useChatSession() {
       return response
     } catch (error: any) {
       status.value = 'error'
-      errorMessage.value = error?.data?.message || error?.message || 'Something went wrong.'
+      const errorMsg = error?.data?.statusMessage || error?.data?.message || error?.message || 'Something went wrong.'
+      errorMessage.value = errorMsg
+
+      // Also add error as a chat message so user can see it
+      messages.value.push({
+        id: createId(),
+        role: 'assistant',
+        content: `❌ Error: ${errorMsg}`,
+        createdAt: new Date()
+      })
+
       return null
     }
   }
@@ -232,7 +242,16 @@ export function useChatSession() {
       status.value = 'ready'
     } catch (error: any) {
       status.value = 'error'
-      errorMessage.value = error?.data?.statusMessage || error?.message || 'Failed to generate content.'
+      const errorMsg = error?.data?.statusMessage || error?.message || 'Failed to generate content.'
+      errorMessage.value = errorMsg
+
+      // Also add error as a chat message
+      messages.value.push({
+        id: createId(),
+        role: 'assistant',
+        content: `❌ Error: ${errorMsg}`,
+        createdAt: new Date()
+      })
     }
   }
 
