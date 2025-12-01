@@ -151,13 +151,39 @@ export default defineEventHandler(async (event) => {
     },
     onPlanReady: async ({ plan, frontmatter }) => {
       if (!plan || typeof plan !== 'object') {
-        console.warn('[create-content] Missing plan data in onPlanReady callback.')
-        return
+        const errorMessage = 'Failed to generate content plan. The plan data is missing. Please try again.'
+        console.error('[create-content] Missing plan data in onPlanReady callback.', {
+          sessionId: session.id,
+          userId: user.id
+        })
+        await addChatMessage(db, {
+          sessionId: session.id,
+          organizationId,
+          role: 'assistant',
+          content: errorMessage
+        })
+        throw createError({
+          statusCode: 500,
+          statusMessage: errorMessage
+        })
       }
 
       if (!frontmatter || typeof frontmatter !== 'object') {
-        console.warn('[create-content] Missing frontmatter data in onPlanReady callback.')
-        return
+        const errorMessage = 'Failed to generate content plan. The frontmatter data is missing. Please try again.'
+        console.error('[create-content] Missing frontmatter data in onPlanReady callback.', {
+          sessionId: session.id,
+          userId: user.id
+        })
+        await addChatMessage(db, {
+          sessionId: session.id,
+          organizationId,
+          role: 'assistant',
+          content: errorMessage
+        })
+        throw createError({
+          statusCode: 500,
+          statusMessage: errorMessage
+        })
       }
 
       const outlineArray = Array.isArray(plan.outline) ? plan.outline : []
