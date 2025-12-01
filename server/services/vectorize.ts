@@ -27,6 +27,7 @@ const CF_EMBED_MODEL = process.env.NUXT_CF_EMBED_MODEL || runtimeConfig.cfEmbedM
 const VECTORIZE_BASE = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}`
 
 export const isVectorizeConfigured = Boolean(
+  CF_ACCOUNT_ID &&
   CF_VECTORIZE_INDEX &&
   CF_VECTORIZE_API_TOKEN &&
   CF_EMBED_MODEL
@@ -142,8 +143,15 @@ interface UpsertVectorInput {
 }
 
 export const upsertVectors = async (vectors: UpsertVectorInput[]) => {
-  if (!vectors.length || !isVectorizeConfigured) {
+  if (!vectors.length) {
     return
+  }
+
+  if (!isVectorizeConfigured) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Vector embeddings are not configured.'
+    })
   }
 
   const response = await fetch(

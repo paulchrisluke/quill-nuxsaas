@@ -52,7 +52,12 @@ export const createManualTranscriptSourceContent = async ({
   console.log(`✅ [MANUAL_TRANSCRIPT] Created sourceContent: ${sourceContent.id}`)
   console.log(`🔧 [MANUAL_TRANSCRIPT] About to call chunkSourceContentText...`)
 
-  await chunkSourceContentText({ db, sourceContent })
+  try {
+    await chunkSourceContentText({ db, sourceContent })
+  } catch (error) {
+    console.error(`❌ [MANUAL_TRANSCRIPT] Chunking failed for: ${sourceContent.id}`, error)
+    throw error
+  }
 
   console.log(`🎉 [MANUAL_TRANSCRIPT] Completed chunking for: ${sourceContent.id}`)
   return sourceContent

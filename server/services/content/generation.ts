@@ -391,9 +391,9 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   let normA = 0
   let normB = 0
 
-  for (let i = 0; i < a.length; i += 1) {
-    const valueA = a[i]
-    const valueB = b[i]
+  for (let i = 0; i < vecA.length; i += 1) {
+    const valueA = vecA[i]
+    const valueB = vecB[i]
     dot += valueA * valueB
     normA += valueA * valueA
     normB += valueB * valueB
