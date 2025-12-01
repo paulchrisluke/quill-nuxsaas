@@ -166,16 +166,35 @@ async function disconnectYoutube() {
   }
 }
 
-watchEffect(() => {
-  if (!import.meta.client)
-    return
-  if (currentRoute.query.connected === 'youtube') {
-    toast.add({ title: 'YouTube connected', description: 'Captions can now be ingested automatically.', color: 'success' })
+if (import.meta.client) {
+  const stripConnectedQuery = () => {
     const newQuery = { ...currentRoute.query }
     delete newQuery.connected
-    router.replace({ path: currentRoute.path, query: newQuery })
+    router.replace({ path: currentRoute.path, query: newQuery }).catch((error) => {
+      // Avoid blowing up the page if a navigation race occurs; log for debugging instead.
+      console.warn('[integrations] Unable to strip ?connected query param', error)
+    })
   }
-})
+
+  onMounted(() => {
+    watch(
+      () => currentRoute.query.connected,
+      (value) => {
+        const isYoutubeConnection = Array.isArray(value) ? value.includes('youtube') : value === 'youtube'
+        if (!isYoutubeConnection)
+          return
+
+        toast.add({
+          title: 'YouTube connected',
+          description: 'Captions can now be ingested automatically.',
+          color: 'success'
+        })
+        stripConnectedQuery()
+      },
+      { immediate: true }
+    )
+  })
+}
 </script>
 
 <template>

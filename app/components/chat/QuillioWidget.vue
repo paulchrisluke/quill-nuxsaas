@@ -27,11 +27,10 @@ const createDraftError = ref<string | null>(null)
 const selectedContentType = ref<ContentType>(CONTENT_TYPE_OPTIONS[0]?.value ?? 'blog_post')
 const actionLoading = ref<string | null>(null)
 const quickActionsState = reactive({
-  transcript: false,
-  youtube: false
+  transcript: false
 })
-const linkedSources = ref<Array<{ id: string, type: 'transcript' | 'youtube', value: string }>>([])
-const toolSubmitLoading = ref<'transcript' | 'youtube' | null>(null)
+const linkedSources = ref<Array<{ id: string, type: 'transcript', value: string }>>([])
+const toolSubmitLoading = ref<'transcript' | null>(null)
 
 const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = ref<any | null>(null)
@@ -126,7 +125,7 @@ function createLocalId() {
   return Math.random().toString(36).slice(2)
 }
 
-function addLinkedSource(entry: { type: 'transcript' | 'youtube', value: string }) {
+function addLinkedSource(entry: { type: 'transcript', value: string }) {
   linkedSources.value = [
     ...linkedSources.value,
     {
@@ -152,28 +151,6 @@ const handleTranscriptTool = async (payload: { text: string }) => {
   } catch (error: any) {
     console.error('Failed to send transcript message', error)
     const errorMsg = error?.data?.message || error?.message || 'Unable to send transcript. Please try again.'
-    messages.value.push({
-      id: createLocalId(),
-      role: 'assistant',
-      content: `❌ ${errorMsg}`,
-      createdAt: new Date()
-    })
-  } finally {
-    toolSubmitLoading.value = null
-  }
-}
-
-const handleYoutubeTool = async (payload: { url: string }) => {
-  const summary = `YouTube link added (${payload.url})`
-
-  toolSubmitLoading.value = 'youtube'
-  try {
-    await sendMessage(`Reference video: ${payload.url}`, { displayContent: summary })
-    addLinkedSource({ type: 'youtube', value: payload.url })
-    quickActionsState.youtube = false
-  } catch (error: any) {
-    console.error('Failed to send YouTube link', error)
-    const errorMsg = error?.data?.message || error?.message || 'Unable to send YouTube link. Please try again.'
     messages.value.push({
       id: createLocalId(),
       role: 'assistant',
@@ -315,19 +292,9 @@ if (import.meta.client) {
             color="primary"
             icon="i-lucide-file-text"
             :disabled="toolSubmitLoading !== null"
-            @click="quickActionsState.youtube = false; quickActionsState.transcript = !quickActionsState.transcript"
+            @click="quickActionsState.transcript = !quickActionsState.transcript"
           >
             Paste transcript
-          </UButton>
-          <UButton
-            size="lg"
-            variant="soft"
-            color="neutral"
-            icon="i-lucide-youtube"
-            :disabled="toolSubmitLoading !== null"
-            @click="quickActionsState.transcript = false; quickActionsState.youtube = !quickActionsState.youtube"
-          >
-            Add YouTube link
           </UButton>
           <UButton
             size="lg"
@@ -344,11 +311,6 @@ if (import.meta.client) {
             v-model:open="quickActionsState.transcript"
             :loading="toolSubmitLoading === 'transcript'"
             @submit="handleTranscriptTool"
-          />
-          <ToolYoutube
-            v-model:open="quickActionsState.youtube"
-            :loading="toolSubmitLoading === 'youtube'"
-            @submit="handleYoutubeTool"
           />
         </div>
       </div>
@@ -465,13 +427,13 @@ if (import.meta.client) {
               v-for="source in linkedSources"
               :key="source.id"
               size="sm"
-              :color="source.type === 'transcript' ? 'primary' : 'neutral'"
+              color="primary"
               class="flex items-center gap-1"
             >
               <UIcon
-                :name="source.type === 'transcript' ? 'i-lucide-file-text' : 'i-lucide-youtube'"
+                name="i-lucide-file-text"
               />
-              {{ source.type === 'transcript' ? 'Transcript' : 'YouTube link' }}
+              Transcript
               <UButton
                 variant="link"
                 size="xs"
@@ -491,18 +453,9 @@ if (import.meta.client) {
               variant="soft"
               color="primary"
               icon="i-lucide-file-text"
-              @click="quickActionsState.youtube = false; quickActionsState.transcript = !quickActionsState.transcript"
+              @click="quickActionsState.transcript = !quickActionsState.transcript"
             >
               Paste transcript
-            </UButton>
-            <UButton
-              size="sm"
-              variant="soft"
-              color="neutral"
-              icon="i-lucide-youtube"
-              @click="quickActionsState.transcript = false; quickActionsState.youtube = !quickActionsState.youtube"
-            >
-              Add YouTube link
             </UButton>
           </div>
 
@@ -515,11 +468,6 @@ if (import.meta.client) {
               v-model:open="quickActionsState.transcript"
               :loading="toolSubmitLoading === 'transcript'"
               @submit="handleTranscriptTool"
-            />
-            <ToolYoutube
-              v-model:open="quickActionsState.youtube"
-              :loading="toolSubmitLoading === 'youtube'"
-              @submit="handleYoutubeTool"
             />
           </div>
 
