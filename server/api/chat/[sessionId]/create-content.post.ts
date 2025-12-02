@@ -11,6 +11,7 @@ import { useDB } from '~~/server/utils/db'
 import { createInternalError, createNotFoundError, createValidationError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { validateEnum, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
+import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
 
 const MAX_MESSAGE_COUNT = 200
 // Removed MAX_TRANSCRIPT_LENGTH - transcripts are chunked and vectorized, so length limits are unnecessary
@@ -59,7 +60,9 @@ export default defineEventHandler(async (event) => {
     throw createValidationError('This conversation is already linked to a draft.')
   }
 
-  const contentType = validateEnum(body.contentType, CONTENT_TYPES, 'contentType')
+  const contentType = body.contentType
+    ? validateEnum(body.contentType, CONTENT_TYPES, 'contentType')
+    : DEFAULT_CONTENT_TYPE
 
   const allMessages = await getSessionMessages(db, session.id, organizationId)
 

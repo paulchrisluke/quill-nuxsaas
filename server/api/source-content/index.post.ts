@@ -1,4 +1,5 @@
 import type { UpsertSourceContentRequestBody } from '~~/server/types/sourceContent'
+import { readBody } from 'h3'
 import { INGEST_STATUSES, upsertSourceContent } from '~~/server/services/sourceContent'
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
