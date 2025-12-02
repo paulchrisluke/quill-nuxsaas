@@ -114,7 +114,10 @@ pnpm build
 npx wrangler pages deploy dist/public --project-name=your-project-name
 ```
 
-**Note:** Replace `your-project-name` with your Cloudflare Pages project name. You can also set up automatic deployments by connecting your Git repository to Cloudflare Pages in the dashboard.
+**Note:** 
+- Pages project name: Replace `your-project-name` with your own Cloudflare Pages project name
+- Worker name: Replace with your own worker name (configured in `wrangler.toml`)
+- You can also set up automatic deployments by connecting your Git repository to Cloudflare Pages in the dashboard
 
 ### Environment Variables
 
@@ -154,21 +157,36 @@ Your `NUXT_APP_URL` is automatically added to `trustedOrigins` via `runtimeConfi
 
 1. **Create a Cloudflare Pages Project:**
    - Go to [Cloudflare Dashboard](https://dash.cloudflare.com) → Workers & Pages
-   - Create a new Pages project (or use existing)
+   - Create a new Pages project with your own project name (example: `<YOUR_PROJECT_NAME>`)
    - Note your project name for deployment
 
-2. **Configure Bindings in Pages Dashboard:**
-   - **KV Namespace:** Create a KV namespace and bind it as `KV`
-   - **R2 Bucket:** Create an R2 bucket and bind it as `BLOB`
-   - **Hyperdrive:** Create a Hyperdrive configuration pointing to your PostgreSQL database and bind it as `HYPERDRIVE`
+2. **Create a Cloudflare Worker:**
+   - Go to [Cloudflare Dashboard](https://dash.cloudflare.com) → Workers & Pages → Workers
+   - The Worker will be created automatically on first deploy, or create manually with your own name (e.g., `<YOUR_PROJECT_NAME>-api`)
+   - Configure routes: Route `<YOUR_DOMAIN>/api/*` to the Worker (or use subdomain `api.<YOUR_DOMAIN>/*`)
 
-3. **Set Environment Variables:**
-   - Add all required environment variables in the Pages project settings
-   - Key variables: `NUXT_APP_URL`, `NUXT_DATABASE_URL`, `NUXT_BETTER_AUTH_SECRET`, `NUXT_STRIPE_SECRET_KEY`, etc.
+3. **Configure Bindings (both Pages and Worker):**
+   - **KV Namespace:** Create a new KV namespace in Cloudflare Dashboard → Workers & Pages → KV
+     - Note the namespace ID (example: `478cd88118ad4446934dfad3181f0e8b` — **replace with your own**)
+     - Bind as `KV` in both Pages and Worker
+   - **R2 Bucket (optional):** Create an R2 bucket and bind it as `BLOB` (if using R2 storage)
+   - **Hyperdrive:** Create a new Hyperdrive configuration in Cloudflare Dashboard → Workers & Pages → Hyperdrive
+     - Note the Hyperdrive ID (example: `90c21a37166347518f70398ad1b827b9` — **replace with your own**)
+     - Bind as `HYPERDRIVE` in both Pages and Worker
+     - Points to your PostgreSQL database for connection pooling
+   
+   **Important:** The IDs shown above (`478cd88118ad4446934dfad3181f0e8b` and `90c21a37166347518f70398ad1b827b9`) are **examples only**. You must create your own KV namespace and Hyperdrive configuration and use your own resource IDs.
 
-4. **Runtime Configuration:**
-   - Set Compatibility date: `2025-07-22` (or later)
-   - Enable Compatibility flag: `nodejs_compat`
+4. **Set Environment Variables:**
+   - **Pages:** Add all required environment variables in Pages project settings
+   - **Worker:** Set same variables via:
+     - `wrangler secret put <VAR_NAME>` (for secrets like API keys)
+     - Cloudflare Dashboard → Workers → `<YOUR_WORKER_NAME>` → Settings → Variables (for plaintext)
+   - Key variables: `NUXT_APP_URL`, `NUXT_DATABASE_URL`, `NUXT_BETTER_AUTH_SECRET`, `NUXT_STRIPE_SECRET_KEY`, `NUXT_CF_*`, etc.
+
+5. **Runtime Configuration:**
+   - **Pages:** Set Compatibility date: `2025-07-22` (or later), Enable Compatibility flag: `nodejs_compat`
+   - **Worker:** Configured in `wrangler.toml` (compatibility_date: `2025-07-22`, flags: `nodejs_compat`)
 
 **Recommended Stack:**
 - **Cloudflare Pages** — serverless hosting with Functions support
