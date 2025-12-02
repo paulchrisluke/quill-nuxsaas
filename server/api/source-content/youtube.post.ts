@@ -71,6 +71,15 @@ export default defineEventHandler(async (event) => {
   return {
     sourceContentId: ingested.id,
     ingestStatus: ingested.ingestStatus,
-    sourceContent: ingested
+    sourceContent: {
+      id: ingested.id,
+      organizationId: ingested.organizationId,
+      sourceType: ingested.sourceType,
+      externalId: ingested.externalId,
+      title: ingested.title,
+      ingestStatus: ingested.ingestStatus,
+      createdAt: ingested.createdAt.toISOString(),
+      updatedAt: ingested.updatedAt.toISOString()
+    }
   }
 })

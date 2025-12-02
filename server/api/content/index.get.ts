@@ -5,9 +5,9 @@ import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 
 /**
- * Lists all content for the organization
+ * Lists content for the organization (up to 100 most recent records)
  *
- * @description Returns a list of all content records with their source content and current version
+ * @description Returns up to 100 most recent content records with their source content and current version
  *
  * @returns Array of content records with joined source content and current version
  */

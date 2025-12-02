@@ -5,7 +5,7 @@ import { requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 import { createNotFoundError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
-import { validateRequiredString } from '~~/server/utils/validation'
+import { validateUUID } from '~~/server/utils/validation'
 
 /**
  * Gets source content by ID
@@ -21,19 +21,19 @@ export default defineEventHandler(async (event) => {
   const db = await useDB(event)
 
   const { id } = getRouterParams(event)
-  const trimmedId = validateRequiredString(id, 'id')
+  const validatedId = validateUUID(id, 'id')
 
   const [record] = await db
     .select()
     .from(schema.sourceContent)
     .where(and(
-      eq(schema.sourceContent.id, trimmedId),
+      eq(schema.sourceContent.id, validatedId),
       eq(schema.sourceContent.organizationId, organizationId)
     ))
     .limit(1)
 
   if (!record) {
-    throw createNotFoundError('Source content', trimmedId)
+    throw createNotFoundError('Source content', validatedId)
   }
 
   return record

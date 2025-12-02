@@ -102,6 +102,13 @@ export function validateNumber(
   min?: number,
   max?: number
 ): number {
+  if (typeof value === 'string' && !value.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `${fieldName} must be a valid number`
+    })
+  }
+
   const num = typeof value === 'number' ? value : Number(value)
 
   if (!Number.isFinite(num)) {
@@ -144,6 +151,40 @@ export function validateUUID(
     throw createError({
       statusCode: 400,
       statusMessage: `${fieldName} is required and must be a valid UUID string`
+    })
+  }
+
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!uuidRegex.test(value.trim())) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `${fieldName} must be a valid UUID format`
+    })
+  }
+
+  return value.trim()
+}
+
+/**
+ * Validates that a value is a valid UUID string or null/undefined.
+ *
+ * @param value - The value to validate
+ * @param fieldName - The name of the field being validated
+ * @returns The validated UUID string or null
+ * @throws {H3Error} If value is not a valid UUID, null, or undefined
+ */
+export function validateOptionalUUID(
+  value: unknown,
+  fieldName: string
+): string | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (typeof value !== 'string' || !value.trim()) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `${fieldName} must be a valid UUID string or null`
     })
   }
 

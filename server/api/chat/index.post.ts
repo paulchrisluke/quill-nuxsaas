@@ -19,7 +19,7 @@ import { useDB } from '~~/server/utils/db'
 import { createServiceUnavailableError, createValidationError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
-import { validateEnum, validateNumber, validateRequestBody, validateRequiredString } from '~~/server/utils/validation'
+import { validateEnum, validateNumber, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
@@ -93,10 +93,12 @@ export default defineEventHandler(async (event) => {
     label: `Start a draft from this ${item.sourceType.replace('_', ' ')}`
   }))
 
-  let resolvedSourceContentId = body.action?.sourceContentId ?? processedSources[0]?.source.id ?? null
+  let resolvedSourceContentId = body.action?.sourceContentId
+    ? validateOptionalUUID(body.action.sourceContentId, 'action.sourceContentId')
+    : processedSources[0]?.source.id ?? null
 
-  const initialSessionContentId = typeof body.action?.contentId === 'string'
-    ? body.action.contentId
+  const initialSessionContentId = body.action?.contentId
+    ? validateOptionalUUID(body.action.contentId, 'action.contentId')
     : null
 
   const sessionSourceId = resolvedSourceContentId ?? null
@@ -212,7 +214,7 @@ export default defineEventHandler(async (event) => {
     const instructionsInput = body.action.instructions || message
     const instructions = validateRequiredString(instructionsInput, 'instructions')
 
-    const contentIdToPatch = validateRequiredString(body.action.contentId, 'contentId')
+    const contentIdToPatch = validateUUID(body.action.contentId, 'action.contentId')
     const sectionIdToPatch = validateRequiredString(body.action.sectionId, 'sectionId')
 
     const temperature = body.action.temperature !== undefined

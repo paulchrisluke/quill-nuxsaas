@@ -10,7 +10,7 @@ import { CONTENT_TYPES } from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
 import { createInternalError, createNotFoundError, createValidationError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
-import { validateEnum, validateRequestBody, validateRequiredString } from '~~/server/utils/validation'
+import { validateEnum, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 
 const MAX_MESSAGE_COUNT = 200
 // Removed MAX_TRANSCRIPT_LENGTH - transcripts are chunked and vectorized, so length limits are unnecessary
@@ -20,13 +20,7 @@ export default defineEventHandler(async (event) => {
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = await useDB(event)
   const { sessionId } = getRouterParams(event)
-
-  if (!sessionId || typeof sessionId !== 'string') {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'A valid sessionId is required'
-    })
-  }
+  const validatedSessionId = validateUUID(sessionId, 'sessionId')
 
   const body = await readBody<CreateContentFromChatRequestBody>(event)
 
@@ -52,13 +46,13 @@ export default defineEventHandler(async (event) => {
     .select()
     .from(schema.contentChatSession)
     .where(and(
-      eq(schema.contentChatSession.id, sessionId),
+      eq(schema.contentChatSession.id, validatedSessionId),
       eq(schema.contentChatSession.organizationId, organizationId)
     ))
     .limit(1)
 
   if (!session) {
-    throw createNotFoundError('Chat session', sessionId)
+    throw createNotFoundError('Chat session', validatedSessionId)
   }
 
   if (session.contentId) {

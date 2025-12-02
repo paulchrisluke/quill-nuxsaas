@@ -3,7 +3,7 @@ import { getContentWorkspacePayload } from '~~/server/services/content/workspace
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
-import { validateRequiredString } from '~~/server/utils/validation'
+import { validateUUID } from '~~/server/utils/validation'
 
 /**
  * Gets content workspace payload by ID
@@ -19,8 +19,7 @@ export default defineEventHandler(async (event) => {
   const db = getDB()
 
   const { id } = getRouterParams(event)
+  const validatedId = validateUUID(id, 'id')
 
-  validateRequiredString(id, 'id')
-
-  return await getContentWorkspacePayload(db, organizationId, id)
+  return await getContentWorkspacePayload(db, organizationId, validatedId)
 })

@@ -33,14 +33,14 @@ function hasOnlyGoogleIntegrationScopes(scope: string | null | undefined, provid
   const parsedScopes = parseScopes(scope)
   if (parsedScopes.length === 0)
     return false
-  const requiredScopes = new Set(GOOGLE_INTEGRATION_MATCH_SCOPES[provider])
+  const requiredScopes = new Set<string>(GOOGLE_INTEGRATION_MATCH_SCOPES[provider])
   const integrationScopes = parsedScopes.filter(scopeEntry => requiredScopes.has(scopeEntry))
   const nonIntegrationScopes = parsedScopes.filter(scopeEntry => !requiredScopes.has(scopeEntry))
   return integrationScopes.length > 0 && nonIntegrationScopes.length === 0
 }
 
 function removeGoogleIntegrationScopes(scope: string | null | undefined, provider: GoogleIntegrationProvider): string | null {
-  const requiredScopes = new Set(GOOGLE_INTEGRATION_MATCH_SCOPES[provider])
+  const requiredScopes = new Set<string>(GOOGLE_INTEGRATION_MATCH_SCOPES[provider])
   const parsedScopes = parseScopes(scope)
   const filteredScopes = parsedScopes.filter(scopeEntry => !requiredScopes.has(scopeEntry))
   return filteredScopes.length ? filteredScopes.join(' ') : null
@@ -56,14 +56,14 @@ function hasOnlyGithubIntegrationScopes(scope: string | null | undefined, provid
   const parsedScopes = parseScopes(scope)
   if (parsedScopes.length === 0)
     return false
-  const requiredScopes = new Set(GITHUB_INTEGRATION_MATCH_SCOPES[provider])
+  const requiredScopes = new Set<string>(GITHUB_INTEGRATION_MATCH_SCOPES[provider])
   const integrationScopes = parsedScopes.filter(scopeEntry => requiredScopes.has(scopeEntry))
   const nonIntegrationScopes = parsedScopes.filter(scopeEntry => !requiredScopes.has(scopeEntry))
   return integrationScopes.length > 0 && nonIntegrationScopes.length === 0
 }
 
 function removeGithubIntegrationScopes(scope: string | null | undefined, provider: GithubIntegrationProvider): string | null {
-  const requiredScopes = new Set(GITHUB_INTEGRATION_MATCH_SCOPES[provider])
+  const requiredScopes = new Set<string>(GITHUB_INTEGRATION_MATCH_SCOPES[provider])
   const parsedScopes = parseScopes(scope)
   const filteredScopes = parsedScopes.filter(scopeEntry => !requiredScopes.has(scopeEntry))
   return filteredScopes.length ? filteredScopes.join(' ') : null
@@ -73,8 +73,10 @@ async function revokeGithubToken(token: string) {
   const clientId = runtimeConfig.githubClientId
   const clientSecret = runtimeConfig.githubClientSecret
 
-  if (!clientId || !clientSecret)
+  if (!clientId || !clientSecret) {
+    console.warn('GitHub client credentials not configured - skipping token revocation')
     return
+  }
 
   try {
     await $fetch(`https://api.github.com/applications/${clientId}/grant`, {

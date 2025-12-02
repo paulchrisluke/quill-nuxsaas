@@ -3,9 +3,8 @@ import { getRouterParams, readBody } from 'h3'
 import { updateContentSectionWithAI } from '~~/server/services/content/generation'
 import { requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
-import { createValidationError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
-import { validateNumber, validateRequestBody, validateRequiredString } from '~~/server/utils/validation'
+import { validateNumber, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 
 /**
  * Updates a content section using AI based on user instructions
@@ -24,9 +23,8 @@ export default defineEventHandler(async (event) => {
   const db = await useDB(event)
   const { id, sectionId } = getRouterParams(event)
 
-  if (!id || typeof id !== 'string' || !sectionId || typeof sectionId !== 'string') {
-    throw createValidationError('content id and section id are required')
-  }
+  const validatedContentId = validateUUID(id, 'contentId')
+  const validatedSectionId = validateRequiredString(sectionId, 'sectionId')
 
   const body = await readBody<UpdateContentSectionWithAIRequestBody>(event)
   validateRequestBody(body)
@@ -39,8 +37,8 @@ export default defineEventHandler(async (event) => {
   const result = await updateContentSectionWithAI(db, {
     organizationId,
     userId: user.id,
-    contentId: id,
-    sectionId,
+    contentId: validatedContentId,
+    sectionId: validatedSectionId,
     instructions,
     temperature
   })

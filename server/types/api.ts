@@ -13,13 +13,25 @@ export interface ApiErrorResponse {
  * Standard pagination parameters
  */
 export interface PaginationParams {
-  /** Number of items per page */
+  /**
+   * Number of items per page.
+   * Takes precedence over `perPage` when both are provided.
+   */
   limit?: number
-  /** Offset for pagination */
+  /**
+   * Offset for pagination.
+   * Takes precedence over `page` when both are provided.
+   */
   offset?: number
-  /** Page number (alternative to offset) */
+  /**
+   * Page number (alias for offset-based pagination).
+   * Used only when `offset` is not provided.
+   */
   page?: number
-  /** Items per page (alternative to limit) */
+  /**
+   * Items per page (alias for limit-based pagination).
+   * Used only when `limit` is not provided.
+   */
   perPage?: number
 }
 
@@ -61,8 +73,8 @@ export interface ChatActionGenerateContent {
   primaryKeyword?: string | null
   targetLocale?: string | null
   contentType?: ContentType
-  systemPrompt?: string
-  temperature?: number
+  systemPrompt?: string | null
+  temperature?: number | null
 }
 
 /**
@@ -74,7 +86,7 @@ export interface ChatActionPatchSection {
   sectionId?: string | null
   sectionTitle?: string | null
   instructions?: string | null
-  temperature?: number
+  temperature?: number | null
 }
 
 /**

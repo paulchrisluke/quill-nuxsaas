@@ -28,6 +28,22 @@ export interface IngestYouTubeVideoAsSourceContentRequestBody {
 }
 
 /**
+ * Source content record for API responses
+ *
+ * @description Timestamps are strings (ISO 8601) for JSON serialization compatibility
+ */
+export interface SourceContent {
+  id: string
+  organizationId: string
+  sourceType: string
+  externalId: string | null
+  title: string | null
+  ingestStatus: IngestStatus
+  createdAt: string // ISO 8601 string for JSON serialization
+  updatedAt: string // ISO 8601 string for JSON serialization
+}
+
+/**
  * Response from ingesting YouTube video
  */
 export interface IngestYouTubeVideoAsSourceContentResponse {
@@ -36,16 +52,7 @@ export interface IngestYouTubeVideoAsSourceContentResponse {
   /** Current ingest status */
   ingestStatus: IngestStatus
   /** The source content record */
-  sourceContent: {
-    id: string
-    organizationId: string
-    sourceType: string
-    externalId: string | null
-    title: string | null
-    ingestStatus: IngestStatus
-    createdAt: Date
-    updatedAt: Date
-  }
+  sourceContent: SourceContent
 }
 
 /**

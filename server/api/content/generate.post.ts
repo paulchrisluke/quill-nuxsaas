@@ -6,7 +6,7 @@ import { CONTENT_STATUSES, CONTENT_TYPES } from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
 import { createValidationError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
-import { validateEnum, validateOptionalString, validateRequestBody } from '~~/server/utils/validation'
+import { validateEnum, validateOptionalString, validateOptionalUUID, validateRequestBody } from '~~/server/utils/validation'
 
 /**
  * Generates a content draft from a source content (transcript, YouTube video, etc.)
@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
     contentType: body.contentType ? validateEnum(body.contentType, CONTENT_TYPES, 'contentType') : undefined
   }
 
-  let resolvedSourceContentId = validateOptionalString(body.sourceContentId, 'sourceContentId')
+  let resolvedSourceContentId = validateOptionalUUID(body.sourceContentId, 'sourceContentId')
 
   if (!resolvedSourceContentId) {
     const transcript = validateOptionalString(body.transcript, 'transcript')
@@ -58,11 +58,13 @@ export default defineEventHandler(async (event) => {
     resolvedSourceContentId = manualSource.id
   }
 
+  const validatedContentId = validateOptionalUUID(body.contentId, 'contentId')
+
   const result = await generateContentDraftFromSource(db, {
     organizationId,
     userId: user.id,
     sourceContentId: resolvedSourceContentId,
-    contentId: body.contentId ?? null,
+    contentId: validatedContentId,
     overrides,
     systemPrompt: body.systemPrompt,
     temperature: body.temperature

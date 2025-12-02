@@ -7,7 +7,7 @@ import { CONTENT_STATUSES, CONTENT_TYPES, ensureUniqueContentSlug, slugifyTitle 
 import { useDB } from '~~/server/utils/db'
 import { createInternalError, createNotFoundError } from '~~/server/utils/errors'
 import { requireActiveOrganization } from '~~/server/utils/organization'
-import { validateEnum, validateOptionalString, validateRequestBody, validateRequiredString } from '~~/server/utils/validation'
+import { validateEnum, validateOptionalString, validateOptionalUUID, validateRequestBody, validateRequiredString } from '~~/server/utils/validation'
 
 /**
  * Creates a new content record
@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
 
   let sourceContentId: string | null = null
 
-  const sourceContentIdInput = validateOptionalString(body.sourceContentId, 'sourceContentId')
+  const sourceContentIdInput = validateOptionalUUID(body.sourceContentId, 'sourceContentId')
   if (sourceContentIdInput) {
     const [sourceContent] = await db
       .select()
