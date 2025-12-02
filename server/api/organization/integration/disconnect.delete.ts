@@ -20,7 +20,7 @@ const isGithubIntegrationProvider = (provider: string): provider is GithubIntegr
   GITHUB_INTEGRATION_PROVIDERS.includes(provider as GithubIntegrationProvider)
 
 function parseScopes(scope: string | null | undefined): string[] {
-  return scope?.split(' ').map(scopeEntry => scopeEntry.trim()).filter(Boolean) ?? []
+  return scope?.split(/[, ]+/).map(scopeEntry => scopeEntry.trim()).filter(Boolean) ?? []
 }
 
 function hasGoogleIntegrationScopes(scope: string | null | undefined, provider: GoogleIntegrationProvider): boolean {

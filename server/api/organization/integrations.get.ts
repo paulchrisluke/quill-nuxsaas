@@ -8,7 +8,7 @@ import { GITHUB_INTEGRATION_MATCH_SCOPES } from '~~/shared/constants/githubScope
 import { GOOGLE_INTEGRATION_MATCH_SCOPES } from '~~/shared/constants/googleScopes'
 
 function parseScopes(scope: string | null | undefined): string[] {
-  return scope?.split(' ').map(scopeEntry => scopeEntry.trim()).filter(Boolean) ?? []
+  return scope?.split(/[, ]+/).map(scopeEntry => scopeEntry.trim()).filter(Boolean) ?? []
 }
 
 function hasGoogleIntegrationScopes(scope: string | null | undefined, provider: GoogleIntegrationProvider): boolean {
