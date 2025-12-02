@@ -28,27 +28,22 @@ Create SEO-ready blogs from YouTube videos. Transform video content into well-st
 
 ### What's Included
 
+- [x] **YouTube Video Ingestion** — Automatically extract transcripts and metadata from YouTube videos
+- [x] **AI-Powered Blog Generation** — Transform video content into well-structured, SEO-optimized blog posts
+- [x] **SEO Optimization** — Automatic title, description, keywords, and schema markup generation
+- [x] **Content Chat Interface** — Interactive chat to refine and customize generated content
+- [x] **Content Management** — Draft, edit, and publish blog posts with version control
+- [x] **Section-by-Section Editing** — Edit individual sections of generated content
+- [x] **Vector Search** — Semantic search across ingested video content for better context
+- [x] **Multi-tenant Workspaces** — Organize content by organization with team collaboration
 - [x] **Authentication** — Better Auth with email/password, OAuth (Google, GitHub), email verification
-- [x] **Multi-tenant orgs** — create/switch orgs, one free trial per account
-- [x] **Roles & permissions** — Owner, Admin, Member with granular access control
-- [x] **Stripe billing** — subscriptions, seat-based pricing, legacy price support
-- [x] **Billing previews** — see prorated charges before seat/plan changes
-- [x] **Invoice history** — view and download past invoices
-- [x] **Failed payment handling** — grace periods, recovery flows, warning banners
-- [x] **Team invites** — invite by email, works for new and existing users
-- [x] **User profiles** — avatar upload, email change, password management
-- [x] **Session management** — view/revoke active sessions
-- [x] **API keys** — per-org keys with expiration options
-- [x] **Admin tools** — user impersonation, soft-ban
-- [x] **Transactional emails** — React Email + Resend for all auth/billing events
-- [x] **Timezone support** — per-org timezone settings
-- [x] **Referral tracking** — track user and org referrals for attribution
-- [x] **Connected accounts** — link/unlink multiple OAuth providers
-- [x] **Account deletion** — secure deletion with email verification
-- [ ] **More Testing** — I'm sure there are some bugs, will activtly test and make updates.
-- [ ] **NuxHub self-hosted** — self-hosted deployment guide
-- [ ] **Abandoned cart emails** — email users with incomplete subscription status
-- [ ] **Usage-based billing** — metered billing support
+- [x] **Stripe Billing** — Subscriptions with seat-based pricing for team plans
+- [x] **Team Collaboration** — Invite team members, manage roles and permissions
+- [x] **API Access** — RESTful API for programmatic content generation
+- [x] **Content Export** — Export generated content in markdown format
+- [ ] **More Video Sources** — Support for additional video platforms
+- [ ] **Bulk Processing** — Process multiple videos in batch
+- [ ] **Custom Templates** — Customizable blog post templates
 
 <p align="center">
   <img src="/public/screenshots/home.png" alt="Homepage" width="80%" />
