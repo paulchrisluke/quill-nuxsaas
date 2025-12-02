@@ -16,7 +16,7 @@ const emit = defineEmits<{
   refresh: []
 }>()
 
-const { organization, useActiveOrganization, fetchSession, refreshActiveOrg, activeStripeSubscription, user } = useAuth()
+const { organization, useActiveOrganization, fetchSession, refreshActiveOrg, activeStripeSubscription, user, client } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { hasUsedTrial } = usePaymentStatus()
@@ -274,9 +274,6 @@ async function handleUpgrade() {
     const pendingInvites = activeOrg.value.data.invitations.filter((i: any) => i.status === 'pending').length
     const inviteCount = inviteEmail.value ? 1 : 0
     const quantity = currentMembers + pendingInvites + inviteCount
-
-    const { useAuth: getAuth } = await import('~/composables/useAuth')
-    const { client } = getAuth()
 
     // Use no-trial plan if user owns multiple orgs
     let planId = seatInterval.value === 'month' ? PLANS.PRO_MONTHLY.id : PLANS.PRO_YEARLY.id

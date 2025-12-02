@@ -134,7 +134,11 @@ export default defineEventHandler(async (event) => {
     }
 
     // Send resumed email
-    await sendSubscriptionResumedEmail(referenceId, subscription)
+    try {
+      await sendSubscriptionResumedEmail(referenceId, subscription)
+    } catch (emailError) {
+      console.warn('Failed to send subscription resumed email', emailError)
+    }
 
     return {
       success: true,

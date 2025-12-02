@@ -9,6 +9,7 @@ const { useActiveOrganization, subscription: stripeSubscription, client, refresh
 const activeOrg = useActiveOrganization()
 const router = useRouter()
 const toast = useToast()
+const runtimeConfig = useRuntimeConfig()
 const loading = ref(false)
 const billingInterval = ref<'month' | 'year'>('month')
 const route = useRoute()
@@ -762,7 +763,10 @@ async function confirmPlanChange() {
           </div>
 
           <!-- Payment Failed - Show focused fix payment UI -->
-          <BillingPaymentFailedCard support-email="support@example.com" />
+          <BillingPaymentFailedCard
+            v-if="isPaymentFailed"
+            :support-email="runtimeConfig.public.appNotifyEmail"
+          />
 
           <!-- Normal plan management (hide when payment failed) -->
           <template v-if="!isPaymentFailed">

@@ -29,8 +29,9 @@ const props = defineProps<{
 const creditAmount = computed(() => {
   if (!props.preview?.lines)
     return 0
-  const creditLine = props.preview.lines.find(l => l.amount < 0)
-  return creditLine ? Math.abs(creditLine.amount) : 0
+  return props.preview.lines
+    .filter(l => l.amount < 0)
+    .reduce((sum, l) => sum + Math.abs(l.amount), 0)
 })
 
 // Calculate the gross yearly charge (before credit)

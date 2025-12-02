@@ -1,7 +1,13 @@
 import { and, eq } from 'drizzle-orm'
 import { apiKey, member } from '../../../database/schema'
+import { logAuditEvent } from '../../../utils/auditLogger'
 import { getAuthSession } from '../../../utils/auth'
 import { useDB } from '../../../utils/db'
+
+interface ApiKeyMetadata {
+  organizationId?: string
+  [key: string]: unknown
+}
 
 export default defineEventHandler(async (event) => {
   const session = await getAuthSession(event)
@@ -38,7 +44,7 @@ export default defineEventHandler(async (event) => {
   let orgId: string | undefined
   try {
     if (key.metadata) {
-      let meta: any = key.metadata
+      let meta: ApiKeyMetadata | string = key.metadata
       // Handle potentially double-encoded JSON string
       if (typeof meta === 'string') {
         try {
@@ -83,6 +89,17 @@ export default defineEventHandler(async (event) => {
       message: 'You do not have permission to delete API keys for this organization'
     })
   }
+
+  // Audit log the deletion
+  await logAuditEvent({
+    userId: session.user.id,
+    category: 'api_key',
+    action: 'api_key_deleted',
+    targetType: 'api_key',
+    targetId: keyId,
+    organizationId: orgId,
+    details: JSON.stringify({ keyName: key.name })
+  })
 
   // Delete the key
   await db.delete(apiKey).where(eq(apiKey.id, keyId))

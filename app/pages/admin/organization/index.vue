@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AdminTableColumn, AdminTableFilter, FetchDataFn, PageData } from '~~/app/utils/types'
 import type { Organization } from '~~/shared/utils/types'
 import { h, resolveComponent } from 'vue'
 

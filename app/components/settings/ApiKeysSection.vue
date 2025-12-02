@@ -7,6 +7,16 @@
  */
 import { useClipboard } from '@vueuse/core'
 
+interface ApiKey {
+  id: string
+  name: string
+  start: string
+  prefix?: string
+  createdAt: string
+  lastRequest?: string
+  expiresAt?: string
+}
+
 const { canManage } = defineProps<{
   canManage?: boolean
 }>()
@@ -16,7 +26,7 @@ const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
 
-const apiKeys = ref<any[]>([])
+const apiKeys = ref<ApiKey[]>([])
 const loading = ref(false)
 const isCreateModalOpen = ref(false)
 const newKeyName = ref('')
@@ -34,6 +44,14 @@ const expirationOptions = [
 ]
 const createdKey = ref<string | null>(null)
 const createLoading = ref(false)
+const deleteConfirmId = ref<string | null>(null)
+const isDeleteModalOpen = computed({
+  get: () => deleteConfirmId.value !== null,
+  set: (value) => {
+    if (!value)
+      deleteConfirmId.value = null
+  }
+})
 
 const { formatDate } = useDate()
 
@@ -42,7 +60,7 @@ async function fetchApiKeys() {
     return
   loading.value = true
   try {
-    const data = await $fetch<any[]>('/api/organization/api-keys', {
+    const data = await $fetch<ApiKey[]>('/api/organization/api-keys', {
       query: { organizationId: activeOrg.value.data.id }
     })
     apiKeys.value = data || []
@@ -81,11 +99,16 @@ async function createApiKey() {
   }
 }
 
-async function deleteApiKey(id: string) {
-  // eslint-disable-next-line no-alert
-  const confirmed = window.confirm('Are you sure you want to delete this API Key?')
-  if (!confirmed)
+function deleteApiKey(id: string) {
+  deleteConfirmId.value = id
+}
+
+async function confirmDelete() {
+  const id = deleteConfirmId.value
+  if (!id)
     return
+
+  deleteConfirmId.value = null
 
   try {
     await $fetch(`/api/organization/api-keys/${id}`, { method: 'DELETE' })
@@ -270,6 +293,33 @@ onMounted(() => {
                 @click="createApiKey"
               />
             </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- Delete Confirmation Modal -->
+    <UModal
+      v-model:open="isDeleteModalOpen"
+      title="Delete API Key"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            Are you sure you want to delete this API Key? This action cannot be undone.
+          </p>
+          <div class="flex justify-end gap-2 pt-4">
+            <UButton
+              label="Cancel"
+              color="gray"
+              variant="ghost"
+              @click="deleteConfirmId = null"
+            />
+            <UButton
+              label="Delete"
+              color="red"
+              @click="confirmDelete"
+            />
           </div>
         </div>
       </template>
