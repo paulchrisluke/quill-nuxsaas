@@ -4,7 +4,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
-import { and, eq } from 'drizzle-orm'
+import { and, count, eq, sql } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import { ac, admin, member, owner } from '../../shared/utils/permissions'
 import * as schema from '../database/schema'
@@ -15,8 +15,11 @@ import { renderDeleteAccount, renderResetPassword, renderTeamInvite, renderVerif
 import { runtimeConfig } from './runtimeConfig'
 import { createStripeClient, setupStripe } from './stripe'
 
-console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
-console.log('Schema keys:', Object.keys(schema))
+// Only log in development
+if (runtimeConfig.public.appEnv === 'development') {
+  console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
+  console.log('Schema keys:', Object.keys(schema))
+}
 
 export const createBetterAuth = () => betterAuth({
   baseURL: runtimeConfig.public.baseURL,
@@ -61,14 +64,46 @@ export const createBetterAuth = () => betterAuth({
       enabled: true,
       async sendDeleteAccountVerification({ user, url }) {
         if (resendInstance) {
-          const name = user.name || user.email.split('@')[0]
-          const html = await renderDeleteAccount(name, url)
-          await resendInstance.emails.send({
-            from: runtimeConfig.emailFrom!,
-            to: user.email,
-            subject: 'Confirm account deletion',
-            html
-          })
+          try {
+            const name = user.name || user.email.split('@')[0]
+            const html = await renderDeleteAccount(name, url)
+            const response = await resendInstance.emails.send({
+              from: runtimeConfig.emailFrom!,
+              to: user.email,
+              subject: 'Confirm account deletion',
+              html
+            })
+
+            // Log success audit event
+            await logAuditEvent({
+              userId: user.id,
+              category: 'email',
+              action: 'delete_account_sent',
+              targetType: 'email',
+              targetId: user.email,
+              status: response.error ? 'failure' : 'success',
+              details: response.error?.message
+            })
+
+            if (response.error) {
+              console.error('[Auth] Failed to send delete account email:', response.error.message)
+              throw new Error(response.error.message)
+            }
+          } catch (e) {
+            console.error('[Auth] Error sending delete account verification email:', e)
+            // Log failure audit event
+            await logAuditEvent({
+              userId: user.id,
+              category: 'email',
+              action: 'delete_account_failed',
+              targetType: 'email',
+              targetId: user.email,
+              status: 'failure',
+              details: e instanceof Error ? e.message : 'Unknown error'
+            })
+            // Rethrow to prevent account deletion if email fails
+            throw e
+          }
         }
       }
     },
@@ -313,7 +348,10 @@ export const createBetterAuth = () => betterAuth({
       },
       update: {
         before: async (org: any) => {
-          console.log('[Auth Hook] Organization Update Payload:', JSON.stringify(org, null, 2))
+          // Only log in development
+          if (runtimeConfig.public.appEnv === 'development') {
+            console.log('[Auth Hook] Organization Update Payload:', JSON.stringify(org, null, 2))
+          }
         }
       }
     },
@@ -379,41 +417,29 @@ export const createBetterAuth = () => betterAuth({
             return // No organization restriction if no orgId in metadata
           }
 
-          // Count existing API keys for this organization across all users
+          // Count existing API keys for this organization using database-side query
+          // This avoids loading all keys into memory and scales better
           const db = getDB()
 
-          // Fetch all API keys (without userId filter) to count organization-wide
-          const allKeys = await db.query.apiKey.findMany()
+          // Use SQL to count keys where metadata contains the organizationId
+          // Use text pattern matching which works for both JSON string and object formats
+          // This is more reliable than JSONB casting which can fail on invalid JSON
+          const result = await db
+            .select({ count: count() })
+            .from(schema.apiKey)
+            .where(
+              sql`(
+                ${schema.apiKey.metadata} IS NOT NULL
+                AND (
+                  ${schema.apiKey.metadata}::text LIKE ${`%"organizationId":"${orgId}"%`}
+                  OR ${schema.apiKey.metadata}::text LIKE ${`%'organizationId':'${orgId}'%`}
+                )
+              )`
+            )
 
-          // Filter keys that belong to this organization (across all users)
-          const orgKeys = allKeys.filter((k: any) => {
-            if (!k.metadata)
-              return false
-            try {
-              let meta: any = k.metadata
-              // Handle potentially double-encoded JSON string
-              if (typeof meta === 'string') {
-                try {
-                  meta = JSON.parse(meta)
-                } catch {
-                  return false
-                }
-              }
-              // Try parsing again if it's still a string (double encoded)
-              if (typeof meta === 'string') {
-                try {
-                  meta = JSON.parse(meta)
-                } catch {
-                  return false
-                }
-              }
-              return meta?.organizationId === orgId
-            } catch {
-              return false
-            }
-          })
+          const keyCount = result[0]?.count || 0
 
-          if (orgKeys.length >= 4) {
+          if (keyCount >= 4) {
             throw new APIError('BAD_REQUEST', {
               message: 'Maximum of 4 API keys allowed per organization'
             })
@@ -526,6 +552,9 @@ export const createBetterAuth = () => betterAuth({
   account: {
     accountLinking: {
       enabled: true
+      // Better Auth v1.4.1+ enforces email matching between linked providers by default
+      // User notifications are handled in the frontend (see app/pages/[slug]/profile.vue)
+      // Email verification is required before account creation, which provides additional security
     }
   },
   hooks: {
@@ -616,15 +645,62 @@ export const createBetterAuth = () => betterAuth({
       enableMetadata: true,
       async sendInvitationEmail({ email, inviter, organization, invitation }) {
         if (resendInstance) {
-          const inviterName = inviter.user.name || inviter.user.email.split('@')[0]
-          const inviteUrl = `${runtimeConfig.public.baseURL}/invite/${invitation.id}`
-          const html = await renderTeamInvite(inviterName, organization.name, inviteUrl)
-          await resendInstance.emails.send({
-            from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-            to: email,
-            subject: `You're invited to join ${organization.name}`,
-            html
-          })
+          try {
+            const inviterName = inviter.user.name || inviter.user.email.split('@')[0]
+            const inviteUrl = `${runtimeConfig.public.baseURL}/invite/${invitation.id}`
+            const html = await renderTeamInvite(inviterName, organization.name, inviteUrl)
+            const response = await resendInstance.emails.send({
+              from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
+              to: email,
+              subject: `You're invited to join ${organization.name}`,
+              html
+            })
+
+            // Log success audit event
+            await logAuditEvent({
+              userId: inviter.user.id,
+              category: 'email',
+              action: 'invite_email_sent',
+              targetType: 'invitation',
+              targetId: invitation.id,
+              status: response.error ? 'failure' : 'success',
+              details: response.error
+                ? response.error.message
+                : `Invitation email sent to ${email} for organization ${organization.name} (${organization.id})`
+            })
+
+            if (response.error) {
+              console.error('[Auth] Failed to send invitation email:', {
+                inviterId: inviter.user.id,
+                orgId: organization.id,
+                invitationId: invitation.id,
+                email,
+                error: response.error.message
+              })
+              // Don't throw - allow invitation creation to continue even if email fails
+            }
+          } catch (e) {
+            console.error('[Auth] Error sending invitation email:', {
+              inviterId: inviter.user.id,
+              orgId: organization.id,
+              invitationId: invitation.id,
+              email,
+              error: e instanceof Error ? e.message : 'Unknown error'
+            })
+
+            // Log failure audit event
+            await logAuditEvent({
+              userId: inviter.user.id,
+              category: 'email',
+              action: 'invite_email_failed',
+              targetType: 'invitation',
+              targetId: invitation.id,
+              status: 'failure',
+              details: `Failed to send invitation email to ${email} for organization ${organization.name}: ${e instanceof Error ? e.message : 'Unknown error'}`
+            })
+
+            // Don't throw - allow invitation creation to continue even if email fails
+          }
         }
       }
     }),
