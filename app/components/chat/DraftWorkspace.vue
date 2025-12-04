@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
-import type { WorkspaceHeaderState } from '~/app/components/chat/workspaceHeader'
+import type { WorkspaceHeaderState } from './workspaceHeader'
 import { useClipboard } from '@vueuse/core'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -77,6 +77,7 @@ interface ContentEntity {
 interface ContentChatSession {
   id: string
   status?: string | null
+  contentId?: string | null
   sourceContentId?: string | null
   metadata?: Record<string, any> | null
 }
@@ -104,12 +105,6 @@ interface ContentResponse {
   chatSession?: ContentChatSession | null
   chatMessages?: ContentChatMessage[] | null
   chatLogs?: ContentChatLog[] | null
-}
-
-type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
-
-interface ChatSubmissionResponse {
-  assistantMessage?: string | null
 }
 
 const props = withDefaults(defineProps<{
@@ -164,13 +159,19 @@ function handleBackNavigation() {
 }
 
 const prompt = ref('')
-const loading = ref(false)
 const toast = useToast()
 const { copy } = useClipboard()
-const conversationMessages = ref<ChatMessage[]>([])
-const chatStatus = ref<ChatStatus>('ready')
+const {
+  messages,
+  status: chatStatus,
+  errorMessage: chatErrorMessage,
+  sendMessage,
+  isBusy: chatIsBusy,
+  hydrateSession,
+  sessionContentId,
+  sessionId
+} = useChatSession()
 const uiStatus = computed(() => chatStatus.value)
-const chatErrorMessage = ref<string | null>(null)
 const workspaceHeaderState = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 
 const content = ref<ContentResponse | null>(props.initialPayload ?? null)
@@ -238,13 +239,6 @@ const contentRecord = computed(() => content.value?.content ?? null)
 const currentVersion = computed(() => content.value?.currentVersion ?? null)
 const sourceDetails = computed<SourceContent | null>(() => content.value?.sourceContent ?? null)
 
-function createMessageId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return Math.random().toString(36).slice(2)
-}
-
 function toDate(value: string | Date): Date | null {
   if (value instanceof Date) {
     return value
@@ -258,22 +252,16 @@ function toDate(value: string | Date): Date | null {
 }
 
 watch(content, (value) => {
-  const chatMessages = value?.chatMessages ?? []
-  if (!Array.isArray(chatMessages)) {
-    conversationMessages.value = []
+  if (!value?.content?.id) {
     return
   }
-  conversationMessages.value = chatMessages
-    .filter((message): message is ContentChatMessage => Boolean(message))
-    .map(message => ({
-      id: message.id,
-      role: ['user', 'system', 'assistant'].includes(message.role) ? message.role : 'assistant',
-      parts: Array.isArray((message as any).parts) && (message as any).parts.length > 0
-        ? (message as any).parts
-        : [{ type: 'text', text: message.content || '' }],
-      createdAt: toDate(message.createdAt) || new Date(),
-      payload: message.payload ?? null
-    }))
+
+  hydrateSession({
+    sessionId: value.chatSession?.id ?? sessionId.value,
+    sessionContentId: value.chatSession?.contentId ?? value.content.id,
+    messages: value.chatMessages ?? undefined,
+    logs: value.chatLogs ?? undefined
+  })
 }, { immediate: true })
 
 const title = computed(() => contentRecord.value?.title || 'Untitled draft')
@@ -353,7 +341,7 @@ const sectionsMessage = computed<ChatMessage | null>(() => {
     }
   }
 })
-const displayMessages = computed(() => sectionsMessage.value ? [...conversationMessages.value, sectionsMessage.value] : conversationMessages.value)
+const displayMessages = computed(() => sectionsMessage.value ? [...messages.value, sectionsMessage.value] : messages.value)
 
 // Date formatting utilities (must be declared before computed properties)
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -598,64 +586,43 @@ function handleRegenerate(message: ChatMessage) {
   _handleSubmit()
 }
 
+function handleSendAgain(message: ChatMessage) {
+  const text = message.parts?.[0]?.text || ''
+  if (text) {
+    prompt.value = text
+    _handleSubmit()
+  }
+}
+
 async function _handleSubmit() {
   const trimmed = prompt.value.trim()
   if (!trimmed) {
     return
   }
-  if (!selectedSectionId.value) {
-    return
-  }
-  loading.value = true
-  chatStatus.value = 'submitted'
-  chatErrorMessage.value = null
 
-  const userMessage: ChatMessage = {
-    id: createMessageId(),
-    role: 'user',
-    parts: [{ type: 'text', text: trimmed }],
-    createdAt: new Date()
-  }
-  conversationMessages.value = [
-    ...conversationMessages.value,
-    userMessage
-  ]
+  const mentionedSection = sections.value.find(section => trimmed.includes(`@${section.anchor}`))
+  const targetSection = mentionedSection || selectedSection.value
+
+  const action = targetSection && contentId.value
+    ? {
+        type: 'patch_section',
+        contentId: contentId.value,
+        sectionId: targetSection.id,
+        sectionTitle: targetSection.title,
+        instructions: trimmed
+      }
+    : undefined
 
   try {
-    const response = await $fetch<ChatSubmissionResponse>('/api/chat', {
-      method: 'POST',
-      body: {
-        message: trimmed,
-        action: {
-          type: 'patch_section',
-          contentId: contentId.value,
-          sectionId: selectedSectionId.value,
-          sectionTitle: selectedSection.value?.title ?? null
-        }
-      }
+    await sendMessage(trimmed, {
+      displayContent: trimmed,
+      contentId: contentId.value || sessionContentId.value,
+      action
     })
-
     prompt.value = ''
-
-    if (response?.assistantMessage) {
-      conversationMessages.value = [
-        ...conversationMessages.value,
-        {
-          id: createMessageId(),
-          role: 'assistant',
-          parts: [{ type: 'text', text: response.assistantMessage }],
-          createdAt: new Date()
-        }
-      ]
-    }
-
-    chatStatus.value = 'ready'
     await loadWorkspacePayload()
   } catch (error: any) {
-    chatStatus.value = 'error'
     chatErrorMessage.value = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to send that message.'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -753,13 +720,7 @@ onBeforeUnmount(() => {
                 {
                   label: 'Send again',
                   icon: 'i-lucide-send',
-                  onClick: (e, message) => {
-                    const text = (message as ChatMessage).parts[0]?.text || ''
-                    if (text) {
-                      prompt.value = text
-                      _handleSubmit()
-                    }
-                  }
+                  onClick: (e, message) => handleSendAgain(message as ChatMessage)
                 }
               ]
             }"
@@ -773,7 +734,7 @@ onBeforeUnmount(() => {
                   Sections overview
                 </p>
                 <UAccordion
-                  :items="message.payload.sections.map(section => ({ value: section.id, section }))"
+                  :items="message.payload.sections.map((section: ContentVersionSection) => ({ value: section.id, section }))"
                   type="single"
                   collapsible
                   :ui="{ root: 'space-y-2' }"
@@ -849,7 +810,7 @@ onBeforeUnmount(() => {
               placeholder="Describe the change you want..."
               variant="subtle"
               :disabled="
-                loading
+                chatIsBusy
                   || chatStatus === 'submitted'
                   || chatStatus === 'streaming'
                   || !selectedSectionId
