@@ -169,7 +169,7 @@ const toast = useToast()
 const { copy } = useClipboard()
 const conversationMessages = ref<ChatMessage[]>([])
 const chatStatus = ref<ChatStatus>('ready')
-const uiStatus = computed(() => chatStatus.value === 'idle' ? 'ready' : chatStatus.value)
+const uiStatus = computed(() => chatStatus.value)
 const chatErrorMessage = ref<string | null>(null)
 const workspaceHeaderState = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 
@@ -535,20 +535,60 @@ function insertSectionReference(sectionId: string) {
 }
 
 function handleCopy(message: ChatMessage) {
-  const text = message.parts[0]?.text || ''
-  copy(text)
-  toast.add({
-    title: 'Copied to clipboard',
-    description: 'Message copied successfully.',
-    color: 'primary'
-  })
+  const rawText = message.parts[0]?.text ?? ''
+  const hasContent = rawText.trim().length > 0
+
+  if (!hasContent) {
+    toast.add({
+      title: 'Nothing to copy',
+      description: 'This message has no text content.',
+      color: 'error'
+    })
+    return
+  }
+
+  try {
+    copy(rawText)
+    toast.add({
+      title: 'Copied to clipboard',
+      description: 'Message copied successfully.',
+      color: 'primary'
+    })
+  } catch (error) {
+    console.error('Failed to copy message', error)
+    toast.add({
+      title: 'Copy failed',
+      description: 'Could not copy message to clipboard.',
+      color: 'error'
+    })
+  }
 }
 
 function handleRegenerate(message: ChatMessage) {
-  const text = message.parts[0]?.text || ''
+  const text = message.parts[0]?.text?.trim()
   if (!text) {
+    toast.add({
+      title: 'Cannot regenerate',
+      description: 'This message has no text to resend.',
+      color: 'error'
+    })
     return
   }
+
+  if (!selectedSectionId.value) {
+    const fallbackSectionId = sections.value[0]?.id
+    if (fallbackSectionId) {
+      setActiveSection(fallbackSectionId)
+    } else {
+      toast.add({
+        title: 'Select a section',
+        description: 'Pick a section before regenerating content.',
+        color: 'error'
+      })
+      return
+    }
+  }
+
   prompt.value = text
   _handleSubmit()
 }

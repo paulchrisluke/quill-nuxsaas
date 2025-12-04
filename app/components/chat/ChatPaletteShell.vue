@@ -3,7 +3,7 @@ import type { ChatActionSuggestion, ChatMessage } from '#shared/utils/types'
 import { useClipboard } from '@vueuse/core'
 import { computed, ref } from 'vue'
 
-type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error' | 'idle'
+type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
 const props = withDefaults(defineProps<{
   messages: ChatMessage[]
@@ -32,9 +32,7 @@ const prompt = ref('')
 const { copy } = useClipboard()
 const toast = useToast()
 
-const uiStatus = computed(() => {
-  return props.status === 'idle' ? 'ready' : props.status
-})
+const uiStatus = computed(() => props.status)
 
 function handleSubmit(value: string) {
   const trimmed = value.trim()

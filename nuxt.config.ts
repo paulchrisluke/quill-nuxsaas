@@ -2,36 +2,9 @@
 import type { NuxtPage } from 'nuxt/schema'
 import { resolve } from 'node:path'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
+import { getAppUrl } from './shared/utils/app-url'
 
 console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
-
-/**
- * Determines the correct app URL based on environment
- * Same logic as runtimeConfig.ts
- */
-const getAppUrl = (): string => {
-  const nodeEnv = process.env.NODE_ENV || 'development'
-
-  // Test environment: use test URL
-  if (nodeEnv === 'test') {
-    return process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
-  }
-
-  // Production: require explicit URL and prevent localhost
-  if (nodeEnv === 'production') {
-    const url = process.env.NUXT_APP_URL
-    if (!url) {
-      throw new Error('NUXT_APP_URL must be set in production environment')
-    }
-    if (url.includes('localhost') || url.includes('127.0.0.1')) {
-      throw new Error('NUXT_APP_URL cannot be localhost in production. Set it to your production URL.')
-    }
-    return url
-  }
-
-  // Development: use NUXT_APP_URL if set, otherwise default to localhost
-  return process.env.NUXT_APP_URL || 'http://localhost:3000'
-}
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-22',

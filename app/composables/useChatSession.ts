@@ -10,7 +10,7 @@ import { useState } from '#app'
 import { DEFAULT_CONTENT_TYPE } from '#shared/constants/contentTypes'
 import { computed } from 'vue'
 
-type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error' | 'idle'
+type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
 interface ChatResponse {
   assistantMessage?: string

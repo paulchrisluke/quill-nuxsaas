@@ -106,7 +106,7 @@ const activeWorkspaceEntry = computed(() => contentEntries.value.find(entry => e
 const isWorkspaceLoading = computed(() => workspaceLoading.value && isWorkspaceActive.value && !workspaceDetail.value)
 const canStartDraft = computed(() => messages.value.length > 0 && !!sessionId.value && !isBusy.value)
 const isStreaming = computed(() => ['submitted', 'streaming'].includes(status.value))
-const uiStatus = computed(() => status.value === 'idle' ? 'ready' : status.value)
+const uiStatus = computed(() => status.value)
 
 const createDraftCta = computed(() => {
   if (!loggedIn.value && hasReachedAnonLimit.value) {
