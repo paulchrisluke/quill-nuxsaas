@@ -288,11 +288,6 @@ const handleRegenerate = async (message: ChatMessage) => {
   await handlePromptSubmit()
 }
 
-const focusChatInput = () => {
-  const input = document.querySelector('[placeholder="Describe what you need..."]') as HTMLElement
-  input?.focus()
-}
-
 if (import.meta.client) {
   watch(loggedIn, async (value) => {
     if (!value) {
@@ -329,13 +324,6 @@ if (import.meta.client) {
               @click="quickActionsState.transcript = !quickActionsState.transcript"
             >
               Paste transcript
-            </UButton>
-            <UButton
-              size="lg"
-              variant="outline"
-              @click="focusChatInput"
-            >
-              Type your request
             </UButton>
           </div>
 
