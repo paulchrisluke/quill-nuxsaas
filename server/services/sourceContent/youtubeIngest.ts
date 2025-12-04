@@ -84,7 +84,16 @@ function parseJson3Transcript(json: any) {
 }
 
 async function downloadInnertubeTranscript(track: any) {
-  const trackUrl = new URL(track.baseUrl)
+  if (!track || typeof track.baseUrl !== 'string' || !track.baseUrl.trim()) {
+    throw new Error('Invalid Innertube caption track: baseUrl is missing or empty.')
+  }
+
+  let trackUrl: URL
+  try {
+    trackUrl = new URL(track.baseUrl)
+  } catch (error) {
+    throw new Error(`Invalid Innertube caption track baseUrl: ${(error as Error).message}`)
+  }
   trackUrl.searchParams.set('fmt', 'json3')
 
   try {
@@ -470,19 +479,40 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
     .where(eq(schema.sourceContent.id, sourceContentId))
     .returning()
 
-  await createChunksFromSourceContentText({
-    db,
-    sourceContent: processing
-  })
-
-  const [updated] = await db
-    .update(schema.sourceContent)
-    .set({
-      ingestStatus: 'ingested',
-      updatedAt: new Date()
+  try {
+    await createChunksFromSourceContentText({
+      db,
+      sourceContent: processing
     })
-    .where(eq(schema.sourceContent.id, sourceContentId))
-    .returning()
 
-  return updated
+    const [updated] = await db
+      .update(schema.sourceContent)
+      .set({
+        ingestStatus: 'ingested',
+        updatedAt: new Date()
+      })
+      .where(eq(schema.sourceContent.id, sourceContentId))
+      .returning()
+
+    return updated
+  } catch (error) {
+    const errorMessage = (error as Error).message || 'Failed to chunk source content.'
+    await db
+      .update(schema.sourceContent)
+      .set({
+        ingestStatus: 'failed',
+        metadata: {
+          ...metadata,
+          youtube: {
+            ...metadata.youtube,
+            lastError: errorMessage
+          }
+        },
+        updatedAt: new Date()
+      })
+      .where(eq(schema.sourceContent.id, sourceContentId))
+      .returning()
+
+    throw error
+  }
 }
