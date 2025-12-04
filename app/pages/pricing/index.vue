@@ -77,13 +77,7 @@ const plans = [
       <!-- Empty slot - portrait-only uses mobile navigation only -->
     </template>
     <template #nav-right>
-      <div class="flex items-center gap-2">
-        <UserNavigation />
-        <SiteNavigation
-          mode="mobile"
-          class="flex"
-        />
-      </div>
+      <UserNavigation />
     </template>
     <UContainer class="space-y-6 pt-8 pb-6">
       <!-- Header -->

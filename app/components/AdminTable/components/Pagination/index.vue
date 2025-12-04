@@ -32,7 +32,7 @@ const sizes = [5, 20, 50, 100]
       v-if="!hidePagination"
       class="flex items-center"
     >
-      <span class="ml-4 mr-1 text-sm hidden">{{ t('pagination.rowsPerPage') }}</span>
+      <span class="ml-4 mr-1 text-sm">{{ t('pagination.rowsPerPage') }}</span>
       <USelect
         v-model="limit"
         :items="sizes"
