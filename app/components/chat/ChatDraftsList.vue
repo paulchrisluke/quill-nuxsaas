@@ -6,16 +6,12 @@ interface DraftEntry {
   status: string
   updatedAt: Date | null
   contentType: string
-  sectionsCount: number
-  wordCount: number
-  sourceType: string | null
   additions?: number
   deletions?: number
 }
 
 interface Props {
   draftsPending: boolean
-  hasContent: boolean
   contentEntries: DraftEntry[]
 }
 
@@ -45,15 +41,15 @@ const handleOpenWorkspace = (entry: DraftEntry) => {
   emit('openWorkspace', entry)
 }
 
-const getStatusColor = (status: string): 'success' | 'primary' | 'warning' | 'error' | 'neutral' => {
-  const statusColors: Record<string, 'success' | 'primary' | 'warning' | 'error' | 'neutral'> = {
-    draft: 'neutral',
-    published: 'success',
-    archived: 'neutral',
-    in_review: 'warning',
-    ready_for_publish: 'primary'
+const formatUpdatedAt = (date: Date | null) => {
+  if (!date) {
+    return '—'
   }
-  return statusColors[status] || 'neutral'
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
 }
 </script>
 
@@ -77,58 +73,45 @@ const getStatusColor = (status: string): 'success' | 'primary' | 'warning' | 'er
       v-else-if="hasFilteredContent"
       class="divide-y divide-muted-200/60"
     >
-      <NuxtLink
+      <button
         v-for="entry in filteredEntries"
         :key="entry.id"
-        class="block py-4 space-y-3 hover:bg-muted/30 transition-colors"
-        @click.prevent="handleOpenWorkspace(entry)"
+        type="button"
+        class="w-full text-left py-4 px-1 space-y-2 hover:bg-muted/30 transition-colors"
+        @click="handleOpenWorkspace(entry)"
       >
-        <div class="flex flex-wrap justify-between gap-4 items-start">
-          <div class="flex-1 min-w-0">
-            <p class="font-medium leading-tight">
-              {{ entry.title }}
-            </p>
-            <p class="text-xs text-muted-500">
-              Updated {{ entry.updatedAt ? entry.updatedAt.toLocaleDateString() : '—' }}
-            </p>
-          </div>
-          <div class="flex items-center gap-3">
-            <UBadge
-              :color="getStatusColor(entry.status)"
-              size="sm"
-              variant="subtle"
-            >
-              {{ entry.status }}
-            </UBadge>
-            <div class="flex items-center gap-2 text-xs">
-              <span
-                v-if="entry.additions"
-                class="text-emerald-500 dark:text-emerald-400 font-semibold"
-              >
-                +{{ entry.additions }}
-              </span>
-              <span
-                v-if="entry.deletions"
-                class="text-rose-500 dark:text-rose-400 font-semibold"
-              >
-                -{{ entry.deletions }}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-4 text-xs text-muted-500">
-          <span>{{ entry.sectionsCount }} sections</span>
-          <span v-if="entry.wordCount">
-            {{ entry.wordCount }} words
-          </span>
-          <span
-            v-if="entry.sourceType"
+        <div class="flex items-center justify-between gap-3">
+          <p class="font-medium leading-tight truncate">
+            {{ entry.title }}
+          </p>
+          <UBadge
+            size="xs"
+            color="neutral"
+            variant="soft"
             class="capitalize"
           >
-            From: {{ entry.sourceType.replace('_', ' ') }}
+            {{ entry.status || 'draft' }}
+          </UBadge>
+        </div>
+        <div class="text-xs text-muted-500 flex flex-wrap items-center gap-1">
+          <span>{{ formatUpdatedAt(entry.updatedAt) }}</span>
+          <span>·</span>
+          <span class="capitalize">
+            {{ entry.contentType || 'content' }}
+          </span>
+          <span>·</span>
+          <span class="font-mono text-[11px] text-muted-600 truncate">
+            {{ entry.id }}
+          </span>
+          <span>·</span>
+          <span class="text-emerald-500 dark:text-emerald-400">
+            +{{ entry.additions ?? 0 }}
+          </span>
+          <span class="text-rose-500 dark:text-rose-400">
+            -{{ entry.deletions ?? 0 }}
           </span>
         </div>
-      </NuxtLink>
+      </button>
     </div>
     <div
       v-else

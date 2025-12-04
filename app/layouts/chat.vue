@@ -36,8 +36,8 @@ useHead(() => ({
             </p>
             <div class="flex items-center gap-2 text-xs text-muted-500">
               <span>{{ chatHero.updatedAtLabel }}</span>
-              <span class="text-success-500 font-semibold">+{{ chatHero.additions }}</span>
-              <span class="text-error-500 font-semibold">-{{ chatHero.deletions }}</span>
+              <span class="text-success-500 font-semibold">+{{ chatHero.additions ?? 0 }}</span>
+              <span class="text-error-500 font-semibold">-{{ chatHero.deletions ?? 0 }}</span>
             </div>
           </div>
         </div>
@@ -48,7 +48,7 @@ useHead(() => ({
       </template>
     </AppNavbar>
 
-    <main class="flex-1 w-full pt-16">
+    <main class="flex-1 w-full pt-14">
       <slot />
     </main>
   </div>

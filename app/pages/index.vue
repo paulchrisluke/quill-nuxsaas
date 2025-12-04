@@ -51,7 +51,7 @@ useSeoMeta({
         />
       </div>
     </template>
-    <div :class="isWorkspaceLayout ? '' : 'pt-16'">
+    <div :class="isWorkspaceLayout ? '' : 'pt-14'">
       <!-- Chat Section -->
       <ChatQuillioWidget />
     </div>

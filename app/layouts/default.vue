@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import AppFooter from './components/AppFooter.vue'
 import AppNavbar from './components/AppNavbar.vue'
 
 const i18nHead = useLocaleHead()
@@ -18,9 +17,8 @@ useHead(() => ({
         <slot name="nav-right" />
       </template>
     </AppNavbar>
-    <div class="flex-1 pt-16 w-full">
+    <div class="flex-1 pt-14 w-full">
       <slot />
     </div>
-    <AppFooter />
   </div>
 </template>

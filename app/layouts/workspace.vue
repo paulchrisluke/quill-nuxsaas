@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { WorkspaceHeaderState } from '~/app/components/chat/workspaceHeader'
+import type { WorkspaceHeaderState } from '../components/chat/workspaceHeader'
 
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 const i18nHead = useLocaleHead()
@@ -41,8 +41,8 @@ useHead(() => ({
                   {{ workspaceHeader.versionId || '—' }}
                 </span>
                 <span>·</span>
-                <span class="text-emerald-500 dark:text-emerald-400 font-semibold">+{{ workspaceHeader.additions }}</span>
-                <span class="text-rose-500 dark:text-rose-400 font-semibold">-{{ workspaceHeader.deletions }}</span>
+                <span class="text-emerald-500 dark:text-emerald-400 font-semibold">+{{ workspaceHeader.additions ?? 0 }}</span>
+                <span class="text-rose-500 dark:text-rose-400 font-semibold">-{{ workspaceHeader.deletions ?? 0 }}</span>
               </div>
             </div>
           </div>
@@ -76,24 +76,8 @@ useHead(() => ({
       </UContainer>
     </header>
 
-    <main class="flex-1 w-full pt-4 pb-20 sm:pb-4">
+    <main class="flex-1 w-full pt-4 pb-4">
       <slot />
     </main>
-
-    <footer
-      v-if="workspaceHeader"
-      class="sm:hidden fixed inset-x-0 bottom-0 border-t border-muted-200/70 bg-background/90 backdrop-blur px-4 py-3 z-40"
-    >
-      <div class="flex items-center justify-between gap-3">
-        <UButton
-          :color="workspaceHeader.primaryActionColor"
-          block
-          :disabled="workspaceHeader.primaryActionDisabled"
-          @click="workspaceHeader.onPrimaryAction?.()"
-        >
-          {{ workspaceHeader.primaryActionLabel }}
-        </UButton>
-      </div>
-    </footer>
   </div>
 </template>
