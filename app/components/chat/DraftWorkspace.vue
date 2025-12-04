@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
-import type { WorkspaceHeaderState } from '~/app/components/chat/workspaceHeader'
+import type { WorkspaceHeaderState } from './workspaceHeader'
 import { useClipboard } from '@vueuse/core'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
@@ -77,6 +77,7 @@ interface ContentEntity {
 interface ContentChatSession {
   id: string
   status?: string | null
+  contentId?: string | null
   sourceContentId?: string | null
   metadata?: Record<string, any> | null
 }
@@ -585,6 +586,14 @@ function handleRegenerate(message: ChatMessage) {
   _handleSubmit()
 }
 
+function handleSendAgain(message: ChatMessage) {
+  const text = message.parts?.[0]?.text || ''
+  if (text) {
+    prompt.value = text
+    _handleSubmit()
+  }
+}
+
 async function _handleSubmit() {
   const trimmed = prompt.value.trim()
   if (!trimmed) {
@@ -711,13 +720,7 @@ onBeforeUnmount(() => {
                 {
                   label: 'Send again',
                   icon: 'i-lucide-send',
-                  onClick: (e, message) => {
-                    const text = (message as ChatMessage).parts[0]?.text || ''
-                    if (text) {
-                      prompt.value = text
-                      _handleSubmit()
-                    }
-                  }
+                  onClick: (e, message) => handleSendAgain(message as ChatMessage)
                 }
               ]
             }"
@@ -731,7 +734,7 @@ onBeforeUnmount(() => {
                   Sections overview
                 </p>
                 <UAccordion
-                  :items="message.payload.sections.map(section => ({ value: section.id, section }))"
+                  :items="message.payload.sections.map((section: ContentVersionSection) => ({ value: section.id, section }))"
                   type="single"
                   collapsible
                   :ui="{ root: 'space-y-2' }"
