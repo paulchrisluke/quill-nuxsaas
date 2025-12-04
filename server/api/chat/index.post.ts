@@ -137,9 +137,13 @@ export default defineEventHandler(async (event) => {
     ? validateOptionalUUID(body.action.sourceContentId, 'action.sourceContentId')
     : processedSources[0]?.source.id ?? null
 
+  const requestContentId = body.contentId
+    ? validateOptionalUUID(body.contentId, 'contentId')
+    : null
+
   const initialSessionContentId = body.action?.contentId
     ? validateOptionalUUID(body.action.contentId, 'action.contentId')
-    : null
+    : requestContentId
 
   const sessionSourceId = resolvedSourceContentId ?? null
 

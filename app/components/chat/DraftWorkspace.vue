@@ -2,6 +2,7 @@
 import type { ChatMessage } from '#shared/utils/types'
 import type { WorkspaceHeaderState } from '~/app/components/chat/workspaceHeader'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useChatSession } from '~/app/composables/useChatSession'
 
 type ContentStatus = 'draft' | 'published' | 'archived' | 'generating' | 'error' | 'loading'
 
@@ -105,12 +106,6 @@ interface ContentResponse {
   chatLogs?: ContentChatLog[] | null
 }
 
-type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
-
-interface ChatSubmissionResponse {
-  assistantMessage?: string | null
-}
-
 const props = withDefaults(defineProps<{
   contentId: string
   organizationSlug?: string | null
@@ -163,11 +158,17 @@ function handleBackNavigation() {
 }
 
 const prompt = ref('')
-const loading = ref(false)
 const toast = useToast()
-const conversationMessages = ref<ChatMessage[]>([])
-const chatStatus = ref<ChatStatus>('ready')
-const chatErrorMessage = ref<string | null>(null)
+const {
+  messages,
+  status: chatStatus,
+  errorMessage: chatErrorMessage,
+  sendMessage,
+  isBusy: chatIsBusy,
+  hydrateSession,
+  sessionContentId,
+  sessionId
+} = useChatSession()
 const workspaceHeaderState = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 
 const content = ref<ContentResponse | null>(props.initialPayload ?? null)
@@ -235,13 +236,6 @@ const contentRecord = computed(() => content.value?.content ?? null)
 const currentVersion = computed(() => content.value?.currentVersion ?? null)
 const sourceDetails = computed<SourceContent | null>(() => content.value?.sourceContent ?? null)
 
-function createMessageId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return Math.random().toString(36).slice(2)
-}
-
 function toDate(value: string | Date): Date | null {
   if (value instanceof Date) {
     return value
@@ -255,20 +249,16 @@ function toDate(value: string | Date): Date | null {
 }
 
 watch(content, (value) => {
-  const chatMessages = value?.chatMessages ?? []
-  if (!Array.isArray(chatMessages)) {
-    conversationMessages.value = []
+  if (!value?.content?.id) {
     return
   }
-  conversationMessages.value = chatMessages
-    .filter((message): message is ContentChatMessage => Boolean(message))
-    .map(message => ({
-      id: message.id,
-      role: ['user', 'system', 'assistant'].includes(message.role) ? message.role : 'assistant',
-      content: message.content,
-      createdAt: toDate(message.createdAt) || new Date(),
-      payload: message.payload ?? null
-    }))
+
+  hydrateSession({
+    sessionId: value.chatSession?.id ?? sessionId.value,
+    sessionContentId: value.chatSession?.contentId ?? value.content.id,
+    messages: value.chatMessages ?? undefined,
+    logs: value.chatLogs ?? undefined
+  })
 }, { immediate: true })
 
 const title = computed(() => contentRecord.value?.title || 'Untitled draft')
@@ -348,7 +338,7 @@ const sectionsMessage = computed<ChatMessage | null>(() => {
     }
   }
 })
-const displayMessages = computed(() => sectionsMessage.value ? [...conversationMessages.value, sectionsMessage.value] : conversationMessages.value)
+const displayMessages = computed(() => sectionsMessage.value ? [...messages.value, sectionsMessage.value] : messages.value)
 
 // Date formatting utilities (must be declared before computed properties)
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -533,59 +523,30 @@ async function _handleSubmit() {
   if (!trimmed) {
     return
   }
-  if (!selectedSectionId.value) {
-    return
-  }
-  loading.value = true
-  chatStatus.value = 'submitted'
-  chatErrorMessage.value = null
 
-  const userMessage: ChatMessage = {
-    id: createMessageId(),
-    role: 'user',
-    content: trimmed,
-    createdAt: new Date()
-  }
-  conversationMessages.value = [
-    ...conversationMessages.value,
-    userMessage
-  ]
+  const mentionedSection = sections.value.find(section => trimmed.includes(`@${section.anchor}`))
+  const targetSection = mentionedSection || selectedSection.value
+
+  const action = targetSection && contentId.value
+    ? {
+        type: 'patch_section',
+        contentId: contentId.value,
+        sectionId: targetSection.id,
+        sectionTitle: targetSection.title,
+        instructions: trimmed
+      }
+    : undefined
 
   try {
-    const response = await $fetch<ChatSubmissionResponse>('/api/chat', {
-      method: 'POST',
-      body: {
-        message: trimmed,
-        action: {
-          type: 'patch_section',
-          contentId: contentId.value,
-          sectionId: selectedSectionId.value,
-          sectionTitle: selectedSection.value?.title ?? null
-        }
-      }
+    await sendMessage(trimmed, {
+      displayContent: trimmed,
+      contentId: contentId.value || sessionContentId.value,
+      action
     })
-
     prompt.value = ''
-
-    if (response?.assistantMessage) {
-      conversationMessages.value = [
-        ...conversationMessages.value,
-        {
-          id: createMessageId(),
-          role: 'assistant',
-          content: response.assistantMessage,
-          createdAt: new Date()
-        }
-      ]
-    }
-
-    chatStatus.value = 'ready'
     await loadWorkspacePayload()
   } catch (error: any) {
-    chatStatus.value = 'error'
     chatErrorMessage.value = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to send that message.'
-  } finally {
-    loading.value = false
   }
 }
 
@@ -694,10 +655,9 @@ onBeforeUnmount(() => {
           placeholder="Describe the change you want..."
           variant="subtle"
           :disabled="
-            loading
+            chatIsBusy
               || chatStatus === 'submitted'
               || chatStatus === 'streaming'
-              || !selectedSectionId
           "
           :autofocus="false"
           @submit="_handleSubmit"

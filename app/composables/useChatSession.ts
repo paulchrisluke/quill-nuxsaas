@@ -173,7 +173,7 @@ export function useChatSession() {
     }
   }
 
-  async function sendMessage(prompt: string, options?: { displayContent?: string }) {
+  async function sendMessage(prompt: string, options?: { displayContent?: string, contentId?: string | null, action?: Record<string, any> }) {
     const trimmed = prompt.trim()
     if (!trimmed) {
       return null
@@ -186,7 +186,52 @@ export function useChatSession() {
       createdAt: new Date()
     })
 
-    return await callChatEndpoint({ message: trimmed })
+    return await callChatEndpoint({
+      message: trimmed,
+      contentId: options?.contentId || sessionContentId.value || undefined,
+      action: options?.action
+    })
+  }
+
+  function hydrateSession(payload: {
+    messages?: ChatResponse['messages']
+    logs?: ChatResponse['logs']
+    sessionId?: string | null
+    sessionContentId?: string | null
+  }) {
+    if (payload.sessionId !== undefined) {
+      sessionId.value = payload.sessionId
+    }
+
+    if (payload.sessionContentId !== undefined) {
+      sessionContentId.value = payload.sessionContentId
+    }
+
+    if (payload.messages) {
+      messages.value = normalizeMessages(payload.messages)
+    }
+
+    if (payload.logs) {
+      logs.value = normalizeLogs(payload.logs)
+    }
+  }
+
+  async function loadSessionForContent(contentId: string) {
+    const response = await $fetch<{ workspace: Record<string, any> | null }>('/api/chat/workspace', {
+      query: { contentId }
+    })
+
+    const workspace = response?.workspace
+    if (workspace?.content?.id) {
+      hydrateSession({
+        sessionId: workspace.chatSession?.id ?? null,
+        sessionContentId: workspace.chatSession?.contentId ?? workspace.content.id,
+        messages: workspace.chatMessages,
+        logs: workspace.chatLogs
+      })
+    }
+
+    return workspace
   }
 
   async function generateFromSource(action: ChatActionSuggestion) {
@@ -300,6 +345,8 @@ export function useChatSession() {
     sessionId,
     sessionContentId,
     createContentFromConversation,
-    logs
+    logs,
+    hydrateSession,
+    loadSessionForContent
   }
 }
