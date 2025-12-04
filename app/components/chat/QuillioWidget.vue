@@ -27,6 +27,7 @@ const {
   sendMessage,
   isBusy,
   sessionId,
+  sessionContentId,
   createContentFromConversation,
   resetSession
 } = useChatSession()
@@ -359,6 +360,12 @@ const handleCreateDraft = async () => {
     await refreshActiveOrg()
   }
 
+  if (sessionContentId.value) {
+    await refreshDrafts()
+    await activateWorkspace(sessionContentId.value)
+    return true
+  }
+
   createDraftLoading.value = true
   try {
     const firstUserMessage = messages.value.find(message => message.role === 'user')
@@ -471,7 +478,8 @@ function handleCopy(message: ChatMessage) {
 const draftsListCache = useState<Map<string, any>>('drafts-list-cache', () => new Map())
 
 watch(workspaceDraftsPayload, (payload) => {
-  if (!payload?.contents) return
+  if (!payload?.contents)
+    return
   const cache = draftsListCache.value
   payload.contents.forEach((entry: any) => {
     if (entry.content?.id) {

@@ -25,14 +25,14 @@ export default defineEventHandler(async (event) => {
         id: schema.content.id,
         title: schema.content.title,
         updatedAt: schema.content.updatedAt,
-        currentVersionId: schema.content.currentVersionId,
+        currentVersionId: schema.content.currentVersionId
       },
       // Only get frontmatter fields needed for header: contentType, seoTitle, title, diffStats
       frontmatterContentType: sql<string | null>`${schema.contentVersion.frontmatter}->>'contentType'`,
       frontmatterSeoTitle: sql<string | null>`${schema.contentVersion.frontmatter}->>'seoTitle'`,
       frontmatterTitle: sql<string | null>`${schema.contentVersion.frontmatter}->>'title'`,
-      diffStats: sql<{ additions?: number; deletions?: number } | null>`${schema.contentVersion.frontmatter}->'diffStats'`,
-      versionId: schema.contentVersion.id,
+      diffStats: sql<{ additions?: number, deletions?: number } | null>`${schema.contentVersion.frontmatter}->'diffStats'`,
+      versionId: schema.contentVersion.id
     })
     .from(schema.content)
     .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
@@ -58,13 +58,13 @@ export default defineEventHandler(async (event) => {
             id: schema.content.id,
             title: schema.content.title,
             updatedAt: schema.content.updatedAt,
-            currentVersionId: schema.content.currentVersionId,
+            currentVersionId: schema.content.currentVersionId
           },
           frontmatterContentType: sql<string | null>`${schema.contentVersion.frontmatter}->>'contentType'`,
           frontmatterSeoTitle: sql<string | null>`${schema.contentVersion.frontmatter}->>'seoTitle'`,
           frontmatterTitle: sql<string | null>`${schema.contentVersion.frontmatter}->>'title'`,
-          diffStats: sql<{ additions?: number; deletions?: number } | null>`${schema.contentVersion.frontmatter}->'diffStats'`,
-          versionId: schema.contentVersion.id,
+          diffStats: sql<{ additions?: number, deletions?: number } | null>`${schema.contentVersion.frontmatter}->'diffStats'`,
+          versionId: schema.contentVersion.id
         })
         .from(schema.content)
         .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
@@ -90,7 +90,7 @@ export default defineEventHandler(async (event) => {
 
   const contentType = record.frontmatterContentType || null
   const displayTitle = record.frontmatterSeoTitle || record.frontmatterTitle || record.content.title || 'Untitled draft'
-  const diffStats = record.diffStats as { additions?: number; deletions?: number } | null
+  const diffStats = record.diffStats as { additions?: number, deletions?: number } | null
 
   // Format updatedAt
   const updatedAt = record.content.updatedAt
@@ -107,7 +107,6 @@ export default defineEventHandler(async (event) => {
     updatedAtLabel,
     versionId: record.versionId || null,
     additions: diffStats?.additions ? Number(diffStats.additions) : 0,
-    deletions: diffStats?.deletions ? Number(diffStats.deletions) : 0,
+    deletions: diffStats?.deletions ? Number(diffStats.deletions) : 0
   }
 })
-

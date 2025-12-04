@@ -1,8 +1,8 @@
 <script lang="ts" setup>
+import Logo from '~/components/Logo.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
 import OrganizationSwitcher from '~/components/OrganizationSwitcher.vue'
 import UserNavigation from '~/components/UserNavigation.vue'
-import Logo from '~/components/Logo.vue'
 
 const { needsOnboarding, showOnboarding } = useOnboarding()
 const { t } = useI18n()
@@ -115,8 +115,6 @@ useHead(() => ({
         <slot />
       </div>
     </main>
-
     <OnboardingModal />
-
   </div>
 </template>

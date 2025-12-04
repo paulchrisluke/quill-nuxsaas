@@ -9,7 +9,6 @@ definePageMeta({
 const { t } = useI18n()
 const route = useRoute()
 const layoutName = computed(() => (route.query.draft ? 'workspace' : 'default'))
-const isWorkspaceLayout = computed(() => Boolean(route.query.draft))
 
 const title = `${t('global.appName')}: ${t('home.slogan')}`
 const desc = t('home.slogan')

@@ -24,14 +24,14 @@ export default defineEventHandler(async (event) => {
         status: schema.content.status,
         updatedAt: schema.content.updatedAt,
         contentType: schema.content.contentType,
-        currentVersionId: schema.content.currentVersionId,
+        currentVersionId: schema.content.currentVersionId
       },
       sourceContent: {
-        sourceType: schema.sourceContent.sourceType,
+        sourceType: schema.sourceContent.sourceType
       },
       // Only get frontmatter for contentType and diffStats, not full frontmatter
       frontmatterContentType: sql<string | null>`${schema.contentVersion.frontmatter}->>'contentType'`,
-      diffStats: sql<{ additions?: number; deletions?: number } | null>`${schema.contentVersion.frontmatter}->'diffStats'`,
+      diffStats: sql<{ additions?: number, deletions?: number } | null>`${schema.contentVersion.frontmatter}->'diffStats'`,
       // Compute wordCount from sections without loading full sections
       // Handle null contentVersion with COALESCE
       wordCount: sql<number>`COALESCE((
@@ -44,7 +44,7 @@ export default defineEventHandler(async (event) => {
         )
         FROM jsonb_array_elements(COALESCE(${schema.contentVersion.sections}, '[]'::jsonb)) AS section
       ), 0)`,
-      sectionsCount: sql<number>`COALESCE(jsonb_array_length(${schema.contentVersion.sections}), 0)`,
+      sectionsCount: sql<number>`COALESCE(jsonb_array_length(${schema.contentVersion.sections}), 0)`
     })
     .from(schema.content)
     .leftJoin(schema.sourceContent, eq(schema.sourceContent.id, schema.content.sourceContentId))
@@ -56,7 +56,7 @@ export default defineEventHandler(async (event) => {
   // Transform to match expected format
   const transformedContents = contents.map((row) => {
     const contentType = row.frontmatterContentType || row.content.contentType
-    const diffStats = row.diffStats as { additions?: number; deletions?: number } | null
+    const diffStats = row.diffStats as { additions?: number, deletions?: number } | null
 
     return {
       content: {
@@ -66,27 +66,27 @@ export default defineEventHandler(async (event) => {
         status: row.content.status,
         updatedAt: row.content.updatedAt,
         contentType: row.content.contentType,
-        currentVersionId: row.content.currentVersionId,
+        currentVersionId: row.content.currentVersionId
       },
       sourceContent: row.sourceContent?.sourceType
         ? {
-            sourceType: row.sourceContent.sourceType,
+            sourceType: row.sourceContent.sourceType
           }
         : null,
       currentVersion: {
         frontmatter: {
           contentType,
-          diffStats: diffStats || null,
+          diffStats: diffStats || null
         },
-        sections: null, // Not included in list view
+        sections: null // Not included in list view
       },
       // Pre-computed fields for frontend
       _computed: {
         wordCount: Number.isFinite(row.wordCount) ? Number(row.wordCount) : 0,
         sectionsCount: Number.isFinite(row.sectionsCount) ? Number(row.sectionsCount) : 0,
         additions: diffStats?.additions ? Number(diffStats.additions) : undefined,
-        deletions: diffStats?.deletions ? Number(diffStats.deletions) : undefined,
-      },
+        deletions: diffStats?.deletions ? Number(diffStats.deletions) : undefined
+      }
     }
   })
 
@@ -96,7 +96,6 @@ export default defineEventHandler(async (event) => {
 
   return {
     contents: transformedContents,
-    anonymousUsage,
+    anonymousUsage
   }
 })
-
