@@ -92,8 +92,8 @@ export const getUserMenus = (localePath: LocalePathFunction, slug: string, userR
   if (hasPermission(userRole, 'VIEW_SETTINGS_NAV')) {
     items.push({
       label: 'Integrations',
-      icon: 'i-lucide-puzzle-piece',
-      to: localePath(`/${slug}/settings/integrations`)
+      icon: 'i-lucide-plug-zap',
+      to: localePath(`/${slug}/integrations`)
     })
 
     items.push({

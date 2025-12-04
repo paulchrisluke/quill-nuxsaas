@@ -283,7 +283,7 @@ async function deleteTeam() {
           <UButton
             color="primary"
             icon="i-lucide-arrow-up-right"
-            :to="`/${slug}/settings/integrations`"
+            :to="`/${slug}/integrations`"
           >
             Manage integrations
           </UButton>

@@ -3,6 +3,28 @@ const localePath = useLocalePath()
 const { t } = useI18n()
 const { loggedIn, signOut, user, activeStripeSubscription, organization, session } = useAuth()
 
+const userInitials = computed(() => {
+  if (user.value?.name) {
+    return user.value.name
+      .split(' ')
+      .map(part => part[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
+  if (user.value?.email) {
+    return user.value.email.charAt(0).toUpperCase()
+  }
+
+  return '?'
+})
+
+const userAvatar = computed(() => {
+  const data = user.value as Record<string, any> | null
+  return data?.image || data?.avatar || data?.avatarUrl || data?.picture || null
+})
+
 // Fetch organizations list to get active org slug
 const { data: organizations } = await useLazyAsyncData('user-organizations-nav', async () => {
   if (!loggedIn.value)
@@ -67,11 +89,17 @@ const dropdownItems = computed(() => {
         class="flex items-center gap-2"
       >
         <UAvatar
-          v-if="user?.image"
-          :src="user?.image"
-          :alt="user?.name"
+          :src="userAvatar || undefined"
+          :alt="user?.name || user?.email || 'User avatar'"
           size="sm"
-        />
+        >
+          <template
+            v-if="!userAvatar"
+            #fallback
+          >
+            <span class="text-xs font-medium">{{ userInitials }}</span>
+          </template>
+        </UAvatar>
         <span>
           {{ user?.name }}
           <UBadge

@@ -22,7 +22,7 @@ import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { validateEnum, validateNumber, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
+  const user = await requireAuth(event, { allowAnonymous: true })
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = await useDB(event)
 

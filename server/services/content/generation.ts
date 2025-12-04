@@ -13,6 +13,7 @@ import {
   upsertVectors
 } from '~~/server/services/vectorize'
 import { callChatCompletions } from '~~/server/utils/aiGateway'
+import { ensureAnonymousDraftCapacity } from '~~/server/utils/anonymous'
 import {
   CONTENT_STATUSES,
   CONTENT_TYPES,
@@ -1117,6 +1118,10 @@ export const generateContentDraftFromSource = async (
 
   const chunks = await ensureChunksExistForSourceContent(db, sourceContent, sourceContent.sourceText)
   const resolvedIngestMethod = resolveIngestMethodFromSourceContent(sourceContent)
+
+  if (!contentId) {
+    await ensureAnonymousDraftCapacity(db, organizationId, userId)
+  }
 
   // Track pipeline stages as they complete
   const pipelineStages: string[] = []

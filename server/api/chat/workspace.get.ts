@@ -2,13 +2,14 @@ import { desc, eq } from 'drizzle-orm'
 import { getQuery } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { getContentWorkspacePayload } from '~~/server/services/content/workspace'
+import { getAnonymousDraftUsage } from '~~/server/utils/anonymous'
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { validateOptionalUUID } from '~~/server/utils/validation'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
+  const user = await requireAuth(event, { allowAnonymous: true })
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 
@@ -32,8 +33,13 @@ export default defineEventHandler(async (event) => {
     ? await getContentWorkspacePayload(db, organizationId, contentId)
     : null
 
+  const anonymousUsage = user.isAnonymous
+    ? await getAnonymousDraftUsage(db, organizationId)
+    : null
+
   return {
     contents,
-    workspace
+    workspace,
+    anonymousUsage
   }
 })

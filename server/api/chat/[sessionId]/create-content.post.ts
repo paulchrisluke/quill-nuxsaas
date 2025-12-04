@@ -5,6 +5,7 @@ import * as schema from '~~/server/database/schema'
 import { addLogEntryToChatSession, addMessageToChatSession, getSessionMessages } from '~~/server/services/chatSession'
 import { generateContentDraftFromSource } from '~~/server/services/content/generation'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
+import { ensureAnonymousDraftCapacity } from '~~/server/utils/anonymous'
 import { requireAuth } from '~~/server/utils/auth'
 import { CONTENT_TYPES } from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
@@ -17,7 +18,7 @@ const MAX_MESSAGE_COUNT = 200
 // Removed MAX_TRANSCRIPT_LENGTH - transcripts are chunked and vectorized, so length limits are unnecessary
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
+  const user = await requireAuth(event, { allowAnonymous: true })
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = await useDB(event)
   const { sessionId } = getRouterParams(event)
@@ -26,6 +27,8 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<CreateContentFromChatRequestBody>(event)
 
   validateRequestBody(body)
+
+  await ensureAnonymousDraftCapacity(db, organizationId, user)
 
   const title = validateRequiredString(body.title, 'title')
 

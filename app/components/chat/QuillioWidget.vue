@@ -2,11 +2,11 @@
 import type { ContentType } from '#shared/constants/contentTypes'
 import type { ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
-import { useLocalStorage } from '@vueuse/core'
+import { ANONYMOUS_DRAFT_LIMIT } from '#shared/constants/limits'
 
 const router = useRouter()
 const route = useRoute()
-const { loggedIn, signInAnonymous, useActiveOrganization, refreshActiveOrg } = useAuth()
+const { loggedIn, useActiveOrganization, refreshActiveOrg } = useAuth()
 const activeOrgState = useActiveOrganization()
 
 const {
@@ -29,21 +29,38 @@ const linkedSources = ref<Array<{ id: string, type: 'transcript', value: string 
 const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = ref<any | null>(null)
 const workspaceLoading = ref(false)
+interface AnonymousUsagePayload {
+  limit: number
+  used: number
+  remaining: number
+}
+
+interface WorkspaceResponse {
+  contents: any[]
+  anonymousUsage?: AnonymousUsagePayload | null
+}
+
 const {
   data: workspaceDraftsPayload,
   pending: draftsPending,
   refresh: refreshDrafts
-} = await useFetch<{ contents: any[] }>('/api/chat/workspace', {
+} = await useFetch<WorkspaceResponse>('/api/chat/workspace', {
   default: () => ({
     contents: []
   })
 })
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
-const anonymousDraftCount = import.meta.client ? useLocalStorage<number>('quillio-anon-draft-count', 0) : ref(0)
-const ANON_DRAFT_LIMIT = 5
-const remainingAnonDrafts = computed(() => Math.max(0, ANON_DRAFT_LIMIT - (anonymousDraftCount.value || 0)))
-const hasReachedAnonLimit = computed(() => !loggedIn.value && (anonymousDraftCount.value || 0) >= ANON_DRAFT_LIMIT)
+const anonymousUsage = computed<AnonymousUsagePayload | null>(() => workspaceDraftsPayload.value?.anonymousUsage ?? null)
+const anonDraftLimit = computed(() => anonymousUsage.value?.limit ?? ANONYMOUS_DRAFT_LIMIT)
+const remainingAnonDrafts = computed(() => {
+  if (loggedIn.value)
+    return anonDraftLimit.value
+  if (anonymousUsage.value)
+    return anonymousUsage.value.remaining
+  return ANONYMOUS_DRAFT_LIMIT
+})
+const hasReachedAnonLimit = computed(() => !loggedIn.value && remainingAnonDrafts.value <= 0)
 
 const contentEntries = computed(() => {
   const list = Array.isArray(workspaceDraftsPayload.value?.contents) ? workspaceDraftsPayload.value?.contents : []
@@ -273,10 +290,6 @@ const handleCreateDraft = async () => {
       messageIds: messages.value.map(message => message.id)
     })
 
-    if (!loggedIn.value && !hasReachedAnonLimit.value) {
-      anonymousDraftCount.value = (anonymousDraftCount.value || 0) + 1
-    }
-
     if (response?.content?.id) {
       await updateDraftRoute(response.content.id)
       await refreshDrafts()
@@ -319,10 +332,7 @@ const handleRegenerate = async (message: ChatMessage) => {
 }
 
 if (import.meta.client) {
-  watch(loggedIn, async (value) => {
-    if (!value) {
-      await signInAnonymous()
-    }
+  watch(loggedIn, async () => {
     await refreshDrafts()
   }, { immediate: true })
 }
@@ -471,7 +481,7 @@ if (import.meta.client) {
                 {{ createDraftCta }}
               </UButton>
               <p
-                v-if="!loggedIn && remainingAnonDrafts < ANON_DRAFT_LIMIT"
+                v-if="!loggedIn && remainingAnonDrafts < anonDraftLimit"
                 class="text-xs text-muted-500 text-center"
               >
                 {{ remainingAnonDrafts > 0 ? `${remainingAnonDrafts} draft${remainingAnonDrafts === 1 ? '' : 's'} left` : 'Sign up to save more' }}

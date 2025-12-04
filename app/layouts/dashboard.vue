@@ -296,6 +296,11 @@ const userInitials = computed(() => {
     .slice(0, 2)
 })
 
+const userAvatar = computed(() => {
+  const data = user.value as Record<string, any> | null
+  return data?.image || data?.avatar || data?.avatarUrl || data?.picture || null
+})
+
 // Get needsUpgrade from the SSR data
 const needsUpgrade = computed(() => {
   // activeOrg.data is the flattened object. The server returns { organization: {...}, subscriptions: [], needsUpgrade: boolean }
@@ -450,41 +455,39 @@ async function createTeam() {
       :class="[isCollapsed ? 'w-15' : 'w-64']"
     >
       <div class="h-screen-safe flex flex-col px-3 py-4 bg-neutral-100 dark:bg-neutral-800">
-        <a
-          v-if="!isCollapsed"
-          class="flex items-center ps-2.5"
-        >
-          <Logo class="h-9 w-7" />
-          <span
-            class="self-center ml-2 text-xl font-semibold whitespace-nowrap dark:text-white"
-          >
-            {{ t('global.appNameShort') }}
-          </span>
-        </a>
-        <Logo
-          v-if="isCollapsed"
-          class="h-6 w-6 ml-1"
-        />
         <div
-          class="flex flex-col gap-2 mb-2 mt-3"
+          class="flex items-center justify-between gap-2 mb-3"
+          :class="{ 'pl-2 pr-2': !isCollapsed }"
+        >
+          <div
+            class="flex items-center"
+            :class="isCollapsed ? 'gap-1' : 'gap-2'"
+          >
+            <Logo :class="[isCollapsed ? 'h-6 w-6' : 'h-9 w-7']" />
+            <span
+              v-if="!isCollapsed"
+              class="text-xl font-semibold whitespace-nowrap dark:text-white"
+            >
+              {{ t('global.appNameShort') }}
+            </span>
+          </div>
+          <UButton
+            :icon="isCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+            class="w-8 h-8 shrink-0"
+            color="neutral"
+            variant="ghost"
+            aria-label="Toggle sidebar"
+            @click="toggle()"
+          />
+        </div>
+        <div
+          class="flex flex-col gap-2 mb-2"
           :class="{ 'pl-2 pr-2': !isCollapsed }"
         >
           <OrganizationSwitcher v-if="!isCollapsed" />
           <SearchPalette
             :collapsed="isCollapsed"
             :t="t"
-          />
-        </div>
-        <div
-          class="flex justify-end mb-2"
-          :class="{ 'pl-2 pr-2': !isCollapsed }"
-        >
-          <UButton
-            :icon="isCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
-            class="w-8 h-8"
-            color="neutral"
-            variant="ghost"
-            @click="toggle()"
           />
         </div>
         <UNavigationMenu
@@ -530,12 +533,12 @@ async function createTeam() {
             >
               <div class="flex items-center">
                 <UAvatar
-                  :src="user?.image || undefined"
+                  :src="userAvatar || undefined"
                   size="xs"
                   class="border border-neutral-300 dark:border-neutral-700"
                 >
                   <template
-                    v-if="!user?.image"
+                    v-if="!userAvatar"
                     #fallback
                   >
                     <span class="text-[10px] font-medium">{{ userInitials }}</span>
@@ -595,12 +598,12 @@ async function createTeam() {
                   >
                     <div class="flex items-center gap-3 w-full">
                       <UAvatar
-                        :src="user?.image || undefined"
+                        :src="userAvatar || undefined"
                         size="sm"
                         class="border border-neutral-300 dark:border-neutral-700"
                       >
                         <template
-                          v-if="!user?.image"
+                          v-if="!userAvatar"
                           #fallback
                         >
                           <span class="text-xs font-medium">{{ userInitials }}</span>

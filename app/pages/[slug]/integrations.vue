@@ -141,7 +141,7 @@ async function connectYoutube() {
 
   connectLoading.youtube = true
   try {
-    const callbackURL = `${window.location.origin}/${slug.value}/settings/integrations?connected=youtube`
+    const callbackURL = `${window.location.origin}/${slug.value}/integrations?connected=youtube`
     const response = await $fetch<{
       url?: string
       redirect?: boolean
@@ -193,7 +193,7 @@ async function connectGoogleDrive() {
 
   connectLoading.google_drive = true
   try {
-    const callbackURL = `${window.location.origin}/${slug.value}/settings/integrations?connected=google_drive`
+    const callbackURL = `${window.location.origin}/${slug.value}/integrations?connected=google_drive`
     const response = await $fetch<{
       url?: string
       redirect?: boolean
@@ -245,7 +245,7 @@ async function connectGithub() {
 
   connectLoading.github = true
   try {
-    const callbackURL = `${window.location.origin}/${slug.value}/settings/integrations?connected=github`
+    const callbackURL = `${window.location.origin}/${slug.value}/integrations?connected=github`
     const response = await $fetch<{
       url?: string
       redirect?: boolean

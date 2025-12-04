@@ -1,0 +1,1 @@
+export const ANONYMOUS_DRAFT_LIMIT = 5

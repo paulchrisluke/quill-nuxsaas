@@ -5,6 +5,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
 import { and, count, eq, sql } from 'drizzle-orm'
+import { appendResponseHeader, getRequestHeaders } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import { ac, admin, member, owner } from '../../shared/utils/permissions'
 import * as schema from '../database/schema'
@@ -729,6 +730,10 @@ if (isAuthSchemaCommand) {
 }
 export const auth = _auth!
 
+interface RequireAuthOptions {
+  allowAnonymous?: boolean
+}
+
 export const useServerAuth = () => {
   if (runtimeConfig.preset == 'node-server') {
     if (!_auth) {
@@ -737,6 +742,47 @@ export const useServerAuth = () => {
     return _auth
   } else {
     return createBetterAuth()
+  }
+}
+
+const createAnonymousUserSession = async (event: H3Event) => {
+  try {
+    const serverAuth = useServerAuth()
+    const headers = new Headers()
+    const reqHeaders = getRequestHeaders(event)
+    for (const [key, value] of Object.entries(reqHeaders)) {
+      if (value)
+        headers.set(key, value)
+    }
+
+    const result = await serverAuth.api.signInAnonymous({
+      headers,
+      returnHeaders: true
+    } as any)
+
+    if (result?.headers) {
+      result.headers.forEach((value: string, key: string) => {
+        if (key.toLowerCase() === 'set-cookie') {
+          appendResponseHeader(event, 'set-cookie', value)
+        }
+      })
+    }
+
+    const userId = (result as any)?.response?.user?.id
+    if (!userId)
+      return null
+
+    const db = getDB()
+    const [userRecord] = await db
+      .select()
+      .from(schema.user)
+      .where(eq(schema.user.id, userId))
+      .limit(1)
+
+    return userRecord || null
+  } catch (error) {
+    console.error('Failed to create anonymous session', error)
+    return null
   }
 }
 
@@ -755,15 +801,27 @@ export const getAuthSession = async (event: H3Event) => {
   return session
 }
 
-export const requireAuth = async (event: H3Event) => {
-  const session = await getAuthSession(event)
-  if (!session || !session.user) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: 'Unauthorized'
-    })
+export const requireAuth = async (event: H3Event, options: RequireAuthOptions = {}) => {
+  if (event.context.user) {
+    return event.context.user as User
   }
-  // Save the session to the event context for later use
-  event.context.user = session.user
-  return session.user as User
+
+  const session = await getAuthSession(event)
+  if (session?.user) {
+    event.context.user = session.user
+    return session.user as User
+  }
+
+  if (options.allowAnonymous) {
+    const anonymousUser = await createAnonymousUserSession(event)
+    if (anonymousUser) {
+      event.context.user = anonymousUser
+      return anonymousUser as User
+    }
+  }
+
+  throw createError({
+    statusCode: 401,
+    statusMessage: 'Unauthorized'
+  })
 }
