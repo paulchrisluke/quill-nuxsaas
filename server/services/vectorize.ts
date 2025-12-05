@@ -141,6 +141,12 @@ export const embedTexts = async (texts: string[]): Promise<number[][]> => {
 
 export const embedText = async (text: string): Promise<number[]> => {
   const [vector] = await embedTexts([text])
+  if (!vector) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to generate embedding for text'
+    })
+  }
   return vector
 }
 
@@ -249,5 +255,5 @@ export const queryVectorMatches = async ({
       score: typeof match.score === 'number' ? match.score : 0,
       metadata: match.metadata ?? {}
     }))
-    .filter(match => typeof match.id === 'string' && match.id.length > 0)
+    .filter((match: any): match is VectorMatch => typeof match.id === 'string' && match.id.length > 0)
 }

@@ -7,7 +7,7 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
 import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
-import { appendResponseHeader, getRequestHeaders } from 'h3'
+import { appendResponseHeader, createError, getRequestHeaders } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import { ac, admin, member, owner } from '../../shared/utils/permissions'
 import * as schema from '../database/schema'
@@ -93,6 +93,12 @@ export const createBetterAuth = () => betterAuth({
       async sendDeleteAccountVerification({ user, url }) {
         if (resendInstance) {
           try {
+            if (!user.email) {
+              throw new Error('User email is required for delete verification')
+            }
+            if (!url) {
+              throw new Error('Delete verification URL is required')
+            }
             const name = user.name || user.email.split('@')[0]
             const html = await renderDeleteAccount(name, url)
             const response = await resendInstance.emails.send({
@@ -151,9 +157,9 @@ export const createBetterAuth = () => betterAuth({
     user: {
       create: {
         before: async (user, ctx) => {
-          if (ctx.path.startsWith('/callback')) {
+          if (ctx?.path?.startsWith('/callback')) {
             try {
-              const additionalData = await getOAuthState(ctx)
+              const additionalData = await getOAuthState()
               if (additionalData?.referralCode) {
                 return {
                   data: {
@@ -292,8 +298,9 @@ export const createBetterAuth = () => betterAuth({
               .where(eq(schema.member.userId, session.userId))
               .limit(1)
 
-            if (members.length > 0)
-              activeOrgId = members[0].organizationId
+            const firstMember = members[0]
+            if (firstMember)
+              activeOrgId = firstMember.organizationId
           }
 
           // 4. For anonymous users without organizations, create a default one
@@ -310,6 +317,13 @@ export const createBetterAuth = () => betterAuth({
                   createdAt: new Date()
                 })
                 .returning()
+
+              if (!newOrg) {
+                throw createError({
+                  statusCode: 500,
+                  statusMessage: 'Failed to create anonymous organization'
+                })
+              }
 
               // Add user as owner of the organization
               await db
@@ -356,7 +370,7 @@ export const createBetterAuth = () => betterAuth({
     },
     organization: {
       create: {
-        before: async (org, ctx) => {
+        before: async (org: Record<string, any>, ctx: any) => {
           const session = ctx.session || ctx.context?.session
           if (session?.user?.id) {
             const db = getDB()
@@ -409,7 +423,7 @@ export const createBetterAuth = () => betterAuth({
     },
     apiKey: {
       create: {
-        before: async (key, _ctx) => {
+        before: async (key: any, _ctx: any) => {
           // Validate maximum 4 API keys per organization
           const metadata = key.metadata
           if (!metadata) {
@@ -481,6 +495,12 @@ export const createBetterAuth = () => betterAuth({
     enabled: true,
     requireEmailVerification: true,
     sendResetPassword: async ({ user, url }) => {
+      if (!user.email) {
+        throw new Error('User email is required for password reset')
+      }
+      if (!url) {
+        throw new Error('Password reset URL is required')
+      }
       const name = user.name || user.email.split('@')[0]
       const html = await renderResetPassword(name, url)
 
@@ -528,6 +548,12 @@ export const createBetterAuth = () => betterAuth({
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
+      if (!user.email) {
+        throw new Error('User email is required for verification')
+      }
+      if (!url) {
+        throw new Error('Verification URL is required')
+      }
       // Only log links in development
       if (runtimeConfig.public.appEnv === 'development') {
         console.log('>>> EMAIL VERIFICATION LINK <<<')
@@ -657,7 +683,11 @@ export const createBetterAuth = () => betterAuth({
     anonymous({
       emailDomainName: (() => {
         try {
-          const host = new URL(runtimeConfig.public.baseURL).hostname
+          const baseUrl = runtimeConfig.public.baseURL
+          if (!baseUrl) {
+            return undefined
+          }
+          const host = new URL(baseUrl).hostname
           return host.replace(/^www\./, '') || undefined
         } catch {
           return undefined
@@ -676,7 +706,8 @@ export const createBetterAuth = () => betterAuth({
       async sendInvitationEmail({ email, inviter, organization, invitation }) {
         if (resendInstance) {
           try {
-            const inviterName = inviter.user.name || inviter.user.email.split('@')[0]
+            const inviterEmail = inviter.user.email ?? ''
+            const inviterName = inviter.user.name || inviterEmail.split('@')[0] || 'A teammate'
             const inviteUrl = `${runtimeConfig.public.baseURL}/invite/${invitation.id}`
             const html = await renderTeamInvite(inviterName, organization.name, inviteUrl)
             const response = await resendInstance.emails.send({
@@ -780,7 +811,7 @@ const createAnonymousUserSession = async (event: H3Event) => {
         headers.set(key, value)
     }
 
-    const result = await serverAuth.api.signInAnonymous({
+    const result = await (serverAuth.api as any).signInAnonymous({
       headers,
       returnHeaders: true
     } as any)
@@ -963,12 +994,12 @@ export const getDraftQuotaUsage = async (
   organizationId: string,
   user: User | null
 ): Promise<DraftQuotaUsageResult> => {
-  const [{ total }] = await db
+  const [countResult] = await db
     .select({ total: count() })
     .from(schema.content)
     .where(eq(schema.content.organizationId, organizationId))
 
-  const used = Number(total) || 0
+  const used = Number(countResult?.total ?? 0) || 0
   const { hasActiveSubscription, planLabel } = await getOrganizationSubscriptionStatus(db, organizationId)
   const { profile, label } = resolveDraftQuotaProfile(user, hasActiveSubscription)
   const configuredLimit = DRAFT_QUOTA_SETTINGS[profile]

@@ -101,8 +101,10 @@ interface ContentPlanResult {
 interface FrontmatterResult {
   title: string
   description?: string
+  slug: string
   slugSuggestion: string
   tags?: string[]
+  keywords?: string[]
   status: typeof CONTENT_STATUSES[number]
   contentType: typeof CONTENT_TYPES[number]
   schemaTypes: string[]
@@ -172,6 +174,15 @@ const normalizeSchemaTypes = (
   return Array.from(set)
 }
 
+const normalizeKeywords = (value?: string[] | null) => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .map(keyword => (typeof keyword === 'string' ? keyword.trim() : ''))
+    .filter((keyword): keyword is string => Boolean(keyword))
+}
+
 const parseJSONResponse = <T>(raw: string, label: string): T => {
   const trimmed = raw.trim()
   const tryParse = (value: string) => {
@@ -186,7 +197,7 @@ const parseJSONResponse = <T>(raw: string, label: string): T => {
 
   if (!parsed) {
     const match = trimmed.match(/```json([\s\S]*?)```/i)
-    if (match) {
+    if (match && match[1]) {
       parsed = tryParse(match[1])
     }
   }
@@ -378,7 +389,7 @@ const getRelevantChunksForSection = async (params: {
       .sort((a, b) => b.score - a.score)
       .slice(0, SECTION_CONTEXT_LIMIT)
 
-    if (scored.length && scored[0].score > 0) {
+    if (scored.length && (scored[0]?.score ?? 0) > 0) {
       return scored.map(item => item.chunk)
     }
   }
@@ -412,8 +423,8 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   let normB = 0
 
   for (let i = 0; i < vecA.length; i += 1) {
-    const valueA = vecA[i]
-    const valueB = vecB[i]
+    const valueA = vecA[i] ?? 0
+    const valueB = vecB[i] ?? 0
     dot += valueA * valueB
     normA += valueA * valueA
     normB += valueB * valueB
@@ -587,6 +598,7 @@ const createFrontmatterFromContentPlan = (params: {
       statusMessage: 'Slug is required. Provide a slug in overrides or ensure the plan includes slugSuggestion.'
     })
   }
+  const normalizedSlug = slugifyTitle(slugInput.trim())
 
   // For new content, default to 'draft'. For existing content, require explicit status or use existing.
   let statusCandidate: typeof CONTENT_STATUSES[number]
@@ -626,17 +638,96 @@ const createFrontmatterFromContentPlan = (params: {
     })
   }
 
+  const keywordSet = new Set<string>()
+  for (const keyword of normalizeKeywords(plan.seo.keywords)) {
+    keywordSet.add(keyword)
+  }
+  const resolvedPrimaryKeyword = overrides?.primaryKeyword ?? existingContent?.primaryKeyword ?? plan.seo.keywords?.[0] ?? null
+  if (resolvedPrimaryKeyword) {
+    keywordSet.add(resolvedPrimaryKeyword)
+  }
+
   return {
     title: resolvedTitle.trim(),
     description: plan.seo.description || undefined,
-    slugSuggestion: slugifyTitle(slugInput.trim()),
-    tags: plan.seo.keywords,
+    slug: normalizedSlug,
+    slugSuggestion: normalizedSlug,
+    tags: Array.from(keywordSet),
+    keywords: Array.from(keywordSet),
     status: statusCandidate,
     contentType: contentTypeCandidate,
     schemaTypes: resolvedSchemaTypes,
-    primaryKeyword: overrides?.primaryKeyword ?? existingContent?.primaryKeyword ?? plan.seo.keywords?.[0] ?? null,
+    primaryKeyword: resolvedPrimaryKeyword,
     targetLocale: overrides?.targetLocale ?? existingContent?.targetLocale ?? null,
     sourceContentId: sourceContent?.id ?? existingContent?.sourceContentId ?? null
+  }
+}
+
+const cleanFrontmatterTitle = (title: string, fallbacks: string[]) => {
+  const normalized = (title || '').replace(/\s+/g, ' ').trim()
+  const lowered = normalized.toLowerCase()
+  if (lowered.startsWith('transcript attachment')) {
+    const after = normalized.replace(/^transcript attachment[:\-\s]*/i, '').trim()
+    if (after.length > 8) {
+      return after
+    }
+  }
+  for (const value of [normalized, ...fallbacks]) {
+    const candidate = (value || '').replace(/\s+/g, ' ').trim()
+    if (candidate.length) {
+      return candidate
+    }
+  }
+  return 'Untitled Draft'
+}
+
+const enrichFrontmatterMetadata = (params: {
+  plan: ContentPlanResult
+  frontmatter: FrontmatterResult
+  sourceContent?: typeof schema.sourceContent.$inferSelect | null
+}) => {
+  const { plan, frontmatter, sourceContent } = params
+  const fallbackTitles = [
+    plan.seo.title,
+    sourceContent?.title
+  ].filter((value): value is string => Boolean(value && value.trim()))
+  const title = cleanFrontmatterTitle(frontmatter.title, fallbackTitles)
+  const slugCandidate = frontmatter.slug || frontmatter.slugSuggestion || title
+  const slug = slugifyTitle(slugCandidate)
+
+  const keywordSet = new Set<string>()
+  const push = (value?: string | null) => {
+    const trimmed = (value || '').trim()
+    if (trimmed) {
+      keywordSet.add(trimmed)
+    }
+  }
+  const pushMany = (values?: string[] | null) => {
+    for (const value of values || []) {
+      push(value)
+    }
+  }
+
+  push(frontmatter.primaryKeyword)
+  pushMany(frontmatter.tags)
+  pushMany(frontmatter.keywords)
+  pushMany(plan.seo.keywords)
+
+  const resolvedSchemaTypes = normalizeSchemaTypes(
+    frontmatter.schemaTypes,
+    CONTENT_TYPE_SCHEMA_EXTENSIONS[frontmatter.contentType]
+  )
+
+  return {
+    ...frontmatter,
+    title,
+    slug,
+    slugSuggestion: frontmatter.slugSuggestion || slug,
+    tags: Array.from(keywordSet),
+    keywords: Array.from(keywordSet),
+    description: frontmatter.description || plan.seo.description,
+    schemaTypes: resolvedSchemaTypes,
+    targetLocale: frontmatter.targetLocale || null
   }
 }
 
@@ -678,8 +769,10 @@ const buildFrontmatterFromVersion = (params: {
   return {
     title: resolvedTitle.trim(),
     description: versionFrontmatter.description || undefined,
+    slug: slugifyTitle(slugInput.trim()),
     slugSuggestion: slugifyTitle(slugInput.trim()),
-    tags: Array.isArray(versionFrontmatter.tags) ? versionFrontmatter.tags : undefined,
+    tags: Array.isArray(versionFrontmatter.tags) ? normalizeKeywords(versionFrontmatter.tags) : undefined,
+    keywords: normalizeKeywords(versionFrontmatter.keywords || versionFrontmatter.tags || []),
     status: statusCandidate,
     contentType: contentTypeCandidate,
     schemaTypes,
@@ -1018,17 +1111,28 @@ const ensureChunksExistForSourceContent = async (
           statusMessage: `Failed to generate embeddings: expected ${missingEmbeddings.length}, got ${embeddings.length}`
         })
       }
-      await Promise.all(missingEmbeddings.map((chunk, idx) => {
-        chunk.embedding = embeddings[idx]
+      const chunkEmbeddings = missingEmbeddings.map((chunk, idx) => {
+        const embedding = embeddings[idx]
+        if (!embedding) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: `Missing embedding data for chunk ${chunk.id}`
+          })
+        }
+        return { chunk, embedding }
+      })
+
+      await Promise.all(chunkEmbeddings.map(({ chunk, embedding }) => {
+        chunk.embedding = embedding
         return db
           .update(schema.chunk)
-          .set({ embedding: embeddings[idx] })
+          .set({ embedding })
           .where(eq(schema.chunk.id, chunk.id))
       }))
 
-      await upsertVectors(missingEmbeddings.map((chunk, idx) => ({
+      await upsertVectors(chunkEmbeddings.map(({ chunk, embedding }) => ({
         id: buildVectorId(chunk.sourceContentId, chunk.chunkIndex),
-        values: embeddings[idx],
+        values: embedding,
         metadata: {
           sourceContentId: chunk.sourceContentId,
           organizationId: chunk.organizationId,
@@ -1185,10 +1289,15 @@ export const generateContentDraftFromSource = async (
   })
   pipelineStages.push('plan')
 
-  const frontmatter = createFrontmatterFromContentPlan({
+  let frontmatter = createFrontmatterFromContentPlan({
     plan,
     overrides,
     existingContent,
+    sourceContent
+  })
+  frontmatter = enrichFrontmatterMetadata({
+    plan,
+    frontmatter,
     sourceContent
   })
   pipelineStages.push('frontmatter')
@@ -1304,9 +1413,25 @@ export const generateContentDraftFromSource = async (
           .where(eq(schema.content.id, contentRecord.id))
           .returning()
 
+        if (!updatedContent) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to update content record'
+          })
+        }
+
         contentRecord = updatedContent
       }
     }
+
+    if (!contentRecord) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Content record was not resolved.'
+      })
+    }
+
+    frontmatter = { ...frontmatter, slug: slug as string }
 
     const [latestVersion] = await tx
       .select({ version: schema.contentVersion.version })
@@ -1329,6 +1454,7 @@ export const generateContentDraftFromSource = async (
           description: frontmatter.description,
           slug,
           tags: frontmatter.tags,
+          keywords: frontmatter.keywords,
           status: selectedStatus,
           contentType: selectedContentType,
           schemaTypes: frontmatter.schemaTypes,
@@ -1344,6 +1470,13 @@ export const generateContentDraftFromSource = async (
       })
       .returning()
 
+    if (!newVersion) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to create content version'
+      })
+    }
+
     const [updatedContent] = await tx
       .update(schema.content)
       .set({
@@ -1352,6 +1485,13 @@ export const generateContentDraftFromSource = async (
       })
       .where(eq(schema.content.id, contentRecord.id))
       .returning()
+
+    if (!updatedContent) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to update content record'
+      })
+    }
 
     return {
       content: updatedContent,
@@ -1426,7 +1566,7 @@ export const updateContentSectionWithAI = async (
     ))
     .limit(1)
 
-  if (!record?.content) {
+  if (!record || !record.content) {
     throw createError({
       statusCode: 404,
       statusMessage: 'Content not found for this organization'
@@ -1440,9 +1580,12 @@ export const updateContentSectionWithAI = async (
     })
   }
 
+  const recordContent = record.content
+  const currentVersion = record.version
+
   const normalizedSections = normalizeStoredSections(
-    record.version.sections,
-    record.version.bodyMdx ?? null
+    currentVersion.sections,
+    currentVersion.bodyMdx ?? null
   )
 
   if (!normalizedSections.length) {
@@ -1462,8 +1605,8 @@ export const updateContentSectionWithAI = async (
   }
 
   const frontmatter = buildFrontmatterFromVersion({
-    content: record.content,
-    version: record.version
+    content: recordContent,
+    version: currentVersion
   })
 
   const chunks = await ensureChunksExistForSourceContent(
@@ -1550,8 +1693,8 @@ export const updateContentSectionWithAI = async (
   })
 
   const slug = record.version.frontmatter?.slug || record.content.slug
+  const previousSeoSnapshot = currentVersion.seoSnapshot ?? {}
   const assets = createSectionPatchMetadata(record.sourceContent ?? null, targetSection.id)
-  const previousSeoSnapshot = record.version.seoSnapshot ?? {}
   const seoSnapshot = {
     ...previousSeoSnapshot,
     primaryKeyword: frontmatter.primaryKeyword,
@@ -1566,7 +1709,7 @@ export const updateContentSectionWithAI = async (
     const [latestVersion] = await tx
       .select({ version: schema.contentVersion.version })
       .from(schema.contentVersion)
-      .where(eq(schema.contentVersion.contentId, record.content.id))
+      .where(eq(schema.contentVersion.contentId, recordContent.id))
       .orderBy(desc(schema.contentVersion.version))
       .limit(1)
 
@@ -1576,7 +1719,7 @@ export const updateContentSectionWithAI = async (
       .insert(schema.contentVersion)
       .values({
         id: uuidv7(),
-        contentId: record.content.id,
+        contentId: recordContent.id,
         version: nextVersionNumber,
         createdByUserId: userId,
         frontmatter: {
@@ -1584,6 +1727,7 @@ export const updateContentSectionWithAI = async (
           description: frontmatter.description ?? record.version.frontmatter?.description,
           slug,
           tags: frontmatter.tags,
+          keywords: frontmatter.keywords,
           status: frontmatter.status,
           contentType: frontmatter.contentType,
           schemaTypes: frontmatter.schemaTypes,
@@ -1599,14 +1743,28 @@ export const updateContentSectionWithAI = async (
       })
       .returning()
 
+    if (!newVersion) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to create content version'
+      })
+    }
+
     const [updatedContent] = await tx
       .update(schema.content)
       .set({
         currentVersionId: newVersion.id,
         updatedAt: new Date()
       })
-      .where(eq(schema.content.id, record.content.id))
+      .where(eq(schema.content.id, recordContent.id))
       .returning()
+
+    if (!updatedContent) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to update content record'
+      })
+    }
 
     return {
       content: updatedContent,

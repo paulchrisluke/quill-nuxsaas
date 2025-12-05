@@ -2,7 +2,7 @@
 import { PLANS } from '~~/shared/utils/plans'
 
 definePageMeta({
-  layout: 'default'
+  layout: 'settings'
 })
 
 useHead({

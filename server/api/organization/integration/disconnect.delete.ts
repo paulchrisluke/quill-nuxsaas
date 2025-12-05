@@ -213,7 +213,8 @@ export default defineEventHandler(async (event) => {
     eq(member.organizationId, organizationId)
   )).limit(1)
 
-  if (membership.length === 0 || (membership[0].role !== 'owner' && membership[0].role !== 'admin')) {
+  const membershipRecord = membership[0]
+  if (!membershipRecord || (membershipRecord.role !== 'owner' && membershipRecord.role !== 'admin')) {
     throw createError({
       statusCode: 403,
       statusMessage: 'You do not have permission to manage integrations for this organization'
@@ -301,10 +302,17 @@ export default defineEventHandler(async (event) => {
     // Try to unlink using Better Auth's API
     // If that fails, manually delete from database as fallback
     try {
+      const [accountRecord] = accounts
+      if (!accountRecord) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: `Integration not found for provider: ${provider}`
+        })
+      }
       await auth.api.unlinkAccount({
         body: {
           providerId: provider,
-          accountId: accounts[0].accountId
+          accountId: accountRecord.accountId
         },
         headers: event.headers
       })
@@ -316,7 +324,10 @@ export default defineEventHandler(async (event) => {
         : error?.statusCode === 404 || error?.status === 'NOT_FOUND'
 
       if (isNotFound) {
-        await db.delete(schema.account).where(eq(schema.account.id, accounts[0].id))
+        const [accountRecord] = accounts
+        if (accountRecord) {
+          await db.delete(schema.account).where(eq(schema.account.id, accountRecord.id))
+        }
       } else {
         throw error
       }

@@ -72,7 +72,15 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const currentPriceId = subscription.items.data[0].price.id
+  const firstItem = subscription.items.data[0]
+  if (!firstItem?.price?.id) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Subscription is missing price information'
+    })
+  }
+
+  const currentPriceId = firstItem.price.id
   const monthlyPriceId = PLANS.PRO_MONTHLY.priceId
   const yearlyPriceId = PLANS.PRO_YEARLY.priceId
 
@@ -90,12 +98,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const quantity = subscription.items.data[0].quantity
+  const quantity = firstItem.quantity ?? 1
 
   // Upgrade (M -> Y): Immediate with Proration
   const updateParams: any = {
     items: [{
-      id: subscription.items.data[0].id,
+      id: firstItem.id,
       price: newPriceId,
       quantity
     }],

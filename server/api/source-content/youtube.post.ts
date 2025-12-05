@@ -60,6 +60,10 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  if (!upserted) {
+    throw createValidationError('Failed to store source content.')
+  }
+
   const ingested = await ingestYouTubeVideoAsSourceContent({
     db,
     sourceContentId: upserted.id,
@@ -67,6 +71,10 @@ export default defineEventHandler(async (event) => {
     userId: user.id,
     videoId
   })
+
+  if (!ingested) {
+    throw createValidationError('Failed to ingest YouTube video.')
+  }
 
   return {
     sourceContentId: ingested.id,

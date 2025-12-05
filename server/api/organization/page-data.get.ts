@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
 
     // Fetch organization and subscriptions in parallel
     // These endpoints handle their own auth checks
-    const activeOrgId = session?.session?.activeOrganizationId
+    const activeOrgId = (session?.session as { activeOrganizationId?: string } | undefined)?.activeOrganizationId
     if (!activeOrgId) {
       throw createError({
         statusCode: 400,

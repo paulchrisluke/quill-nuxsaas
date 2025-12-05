@@ -62,7 +62,9 @@ export default defineEventHandler(async (event) => {
         }
       }
 
-      orgId = meta?.organizationId
+      if (typeof meta !== 'string' && typeof meta.organizationId === 'string') {
+        orgId = meta.organizationId
+      }
     }
   } catch {
     // Ignore parse error

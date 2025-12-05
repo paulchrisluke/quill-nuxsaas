@@ -83,7 +83,14 @@ export default defineEventHandler(async (event) => {
       : PLANS.PRO_YEARLY.priceId
   }
 
-  const subscriptionItemId = subscription.items.data[0].id
+  const currentItem = subscription.items.data[0]
+  if (!currentItem?.id) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Subscription is missing item information'
+    })
+  }
+  const subscriptionItemId = currentItem.id
 
   // Update subscription params
   const updateParams: any = {
@@ -170,10 +177,10 @@ export default defineEventHandler(async (event) => {
 
   // Send updated email for seat/plan changes
   if (updatedSubscription.status === 'active') {
-    const previousSeats = subscription.items.data[0].quantity
-    const newSeats = updatedSubscription.items.data[0].quantity
+    const previousSeats = currentItem.quantity ?? seats
+    const newSeats = updatedSubscription.items?.data?.[0]?.quantity ?? seats
     await sendSubscriptionUpdatedEmail(organizationId, updatedSubscription, previousSeats, newSeats)
   }
 
-  return { success: true, seats: updatedSubscription.items.data[0].quantity }
+  return { success: true, seats: updatedSubscription.items?.data?.[0]?.quantity ?? seats }
 })

@@ -1,7 +1,7 @@
 import type { YouTubeTranscriptErrorData } from '~~/server/services/sourceContent/youtubeIngest'
 import type { ChatRequestBody } from '~~/server/types/api'
 import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import * as schema from '~~/server/database/schema'
 import {
   addLogEntryToChatSession,
@@ -11,6 +11,7 @@ import {
   getSessionMessages
 } from '~~/server/services/chatSession'
 import { generateContentDraftFromSource, updateContentSectionWithAI } from '~~/server/services/content/generation'
+import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
 import { ensureAccessToken, fetchYouTubeVideoMetadata, findYouTubeAccount, ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
@@ -38,6 +39,277 @@ function buildYouTubeTranscriptErrorMessage(errorData: YouTubeTranscriptErrorDat
   const suggestionText = suggestions.length ? ` ${suggestions.join(' ')}` : ''
 
   return `❌ Error: I can't get the transcript for this video. ${reason}${suggestionText}`
+}
+
+interface WorkspaceFilePayload {
+  id: string
+  filename: string
+  body: string
+  frontmatter: Record<string, any> | null
+  wordCount: number
+  sectionsCount: number
+  seoSnapshot: Record<string, any> | null
+  seoPlan: Record<string, any> | null
+  frontmatterKeywords: string[]
+  seoKeywords: string[]
+  tags: string[]
+  schemaTypes: string[]
+  generatorDetails: Record<string, any> | null
+  generatorStages: string[]
+  sourceDetails: typeof schema.sourceContent.$inferSelect | null
+  sourceLink: string | null
+  fullMdx: string
+}
+
+const FRONTMATTER_KEY_ORDER = [
+  'title',
+  'seoTitle',
+  'description',
+  'slug',
+  'contentType',
+  'targetLocale',
+  'status',
+  'primaryKeyword',
+  'keywords',
+  'tags',
+  'schemaTypes',
+  'sourceContentId'
+]
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .map(item => typeof item === 'string' ? item.trim() : '')
+    .filter((item): item is string => Boolean(item))
+}
+
+function formatScalar(value: any): string {
+  if (value == null) {
+    return ''
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (typeof value === 'string') {
+    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  }
+  return JSON.stringify(value)
+}
+
+function toYamlLines(value: any, indent = 0): string[] {
+  const prefix = '  '.repeat(indent)
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return [`${prefix}[]`]
+    }
+    return value.flatMap((entry) => {
+      if (entry && typeof entry === 'object') {
+        return [`${prefix}-`, ...toYamlLines(entry, indent + 1)]
+      }
+      return [`${prefix}- ${formatScalar(entry)}`]
+    })
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, any>)
+    if (!entries.length) {
+      return [`${prefix}{}`]
+    }
+    return entries.flatMap(([key, entry]) => {
+      if (entry && typeof entry === 'object') {
+        return [`${prefix}${key}:`, ...toYamlLines(entry, indent + 1)]
+      }
+      return [`${prefix}${key}: ${formatScalar(entry)}`]
+    })
+  }
+  return [`${prefix}${formatScalar(value)}`]
+}
+
+function orderFrontmatter(frontmatter: Record<string, any>) {
+  const ordered: Record<string, any> = {}
+  for (const key of FRONTMATTER_KEY_ORDER) {
+    if (frontmatter[key] !== undefined) {
+      ordered[key] = frontmatter[key]
+    }
+  }
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (ordered[key] === undefined) {
+      ordered[key] = value
+    }
+  }
+  return ordered
+}
+
+function buildFrontmatterBlock(frontmatter: Record<string, any> | null | undefined) {
+  if (!frontmatter || typeof frontmatter !== 'object') {
+    return '---\n---'
+  }
+  const filtered = Object.fromEntries(
+    Object.entries(frontmatter).filter(([, value]) => {
+      if (Array.isArray(value)) {
+        return value.length > 0
+      }
+      if (value && typeof value === 'object') {
+        return Object.keys(value).length > 0
+      }
+      return value !== null && value !== undefined && value !== ''
+    })
+  )
+  const ordered = orderFrontmatter(filtered)
+  const lines = toYamlLines(ordered)
+  return ['---', ...lines, '---'].join('\n')
+}
+
+function resolveFilePath(content: typeof schema.content.$inferSelect, version: typeof schema.contentVersion.$inferSelect) {
+  const frontmatterSlug = typeof version.frontmatter?.slug === 'string' ? version.frontmatter.slug : ''
+  const contentSlug = typeof content.slug === 'string' ? content.slug : ''
+  const slug = frontmatterSlug || contentSlug || 'draft'
+  const cleaned = slug
+    .replace(/^content\//, '')
+    .replace(/^\/+/, '')
+    .replace(/\.mdx$/i, '')
+  return `content/${cleaned}.mdx`
+}
+
+function resolveSourceLink(
+  sourceContent: typeof schema.sourceContent.$inferSelect | null,
+  assets: typeof schema.contentVersion.$inferSelect['assets']
+) {
+  const metadata = sourceContent?.metadata as Record<string, any> | undefined
+  if (metadata?.originalUrl) {
+    return metadata.originalUrl
+  }
+  if (sourceContent?.sourceType === 'youtube' && sourceContent.externalId) {
+    return `https://www.youtube.com/watch?v=${sourceContent.externalId}`
+  }
+  const assetSource = assets && typeof assets === 'object' ? (assets as any).source : null
+  if (assetSource?.originalUrl) {
+    return assetSource.originalUrl
+  }
+  return null
+}
+
+function toSummaryBullets(text: string | null | undefined) {
+  if (!text) {
+    return []
+  }
+  const normalized = text.replace(/\r/g, '').trim()
+  if (!normalized) {
+    return []
+  }
+  const newlineSplit = normalized.split(/\n+/).map(line => line.trim()).filter(Boolean)
+  if (newlineSplit.length > 1) {
+    return newlineSplit
+  }
+  const sentences = normalized.split(/(?<=[.!?])\s+/).map(line => line.trim()).filter(Boolean)
+  return sentences.length ? sentences : [normalized]
+}
+
+function buildWorkspaceFilesPayload(
+  content: typeof schema.content.$inferSelect,
+  version: typeof schema.contentVersion.$inferSelect,
+  sourceContent: typeof schema.sourceContent.$inferSelect | null
+): WorkspaceFilePayload[] {
+  const body = version.bodyMdx || version.bodyHtml || ''
+  const sections = Array.isArray(version.sections) ? version.sections : []
+  const frontmatter = version.frontmatter && typeof version.frontmatter === 'object'
+    ? version.frontmatter as Record<string, any>
+    : {}
+  const seoSnapshot = version.seoSnapshot && typeof version.seoSnapshot === 'object'
+    ? version.seoSnapshot as Record<string, any>
+    : null
+  const seoPlan = seoSnapshot && typeof seoSnapshot.plan === 'object' ? seoSnapshot.plan : null
+  const generatorDetails = version.assets && typeof version.assets === 'object' ? (version.assets as any).generator ?? null : null
+  const generatorStages = Array.isArray(generatorDetails?.stages)
+    ? generatorDetails.stages.filter((stage: any) => typeof stage === 'string').map((stage: string) => stage.trim()).filter(Boolean)
+    : []
+  const filename = resolveFilePath(content, version)
+  const frontmatterKeywords = normalizeStringArray(frontmatter.keywords || frontmatter.tags || [])
+  const tags = normalizeStringArray(frontmatter.tags)
+  const schemaTypes = normalizeStringArray(frontmatter.schemaTypes)
+  const seoKeywords = normalizeStringArray(seoPlan?.keywords)
+  const wordCount = sections.reduce((total, section: any) => {
+    const count = typeof section?.wordCount === 'number' ? section.wordCount : Number(section?.wordCount) || 0
+    return total + count
+  }, 0) || body.split(/\s+/).filter(Boolean).length
+  const frontmatterBlock = buildFrontmatterBlock(frontmatter)
+  const fullMdxParts = [frontmatterBlock, body].filter(Boolean)
+  const fullMdx = fullMdxParts.join('\n\n')
+
+  return [
+    {
+      id: version.id || filename,
+      filename,
+      body,
+      frontmatter,
+      wordCount,
+      sectionsCount: sections.length,
+      seoSnapshot,
+      seoPlan,
+      frontmatterKeywords,
+      seoKeywords,
+      tags,
+      schemaTypes,
+      generatorDetails,
+      generatorStages,
+      sourceDetails: sourceContent,
+      sourceLink: resolveSourceLink(sourceContent, version.assets),
+      fullMdx
+    }
+  ]
+}
+
+async function composeWorkspaceCompletionMessages(
+  db: Awaited<ReturnType<typeof useDB>>,
+  organizationId: string,
+  content: typeof schema.content.$inferSelect,
+  version: typeof schema.contentVersion.$inferSelect
+) {
+  const sourceContentId =
+    (version.frontmatter as Record<string, any> | null | undefined)?.sourceContentId
+    || content.sourceContentId
+    || (version.assets && typeof version.assets === 'object' ? (version.assets as any).source?.id : null)
+
+  let sourceContent: typeof schema.sourceContent.$inferSelect | null = null
+  if (sourceContentId) {
+    const [record] = await db
+      .select()
+      .from(schema.sourceContent)
+      .where(and(
+        eq(schema.sourceContent.id, sourceContentId),
+        eq(schema.sourceContent.organizationId, organizationId)
+      ))
+      .limit(1)
+    sourceContent = record ?? null
+  }
+
+  const workspaceSummary = buildWorkspaceSummary({
+    content,
+    currentVersion: version,
+    sourceContent
+  })
+  const summaryBullets = toSummaryBullets(workspaceSummary)
+  const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Draft updated.']).map(item => `- ${item}`)].join('\n')
+  const filesPayload = buildWorkspaceFilesPayload(content, version, sourceContent)
+  const filesText = ['**Files**', ...filesPayload.map(file => `- ${file.filename}`)].join('\n')
+
+  return {
+    summary: {
+      content: summaryText,
+      payload: {
+        type: 'workspace_summary',
+        summary: workspaceSummary || 'Draft updated.'
+      }
+    },
+    files: {
+      content: filesText,
+      payload: {
+        type: 'workspace_files',
+        files: filesPayload
+      }
+    }
+  }
 }
 
 export default defineEventHandler(async (event) => {
@@ -214,6 +486,7 @@ export default defineEventHandler(async (event) => {
 
   let generationResult: Awaited<ReturnType<typeof generateContentDraftFromSource>> | null = null
   let patchSectionResult: Awaited<ReturnType<typeof updateContentSectionWithAI>> | null = null
+  let completionMessages: Awaited<ReturnType<typeof composeWorkspaceCompletionMessages>> | null = null
 
   if (body.action?.type === 'generate_content') {
     if (!resolvedSourceContentId) {
@@ -260,29 +533,32 @@ export default defineEventHandler(async (event) => {
   }
 
   if (body.action?.type === 'generate_content') {
+    const generateAction = body.action
     let sanitizedSystemPrompt: string | undefined
-    if (body.action.systemPrompt !== undefined) {
-      const trimmed = validateRequiredString(body.action.systemPrompt, 'systemPrompt')
+    if (generateAction.systemPrompt !== undefined) {
+      const trimmed = validateRequiredString(generateAction.systemPrompt, 'systemPrompt')
       sanitizedSystemPrompt = trimmed.length > 2000 ? trimmed.slice(0, 2000) : trimmed
     }
 
     let sanitizedTemperature = 1
-    if (body.action.temperature !== undefined && body.action.temperature !== null) {
-      sanitizedTemperature = validateNumber(body.action.temperature, 'temperature', 0, 2)
+    if (generateAction.temperature !== undefined && generateAction.temperature !== null) {
+      sanitizedTemperature = validateNumber(generateAction.temperature, 'temperature', 0, 2)
     }
+
+    const planPreviewSessionId = session.id
 
     generationResult = await generateContentDraftFromSource(db, {
       organizationId,
       userId: user.id,
       sourceContentId: resolvedSourceContentId,
-      contentId: body.action.contentId ?? null,
+      contentId: generateAction.contentId ?? null,
       overrides: {
-        title: body.action.title ? validateRequiredString(body.action.title, 'title') : null,
-        slug: body.action.slug ? validateRequiredString(body.action.slug, 'slug') : null,
-        status: body.action.status ? validateEnum(body.action.status, CONTENT_STATUSES, 'status') : undefined,
-        primaryKeyword: body.action.primaryKeyword ? validateRequiredString(body.action.primaryKeyword, 'primaryKeyword') : null,
-        targetLocale: body.action.targetLocale ? validateRequiredString(body.action.targetLocale, 'targetLocale') : null,
-        contentType: body.action.contentType ? validateEnum(body.action.contentType, CONTENT_TYPES, 'contentType') : undefined
+        title: generateAction.title ? validateRequiredString(generateAction.title, 'title') : null,
+        slug: generateAction.slug ? validateRequiredString(generateAction.slug, 'slug') : null,
+        status: generateAction.status ? validateEnum(generateAction.status, CONTENT_STATUSES, 'status') : undefined,
+        primaryKeyword: generateAction.primaryKeyword ? validateRequiredString(generateAction.primaryKeyword, 'primaryKeyword') : null,
+        targetLocale: generateAction.targetLocale ? validateRequiredString(generateAction.targetLocale, 'targetLocale') : null,
+        contentType: generateAction.contentType ? validateEnum(generateAction.contentType, CONTENT_TYPES, 'contentType') : undefined
       },
       systemPrompt: sanitizedSystemPrompt,
       temperature: sanitizedTemperature,
@@ -294,7 +570,7 @@ export default defineEventHandler(async (event) => {
           })
           .join('\n')
         const schemaSummary = frontmatter.schemaTypes.join(', ')
-        const contentTypeLabel = body.action?.contentType || 'content'
+        const contentTypeLabel = generateAction.contentType || 'content'
         const summaryLines = [
           `Plan preview before drafting the full ${contentTypeLabel}:`,
           `Title: ${frontmatter.title ?? 'Untitled draft'}`,
@@ -304,7 +580,7 @@ export default defineEventHandler(async (event) => {
           'Tell me if you want any tweaks to this outline—or hit “Start draft in workspace” when you’re ready for the full article.'
         ]
         await addMessageToChatSession(db, {
-          sessionId: session.id,
+          sessionId: planPreviewSessionId,
           organizationId,
           role: 'assistant',
           content: summaryLines.join('\n\n'),
@@ -316,6 +592,15 @@ export default defineEventHandler(async (event) => {
         })
       }
     })
+
+    if (generationResult) {
+      completionMessages = await composeWorkspaceCompletionMessages(
+        db,
+        organizationId,
+        generationResult.content,
+        generationResult.version
+      )
+    }
   }
 
   if (body.action?.type === 'patch_section') {
@@ -337,6 +622,15 @@ export default defineEventHandler(async (event) => {
       instructions,
       temperature
     })
+
+    if (patchSectionResult) {
+      completionMessages = await composeWorkspaceCompletionMessages(
+        db,
+        organizationId,
+        patchSectionResult.content,
+        patchSectionResult.version
+      )
+    }
 
     await addLogEntryToChatSession(db, {
       sessionId: session.id,
@@ -386,19 +680,25 @@ export default defineEventHandler(async (event) => {
   }
 
   if (processedSources.length > 0) {
-    await addLogEntryToChatSession(db, {
-      sessionId: session.id,
-      organizationId,
-      type: 'source_detected',
-      message: `Detected ${processedSources.length} source link${processedSources.length > 1 ? 's' : ''}`,
-      payload: {
-        sources: processedSources.map(item => ({
-          id: item.source.id,
-          sourceType: item.sourceType,
-          url: item.url
-        }))
-      }
-    })
+    const sourcePayload = processedSources
+      .filter((item): item is typeof item & { source: NonNullable<typeof item.source> } => Boolean(item.source))
+      .map(item => ({
+        id: item.source.id,
+        sourceType: item.sourceType,
+        url: item.url
+      }))
+
+    if (sourcePayload.length) {
+      await addLogEntryToChatSession(db, {
+        sessionId: session.id,
+        organizationId,
+        type: 'source_detected',
+        message: `Detected ${sourcePayload.length} source link${sourcePayload.length > 1 ? 's' : ''}`,
+        payload: {
+          sources: sourcePayload
+        }
+      })
+    }
   }
 
   if (generationResult) {
@@ -535,6 +835,26 @@ Keep it concise (2-3 sentences) and conversational.`
       organizationId,
       role: 'assistant',
       content: assistantMessageBody
+    })
+  }
+
+  if (completionMessages?.summary) {
+    await addMessageToChatSession(db, {
+      sessionId: session.id,
+      organizationId,
+      role: 'assistant',
+      content: completionMessages.summary.content,
+      payload: completionMessages.summary.payload
+    })
+  }
+
+  if (completionMessages?.files) {
+    await addMessageToChatSession(db, {
+      sessionId: session.id,
+      organizationId,
+      role: 'assistant',
+      content: completionMessages.files.content,
+      payload: completionMessages.files.payload
     })
   }
 
