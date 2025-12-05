@@ -52,6 +52,7 @@ const selectedContentTypeOption = computed(() => {
 const linkedSources = ref<Array<{ id: string, type: 'transcript', value: string }>>([])
 const MAX_USER_MESSAGE_LENGTH = 500
 const LONG_PRESS_DELAY_MS = 500
+const LONG_PRESS_MOVE_THRESHOLD_PX = 10
 
 const { copy } = useClipboard()
 const toast = useToast()
@@ -60,6 +61,25 @@ const runtimeConfig = useRuntimeConfig()
 const messageActionSheetOpen = ref(false)
 const messageActionSheetTarget = ref<ChatMessage | null>(null)
 let longPressTimeout: ReturnType<typeof setTimeout> | null = null
+let longPressStartPosition: { x: number, y: number } | null = null
+
+function getEventCoordinates(event?: Event | null) {
+  if (!event)
+    return null
+
+  if ('touches' in event) {
+    const touch = event.touches?.[0]
+    if (!touch)
+      return null
+    return { x: touch.clientX, y: touch.clientY }
+  }
+
+  if ('clientX' in event && 'clientY' in event) {
+    return { x: event.clientX, y: event.clientY }
+  }
+
+  return null
+}
 
 const parseDraftLimitValue = (value: unknown, fallback: number) => {
   if (typeof value === 'number' && Number.isFinite(value))
@@ -796,6 +816,7 @@ function startMessageLongPress(message: ChatMessage, event?: Event) {
     event.stopPropagation()
   }
   clearMessageLongPress()
+  longPressStartPosition = getEventCoordinates(event)
   longPressTimeout = setTimeout(() => {
     openMessageActions(message)
   }, LONG_PRESS_DELAY_MS)
@@ -805,6 +826,25 @@ function clearMessageLongPress() {
   if (longPressTimeout) {
     clearTimeout(longPressTimeout)
     longPressTimeout = null
+  }
+  longPressStartPosition = null
+}
+
+function handleMessageLongPressMove(event: Event) {
+  if (!longPressTimeout || !longPressStartPosition) {
+    return
+  }
+
+  const coordinates = getEventCoordinates(event)
+  if (!coordinates) {
+    return
+  }
+
+  const deltaX = Math.abs(coordinates.x - longPressStartPosition.x)
+  const deltaY = Math.abs(coordinates.y - longPressStartPosition.y)
+
+  if (deltaX > LONG_PRESS_MOVE_THRESHOLD_PX || deltaY > LONG_PRESS_MOVE_THRESHOLD_PX) {
+    clearMessageLongPress()
   }
 }
 
@@ -948,9 +988,11 @@ if (import.meta.client) {
                   class="whitespace-pre-line"
                   :class="{ 'cursor-pointer select-text': message.role === 'user' }"
                   @touchstart.passive="startMessageLongPress(message, $event)"
+                  @touchmove.passive="handleMessageLongPressMove"
                   @touchend.passive="clearMessageLongPress"
                   @touchcancel.passive="clearMessageLongPress"
                   @mousedown="startMessageLongPress(message, $event)"
+                  @mousemove="handleMessageLongPressMove"
                   @mouseup="clearMessageLongPress"
                   @mouseleave="clearMessageLongPress"
                   @contextmenu.prevent="handleUserMessageContextMenu(message, $event)"
