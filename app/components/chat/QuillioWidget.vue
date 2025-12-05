@@ -223,6 +223,9 @@ const MAX_AUTO_DRAFT_RETRIES = 3
 const AUTO_DRAFT_COOLDOWN_MS = 5000 // 5 seconds
 
 const createDraftCta = computed(() => {
+  if (draftQuotaUsage.value?.unlimited) {
+    return 'Create draft'
+  }
   if (hasReachedDraftQuota.value) {
     return loggedIn.value ? 'Upgrade to keep drafting' : 'Create an account to keep drafting'
   }
@@ -258,6 +261,19 @@ const handleWhatsNewSelect = (payload: { id: 'youtube' | 'transcript' | 'seo', c
 
 const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
   const fallback = draftQuotaUsage.value
+
+  // Preserve unlimited plan semantics when there is no explicit override
+  if (!payload && fallback?.unlimited) {
+    quotaModalData.value = {
+      limit: null,
+      used: fallback.used ?? null,
+      remaining: fallback.remaining ?? null,
+      planLabel: fallback.label ?? quotaPlanLabel.value ?? null
+    }
+    showQuotaModal.value = true
+    return
+  }
+
   const baseLimit = typeof payload?.limit === 'number'
     ? payload.limit
     : (typeof fallback?.limit === 'number' ? fallback.limit : null)
@@ -281,6 +297,9 @@ const quotaModalMessage = computed(() => {
   if (!loggedIn.value) {
     return `Make an account to unlock ${verifiedDraftLimit.value} total drafts or archive drafts to continue writing.`
   }
+  if (draftQuotaUsage.value?.unlimited) {
+    return 'Your current plan includes unlimited drafts.'
+  }
   return 'Starter plans have a draft limit. Upgrade to unlock unlimited drafts or archive drafts to continue writing.'
 })
 
@@ -297,7 +316,13 @@ const quotaModalTitle = computed(() => {
   return loggedIn.value ? 'Upgrade to unlock more drafts.' : 'Create an account for more drafts.'
 })
 
-const quotaPrimaryLabel = computed(() => loggedIn.value ? 'Upgrade' : 'Sign up')
+const quotaPrimaryLabel = computed(() => {
+  if (!loggedIn.value)
+    return 'Sign up'
+  if (draftQuotaUsage.value?.unlimited)
+    return 'Close'
+  return 'Upgrade'
+})
 
 const handleQuotaBadgeClick = () => {
   openQuotaModal()
@@ -305,6 +330,10 @@ const handleQuotaBadgeClick = () => {
 
 const handleQuotaModalPrimary = () => {
   showQuotaModal.value = false
+  if (draftQuotaUsage.value?.unlimited) {
+    // For unlimited plans, just close the modal
+    return
+  }
   if (loggedIn.value) {
     showUpgradeModal.value = true
     return
