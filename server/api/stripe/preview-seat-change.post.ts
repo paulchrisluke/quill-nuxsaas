@@ -123,8 +123,14 @@ export default defineEventHandler(async (event) => {
       : PLANS.PRO_YEARLY.priceId
   }
 
-  const subscriptionItemId = subscription.items.data[0].id
   const currentItem = subscription.items.data[0]
+  if (!currentItem?.id || !currentItem.price?.id) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Subscription is missing price information'
+    })
+  }
+  const subscriptionItemId = currentItem.id
   const priceId = newPriceId || currentItem.price.id
 
   // Use Stripe SDK v20 - createPreview supports flexible billing mode

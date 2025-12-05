@@ -7,7 +7,7 @@
 import { useClipboard } from '@vueuse/core'
 
 definePageMeta({
-  layout: 'default'
+  layout: 'settings'
 })
 
 useHead({

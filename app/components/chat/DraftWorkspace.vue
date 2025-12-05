@@ -99,6 +99,26 @@ interface ContentChatLog {
   createdAt: string | Date
 }
 
+interface WorkspaceFilePayload {
+  id: string
+  filename: string
+  body: string
+  frontmatter: Record<string, any> | null
+  wordCount: number
+  sectionsCount: number
+  seoSnapshot: Record<string, any> | null
+  seoPlan: Record<string, any> | null
+  frontmatterKeywords: string[]
+  seoKeywords: string[]
+  tags: string[]
+  schemaTypes: string[]
+  generatorDetails: ContentVersion['assets'] extends { generator?: infer T } ? T : null
+  generatorStages: string[]
+  sourceDetails: SourceContent | null
+  sourceLink: string | null
+  fullMdx: string
+}
+
 interface ContentResponse {
   content: ContentEntity
   currentVersion?: ContentVersion | null
@@ -106,6 +126,7 @@ interface ContentResponse {
   chatSession?: ContentChatSession | null
   chatMessages?: ContentChatMessage[] | null
   chatLogs?: ContentChatLog[] | null
+  workspaceSummary?: string | null
 }
 
 const props = withDefaults(defineProps<{
@@ -448,7 +469,6 @@ const contentDisplayTitle = computed(() => frontmatter.value?.seoTitle || frontm
 const seoSnapshot = computed(() => currentVersion.value?.seoSnapshot || null)
 const generatorDetails = computed(() => currentVersion.value?.assets?.generator || null)
 const generatorStages = computed(() => normalizeStringList(generatorDetails.value?.stages))
-const sourceAsset = computed(() => currentVersion.value?.assets?.source || null)
 const frontmatterTags = computed(() => normalizeStringList(frontmatter.value?.tags))
 const schemaTypes = computed(() => normalizeStringList(frontmatter.value?.schemaTypes))
 
@@ -459,7 +479,7 @@ const _seoPlan = computed(() => {
 })
 
 const seoKeywords = computed(() => normalizeStringList(_seoPlan.value?.keywords))
-
+const frontmatterKeywords = computed(() => normalizeStringList(frontmatter.value?.keywords))
 const sections = computed(() => {
   const sectionsData = currentVersion.value?.sections
   if (!Array.isArray(sectionsData)) {
@@ -490,32 +510,14 @@ const sections = computed(() => {
   }).sort((a, b) => a.index - b.index)
 })
 
-const sectionsMessage = computed<ChatMessage | null>(() => {
-  if (!sections.value.length) {
-    return null
-  }
-  const timestamp = toDate(contentRecord.value?.updatedAt || new Date()) || new Date()
-  return {
-    id: 'sections-overview',
-    role: 'assistant',
-    parts: [{ type: 'text', text: 'Sections overview' }],
-    createdAt: timestamp,
-    payload: {
-      type: 'sections_overview',
-      sections: sections.value.map(section => ({
-        id: section.id,
-        title: section.title,
-        summary: section.summary,
-        level: section.level,
-        wordCount: section.wordCount,
-        type: section.type,
-        anchor: section.anchor,
-        body: section.body
-      }))
-    }
-  }
-})
-const displayMessages = computed(() => sectionsMessage.value ? [...messages.value, sectionsMessage.value] : messages.value)
+const mentionableSections = computed(() => sections.value.map(section => ({
+  id: section.id,
+  title: section.title,
+  anchor: section.anchor,
+  summary: section.summary || null,
+  preview: section.body?.slice(0, 200)?.trim() || ''
+})))
+const messageBodyClass = 'text-[15px] leading-6 text-muted-800 dark:text-muted-100'
 
 // Date formatting utilities (must be declared before computed properties)
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -541,17 +543,6 @@ const contentUpdatedAtLabel = computed(() => {
   return value ? formatDate(value) : '—'
 })
 
-const _sourceLink = computed(() => {
-  const metadata = sourceDetails.value?.metadata as Record<string, any> | null
-  if (metadata && typeof metadata.originalUrl === 'string') {
-    return metadata.originalUrl
-  }
-  if (sourceDetails.value?.sourceType === 'youtube' && sourceDetails.value?.externalId) {
-    return `https://www.youtube.com/watch?v=${sourceDetails.value.externalId}`
-  }
-  return null
-})
-
 const diffStats = computed(() => {
   const versionStats = currentVersion.value?.diffStats
   const fmStats = frontmatter.value?.diffStats as { additions?: number, deletions?: number } | undefined
@@ -563,11 +554,10 @@ const diffStats = computed(() => {
   }
 })
 
-type ViewTabValue = 'summary' | 'diff' | 'metadata'
+type ViewTabValue = 'summary' | 'source'
 const viewTabs: { label: string, value: ViewTabValue }[] = [
   { label: 'Summary', value: 'summary' },
-  { label: 'Raw MDX', value: 'diff' },
-  { label: 'Metadata', value: 'metadata' }
+  { label: 'MDX Source', value: 'source' }
 ]
 
 const activeViewTab = ref<ViewTabValue>('summary')
@@ -649,6 +639,136 @@ function normalizeStringList(value: unknown): string[] {
   return value
     .map(item => typeof item === 'string' ? item.trim() : '')
     .filter((item): item is string => Boolean(item && item.length))
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function formatScalar(value: any): string {
+  if (value == null) {
+    return ''
+  }
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (typeof value === 'string') {
+    const escaped = value.replace(/"/g, '\\"')
+    return `"${escaped}"`
+  }
+  return JSON.stringify(value)
+}
+
+function toYamlLines(value: any, indent = 0): string[] {
+  const prefix = '  '.repeat(indent)
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return [`${prefix}[]`]
+    }
+    return value.flatMap((entry) => {
+      if (isPlainObject(entry) || Array.isArray(entry)) {
+        const firstLine = `${prefix}-`
+        const nested = toYamlLines(entry, indent + 1)
+        return [firstLine, ...nested]
+      }
+      return [`${prefix}- ${formatScalar(entry)}`]
+    })
+  }
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value)
+    if (!entries.length) {
+      return [`${prefix}{}`]
+    }
+    return entries.flatMap(([key, entry]) => {
+      if (isPlainObject(entry) || Array.isArray(entry)) {
+        return [
+          `${prefix}${key}:`,
+          ...toYamlLines(entry, indent + 1)
+        ]
+      }
+      return [`${prefix}${key}: ${formatScalar(entry)}`]
+    })
+  }
+  return [`${prefix}${formatScalar(value)}`]
+}
+
+const FRONTMATTER_KEY_ORDER = [
+  'title',
+  'seoTitle',
+  'description',
+  'slug',
+  'contentType',
+  'content_type',
+  'targetLocale',
+  'locale',
+  'status',
+  'primaryKeyword',
+  'keywords',
+  'tags',
+  'schemaTypes',
+  'sourceContentId',
+  'source_content_id',
+  'wordCount',
+  'version',
+  'createdAt',
+  'updatedAt'
+]
+
+function orderFrontmatter(frontmatter: Record<string, any>) {
+  const orderedEntries: [string, any][] = []
+  const seen = new Set<string>()
+  for (const key of FRONTMATTER_KEY_ORDER) {
+    if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+      orderedEntries.push([key, frontmatter[key]])
+      seen.add(key)
+    }
+  }
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (seen.has(key)) {
+      continue
+    }
+    orderedEntries.push([key, value])
+  }
+  return Object.fromEntries(orderedEntries)
+}
+
+function buildFrontmatterBlock(frontmatter: Record<string, any> | null | undefined) {
+  if (!frontmatter || !isPlainObject(frontmatter)) {
+    return '---\n---'
+  }
+  const filtered = Object.fromEntries(
+    Object.entries(frontmatter).filter(([, value]) => {
+      if (Array.isArray(value)) {
+        return value.length > 0
+      }
+      if (value && typeof value === 'object') {
+        return Object.keys(value).length > 0
+      }
+      return value !== null && value !== undefined && value !== ''
+    })
+  )
+  const ordered = orderFrontmatter(filtered)
+  const lines = toYamlLines(ordered)
+  return ['---', ...lines, '---'].join('\n')
+}
+
+function toSummaryBullets(summary: string | null | undefined) {
+  if (!summary) {
+    return []
+  }
+  const normalized = summary.replace(/\r/g, '').trim()
+  if (!normalized) {
+    return []
+  }
+  const newlineSplit = normalized.split(/\n+/).map(line => line.trim()).filter(Boolean)
+  if (newlineSplit.length > 1) {
+    return newlineSplit
+  }
+  const sentences = normalized.split(/(?<=[.!?])\s+/).map(line => line.trim()).filter(Boolean)
+  return sentences.length ? sentences : [normalized]
 }
 
 const selectedSectionId = ref<string | null>(null)
@@ -848,8 +968,8 @@ onBeforeUnmount(() => {
         />
 
         <div class="flex-1 flex flex-col gap-4">
-          <UChatMessages
-            :messages="displayMessages"
+            <UChatMessages
+              :messages="messages"
             :status="uiStatus"
             should-auto-scroll
             :assistant="{
@@ -858,14 +978,14 @@ onBeforeUnmount(() => {
                   label: 'Copy',
                   icon: 'i-lucide-copy',
                   onClick: (e, message) => handleCopy(message as ChatMessage)
-                },
-                {
-                  label: 'Regenerate',
-                  icon: 'i-lucide-rotate-ccw',
-                  onClick: (e, message) => handleRegenerate(message as ChatMessage)
-                }
-              ]
-            }"
+                  },
+                  {
+                    label: 'Regenerate',
+                    icon: 'i-lucide-rotate-ccw',
+                    onClick: (e, message) => handleRegenerate(message as ChatMessage)
+                  }
+                ]
+              }"
             :user="{
               actions: [
                 {
@@ -873,77 +993,75 @@ onBeforeUnmount(() => {
                   icon: 'i-lucide-copy',
                   onClick: (e, message) => handleCopy(message as ChatMessage)
                 },
-                {
-                  label: 'Send again',
-                  icon: 'i-lucide-send',
-                  onClick: (e, message) => handleSendAgain(message as ChatMessage)
-                }
-              ]
-            }"
+                  {
+                    label: 'Send again',
+                    icon: 'i-lucide-send',
+                    onClick: (e, message) => handleSendAgain(message as ChatMessage)
+                  }
+                ]
+              }"
           >
             <template #content="{ message }">
               <div
-                v-if="message.payload?.type === 'sections_overview' && Array.isArray(message.payload.sections)"
+                v-if="message.payload?.type === 'workspace_summary'"
+                :class="[messageBodyClass, 'space-y-2']"
+              >
+                <p class="font-semibold">
+                  Summary
+                </p>
+                <ul
+                  class="list-disc pl-5 space-y-1"
+                  :class="messageBodyClass"
+                >
+                  <li
+                    v-for="(item, index) in toSummaryBullets(message.payload.summary)"
+                    :key="index"
+                  >
+                    {{ item }}
+                  </li>
+                </ul>
+              </div>
+              <div
+                v-else-if="message.payload?.type === 'workspace_files' && Array.isArray(message.payload.files)"
                 class="space-y-3"
               >
-                <p class="text-sm font-semibold">
-                  Sections overview
+                <p class="text-xs uppercase tracking-wide text-muted-500">
+                  Files
                 </p>
                 <UAccordion
-                  :items="message.payload.sections.map((section: ContentVersionSection) => ({ value: section.id, section }))"
+                  :items="message.payload.files.map(file => ({ value: file.id, file }))"
                   type="single"
                   collapsible
                   :ui="{ root: 'space-y-2' }"
                 >
                   <template #default="{ item }">
-                    <div
-                      class="flex items-center justify-between gap-3 py-2"
-                      :class="{ 'text-primary-600': selectedSectionId === item.section.id }"
-                    >
+                    <div class="flex items-center justify-between gap-3 py-2">
                       <div class="min-w-0">
                         <p class="font-medium truncate">
-                          {{ item.section.title }}
+                          {{ item.file.filename }}
+                        </p>
+                        <p class="text-xs text-muted-500">
+                          {{ item.file.sectionsCount }} {{ item.file.sectionsCount === 1 ? 'section' : 'sections' }}
+                          · {{ item.file.wordCount }} words
                         </p>
                       </div>
                       <UBadge
                         size="xs"
-                        :color="selectedSectionId === item.section.id ? 'primary' : 'neutral'"
-                        class="capitalize"
+                        color="neutral"
+                        variant="soft"
                       >
-                        {{ selectedSectionId === item.section.id ? 'Active' : item.section.type }}
+                        MDX
                       </UBadge>
                     </div>
                   </template>
                   <template #content="{ item }">
-                    <div class="space-y-2 text-sm">
-                      <p
-                        v-if="item.section.summary"
-                        class="text-muted-500"
-                      >
-                        {{ item.section.summary }}
+                    <div class="space-y-3 text-sm">
+                      <p class="text-xs uppercase tracking-wide text-muted-500">
+                        Full MDX
                       </p>
-                      <p class="whitespace-pre-line">
-                        {{ item.section.body?.slice(0, 280) }}{{ item.section.body?.length > 280 ? '…' : '' }}
-                      </p>
-                      <div class="flex flex-wrap items-center gap-2 pt-1">
-                        <UBadge
-                          size="xs"
-                          color="primary"
-                          variant="subtle"
-                          class="cursor-pointer"
-                          @click.stop="insertSectionReference(item.section.id)"
-                        >
-                          @{{ item.section.anchor }}
-                        </UBadge>
-                        <UButton
-                          size="xs"
-                          variant="ghost"
-                          icon="i-lucide-target"
-                          @click.stop="setActiveSection(item.section.id)"
-                        >
-                          Set active
-                        </UButton>
-                      </div>
+                      <pre class="whitespace-pre-wrap text-xs bg-muted px-3 py-2 rounded-md overflow-x-auto max-h-[500px]">
+{{ item.file.fullMdx }}
+                      </pre>
                     </div>
                   </template>
                 </UAccordion>
@@ -951,8 +1069,9 @@ onBeforeUnmount(() => {
               <div
                 v-else
                 class="whitespace-pre-line"
+                :class="messageBodyClass"
               >
-                {{ message.parts[0]?.text }}
+                {{ message.parts?.[0]?.text || message.content }}
               </div>
             </template>
           </UChatMessages>
@@ -961,6 +1080,8 @@ onBeforeUnmount(() => {
             <PromptComposer
               v-model="prompt"
               placeholder="Describe the change you want..."
+              hint="Type @ to mention a file section."
+              :sections="mentionableSections"
               :disabled="
                 chatIsBusy
                   || chatStatus === 'submitted'
@@ -975,14 +1096,14 @@ onBeforeUnmount(() => {
       </div>
 
       <div
-        v-else-if="activeViewTab === 'diff'"
+        v-else-if="activeViewTab === 'source'"
         class="space-y-4"
       >
         <UCard v-if="hasGeneratedContent">
           <template #header>
             <div class="flex items-center justify-between">
               <p class="text-lg font-semibold">
-                Draft body (MDX)
+                MDX source
               </p>
               <UBadge
                 v-if="currentVersion?.version"
@@ -1003,267 +1124,6 @@ onBeforeUnmount(() => {
           variant="soft"
           icon="i-lucide-info"
           description="No diff output yet."
-        />
-      </div>
-
-      <div
-        v-else
-        class="space-y-4"
-      >
-        <UCard v-if="frontmatter">
-          <template #header>
-            <div class="text-lg font-semibold">
-              Frontmatter details
-            </div>
-          </template>
-          <div class="space-y-4 text-sm">
-            <div>
-              <p class="text-xs uppercase tracking-wide text-muted-500">
-                Description
-              </p>
-              <p class="text-muted-700 dark:text-muted-200 whitespace-pre-line">
-                {{ frontmatter?.description || '—' }}
-              </p>
-            </div>
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Content type
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ frontmatter?.contentType || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Target locale
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ frontmatter?.targetLocale || '—' }}
-                </p>
-              </div>
-            </div>
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Primary keyword
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ frontmatter?.primaryKeyword || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Source content ID
-                </p>
-                <p class="font-mono text-xs text-muted-700 dark:text-muted-200 break-all">
-                  {{ frontmatter?.sourceContentId || sourceDetails?.id || sourceAsset?.id || '—' }}
-                </p>
-              </div>
-            </div>
-            <div
-              v-if="frontmatterTags.length"
-              class="space-y-2"
-            >
-              <p class="text-xs uppercase tracking-wide text-muted-500">
-                Tags
-              </p>
-              <div class="flex flex-wrap gap-1.5">
-                <UBadge
-                  v-for="tag in frontmatterTags"
-                  :key="tag"
-                  size="xs"
-                  color="neutral"
-                >
-                  {{ tag }}
-                </UBadge>
-              </div>
-            </div>
-            <div
-              v-if="schemaTypes.length"
-              class="space-y-2"
-            >
-              <p class="text-xs uppercase tracking-wide text-muted-500">
-                Schema types
-              </p>
-              <div class="flex flex-wrap gap-1.5">
-                <UBadge
-                  v-for="schema in schemaTypes"
-                  :key="schema"
-                  size="xs"
-                  color="primary"
-                  variant="subtle"
-                >
-                  {{ schema }}
-                </UBadge>
-              </div>
-            </div>
-          </div>
-        </UCard>
-
-        <UCard v-if="seoSnapshot">
-          <template #header>
-            <div class="text-lg font-semibold">
-              SEO snapshot
-            </div>
-          </template>
-          <div class="space-y-4 text-sm">
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Plan title
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ _seoPlan?.title || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Slug suggestion
-                </p>
-                <p class="font-mono text-xs text-muted-700 dark:text-muted-200 break-all">
-                  {{ _seoPlan?.slugSuggestion || frontmatter?.slug || '—' }}
-                </p>
-              </div>
-            </div>
-            <div>
-              <p class="text-xs uppercase tracking-wide text-muted-500">
-                Description
-              </p>
-              <p class="text-muted-700 dark:text-muted-200 whitespace-pre-line">
-                {{ _seoPlan?.description || seoSnapshot?.description || '—' }}
-              </p>
-            </div>
-            <div
-              v-if="seoKeywords.length"
-              class="space-y-2"
-            >
-              <p class="text-xs uppercase tracking-wide text-muted-500">
-                Keywords
-              </p>
-              <div class="flex flex-wrap gap-1.5">
-                <UBadge
-                  v-for="keyword in seoKeywords"
-                  :key="keyword"
-                  size="xs"
-                  color="success"
-                  variant="subtle"
-                >
-                  {{ keyword }}
-                </UBadge>
-              </div>
-            </div>
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Primary keyword
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ seoSnapshot?.primaryKeyword || frontmatter?.primaryKeyword || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Schema types
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ (seoSnapshot?.schemaTypes || schemaTypes).join(', ') || '—' }}
-                </p>
-              </div>
-            </div>
-          </div>
-        </UCard>
-
-        <UCard v-if="generatorDetails || generatorStages.length || sourceDetails">
-          <template #header>
-            <div class="text-lg font-semibold">
-              Pipeline & source
-            </div>
-          </template>
-          <div class="space-y-4 text-sm">
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Engine
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ generatorDetails?.engine || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Generated at
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ generatorDetails?.generatedAt ? formatDate(generatorDetails.generatedAt) : '—' }}
-                </p>
-              </div>
-            </div>
-            <div
-              v-if="generatorStages.length"
-              class="space-y-2"
-            >
-              <p class="text-xs uppercase tracking-wide text-muted-500">
-                Pipeline stages
-              </p>
-              <div class="flex flex-wrap gap-1.5">
-                <UBadge
-                  v-for="stage in generatorStages"
-                  :key="stage"
-                  size="xs"
-                  color="info"
-                  variant="subtle"
-                  class="capitalize"
-                >
-                  {{ stage }}
-                </UBadge>
-              </div>
-            </div>
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Source type
-                </p>
-                <p class="text-muted-700 dark:text-muted-200 capitalize">
-                  {{ sourceDetails?.sourceType || sourceAsset?.type || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  External ID
-                </p>
-                <p class="font-mono text-xs text-muted-700 dark:text-muted-200 break-all">
-                  {{ sourceDetails?.externalId || sourceAsset?.externalId || '—' }}
-                </p>
-              </div>
-            </div>
-            <div class="grid gap-3">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Source status
-                </p>
-                <p class="text-muted-700 dark:text-muted-200 capitalize">
-                  {{ sourceDetails?.ingestStatus || '—' }}
-                </p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-wide text-muted-500">
-                  Source created
-                </p>
-                <p class="text-muted-700 dark:text-muted-200">
-                  {{ sourceDetails?.createdAt ? formatDate(sourceDetails.createdAt) : '—' }}
-                </p>
-              </div>
-            </div>
-          </div>
-        </UCard>
-
-        <UAlert
-          v-if="!frontmatter && !seoSnapshot && !generatorDetails"
-          color="neutral"
-          variant="soft"
-          icon="i-lucide-info"
-          description="Metadata will appear once a draft version has been generated."
         />
       </div>
     </section>

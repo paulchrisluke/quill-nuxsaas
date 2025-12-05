@@ -41,14 +41,16 @@ export default defineEventHandler(async (event) => {
     eq(schema.member.organizationId, organizationId)
   )).limit(1)
 
-  if (membership.length === 0) {
+  const membershipRecord = membership[0]
+
+  if (!membershipRecord) {
     throw createError({
       statusCode: 403,
       statusMessage: 'You do not have permission to view this organization'
     })
   }
 
-  if (membership[0].role !== 'owner' && membership[0].role !== 'admin') {
+  if (membershipRecord.role !== 'owner' && membershipRecord.role !== 'admin') {
     throw createError({
       statusCode: 403,
       statusMessage: 'You do not have permission to view diagnostics'

@@ -16,17 +16,25 @@ export default defineEventHandler(async (event) => {
 
   const query = getQuery(event)
   const sourceType = typeof query.sourceType === 'string' ? query.sourceType : undefined
-  const ingestStatus = typeof query.ingestStatus === 'string' ? query.ingestStatus : undefined
+  const ingestStatusRaw = typeof query.ingestStatus === 'string' ? query.ingestStatus : undefined
+  type IngestStatus = (typeof schema.ingestStatusEnum)['enumValues'][number]
+  const ingestStatus = ingestStatusRaw && (schema.ingestStatusEnum.enumValues as readonly string[]).includes(ingestStatusRaw)
+    ? ingestStatusRaw as IngestStatus
+    : undefined
 
-  let whereClause = eq(schema.sourceContent.organizationId, organizationId)
+  const whereClauses = [
+    eq(schema.sourceContent.organizationId, organizationId)
+  ]
 
   if (sourceType) {
-    whereClause = and(whereClause, eq(schema.sourceContent.sourceType, sourceType))
+    whereClauses.push(eq(schema.sourceContent.sourceType, sourceType))
   }
 
   if (ingestStatus) {
-    whereClause = and(whereClause, eq(schema.sourceContent.ingestStatus, ingestStatus))
+    whereClauses.push(eq(schema.sourceContent.ingestStatus, ingestStatus))
   }
+
+  const whereClause = whereClauses.length > 1 ? (and(...whereClauses) ?? whereClauses[0]) : whereClauses[0]
 
   const getQueryValue = (value: string | string[] | undefined) => {
     if (Array.isArray(value)) {

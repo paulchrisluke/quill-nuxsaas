@@ -14,10 +14,19 @@ export function useUserPreferences() {
   const interfaceLanguage = useLocalStorage<string>('preferences.interfaceLanguage', 'auto')
   const spokenLanguage = useLocalStorage<string>('preferences.spokenLanguage', 'auto')
 
-  const availableLocaleCodes = computed(() => locales.value?.map(entry => entry.code) ?? [])
+  type LocaleCode = typeof locale.value
+  const defaultLocale = locale.value
+  const isLocaleCode = (code: unknown): code is LocaleCode =>
+    typeof code === 'string' && code.length > 0
 
-  const detectLocale = () => {
-    const fallback = availableLocaleCodes.value[0] ?? 'en'
+  const availableLocaleCodes = computed(() =>
+    (locales.value ?? [])
+      .map(entry => entry.code)
+      .filter(isLocaleCode)
+  )
+
+  const detectLocale = (): LocaleCode => {
+    const fallback = availableLocaleCodes.value[0] ?? defaultLocale
     if (!import.meta.client)
       return fallback
 
@@ -37,10 +46,10 @@ export function useUserPreferences() {
     if (!targetLocale || locale.value === targetLocale)
       return
 
-    const validLocale = availableLocaleCodes.value.includes(targetLocale) ? targetLocale : availableLocaleCodes.value[0] ?? 'en'
-    if (validLocale) {
-      await setLocale(validLocale as any)
-    }
+    const fallback = availableLocaleCodes.value[0] ?? defaultLocale
+    const normalizedTarget = isLocaleCode(targetLocale) ? targetLocale : null
+    const validLocale = normalizedTarget ?? fallback
+    await setLocale(validLocale)
   }, { immediate: true })
 
   const resolvedInterfaceLanguage = computed(() => interfaceLanguage.value === 'auto' ? detectLocale() : interfaceLanguage.value)

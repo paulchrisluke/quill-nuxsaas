@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { findChatSession, getSessionLogs, getSessionMessages } from '../chatSession'
+import { buildWorkspaceSummary } from './workspaceSummary'
 
 export async function getContentWorkspacePayload(
   db: NodePgDatabase<typeof schema>,
@@ -86,8 +87,15 @@ export async function getContentWorkspacePayload(
     })
   }
 
+  const workspaceSummary = buildWorkspaceSummary({
+    content: record.content,
+    currentVersion: record.currentVersion,
+    sourceContent: record.sourceContent
+  })
+
   return {
     ...record,
+    workspaceSummary,
     chatSession,
     chatMessages: includeChat ? chatMessages : null,
     chatLogs: includeChat ? chatLogs : null

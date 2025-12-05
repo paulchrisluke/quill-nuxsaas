@@ -68,6 +68,13 @@ export const createSourceContentFromTranscript = async ({
       ingestStatus: 'ingested'
     })
 
+    if (!sourceContent) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to store transcript source content'
+      })
+    }
+
     console.log(`✅ [MANUAL_TRANSCRIPT] Created sourceContent: ${sourceContent.id}`)
     console.log(`🔧 [MANUAL_TRANSCRIPT] About to call chunkSourceContentText...`)
 

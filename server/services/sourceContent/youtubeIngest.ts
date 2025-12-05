@@ -564,6 +564,13 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
     .where(eq(schema.sourceContent.id, sourceContentId))
     .returning()
 
+  if (!processing) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to mark source content as processing'
+    })
+  }
+
   try {
     await createChunksFromSourceContentText({
       db,
@@ -578,6 +585,13 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
       })
       .where(eq(schema.sourceContent.id, sourceContentId))
       .returning()
+
+    if (!updated) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to update source content after ingestion'
+      })
+    }
 
     return updated
   } catch (error) {

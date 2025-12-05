@@ -55,6 +55,9 @@ export default defineEventHandler(async (event) => {
       transcript,
       metadata: { createdVia: 'content_generate_api' }
     })
+    if (!manualSource) {
+      throw createValidationError('Failed to store transcript source.')
+    }
     resolvedSourceContentId = manualSource.id
   }
 
