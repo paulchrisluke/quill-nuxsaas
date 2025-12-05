@@ -31,6 +31,7 @@ const {
   isBusy,
   sessionId,
   sessionContentId,
+  sources,
   createContentFromConversation,
   resetSession
 } = useChatSession()
@@ -58,14 +59,6 @@ const LONG_PRESS_MOVE_THRESHOLD_PX = 10
 const { copy } = useClipboard()
 const toast = useToast()
 const runtimeConfig = useRuntimeConfig()
-
-const youtubeAccuracyHint = computed(() => {
-  const baseHint = 'Link your YouTube account under Settings -> Integrations for more accurate transcripts powered by the official API'
-  if (loggedIn.value) {
-    return `Pro tip: ${baseHint}.`
-  }
-  return `Pro tip: Sign in, then ${baseHint}.`
-})
 
 const messageActionSheetOpen = ref(false)
 const messageActionSheetTarget = ref<ChatMessage | null>(null)
@@ -283,7 +276,13 @@ const contentEntries = computed(() => {
 })
 
 const activeWorkspaceEntry = computed(() => contentEntries.value.find(entry => entry.id === activeWorkspaceId.value) ?? null)
-const canStartDraft = computed(() => messages.value.length > 0 && !!sessionId.value && !isBusy.value)
+const hasReadyDraftSource = computed(() => {
+  if (linkedSources.value.length > 0) {
+    return true
+  }
+  return sources.value?.some(source => source.ingestStatus === 'ingested') ?? false
+})
+const canStartDraft = computed(() => messages.value.length > 0 && !!sessionId.value && !isBusy.value && hasReadyDraftSource.value)
 const isStreaming = computed(() => ['submitted', 'streaming'].includes(status.value))
 const uiStatus = computed(() => status.value)
 const shouldShowWhatsNew = computed(() => !isWorkspaceActive.value && messages.value.length === 0)
@@ -693,6 +692,13 @@ const openWorkspace = async (entry: { id: string, slug?: string | null }) => {
   await activateWorkspace(entry.id)
 }
 
+const resetConversation = () => {
+  prompt.value = ''
+  linkedSources.value = []
+  createDraftError.value = null
+  resetSession()
+}
+
 const archiveDraft = async (entry: { id: string, title?: string | null }) => {
   if (!entry?.id || archivingDraftId.value === entry.id)
     return
@@ -728,13 +734,6 @@ const archiveDraft = async (entry: { id: string, title?: string | null }) => {
   } finally {
     archivingDraftId.value = null
   }
-}
-
-const resetConversation = () => {
-  prompt.value = ''
-  linkedSources.value = []
-  createDraftError.value = null
-  resetSession()
 }
 
 const closeWorkspace = async () => {
@@ -1096,7 +1095,6 @@ if (import.meta.client) {
                   :status="promptSubmitting ? 'submitted' : uiStatus"
                   :context-label="isWorkspaceActive ? 'Active draft' : undefined"
                   :context-value="activeWorkspaceEntry?.title || null"
-                  :hint="youtubeAccuracyHint"
                   @submit="handlePromptSubmit"
                 >
                   <template #footer>
