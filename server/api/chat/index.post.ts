@@ -8,6 +8,7 @@ import {
   getSessionLogs,
   getSessionMessages
 } from '~~/server/services/chatSession'
+import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import { generateContentDraftFromSource, updateContentSectionWithAI } from '~~/server/services/content/generation'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
@@ -375,6 +376,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const sessionMessages = await getSessionMessages(db, session.id, organizationId)
+  const conversationHistory: ChatCompletionMessage[] = sessionMessages.map(message => ({
+    role: message.role === 'assistant' ? 'assistant' : message.role === 'system' ? 'system' : 'user',
+    content: message.content
+  }))
+
   const assistantMessages: string[] = []
 
   if (processedSources.length > 0) {
@@ -417,8 +424,11 @@ Keep it concise (2-3 sentences) and conversational.`
 
         try {
           const llmMessage = await callChatCompletions({
-            systemPrompt: 'You are a helpful assistant that describes YouTube videos in a friendly, conversational way.',
-            userPrompt: prompt,
+            messages: [
+              { role: 'system', content: 'You are a helpful assistant that describes YouTube videos in a friendly, conversational way.' },
+              ...conversationHistory,
+              { role: 'user', content: prompt }
+            ],
             temperature: 0.7,
             maxTokens: 200
           })
@@ -444,8 +454,11 @@ Keep it concise (2-3 sentences) and conversational.`
 
         try {
           const llmMessage = await callChatCompletions({
-            systemPrompt: 'You are a helpful assistant that describes transcripts in a friendly, conversational way.',
-            userPrompt: prompt,
+            messages: [
+              { role: 'system', content: 'You are a helpful assistant that describes transcripts in a friendly, conversational way.' },
+              ...conversationHistory,
+              { role: 'user', content: prompt }
+            ],
             temperature: 0.7,
             maxTokens: 200
           })
