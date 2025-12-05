@@ -904,9 +904,6 @@ onBeforeUnmount(() => {
                         <p class="font-medium truncate">
                           {{ item.section.title }}
                         </p>
-                        <p class="text-xs text-muted-500">
-                          H{{ item.section.level }} • {{ item.section.wordCount }} words
-                        </p>
                       </div>
                       <UBadge
                         size="xs"
@@ -971,8 +968,6 @@ onBeforeUnmount(() => {
                   || !selectedSectionId
               "
               :status="uiStatus"
-              context-label="Current section"
-              :context-value="selectedSection?.title || 'None'"
               @submit="_handleSubmit"
             />
           </div>

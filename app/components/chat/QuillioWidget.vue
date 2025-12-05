@@ -51,9 +51,36 @@ const selectedContentTypeOption = computed(() => {
   return CONTENT_TYPE_OPTIONS.find(option => option.value === selectedContentType.value) ?? CONTENT_TYPE_OPTIONS[0]
 })
 const linkedSources = ref<Array<{ id: string, type: 'transcript', value: string }>>([])
+const MAX_USER_MESSAGE_LENGTH = 500
+const LONG_PRESS_DELAY_MS = 500
+const LONG_PRESS_MOVE_THRESHOLD_PX = 10
+
 const { copy } = useClipboard()
 const toast = useToast()
 const runtimeConfig = useRuntimeConfig()
+
+const messageActionSheetOpen = ref(false)
+const messageActionSheetTarget = ref<ChatMessage | null>(null)
+let longPressTimeout: ReturnType<typeof setTimeout> | null = null
+let longPressStartPosition: { x: number, y: number } | null = null
+
+function getEventCoordinates(event?: Event | null) {
+  if (!event)
+    return null
+
+  if ('touches' in event) {
+    const touch = event.touches?.[0]
+    if (!touch)
+      return null
+    return { x: touch.clientX, y: touch.clientY }
+  }
+
+  if ('clientX' in event && 'clientY' in event) {
+    return { x: event.clientX, y: event.clientY }
+  }
+
+  return null
+}
 
 const parseDraftLimitValue = (value: unknown, fallback: number) => {
   if (typeof value === 'number' && Number.isFinite(value))
@@ -812,6 +839,10 @@ if (props.routeSync) {
   })
 }
 
+onBeforeUnmount(() => {
+  clearMessageLongPress()
+})
+
 const handleRegenerate = async (message: ChatMessage) => {
   if (isBusy.value) {
     return
@@ -821,14 +852,87 @@ const handleRegenerate = async (message: ChatMessage) => {
   await handlePromptSubmit(text)
 }
 
+function getMessageText(message: ChatMessage) {
+  return message.parts[0]?.text || ''
+}
+
+function getDisplayMessageText(message: ChatMessage) {
+  const text = getMessageText(message)
+  if (message.role === 'user' && text.length > MAX_USER_MESSAGE_LENGTH) {
+    return `${text.slice(0, MAX_USER_MESSAGE_LENGTH)}...`
+  }
+  return text
+}
+
 function handleCopy(message: ChatMessage) {
-  const text = message.parts[0]?.text || ''
+  const text = getMessageText(message)
   copy(text)
   toast.add({
     title: 'Copied to clipboard',
     description: 'Message copied successfully.',
     color: 'primary'
   })
+}
+
+function openMessageActions(message: ChatMessage, event?: Event) {
+  if (event) {
+    event.preventDefault()
+  }
+  messageActionSheetTarget.value = message
+  messageActionSheetOpen.value = true
+}
+
+function startMessageLongPress(message: ChatMessage, event?: Event) {
+  if (message.role !== 'user') {
+    return
+  }
+  if (event) {
+    event.stopPropagation()
+  }
+  clearMessageLongPress()
+  longPressStartPosition = getEventCoordinates(event)
+  longPressTimeout = setTimeout(() => {
+    openMessageActions(message)
+  }, LONG_PRESS_DELAY_MS)
+}
+
+function clearMessageLongPress() {
+  if (longPressTimeout) {
+    clearTimeout(longPressTimeout)
+    longPressTimeout = null
+  }
+  longPressStartPosition = null
+}
+
+function handleMessageLongPressMove(event: Event) {
+  if (!longPressTimeout || !longPressStartPosition) {
+    return
+  }
+
+  const coordinates = getEventCoordinates(event)
+  if (!coordinates) {
+    return
+  }
+
+  const deltaX = Math.abs(coordinates.x - longPressStartPosition.x)
+  const deltaY = Math.abs(coordinates.y - longPressStartPosition.y)
+
+  if (deltaX > LONG_PRESS_MOVE_THRESHOLD_PX || deltaY > LONG_PRESS_MOVE_THRESHOLD_PX) {
+    clearMessageLongPress()
+  }
+}
+
+function handleUserMessageContextMenu(message: ChatMessage, event: Event) {
+  if (message.role !== 'user') {
+    return
+  }
+  openMessageActions(message, event)
+}
+
+function closeMessageActionSheet() {
+  messageActionSheetOpen.value = false
+  messageActionSheetTarget.value = null
+  clearMessageLongPress()
 }
 
 // Populate drafts list cache for header reuse
@@ -943,8 +1047,25 @@ if (import.meta.client) {
                 }"
               >
                 <template #content="{ message }">
-                  <div class="whitespace-pre-line">
-                    {{ message.parts[0]?.text }}
+                  <div
+                    class="whitespace-pre-line"
+                    :class="{ 'cursor-pointer select-text': message.role === 'user' }"
+                    @touchstart.passive="startMessageLongPress(message, $event)"
+                    @touchmove.passive="handleMessageLongPressMove"
+                    @touchend.passive="clearMessageLongPress"
+                    @touchcancel.passive="clearMessageLongPress"
+                    @mousedown="startMessageLongPress(message, $event)"
+                    @mousemove="handleMessageLongPressMove"
+                    @mouseup="clearMessageLongPress"
+                    @mouseleave="clearMessageLongPress"
+                    @contextmenu.prevent="handleUserMessageContextMenu(message, $event)"
+                  >
+                    <template v-if="message.role === 'user'">
+                      {{ getDisplayMessageText(message) }}
+                    </template>
+                    <template v-else>
+                      {{ message.parts[0]?.text }}
+                    </template>
                   </div>
                 </template>
               </UChatMessages>
@@ -1077,6 +1198,47 @@ if (import.meta.client) {
         />
       </div>
     </div>
+
+    <UModal
+      v-model:open="messageActionSheetOpen"
+      :ui="{
+        overlay: 'bg-black/60 backdrop-blur-sm',
+        container: 'max-w-sm mx-auto',
+        base: 'bg-neutral-900 text-white rounded-2xl shadow-2xl',
+        header: 'hidden',
+        body: 'p-4 space-y-4',
+        footer: 'hidden'
+      }"
+      :transition="{ name: 'fade' }"
+      @close="closeMessageActionSheet"
+    >
+      <template #body>
+        <div class="space-y-3">
+          <p class="text-sm text-white/80 whitespace-pre-wrap max-h-48 overflow-y-auto">
+            {{ messageActionSheetTarget ? getMessageText(messageActionSheetTarget) : '' }}
+          </p>
+          <div class="flex flex-col gap-2">
+            <UButton
+              color="primary"
+              block
+              icon="i-lucide-copy"
+              @click="messageActionSheetTarget && handleCopy(messageActionSheetTarget); closeMessageActionSheet()"
+            >
+              Copy
+            </UButton>
+            <UButton
+              color="neutral"
+              variant="ghost"
+              block
+              icon="i-lucide-share"
+              disabled
+            >
+              Share
+            </UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <QuotaLimitModal
       v-model:open="showQuotaModal"
