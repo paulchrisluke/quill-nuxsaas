@@ -448,8 +448,10 @@ const generateContentPlan = async (params: {
   ].join('\n\n')
 
   const raw = await callChatCompletions({
-    systemPrompt: PLAN_SYSTEM_PROMPT,
-    userPrompt: prompt,
+    messages: [
+      { role: 'system', content: PLAN_SYSTEM_PROMPT },
+      { role: 'user', content: prompt }
+    ],
     temperature: 0.7 // Higher temperature for more creative and personality-preserving planning
   })
 
@@ -760,8 +762,10 @@ const generateSectionsFromOutline = async (params: {
     }
 
     const raw = await callChatCompletions({
-      systemPrompt: SECTION_SYSTEM_PROMPT,
-      userPrompt: prompt,
+      messages: [
+        { role: 'system', content: SECTION_SYSTEM_PROMPT },
+        { role: 'user', content: prompt }
+      ],
       temperature
     })
 
@@ -1505,8 +1509,10 @@ export const updateContentSectionWithAI = async (
   ].join('\n\n')
 
   const raw = await callChatCompletions({
-    systemPrompt: SECTION_PATCH_SYSTEM_PROMPT,
-    userPrompt: prompt,
+    messages: [
+      { role: 'system', content: SECTION_PATCH_SYSTEM_PROMPT },
+      { role: 'user', content: prompt }
+    ],
     temperature
   })
 

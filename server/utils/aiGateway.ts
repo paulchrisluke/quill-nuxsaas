@@ -1,10 +1,14 @@
 import { createError } from 'h3'
 import { runtimeConfig } from './runtimeConfig'
 
+export type ChatCompletionMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
 interface CallChatCompletionsOptions {
   model?: string
-  systemPrompt: string
-  userPrompt: string
+  messages: ChatCompletionMessage[]
   temperature?: number
   maxTokens?: number
 }
@@ -33,8 +37,7 @@ const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${CF_ACCOUNT_ID}/quill
 
 export async function callChatCompletions({
   model = OPENAI_BLOG_MODEL,
-  systemPrompt,
-  userPrompt,
+  messages,
   temperature = OPENAI_BLOG_TEMPERATURE,
   maxTokens = OPENAI_BLOG_MAX_OUTPUT_TOKENS
 }: CallChatCompletionsOptions): Promise<string> {
@@ -62,6 +65,11 @@ export async function callChatCompletions({
     const modelName = model.startsWith('openai/') ? model : `openai/${model}`
     const url = `${gatewayBase}/chat/completions`
 
+    const systemMessageIndex = messages.findIndex(message => message.role === 'system')
+    const orderedMessages = systemMessageIndex > 0
+      ? [messages[systemMessageIndex], ...messages.slice(0, systemMessageIndex), ...messages.slice(systemMessageIndex + 1)]
+      : messages
+
     const response = await $fetch<any>(url, {
       method: 'POST',
       headers: {
@@ -71,10 +79,7 @@ export async function callChatCompletions({
       },
       body: {
         model: modelName,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
+        messages: orderedMessages,
         temperature,
         max_completion_tokens: maxTokens
       }
@@ -115,8 +120,10 @@ export async function composeBlogFromText(text: string, options?: ComposeBlogOpt
   const userPrompt = text
 
   const markdown = await callChatCompletions({
-    systemPrompt,
-    userPrompt,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ],
     temperature: options?.temperature
   })
 
@@ -131,7 +138,9 @@ export async function composeBlogFromText(text: string, options?: ComposeBlogOpt
 
 export async function callAiGatewayForSection(systemPrompt: string, userPrompt: string): Promise<string> {
   return await callChatCompletions({
-    systemPrompt,
-    userPrompt
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ]
   })
 }
