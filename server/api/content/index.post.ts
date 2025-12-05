@@ -2,8 +2,7 @@ import type { CreateContentRequestBody } from '~~/server/types/content'
 import { eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/database/schema'
-import { ensureAnonymousDraftCapacity } from '~~/server/utils/anonymous'
-import { requireAuth } from '~~/server/utils/auth'
+import { ensureEmailVerifiedDraftCapacity, requireAuth } from '~~/server/utils/auth'
 import {
   CONTENT_STATUSES,
   CONTENT_TYPES,
@@ -36,7 +35,7 @@ export default defineEventHandler(async (event) => {
 
   validateRequestBody(body)
 
-  await ensureAnonymousDraftCapacity(db, organizationId, user)
+  await ensureEmailVerifiedDraftCapacity(db, organizationId, user)
 
   const title = validateRequiredString(body.title, 'title')
 

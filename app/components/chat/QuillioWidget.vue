@@ -2,7 +2,6 @@
 import type { ContentType } from '#shared/constants/contentTypes'
 import type { ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
-import { ANONYMOUS_DRAFT_LIMIT } from '#shared/constants/limits'
 import { useClipboard } from '@vueuse/core'
 
 import PromptComposer from './PromptComposer.vue'
@@ -17,7 +16,7 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter()
 const route = useRoute()
-const { loggedIn, useActiveOrganization, refreshActiveOrg } = useAuth()
+const { loggedIn, user, useActiveOrganization, refreshActiveOrg } = useAuth()
 const activeOrgState = useActiveOrganization()
 
 const {
@@ -36,6 +35,8 @@ const prompt = ref('')
 const promptSubmitting = ref(false)
 const createDraftLoading = ref(false)
 const createDraftError = ref<string | null>(null)
+const showEmailVerificationModal = ref(false)
+const emailVerificationLimitData = ref<{ limit: number, used: number, remaining: number } | null>(null)
 const selectedContentType = ref<ContentType>(CONTENT_TYPE_OPTIONS[0]?.value ?? 'blog_post')
 
 const selectedContentTypeOption = computed(() => {
@@ -51,7 +52,7 @@ const toast = useToast()
 const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = ref<any | null>(null)
 const workspaceLoading = ref(false)
-interface AnonymousUsagePayload {
+interface EmailVerificationUsagePayload {
   limit: number
   used: number
   remaining: number
@@ -59,7 +60,7 @@ interface AnonymousUsagePayload {
 
 interface WorkspaceResponse {
   contents: any[]
-  anonymousUsage?: AnonymousUsagePayload | null
+  emailVerificationUsage?: EmailVerificationUsagePayload | null
 }
 
 const {
@@ -73,16 +74,19 @@ const {
 })
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
-const anonymousUsage = computed<AnonymousUsagePayload | null>(() => workspaceDraftsPayload.value?.anonymousUsage ?? null)
-const anonDraftLimit = computed(() => anonymousUsage.value?.limit ?? ANONYMOUS_DRAFT_LIMIT)
-const remainingAnonDrafts = computed(() => {
-  if (loggedIn.value)
-    return anonDraftLimit.value
-  if (anonymousUsage.value)
-    return anonymousUsage.value.remaining
-  return ANONYMOUS_DRAFT_LIMIT
+const emailVerificationUsage = computed<EmailVerificationUsagePayload | null>(() => workspaceDraftsPayload.value?.emailVerificationUsage ?? null)
+const remainingEmailVerificationDrafts = computed(() => {
+  if (user.value?.emailVerified)
+    return null // No limit for verified users
+  if (emailVerificationUsage.value)
+    return emailVerificationUsage.value.remaining
+  return null
 })
-const hasReachedAnonLimit = computed(() => !loggedIn.value && remainingAnonDrafts.value <= 0)
+const hasReachedEmailVerificationLimit = computed(() => {
+  if (user.value?.emailVerified)
+    return false
+  return remainingEmailVerificationDrafts.value !== null && remainingEmailVerificationDrafts.value <= 0
+})
 
 const contentEntries = computed(() => {
   const list = Array.isArray(workspaceDraftsPayload.value?.contents) ? workspaceDraftsPayload.value?.contents : []
@@ -160,10 +164,14 @@ const MAX_AUTO_DRAFT_RETRIES = 3
 const AUTO_DRAFT_COOLDOWN_MS = 5000 // 5 seconds
 
 const createDraftCta = computed(() => {
-  if (!loggedIn.value && hasReachedAnonLimit.value) {
-    return 'Sign up to keep drafting'
+  if (hasReachedEmailVerificationLimit.value) {
+    return 'Verify email to keep drafting'
   }
-  return loggedIn.value ? 'Create draft' : `Save draft (${remainingAnonDrafts.value} left)`
+  if (user.value?.emailVerified) {
+    return 'Create draft'
+  }
+  const remaining = remainingEmailVerificationDrafts.value
+  return remaining !== null ? `Save draft (${remaining} left)` : 'Create draft'
 })
 
 const handleWhatsNewSelect = (payload: { id: 'youtube' | 'transcript' | 'seo', command?: string }) => {
@@ -395,9 +403,22 @@ const handleCreateDraft = async () => {
     return false
   }
 
-  if (!loggedIn.value && hasReachedAnonLimit.value) {
-    const redirectUrl = `/signup?redirect=${encodeURIComponent('/')}`
-    router.push(redirectUrl)
+  if (hasReachedEmailVerificationLimit.value) {
+    const usage = emailVerificationUsage.value
+    if (usage) {
+      emailVerificationLimitData.value = {
+        limit: usage.limit,
+        used: usage.used,
+        remaining: usage.remaining
+      }
+    } else {
+      emailVerificationLimitData.value = emailVerificationLimitData.value ?? {
+        limit: 0,
+        used: 0,
+        remaining: 0
+      }
+    }
+    showEmailVerificationModal.value = true
     return false
   }
 
@@ -431,6 +452,17 @@ const handleCreateDraft = async () => {
     }
     return false
   } catch (error: any) {
+    // Check if this is an email verification limit error
+    if (error?.data?.anonLimitReached === true) {
+      emailVerificationLimitData.value = {
+        limit: error.data.limit || 5,
+        used: error.data.used || 5,
+        remaining: error.data.remaining || 0
+      }
+      showEmailVerificationModal.value = true
+      return false
+    }
+
     const errorMsg = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to create a draft from this conversation.'
     createDraftError.value = errorMsg
 
@@ -456,7 +488,7 @@ watch(
   }),
   async ({ active, canStart, count, loading }) => {
     // Don't attempt if workspace is active, loading, already triggered, can't start, no messages, or limit reached
-    if (active || loading || autoDraftTriggered.value || !canStart || count === 0 || hasReachedAnonLimit.value)
+    if (active || loading || autoDraftTriggered.value || !canStart || count === 0 || hasReachedEmailVerificationLimit.value)
       return
 
     // Prevent infinite retries: check failure counter and cooldown
@@ -542,7 +574,7 @@ if (import.meta.client) {
 
 <template>
   <div class="w-full py-8 sm:py-12 space-y-8">
-    <div class="max-w-3xl mx-auto px-4 sm:px-6">
+    <div class="w-full">
       <div
         v-if="!isWorkspaceActive"
         class="space-y-6 mb-8"
@@ -680,7 +712,7 @@ if (import.meta.client) {
             <!-- Add more information -->
             <!-- Main chat input -->
             <div class="w-full flex justify-center">
-              <div class="w-full max-w-2xl">
+              <div class="w-full">
                 <PromptComposer
                   v-model="prompt"
                   placeholder="Paste a transcript or describe what you need..."
@@ -725,7 +757,7 @@ if (import.meta.client) {
 
             <div
               v-if="shouldShowWhatsNew"
-              class="w-full max-w-3xl mx-auto mt-8"
+              class="w-full mt-8"
             >
               <ChatWhatsNewRow @select="handleWhatsNewSelect" />
             </div>
@@ -745,10 +777,14 @@ if (import.meta.client) {
                 {{ createDraftCta }}
               </UButton>
               <p
-                v-if="!loggedIn && remainingAnonDrafts < anonDraftLimit"
+                v-if="!user?.emailVerified && remainingEmailVerificationDrafts !== null"
                 class="text-xs text-muted-500 text-center"
               >
-                {{ remainingAnonDrafts > 0 ? `${remainingAnonDrafts} draft${remainingAnonDrafts === 1 ? '' : 's'} left` : 'Sign up to save more' }}
+                {{
+                  remainingEmailVerificationDrafts > 0
+                    ? `${remainingEmailVerificationDrafts} draft${remainingEmailVerificationDrafts === 1 ? '' : 's'} left before verification`
+                    : 'Verify your email to unlock more drafts.'
+                }}
               </p>
 
               <UAlert
@@ -764,7 +800,7 @@ if (import.meta.client) {
       </div>
       <div
         v-if="!isWorkspaceActive && contentEntries.length > 0"
-        class="mt-12"
+        class="mt-8"
       >
         <ChatDraftsList
           :drafts-pending="draftsPending"
@@ -773,5 +809,45 @@ if (import.meta.client) {
         />
       </div>
     </div>
+
+    <!-- Email Verification Limit Modal -->
+    <UModal
+      v-model:open="showEmailVerificationModal"
+      title="Draft Limit Reached"
+    >
+      <template #body>
+        <div class="space-y-4">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            You've reached the limit of {{ emailVerificationLimitData?.limit || 5 }} drafts. Please verify your email address to continue creating drafts.
+          </p>
+          <div
+            v-if="emailVerificationLimitData"
+            class="text-xs text-gray-500"
+          >
+            Used: {{ emailVerificationLimitData.used }} / {{ emailVerificationLimitData.limit }}
+          </div>
+          <div class="flex justify-end gap-2 pt-4">
+            <UButton
+              v-if="loggedIn"
+              label="Go to Profile"
+              color="primary"
+              @click="router.push('/profile'); showEmailVerificationModal = false"
+            />
+            <UButton
+              v-else
+              label="Sign Up"
+              color="primary"
+              @click="router.push(`/signup?redirect=${encodeURIComponent('/')}`); showEmailVerificationModal = false"
+            />
+            <UButton
+              label="Cancel"
+              color="gray"
+              variant="ghost"
+              @click="showEmailVerificationModal = false"
+            />
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

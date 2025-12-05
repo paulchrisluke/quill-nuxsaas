@@ -1,7 +1,6 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import * as schema from '~~/server/database/schema'
-import { getAnonymousDraftUsage } from '~~/server/utils/anonymous'
-import { requireAuth } from '~~/server/utils/auth'
+import { getEmailVerifiedDraftUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 
@@ -90,12 +89,12 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  const anonymousUsage = user.isAnonymous
-    ? await getAnonymousDraftUsage(db, organizationId)
+  const emailVerificationUsage = !user.emailVerified
+    ? await getEmailVerifiedDraftUsage(db, organizationId)
     : null
 
   return {
     contents: transformedContents,
-    anonymousUsage
+    emailVerificationUsage
   }
 })

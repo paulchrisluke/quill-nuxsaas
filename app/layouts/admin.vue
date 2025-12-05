@@ -1,6 +1,7 @@
 <i18n src="./menu/i18n.json"></i18n>
 
 <script setup lang="ts">
+import UserNavigation from '~/components/UserNavigation.vue'
 import { useSidebarCollapse } from '~/composables/useSidebarCollapse'
 import SearchPalette from './components/SearchPalette.vue'
 import { getMenus } from './menu'
@@ -145,9 +146,8 @@ const clickSignOut = () => {
       <FlexThreeColumn class="mb-2 flex-none">
         <template #left>
           <!-- Drawer button always visible - sidebar is always hidden, so drawer is the only navigation method -->
-          <UDrawer
-            direction="left"
-            as="aside"
+          <USlideover
+            side="left"
             :handle="false"
           >
             <UButton
@@ -177,27 +177,16 @@ const clickSignOut = () => {
                   :items="menus"
                   class="data-[orientation=vertical]:w-full flex-1"
                 />
-                <!-- User Profile Section -->
-                <div class="mt-auto pt-4 border-t border-neutral-200 dark:border-neutral-700">
-                  <UButton
-                    icon="i-lucide-log-out"
-                    color="neutral"
-                    variant="ghost"
-                    class="w-full justify-start"
-                    @click="clickSignOut"
-                  >
-                    {{ t('global.auth.signOut') }}
-                  </UButton>
-                </div>
               </div>
             </template>
-          </UDrawer>
+          </USlideover>
           <slot name="navLeft" />
         </template>
         <template #middle>
           <slot name="navMiddle" />
         </template>
         <template #right>
+          <UserNavigation />
           <slot name="navRight" />
         </template>
       </FlexThreeColumn>

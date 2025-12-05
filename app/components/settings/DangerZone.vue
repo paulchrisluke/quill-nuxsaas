@@ -53,7 +53,7 @@ async function leaveTeam() {
     if (orgs && orgs.length > 0 && orgs[0]?.id && orgs[0]?.slug) {
       await organization.setActive({ organizationId: orgs[0].id })
       await fetchSession()
-      window.location.href = `/${orgs[0].slug}/dashboard`
+      window.location.href = `/${orgs[0].slug}/members`
     } else {
       await fetchSession()
       await showOnboarding()
@@ -97,7 +97,7 @@ async function deleteTeam() {
     if (orgs && orgs.length > 0 && orgs[0]?.id && orgs[0]?.slug) {
       await organization.setActive({ organizationId: orgs[0].id })
       await fetchSession()
-      window.location.href = `/${orgs[0].slug}/dashboard`
+      window.location.href = `/${orgs[0].slug}/members`
     } else {
       await fetchSession()
       await showOnboarding()

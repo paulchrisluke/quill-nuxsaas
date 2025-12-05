@@ -5,8 +5,7 @@ import * as schema from '~~/server/database/schema'
 import { addLogEntryToChatSession, addMessageToChatSession, getSessionMessages } from '~~/server/services/chatSession'
 import { generateContentDraftFromSource } from '~~/server/services/content/generation'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
-import { ensureAnonymousDraftCapacity } from '~~/server/utils/anonymous'
-import { requireAuth } from '~~/server/utils/auth'
+import { ensureEmailVerifiedDraftCapacity, requireAuth } from '~~/server/utils/auth'
 import { CONTENT_TYPES } from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
 import { createInternalError, createNotFoundError, createValidationError } from '~~/server/utils/errors'
@@ -28,7 +27,7 @@ export default defineEventHandler(async (event) => {
 
   validateRequestBody(body)
 
-  await ensureAnonymousDraftCapacity(db, organizationId, user)
+  await ensureEmailVerifiedDraftCapacity(db, organizationId, user)
 
   const title = validateRequiredString(body.title, 'title')
 

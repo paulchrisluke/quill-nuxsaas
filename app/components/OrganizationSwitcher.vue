@@ -107,7 +107,7 @@ async function handleOrgChange(orgId: string) {
       newPath = newPath.replace('/t/', `/${org.slug}/`)
     } else {
       // Fallback if not in a team route
-      newPath = `/${org.slug}/dashboard`
+      newPath = `/${org.slug}/members`
     }
 
     // Set active organization and wait for it to complete

@@ -648,7 +648,7 @@ async function confirmPlanChange() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-8 max-w-5xl">
+  <div class="flex flex-col gap-8">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">

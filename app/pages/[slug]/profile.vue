@@ -272,7 +272,7 @@ watch(() => user.value?.name, (newName) => {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto space-y-8 p-4">
+  <div class="space-y-8 p-4">
     <div>
       <h1 class="text-2xl font-bold">
         Profile Settings

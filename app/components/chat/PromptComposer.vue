@@ -39,11 +39,13 @@ const handleSubmit = (value: string) => {
       :autofocus="props.autofocus"
       @submit="handleSubmit"
     >
-      <slot name="submit">
-        <UChatPromptSubmit :status="props.status || 'idle'" />
-      </slot>
       <template #footer>
-        <slot name="footer" />
+        <div class="flex items-center justify-between gap-2">
+          <slot name="footer" />
+          <slot name="submit">
+            <UChatPromptSubmit :status="props.status || 'idle'" />
+          </slot>
+        </div>
       </template>
     </UChatPrompt>
     <div

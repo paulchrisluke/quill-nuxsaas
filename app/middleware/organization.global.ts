@@ -47,7 +47,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
     if (firstOrg) {
       // Prevent infinite redirect if we are already redirected
       const localePath = useLocalePath()
-      const targetPath = localePath(`/${firstOrg.slug}/dashboard`)
+      const targetPath = localePath(`/${firstOrg.slug}/members`)
       if (to.path !== targetPath) {
         return navigateTo(targetPath)
       }

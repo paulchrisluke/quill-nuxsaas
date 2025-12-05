@@ -61,13 +61,13 @@ onMounted(async () => {
 
     if (joinedOrg) {
       toast.add({ title: 'Invitation accepted', color: 'success' })
-      // Redirect to the specific organization's dashboard
-      window.location.href = `/${joinedOrg.slug}/dashboard`
+      // Redirect to the specific organization's members page
+      window.location.href = `/${joinedOrg.slug}/members`
     } else {
       if (orgFetchFailed) {
         toast.add({
           title: 'Invitation accepted',
-          description: 'Failed to load organization details. Redirecting you to the dashboard.',
+          description: 'Failed to load organization details. Redirecting you to the members page.',
           color: 'warning'
         })
       }

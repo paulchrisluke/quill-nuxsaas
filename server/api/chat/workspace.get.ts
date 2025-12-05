@@ -2,8 +2,7 @@ import { desc, eq } from 'drizzle-orm'
 import { getQuery } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { getContentWorkspacePayload } from '~~/server/services/content/workspace'
-import { getAnonymousDraftUsage } from '~~/server/utils/anonymous'
-import { requireAuth } from '~~/server/utils/auth'
+import { getEmailVerifiedDraftUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { validateOptionalUUID } from '~~/server/utils/validation'
@@ -67,13 +66,13 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const anonymousUsage = user.isAnonymous
-    ? await getAnonymousDraftUsage(db, organizationId)
+  const emailVerificationUsage = !user.emailVerified
+    ? await getEmailVerifiedDraftUsage(db, organizationId)
     : null
 
   return {
     contents,
     workspace,
-    anonymousUsage
+    emailVerificationUsage
   }
 })

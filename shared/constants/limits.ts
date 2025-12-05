@@ -1,1 +1,2 @@
-export const ANONYMOUS_DRAFT_LIMIT = 5
+export const ANONYMOUS_DRAFT_LIMIT = 5 // Deprecated - use UNVERIFIED_EMAIL_DRAFT_LIMIT instead
+export const UNVERIFIED_EMAIL_DRAFT_LIMIT = 5

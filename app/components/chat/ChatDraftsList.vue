@@ -69,16 +69,8 @@ const formatUpdatedAt = (date: Date | null) => {
       :items="tabs"
     />
 
-    <USkeleton
-      v-if="draftsPending"
-      class="space-y-2 flex flex-col gap-2 rounded-2xl border border-muted-200/60 p-4"
-    >
-      <div class="h-4 rounded bg-muted/70" />
-      <div class="h-4 rounded bg-muted/60" />
-      <div class="h-4 rounded bg-muted/50" />
-    </USkeleton>
     <div
-      v-else-if="hasFilteredContent"
+      v-if="hasFilteredContent"
       class="divide-y divide-muted-200/60"
     >
       <button
@@ -122,7 +114,7 @@ const formatUpdatedAt = (date: Date | null) => {
     </div>
     <div
       v-else
-      class="rounded-2xl border border-dashed border-muted-200/70 p-5 text-center text-sm text-muted-500"
+      class="text-center text-sm text-muted-500"
     >
       {{ activeTab === 1 ? 'No archived drafts' : 'No drafts yet' }}
     </div>

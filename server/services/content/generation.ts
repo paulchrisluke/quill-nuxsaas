@@ -13,7 +13,7 @@ import {
   upsertVectors
 } from '~~/server/services/vectorize'
 import { callChatCompletions } from '~~/server/utils/aiGateway'
-import { ensureAnonymousDraftCapacity } from '~~/server/utils/anonymous'
+import { ensureEmailVerifiedDraftCapacity } from '~~/server/utils/auth'
 import {
   CONTENT_STATUSES,
   CONTENT_TYPES,
@@ -1120,7 +1120,21 @@ export const generateContentDraftFromSource = async (
   const resolvedIngestMethod = resolveIngestMethodFromSourceContent(sourceContent)
 
   if (!contentId) {
-    await ensureAnonymousDraftCapacity(db, organizationId, userId)
+    // Fetch user to check email verification status
+    const [user] = await db
+      .select()
+      .from(schema.user)
+      .where(eq(schema.user.id, userId))
+      .limit(1)
+
+    if (!user) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'User not found'
+      })
+    }
+
+    await ensureEmailVerifiedDraftCapacity(db, organizationId, user)
   }
 
   // Track pipeline stages as they complete

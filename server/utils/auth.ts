@@ -1,3 +1,4 @@
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { H3Event } from 'h3'
 import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
@@ -7,6 +8,7 @@ import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from '
 import { and, count, eq, sql } from 'drizzle-orm'
 import { appendResponseHeader, getRequestHeaders } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
+import { UNVERIFIED_EMAIL_DRAFT_LIMIT } from '../../shared/constants/limits'
 import { ac, admin, member, owner } from '../../shared/utils/permissions'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
@@ -824,4 +826,57 @@ export const requireAuth = async (event: H3Event, options: RequireAuthOptions = 
     statusCode: 401,
     statusMessage: 'Unauthorized'
   })
+}
+
+export const getEmailVerifiedDraftUsage = async (
+  db: NodePgDatabase<typeof schema>,
+  organizationId: string
+): Promise<{ limit: number, used: number, remaining: number }> => {
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(schema.content)
+    .where(eq(schema.content.organizationId, organizationId))
+
+  const used = Number(total) || 0
+  const limit = UNVERIFIED_EMAIL_DRAFT_LIMIT
+  return {
+    limit,
+    used,
+    remaining: Math.max(0, limit - used)
+  }
+}
+
+export const ensureEmailVerifiedDraftCapacity = async (
+  db: NodePgDatabase<typeof schema>,
+  organizationId: string,
+  user: User
+): Promise<{ limit: number, used: number, remaining: number } | null> => {
+  // If email is verified, no limit
+  if (user.emailVerified) {
+    return null
+  }
+
+  // Count existing content for organization
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(schema.content)
+    .where(eq(schema.content.organizationId, organizationId))
+
+  const used = Number(total) || 0
+  const limit = UNVERIFIED_EMAIL_DRAFT_LIMIT
+
+  if (used >= limit) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Draft limit reached. Please verify your email to continue creating drafts.',
+      data: {
+        anonLimitReached: true,
+        limit,
+        used,
+        remaining: 0
+      }
+    })
+  }
+
+  return { limit, used, remaining: limit - used }
 }
