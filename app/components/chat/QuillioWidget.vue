@@ -278,16 +278,29 @@ const openQuotaModal = (payload?: { limit?: number | null, used?: number | null,
     ? payload.limit
     : (typeof fallback?.limit === 'number' ? fallback.limit : null)
   const normalizedLimit = baseLimit ?? (loggedIn.value ? verifiedDraftLimit.value : guestDraftLimit.value)
-  const usedValue = typeof payload?.used === 'number'
-    ? payload.used
-    : (typeof fallback?.used === 'number' ? fallback.used : normalizedLimit)
-  const remainingValue = baseLimit !== null
-    ? Math.max(0, (baseLimit ?? 0) - (usedValue ?? 0))
-    : null
+
+  // Derive usedValue from payload, fallback, or remaining if provided, otherwise default to 0
+  let usedValue: number | null = null
+  if (typeof payload?.used === 'number') {
+    usedValue = payload.used
+  } else if (typeof fallback?.used === 'number') {
+    usedValue = fallback.used
+  } else if (typeof payload?.remaining === 'number' && baseLimit !== null) {
+    usedValue = Math.max(0, baseLimit - payload.remaining)
+  } else if (typeof fallback?.remaining === 'number' && baseLimit !== null) {
+    usedValue = Math.max(0, baseLimit - fallback.remaining)
+  }
+
+  const finalUsed = usedValue ?? 0
+  const finalLimit = baseLimit ?? normalizedLimit
+
+  // Calculate remaining: prefer explicit remaining, otherwise compute from limit and used
+  const remainingValue = payload?.remaining ?? fallback?.remaining ?? (finalLimit !== null ? Math.max(0, finalLimit - finalUsed) : null)
+
   quotaModalData.value = {
-    limit: baseLimit ?? normalizedLimit,
-    used: usedValue ?? normalizedLimit,
-    remaining: payload?.remaining ?? fallback?.remaining ?? remainingValue,
+    limit: finalLimit,
+    used: finalUsed,
+    remaining: remainingValue,
     planLabel: payload?.label ?? fallback?.label ?? quotaPlanLabel.value ?? null
   }
   showQuotaModal.value = true
@@ -646,7 +659,8 @@ const handleCreateDraft = async () => {
       openQuotaModal({
         limit: error.data.limit || null,
         used: error.data.used || null,
-        remaining: error.data.remaining || null
+        remaining: error.data.remaining || null,
+        label: error.data.label || null
       })
       return false
     }
