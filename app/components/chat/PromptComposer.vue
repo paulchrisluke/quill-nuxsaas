@@ -29,23 +29,35 @@ const handleSubmit = (value: string) => {
 </script>
 
 <template>
-  <div class="space-y-2">
+  <div class="space-y-3">
     <UChatPrompt
       v-model="modelValue"
       :placeholder="props.placeholder"
-      variant="soft"
+      variant="subtle"
       :disabled="props.disabled"
-      class="flex-1 w-full"
+      class="flex-1 w-full min-h-[120px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[120px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
       :autofocus="props.autofocus"
       @submit="handleSubmit"
     >
-      <slot name="submit">
-        <UChatPromptSubmit :status="props.status || 'idle'" />
-      </slot>
+      <template #footer>
+        <div
+          data-slot="footer"
+          class="flex items-center justify-between gap-2 w-full"
+        >
+          <div>
+            <slot name="footer" />
+          </div>
+          <div>
+            <slot name="submit">
+              <UChatPromptSubmit :status="props.status || 'idle'" />
+            </slot>
+          </div>
+        </div>
+      </template>
     </UChatPrompt>
     <div
       v-if="props.contextLabel || props.hint || $slots.context"
-      class="flex flex-wrap items-center justify-between text-xs text-muted-500"
+      class="flex flex-wrap items-center justify-between text-xs text-muted-500 mt-1"
     >
       <div
         v-if="props.contextLabel"

@@ -9,6 +9,17 @@ declare module '@nuxt/schema' {
   }
 }
 
+const parseDraftQuotaLimit = (value: string | undefined, fallback: number) => {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+const DEFAULT_DRAFT_QUOTA = {
+  anonymous: parseDraftQuotaLimit(process.env.NUXT_DRAFT_QUOTA_ANONYMOUS, 5),
+  verified: parseDraftQuotaLimit(process.env.NUXT_DRAFT_QUOTA_VERIFIED, 25),
+  paid: parseDraftQuotaLimit(process.env.NUXT_DRAFT_QUOTA_PAID, 0)
+}
+
 let runtimeConfigInstance: NitroRuntimeConfig
 
 export const generateRuntimeConfig = () => ({
@@ -76,6 +87,7 @@ export const generateRuntimeConfig = () => ({
     appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
     appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
     payment: process.env.NUXT_PAYMENT || 'stripe',
+    draftQuota: DEFAULT_DRAFT_QUOTA,
     auth: {
       redirectUserTo: '/',
       redirectGuestTo: '/signin'

@@ -94,7 +94,7 @@ async function createTeam() {
       await refreshOrganizations()
       toast.add({ title: 'Team created successfully', color: 'success' })
       hideOnboarding()
-      await router.push(`/${data.slug}/dashboard`)
+      await router.push(`/${data.slug}/members`)
     }
   } catch (e: any) {
     toast.add({
@@ -146,7 +146,7 @@ async function acceptInvite(inviteId: string, orgId?: string) {
 
     if (joinedOrg) {
       hideOnboarding()
-      await router.push(`/${joinedOrg.slug}/dashboard`)
+      await router.push(`/${joinedOrg.slug}/members`)
     } else {
       hideOnboarding()
       await router.push('/')

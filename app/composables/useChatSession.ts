@@ -4,7 +4,8 @@ import type {
   ChatGenerationResult,
   ChatLogEntry,
   ChatMessage,
-  ChatSourceSnapshot
+  ChatSourceSnapshot,
+  NonEmptyArray
 } from '#shared/utils/types'
 import { useState } from '#app'
 import { DEFAULT_CONTENT_TYPE } from '#shared/constants/contentTypes'
@@ -50,21 +51,28 @@ function toDate(value: string | Date) {
   return Number.isFinite(parsed.getTime()) ? parsed : new Date()
 }
 
-function normalizeMessages(list: ChatResponse['messages']) {
+function normalizeMessages(list: ChatResponse['messages']): ChatMessage[] {
   if (!Array.isArray(list)) {
     return []
   }
   return list
     .filter(message => message && (message.role === 'assistant' || message.role === 'user'))
-    .map(message => ({
-      id: message.id || createId(),
-      role: message.role as ChatMessage['role'],
-      parts: Array.isArray(message.parts) && message.parts.length > 0
+    .map((message) => {
+      const parts = Array.isArray(message.parts) && message.parts.length > 0
         ? message.parts
-        : [{ type: 'text', text: message.content || '' }],
-      createdAt: toDate(message.createdAt),
-      payload: message.payload ?? null
-    }))
+        : [{ type: 'text' as const, text: message.content || '' }]
+      // Ensure parts is non-empty
+      if (parts.length === 0) {
+        parts.push({ type: 'text' as const, text: '' })
+      }
+      return {
+        id: message.id || createId(),
+        role: message.role as ChatMessage['role'],
+        parts: parts as NonEmptyArray<{ type: 'text', text: string }>,
+        createdAt: toDate(message.createdAt),
+        payload: message.payload ?? null
+      }
+    })
 }
 
 function normalizeLogs(list: ChatResponse['logs']) {
@@ -144,8 +152,8 @@ export function useChatSession() {
           ...messages.value,
           {
             id: createId(),
-            role: 'assistant',
-            parts: [{ type: 'text', text: response.assistantMessage }],
+            role: 'assistant' as const,
+            parts: [{ type: 'text' as const, text: response.assistantMessage }] as NonEmptyArray<{ type: 'text', text: string }>,
             createdAt: new Date()
           }
         ]
@@ -167,8 +175,8 @@ export function useChatSession() {
       // Also add error as a chat message so user can see it
       messages.value.push({
         id: createId(),
-        role: 'assistant',
-        parts: [{ type: 'text', text: `❌ Error: ${errorMsg}` }],
+        role: 'assistant' as const,
+        parts: [{ type: 'text' as const, text: `❌ Error: ${errorMsg}` }] as NonEmptyArray<{ type: 'text', text: string }>,
         createdAt: new Date()
       })
 
@@ -184,8 +192,8 @@ export function useChatSession() {
 
     messages.value.push({
       id: createId(),
-      role: 'user',
-      parts: [{ type: 'text', text: options?.displayContent?.trim() || trimmed }],
+      role: 'user' as const,
+      parts: [{ type: 'text' as const, text: options?.displayContent?.trim() || trimmed }] as NonEmptyArray<{ type: 'text', text: string }>,
       createdAt: new Date()
     })
 
@@ -282,8 +290,8 @@ export function useChatSession() {
 
       messages.value.push({
         id: createId(),
-        role: 'assistant',
-        parts: [{ type: 'text', text: messageContent }],
+        role: 'assistant' as const,
+        parts: [{ type: 'text' as const, text: messageContent }] as NonEmptyArray<{ type: 'text', text: string }>,
         createdAt: new Date()
       })
 
@@ -296,8 +304,8 @@ export function useChatSession() {
       // Also add error as a chat message
       messages.value.push({
         id: createId(),
-        role: 'assistant',
-        parts: [{ type: 'text', text: `❌ Error: ${errorMsg}` }],
+        role: 'assistant' as const,
+        parts: [{ type: 'text' as const, text: `❌ Error: ${errorMsg}` }] as NonEmptyArray<{ type: 'text', text: string }>,
         createdAt: new Date()
       })
     }

@@ -10,6 +10,15 @@ definePageMeta({
   layout: 'default'
 })
 
+useHead({
+  title: 'Members'
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Members')
+}
+
 const { organization, useActiveOrganization, session, user, fetchSession, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
@@ -183,7 +192,7 @@ const roles = [
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto py-8 px-4">
+  <div class="py-8 px-4">
     <div class="flex justify-between items-center mb-8">
       <h1 class="text-3xl font-semibold">
         Team Members

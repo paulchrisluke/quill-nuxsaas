@@ -70,13 +70,13 @@ export function useAuth() {
     sessionFetching.value = true
 
     // Use useFetch for better SSR support and hydration
-    const { data: sessionData } = await useFetch('/api/auth/get-session', {
+    const { data: sessionData } = await useFetch<{ session?: any, user?: any }>('/api/auth/get-session', {
       headers: import.meta.server ? useRequestHeaders() : undefined,
       key: 'auth-session',
       retry: 0
     })
 
-    const data = sessionData.value
+    const data = sessionData.value as { session?: any, user?: any } | null
     session.value = data?.session || null
 
     const userDefaults = {
@@ -163,7 +163,7 @@ export function useAuth() {
     refreshActiveOrg,
     signIn: client.signIn,
     signUp: client.signUp,
-    forgetPassword: client.forgetPassword,
+    forgetPassword: client.requestPasswordReset,
     resetPassword: client.resetPassword,
     sendVerificationEmail: client.sendVerificationEmail,
     errorCodes: client.$ERROR_CODES,

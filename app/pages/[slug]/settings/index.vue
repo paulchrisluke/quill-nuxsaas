@@ -5,6 +5,15 @@ definePageMeta({
   layout: 'default'
 })
 
+useHead({
+  title: 'Settings'
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Settings')
+}
+
 const route = useRoute()
 const slug = computed(() => {
   const param = route.params.slug
@@ -71,7 +80,7 @@ async function leaveTeam() {
     if (nextOrg) {
       await organization.setActive({ organizationId: nextOrg.id })
       await fetchSession()
-      window.location.href = `/${nextOrg.slug}/dashboard`
+      window.location.href = `/${nextOrg.slug}/members`
     } else {
       await fetchSession()
       await navigateTo('/')
@@ -187,7 +196,7 @@ async function deleteTeam() {
       // Switch to first available team
       await organization.setActive({ organizationId: nextOrg.id })
       await fetchSession()
-      window.location.href = `/${nextOrg.slug}/dashboard`
+      window.location.href = `/${nextOrg.slug}/members`
     } else {
       // No teams left
       await fetchSession()
@@ -207,7 +216,7 @@ async function deleteTeam() {
 
 <template>
   <UContainer class="py-10">
-    <div class="max-w-5xl mx-auto space-y-8">
+    <div class="space-y-8">
       <div class="space-y-2">
         <h1 class="text-3xl font-semibold">
           Organization settings

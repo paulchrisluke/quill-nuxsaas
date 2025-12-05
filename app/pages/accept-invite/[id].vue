@@ -61,13 +61,13 @@ onMounted(async () => {
 
     if (joinedOrg) {
       toast.add({ title: 'Invitation accepted', color: 'success' })
-      // Redirect to the specific organization's dashboard
-      window.location.href = `/${joinedOrg.slug}/dashboard`
+      // Redirect to the specific organization's members page
+      window.location.href = `/${joinedOrg.slug}/members`
     } else {
       if (orgFetchFailed) {
         toast.add({
           title: 'Invitation accepted',
-          description: 'Failed to load organization details. Redirecting you to the dashboard.',
+          description: 'Failed to load organization details. Redirecting you to your active organization.',
           color: 'warning'
         })
       }
@@ -126,9 +126,9 @@ definePageMeta({
         <div v-else>
           <UIcon
             name="i-lucide-check-circle"
-            class="h-12 w-12 mx-auto mb-2 text-green-500"
+            class="h-12 w-12 mx-auto mb-2 text-amber-500"
           />
-          <p>Redirecting to dashboard...</p>
+          <p>Redirecting to your team...</p>
         </div>
       </div>
     </UCard>

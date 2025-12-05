@@ -6,7 +6,7 @@ export function useUserPreferences() {
   const colorMode = useColorMode()
   const { locale, locales, setLocale } = useI18n()
 
-  const themePreference = useLocalStorage<ThemePreference>('preferences.theme', colorMode.preference ?? 'system')
+  const themePreference = useLocalStorage<ThemePreference>('preferences.theme', (colorMode.preference ?? 'system') as ThemePreference)
   watch(themePreference, (value) => {
     colorMode.preference = value
   }, { immediate: true })
@@ -37,7 +37,10 @@ export function useUserPreferences() {
     if (!targetLocale || locale.value === targetLocale)
       return
 
-    await setLocale(targetLocale)
+    const validLocale = availableLocaleCodes.value.includes(targetLocale) ? targetLocale : availableLocaleCodes.value[0] ?? 'en'
+    if (validLocale) {
+      await setLocale(validLocale as any)
+    }
   }, { immediate: true })
 
   const resolvedInterfaceLanguage = computed(() => interfaceLanguage.value === 'auto' ? detectLocale() : interfaceLanguage.value)

@@ -1,7 +1,6 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import * as schema from '~~/server/database/schema'
-import { getAnonymousDraftUsage } from '~~/server/utils/anonymous'
-import { requireAuth } from '~~/server/utils/auth'
+import { getDraftQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 
@@ -90,12 +89,10 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  const anonymousUsage = user.isAnonymous
-    ? await getAnonymousDraftUsage(db, organizationId)
-    : null
+  const draftQuota = await getDraftQuotaUsage(db, organizationId, user)
 
   return {
     contents: transformedContents,
-    anonymousUsage
+    draftQuota
   }
 })

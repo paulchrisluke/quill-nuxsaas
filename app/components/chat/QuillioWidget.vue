@@ -2,10 +2,11 @@
 import type { ContentType } from '#shared/constants/contentTypes'
 import type { ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
-import { ANONYMOUS_DRAFT_LIMIT } from '#shared/constants/limits'
 import { useClipboard } from '@vueuse/core'
 
+import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
 import PromptComposer from './PromptComposer.vue'
+import QuotaLimitModal from './QuotaLimitModal.vue'
 
 const props = withDefaults(defineProps<{
   initialDraftId?: string | null
@@ -17,7 +18,8 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter()
 const route = useRoute()
-const { loggedIn, useActiveOrganization, refreshActiveOrg } = useAuth()
+const auth = useAuth()
+const { loggedIn, user, useActiveOrganization, refreshActiveOrg, signIn } = auth
 const activeOrgState = useActiveOrganization()
 
 const {
@@ -36,23 +38,52 @@ const prompt = ref('')
 const promptSubmitting = ref(false)
 const createDraftLoading = ref(false)
 const createDraftError = ref<string | null>(null)
+const showQuotaModal = ref(false)
+const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
+const showUpgradeModal = ref(false)
 const selectedContentType = ref<ContentType>(CONTENT_TYPE_OPTIONS[0]?.value ?? 'blog_post')
+
+const selectedContentTypeOption = computed(() => {
+  if (!CONTENT_TYPE_OPTIONS.length) {
+    return null
+  }
+  return CONTENT_TYPE_OPTIONS.find(option => option.value === selectedContentType.value) ?? CONTENT_TYPE_OPTIONS[0]
+})
 const linkedSources = ref<Array<{ id: string, type: 'transcript', value: string }>>([])
 const { copy } = useClipboard()
 const toast = useToast()
+const runtimeConfig = useRuntimeConfig()
+
+const parseDraftLimitValue = (value: unknown, fallback: number) => {
+  if (typeof value === 'number' && Number.isFinite(value))
+    return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed))
+      return parsed
+  }
+  return fallback
+}
+
+const guestDraftLimit = computed(() => parseDraftLimitValue(runtimeConfig.public?.draftQuota?.anonymous, 5))
+const verifiedDraftLimit = computed(() => parseDraftLimitValue(runtimeConfig.public?.draftQuota?.verified, 25))
 
 const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = ref<any | null>(null)
 const workspaceLoading = ref(false)
-interface AnonymousUsagePayload {
-  limit: number
-  used: number
-  remaining: number
+const draftQuotaState = useState<DraftQuotaUsagePayload | null>('draft-quota-usage', () => null)
+interface DraftQuotaUsagePayload {
+  limit: number | null
+  used: number | null
+  remaining: number | null
+  label?: string | null
+  unlimited?: boolean
+  profile?: 'anonymous' | 'verified' | 'paid'
 }
 
 interface WorkspaceResponse {
   contents: any[]
-  anonymousUsage?: AnonymousUsagePayload | null
+  draftQuota?: DraftQuotaUsagePayload | null
 }
 
 const {
@@ -66,16 +97,55 @@ const {
 })
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
-const anonymousUsage = computed<AnonymousUsagePayload | null>(() => workspaceDraftsPayload.value?.anonymousUsage ?? null)
-const anonDraftLimit = computed(() => anonymousUsage.value?.limit ?? ANONYMOUS_DRAFT_LIMIT)
-const remainingAnonDrafts = computed(() => {
-  if (loggedIn.value)
-    return anonDraftLimit.value
-  if (anonymousUsage.value)
-    return anonymousUsage.value.remaining
-  return ANONYMOUS_DRAFT_LIMIT
+const draftQuotaUsage = computed<DraftQuotaUsagePayload | null>(() => workspaceDraftsPayload.value?.draftQuota ?? null)
+const remainingDraftQuota = computed(() => {
+  const usage = draftQuotaUsage.value
+  if (!usage)
+    return null
+  if (typeof usage.remaining === 'number')
+    return usage.remaining
+  if (typeof usage.limit === 'number' && typeof usage.used === 'number')
+    return usage.limit - usage.used
+  return null
 })
-const hasReachedAnonLimit = computed(() => !loggedIn.value && remainingAnonDrafts.value <= 0)
+const hasReachedDraftQuota = computed(() => {
+  const remaining = remainingDraftQuota.value
+  if (remaining === null)
+    return false
+  return remaining <= 0
+})
+const quotaBadgeLabel = computed(() => {
+  const usage = draftQuotaUsage.value
+  if (usage?.unlimited) {
+    return '∞'
+  }
+  if (!usage || typeof usage.limit !== 'number') {
+    return null
+  }
+  const limit = Math.max(0, usage.limit)
+  const used = Math.max(0, usage.used ?? (limit - (usage.remaining ?? 0)))
+  return `${Math.min(used, limit)}/${limit}`
+})
+const quotaPlanLabel = computed(() => draftQuotaUsage.value?.label ?? (loggedIn.value ? 'Current plan' : 'Guest access'))
+const quotaBadgeAriaLabel = computed(() => {
+  if (!quotaBadgeLabel.value)
+    return 'Draft quota details'
+  return `${quotaBadgeLabel.value} drafts used on ${quotaPlanLabel.value}. Tap for plan details.`
+})
+
+watch(draftQuotaUsage, (value) => {
+  if (value) {
+    draftQuotaState.value = {
+      limit: value.limit ?? null,
+      used: value.used ?? null,
+      remaining: value.remaining ?? null,
+      label: value.label ?? null,
+      unlimited: value.unlimited ?? false
+    }
+  } else {
+    draftQuotaState.value = null
+  }
+}, { immediate: true, deep: true })
 
 const contentEntries = computed(() => {
   const list = Array.isArray(workspaceDraftsPayload.value?.contents) ? workspaceDraftsPayload.value?.contents : []
@@ -143,6 +213,7 @@ const isWorkspaceLoading = computed(() => workspaceLoading.value && isWorkspaceA
 const canStartDraft = computed(() => messages.value.length > 0 && !!sessionId.value && !isBusy.value)
 const isStreaming = computed(() => ['submitted', 'streaming'].includes(status.value))
 const uiStatus = computed(() => status.value)
+const shouldShowWhatsNew = computed(() => !isWorkspaceActive.value && messages.value.length === 0)
 
 const autoDraftTriggered = ref(false)
 const draftAutoFailCount = ref(0)
@@ -152,18 +223,192 @@ const MAX_AUTO_DRAFT_RETRIES = 3
 const AUTO_DRAFT_COOLDOWN_MS = 5000 // 5 seconds
 
 const createDraftCta = computed(() => {
-  if (!loggedIn.value && hasReachedAnonLimit.value) {
-    return 'Sign up to keep drafting'
+  if (draftQuotaUsage.value?.unlimited) {
+    return 'Create draft'
   }
-  return loggedIn.value ? 'Create draft' : `Save draft (${remainingAnonDrafts.value} left)`
+  if (hasReachedDraftQuota.value) {
+    return loggedIn.value ? 'Upgrade to keep drafting' : 'Create an account to keep drafting'
+  }
+  if (user.value?.emailVerified) {
+    return 'Create draft'
+  }
+  const remaining = remainingDraftQuota.value
+  return remaining !== null ? `Save draft (${Math.max(0, remaining)} left)` : 'Create draft'
 })
+const quotaHelperText = computed(() => {
+  if (draftQuotaUsage.value?.unlimited) {
+    return `${quotaPlanLabel.value || 'Pro plan'} unlocks unlimited drafts.`
+  }
+  const remaining = remainingDraftQuota.value
+  if (remaining === null)
+    return null
+  if (remaining > 0) {
+    return loggedIn.value
+      ? `${remaining} draft${remaining === 1 ? '' : 's'} left on your plan`
+      : `${remaining} draft${remaining === 1 ? '' : 's'} left before creating an account`
+  }
+  return loggedIn.value ? 'Upgrade your plan to unlock more drafts.' : 'Create an account to unlock more drafts.'
+})
+
+const handleWhatsNewSelect = (payload: { id: 'youtube' | 'transcript' | 'seo', command?: string }) => {
+  if (!payload) {
+    return
+  }
+  if (payload.command) {
+    prompt.value = payload.command
+  }
+}
+
+const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
+  const fallback = draftQuotaUsage.value
+
+  // Preserve unlimited plan semantics when there is no explicit override
+  if (!payload && fallback?.unlimited) {
+    quotaModalData.value = {
+      limit: null,
+      used: fallback.used ?? null,
+      remaining: fallback.remaining ?? null,
+      planLabel: fallback.label ?? quotaPlanLabel.value ?? null
+    }
+    showQuotaModal.value = true
+    return
+  }
+
+  const baseLimit = typeof payload?.limit === 'number'
+    ? payload.limit
+    : (typeof fallback?.limit === 'number' ? fallback.limit : null)
+  const normalizedLimit = baseLimit ?? (loggedIn.value ? verifiedDraftLimit.value : guestDraftLimit.value)
+
+  // Derive usedValue from payload, fallback, or remaining if provided, otherwise default to 0
+  let usedValue: number | null = null
+  if (typeof payload?.used === 'number') {
+    usedValue = payload.used
+  } else if (typeof fallback?.used === 'number') {
+    usedValue = fallback.used
+  } else if (typeof payload?.remaining === 'number' && baseLimit !== null) {
+    usedValue = Math.max(0, baseLimit - payload.remaining)
+  } else if (typeof fallback?.remaining === 'number' && baseLimit !== null) {
+    usedValue = Math.max(0, baseLimit - fallback.remaining)
+  }
+
+  const finalUsed = usedValue ?? 0
+  const finalLimit = baseLimit ?? normalizedLimit
+
+  // Calculate remaining: prefer explicit remaining, otherwise compute from limit and used
+  const remainingValue = payload?.remaining ?? fallback?.remaining ?? (finalLimit !== null ? Math.max(0, finalLimit - finalUsed) : null)
+
+  quotaModalData.value = {
+    limit: finalLimit,
+    used: finalUsed,
+    remaining: remainingValue,
+    planLabel: payload?.label ?? fallback?.label ?? quotaPlanLabel.value ?? null
+  }
+  showQuotaModal.value = true
+}
+
+const quotaModalMessage = computed(() => {
+  if (!loggedIn.value) {
+    return `Make an account to unlock ${verifiedDraftLimit.value} total drafts or archive drafts to continue writing.`
+  }
+  if (draftQuotaUsage.value?.unlimited) {
+    return 'Your current plan includes unlimited drafts.'
+  }
+  return 'Starter plans have a draft limit. Upgrade to unlock unlimited drafts or archive drafts to continue writing.'
+})
+
+const quotaModalTitle = computed(() => {
+  const limit = quotaModalData.value?.limit ?? draftQuotaUsage.value?.limit ?? null
+  const used = quotaModalData.value?.used ?? draftQuotaUsage.value?.used ?? null
+  if (typeof limit === 'number') {
+    const remaining = Math.max(0, limit - (typeof used === 'number' ? used : 0))
+    return `You have ${remaining}/${limit} drafts remaining.`
+  }
+  if (draftQuotaUsage.value?.unlimited) {
+    return 'Unlimited drafts unlocked.'
+  }
+  return loggedIn.value ? 'Upgrade to unlock more drafts.' : 'Create an account for more drafts.'
+})
+
+const quotaPrimaryLabel = computed(() => {
+  if (!loggedIn.value)
+    return 'Sign up'
+  if (draftQuotaUsage.value?.unlimited)
+    return 'Close'
+  return 'Upgrade'
+})
+
+const handleQuotaBadgeClick = () => {
+  openQuotaModal()
+}
+
+const handleQuotaModalPrimary = () => {
+  showQuotaModal.value = false
+  if (draftQuotaUsage.value?.unlimited) {
+    // For unlimited plans, just close the modal
+    return
+  }
+  if (loggedIn.value) {
+    showUpgradeModal.value = true
+    return
+  }
+  const destination = `/signup?redirect=${encodeURIComponent('/')}`
+  router.push(destination)
+}
+
+const handleQuotaModalCancel = () => {
+  showQuotaModal.value = false
+}
+
+const handleUpgradeSuccess = async () => {
+  showUpgradeModal.value = false
+  await refreshActiveOrg()
+  await refreshDrafts()
+}
+
+const handleQuotaGoogleSignup = () => {
+  showQuotaModal.value = false
+  if (typeof window === 'undefined')
+    return
+  try {
+    signIn.social?.({
+      provider: 'google',
+      callbackURL: window.location.href
+    })
+  } catch (error) {
+    console.error('Failed to start Google signup', error)
+  }
+}
+
+const handleQuotaEmailSignup = () => {
+  showQuotaModal.value = false
+  const redirect = route.fullPath || '/'
+  router.push(`/signup?redirect=${encodeURIComponent(redirect)}`)
+}
+
+if (import.meta.client) {
+  const handleQuotaEvent = (event: Event) => {
+    const detail = (event as CustomEvent<{ limit?: number, used?: number, remaining?: number, label?: string, unlimited?: boolean }>).detail
+    openQuotaModal(detail || undefined)
+  }
+  onMounted(() => {
+    window.addEventListener('quillio:show-quota', handleQuotaEvent as EventListener)
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('quillio:show-quota', handleQuotaEvent as EventListener)
+  })
+}
 
 const handlePromptSubmit = async (value?: string) => {
   const input = typeof value === 'string' ? value : prompt.value
-  const trimmed = input.trim()
+  let trimmed = input.trim()
   if (!trimmed) {
     return
   }
+  const normalized = normalizePromptCommands(trimmed)
+  if (!normalized) {
+    return
+  }
+  trimmed = normalized
   const transcriptHandled = await maybeHandleTranscriptSubmission(trimmed)
   if (transcriptHandled) {
     prompt.value = ''
@@ -197,6 +442,8 @@ function addLinkedSource(entry: { type: 'transcript', value: string }) {
 }
 
 const transcriptPrefixPattern = /^transcript attachment:\s*/i
+const transcriptCommandPattern = /^@transcript\s*/i
+const youtubeCommandPattern = /^@youtube(?:\s+|$)/i
 
 function shouldTreatAsTranscript(input: string) {
   const value = input.trim()
@@ -206,13 +453,35 @@ function shouldTreatAsTranscript(input: string) {
   if (transcriptPrefixPattern.test(value)) {
     return true
   }
+  if (transcriptCommandPattern.test(value)) {
+    return true
+  }
   const timestampMatches = value.match(/\b\d{2}:\d{2}:\d{2}\b/g)?.length ?? 0
   const hashHeadingMatches = value.split(/\n+/).filter(line => line.trim().startsWith('#')).length
   return value.length > 800 && (timestampMatches >= 3 || hashHeadingMatches >= 2)
 }
 
 function extractTranscriptBody(input: string) {
-  return input.replace(transcriptPrefixPattern, '').trim()
+  return input
+    .replace(transcriptPrefixPattern, '')
+    .replace(transcriptCommandPattern, '')
+    .trim()
+}
+
+function normalizePromptCommands(input: string): string | null {
+  if (youtubeCommandPattern.test(input)) {
+    const url = input.replace(/^@youtube\s*/i, '').trim()
+    if (!url) {
+      toast.add({
+        color: 'warning',
+        title: 'Add a YouTube link',
+        description: 'Use @youtube followed by a full video URL to start drafting.'
+      })
+      return null
+    }
+    return url
+  }
+  return input
 }
 
 async function submitTranscript(text: string) {
@@ -235,7 +504,7 @@ async function submitTranscript(text: string) {
     messages.value.push({
       id: createLocalId(),
       role: 'assistant',
-      content: `❌ ${errorMsg}`,
+      parts: [{ type: 'text', text: `❌ ${errorMsg}` }],
       createdAt: new Date()
     })
   } finally {
@@ -350,9 +619,8 @@ const handleCreateDraft = async () => {
     return false
   }
 
-  if (!loggedIn.value && hasReachedAnonLimit.value) {
-    const redirectUrl = `/signup?redirect=${encodeURIComponent('/')}`
-    router.push(redirectUrl)
+  if (hasReachedDraftQuota.value) {
+    openQuotaModal()
     return false
   }
 
@@ -386,6 +654,17 @@ const handleCreateDraft = async () => {
     }
     return false
   } catch (error: any) {
+    // Check if this is a quota limit error
+    if (error?.data?.limitReached === true) {
+      openQuotaModal({
+        limit: error.data.limit || null,
+        used: error.data.used || null,
+        remaining: error.data.remaining || null,
+        label: error.data.label || null
+      })
+      return false
+    }
+
     const errorMsg = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to create a draft from this conversation.'
     createDraftError.value = errorMsg
 
@@ -402,6 +681,10 @@ const handleCreateDraft = async () => {
   }
 }
 
+const handleCreateDraftClick = async () => {
+  await handleCreateDraft()
+}
+
 watch(
   () => ({
     active: isWorkspaceActive.value,
@@ -411,7 +694,7 @@ watch(
   }),
   async ({ active, canStart, count, loading }) => {
     // Don't attempt if workspace is active, loading, already triggered, can't start, no messages, or limit reached
-    if (active || loading || autoDraftTriggered.value || !canStart || count === 0 || hasReachedAnonLimit.value)
+    if (active || loading || autoDraftTriggered.value || !canStart || count === 0 || hasReachedDraftQuota.value)
       return
 
     // Prevent infinite retries: check failure counter and cooldown
@@ -496,17 +779,17 @@ if (import.meta.client) {
 </script>
 
 <template>
-  <div class="w-full py-6 space-y-6">
-    <div class="max-w-3xl mx-auto px-4">
+  <div class="w-full py-8 sm:py-12 space-y-8">
+    <div class="w-full">
       <div
         v-if="!isWorkspaceActive"
-        class="space-y-4"
+        class="space-y-6 mb-8"
       >
         <h1 class="text-2xl font-semibold text-center">
           What should we write next?
         </h1>
       </div>
-      <div class="space-y-6">
+      <div class="space-y-8">
         <!-- Error messages are now shown in chat, but keep banner as fallback for non-chat errors -->
         <UAlert
           v-if="errorMessage && !messages.length"
@@ -519,7 +802,7 @@ if (import.meta.client) {
 
         <div
           v-if="isWorkspaceActive && activeWorkspaceEntry"
-          class="space-y-4 w-full"
+          class="space-y-6 w-full"
         >
           <USkeleton
             v-if="isWorkspaceLoading"
@@ -546,18 +829,18 @@ if (import.meta.client) {
         <template v-else>
           <div
             v-if="messages.length"
-            class="space-y-4 w-full"
+            class="space-y-6 w-full"
           >
             <div class="w-full">
               <div
                 v-if="isStreaming"
-                class="flex items-center justify-center gap-2 text-sm text-muted-500 mb-4"
+                class="flex items-center justify-center gap-2 text-sm text-muted-500 mb-6"
               >
                 <span class="h-2 w-2 rounded-full bg-primary-500 animate-pulse" />
                 <span>Quillio is thinking...</span>
               </div>
 
-              <div class="min-h-[250px]">
+              <div class="min-h-[250px] py-4">
                 <UChatMessages
                   :messages="messages"
                   :status="uiStatus"
@@ -606,11 +889,11 @@ if (import.meta.client) {
             </div>
           </div>
 
-          <div class="w-full space-y-4">
+          <div class="w-full space-y-6 mt-8">
             <!-- Show linked sources if any -->
             <div
               v-if="linkedSources.length"
-              class="flex flex-wrap gap-2"
+              class="flex flex-wrap gap-2 mb-2"
             >
               <UBadge
                 v-for="source in linkedSources"
@@ -634,46 +917,83 @@ if (import.meta.client) {
 
             <!-- Add more information -->
             <!-- Main chat input -->
-            <div class="flex flex-col gap-3 w-full">
-              <PromptComposer
-                v-model="prompt"
-                placeholder="Paste a transcript or describe what you need..."
-                :disabled="isBusy || promptSubmitting"
-                :status="promptSubmitting ? 'submitted' : uiStatus"
-                :context-label="isWorkspaceActive ? 'Active draft' : undefined"
-                :context-value="activeWorkspaceEntry?.title || null"
-                @submit="handlePromptSubmit"
-              />
+            <div class="w-full flex justify-center">
+              <div class="w-full">
+                <PromptComposer
+                  v-model="prompt"
+                  placeholder="Paste a transcript or describe what you need..."
+                  :disabled="isBusy || promptSubmitting"
+                  :status="promptSubmitting ? 'submitted' : uiStatus"
+                  :context-label="isWorkspaceActive ? 'Active draft' : undefined"
+                  :context-value="activeWorkspaceEntry?.title || null"
+                  @submit="handlePromptSubmit"
+                >
+                  <template #footer>
+                    <USelectMenu
+                      v-if="selectedContentTypeOption"
+                      v-model="selectedContentType"
+                      :items="CONTENT_TYPE_OPTIONS"
+                      value-key="value"
+                      variant="ghost"
+                      size="sm"
+                    >
+                      <template #leading>
+                        <div class="flex items-center gap-2">
+                          <UIcon
+                            :name="selectedContentTypeOption.icon"
+                            class="w-4 h-4"
+                          />
+                          <span>{{ selectedContentTypeOption.label }}</span>
+                        </div>
+                      </template>
+                    </USelectMenu>
+                  </template>
+                </PromptComposer>
+              </div>
+            </div>
 
-              <USelectMenu
-                v-model="selectedContentType"
-                :items="CONTENT_TYPE_OPTIONS"
-                value-key="value"
-                class="w-full"
-                size="md"
-              />
+            <div
+              v-if="shouldShowWhatsNew"
+              class="w-full mt-8"
+            >
+              <ChatWhatsNewRow @select="handleWhatsNewSelect" />
             </div>
 
             <!-- Draft creation - only show when there are messages -->
             <div
               v-if="messages.length"
-              class="space-y-2"
+              class="space-y-3 mt-6"
             >
-              <UButton
-                block
-                color="primary"
-                :loading="createDraftLoading"
-                :disabled="!canStartDraft"
-                @click="handleCreateDraft"
-              >
-                {{ createDraftCta }}
-              </UButton>
-              <p
-                v-if="!loggedIn && remainingAnonDrafts < anonDraftLimit"
-                class="text-xs text-muted-500 text-center"
-              >
-                {{ remainingAnonDrafts > 0 ? `${remainingAnonDrafts} draft${remainingAnonDrafts === 1 ? '' : 's'} left` : 'Sign up to save more' }}
-              </p>
+              <div class="flex flex-col gap-2">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2">
+                  <UButton
+                    color="primary"
+                    :loading="createDraftLoading"
+                    :disabled="!canStartDraft"
+                    class="w-full sm:w-auto"
+                    @click="handleCreateDraftClick"
+                  >
+                    {{ createDraftCta }}
+                  </UButton>
+                  <UButton
+                    v-if="quotaBadgeLabel"
+                    size="xs"
+                    variant="soft"
+                    color="neutral"
+                    class="font-mono text-xs rounded-full px-4 py-3 w-full sm:w-auto justify-center min-h-[44px]"
+                    :aria-label="quotaBadgeAriaLabel"
+                    @click="handleQuotaBadgeClick"
+                  >
+                    {{ quotaBadgeLabel }}
+                  </UButton>
+                </div>
+                <p
+                  v-if="quotaHelperText"
+                  class="text-xs text-muted-500 text-center"
+                >
+                  {{ quotaHelperText }}
+                </p>
+              </div>
 
               <UAlert
                 v-if="createDraftError"
@@ -686,12 +1006,62 @@ if (import.meta.client) {
           </div>
         </template>
       </div>
-      <ChatDraftsList
-        v-if="!isWorkspaceActive"
-        :drafts-pending="draftsPending"
-        :content-entries="contentEntries"
-        @open-workspace="openWorkspace"
-      />
+      <div
+        v-if="!isWorkspaceActive && contentEntries.length > 0"
+        class="mt-8"
+      >
+        <ChatDraftsList
+          :drafts-pending="draftsPending"
+          :content-entries="contentEntries"
+          @open-workspace="openWorkspace"
+        />
+      </div>
     </div>
+
+    <QuotaLimitModal
+      v-model:open="showQuotaModal"
+      :title="quotaModalTitle"
+      :limit="quotaModalData?.limit ?? draftQuotaUsage?.limit ?? null"
+      :used="quotaModalData?.used ?? draftQuotaUsage?.used ?? null"
+      :remaining="quotaModalData?.remaining ?? draftQuotaUsage?.remaining ?? null"
+      :plan-label="quotaModalData?.planLabel ?? quotaPlanLabel"
+      :message="quotaModalMessage"
+      :primary-label="quotaPrimaryLabel"
+      @primary="handleQuotaModalPrimary"
+      @cancel="handleQuotaModalCancel"
+    >
+      <template
+        v-if="!loggedIn"
+        #actions
+      >
+        <div class="flex flex-col gap-3 pt-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <UButton
+              color="neutral"
+              variant="soft"
+              icon="i-simple-icons-google"
+              class="flex-1 justify-center"
+              @click="handleQuotaGoogleSignup"
+            >
+              Continue with Google
+            </UButton>
+            <div class="flex-1 text-center sm:text-left">
+              <button
+                type="button"
+                class="text-sm text-primary-400 font-semibold hover:underline"
+                @click="handleQuotaEmailSignup"
+              >
+                Sign up
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </QuotaLimitModal>
+    <BillingUpgradeModal
+      v-model:open="showUpgradeModal"
+      :organization-id="activeOrgState?.value?.data?.id || undefined"
+      @upgraded="handleUpgradeSuccess"
+    />
   </div>
 </template>

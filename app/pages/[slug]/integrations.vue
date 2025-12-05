@@ -6,6 +6,15 @@ definePageMeta({
   layout: 'default'
 })
 
+useHead({
+  title: 'Integrations'
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Integrations')
+}
+
 const currentRoute = useRoute()
 const router = useRouter()
 const slug = computed(() => currentRoute.params.slug as string)
@@ -435,7 +444,7 @@ if (import.meta.client) {
 
 <template>
   <UContainer class="py-10">
-    <div class="max-w-5xl mx-auto space-y-8">
+    <div class="space-y-8">
       <div class="space-y-1">
         <h1 class="text-3xl font-semibold">
           Integrations

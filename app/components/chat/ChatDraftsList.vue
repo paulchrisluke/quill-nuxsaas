@@ -24,15 +24,23 @@ const emit = defineEmits<{
 const activeTab = ref(0)
 
 const tabs = [
-  { label: 'Tasks' },
-  { label: 'Archived' }
+  { label: 'Drafts', value: 0 },
+  { label: 'Archived', value: 1 }
 ]
 
 const filteredEntries = computed(() => {
   if (activeTab.value === 1) {
-    return props.contentEntries.filter(entry => entry.status === 'archived')
+    // Show only archived items
+    return props.contentEntries.filter((entry) => {
+      const status = (entry.status || '').toLowerCase().trim()
+      return status === 'archived'
+    })
   }
-  return props.contentEntries.filter(entry => entry.status !== 'archived')
+  // Show non-archived items (Drafts tab)
+  return props.contentEntries.filter((entry) => {
+    const status = (entry.status || '').toLowerCase().trim()
+    return status !== 'archived'
+  })
 })
 
 const hasFilteredContent = computed(() => filteredEntries.value.length > 0)
@@ -61,16 +69,8 @@ const formatUpdatedAt = (date: Date | null) => {
       :items="tabs"
     />
 
-    <USkeleton
-      v-if="draftsPending"
-      class="space-y-2 flex flex-col gap-2 rounded-2xl border border-muted-200/60 p-4"
-    >
-      <div class="h-4 rounded bg-muted/70" />
-      <div class="h-4 rounded bg-muted/60" />
-      <div class="h-4 rounded bg-muted/50" />
-    </USkeleton>
     <div
-      v-else-if="hasFilteredContent"
+      v-if="hasFilteredContent"
       class="divide-y divide-muted-200/60"
     >
       <button
@@ -85,7 +85,6 @@ const formatUpdatedAt = (date: Date | null) => {
             {{ entry.title }}
           </p>
           <UBadge
-            size="xs"
             color="neutral"
             variant="soft"
             class="capitalize"
@@ -115,9 +114,9 @@ const formatUpdatedAt = (date: Date | null) => {
     </div>
     <div
       v-else
-      class="rounded-2xl border border-dashed border-muted-200/70 p-5 text-center text-sm text-muted-500"
+      class="text-center text-sm text-muted-500"
     >
-      No drafts yet
+      {{ activeTab === 1 ? 'No archived drafts' : 'No drafts yet' }}
     </div>
   </section>
 </template>
