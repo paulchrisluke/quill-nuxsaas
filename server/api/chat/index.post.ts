@@ -65,6 +65,10 @@ export default defineEventHandler(async (event) => {
       sourceText: null
     })
 
+    if (!record) {
+      continue
+    }
+
     if (classification.sourceType === 'youtube' && classification.externalId && runtimeConfig.enableYoutubeIngestion) {
       record = await ingestYouTubeVideoAsSourceContent({
         db,
@@ -103,11 +107,13 @@ export default defineEventHandler(async (event) => {
         }
       })
 
-      processedSources.push({
-        source: manualSource,
-        url: '',
-        sourceType: 'manual_transcript'
-      })
+      if (manualSource) {
+        processedSources.push({
+          source: manualSource,
+          url: '',
+          sourceType: 'manual_transcript'
+        })
+      }
     }
   } else if (message.trim().length > 500 && !urls.length) {
     // Auto-detect potential transcripts: long messages without URLs
@@ -125,23 +131,25 @@ export default defineEventHandler(async (event) => {
         }
       })
 
-      processedSources.push({
-        source: manualSource,
-        url: '',
-        sourceType: 'manual_transcript'
-      })
+      if (manualSource) {
+        processedSources.push({
+          source: manualSource,
+          url: '',
+          sourceType: 'manual_transcript'
+        })
+      }
     }
   }
 
-  let resolvedSourceContentId = body.action?.sourceContentId
+  let resolvedSourceContentId = (body.action?.type === 'generate_content' && body.action.sourceContentId)
     ? validateOptionalUUID(body.action.sourceContentId, 'action.sourceContentId')
-    : processedSources[0]?.source.id ?? null
+    : processedSources[0]?.source?.id ?? null
 
-  const requestContentId = body.contentId
-    ? validateOptionalUUID(body.contentId, 'contentId')
+  const requestContentId = (body as any).contentId
+    ? validateOptionalUUID((body as any).contentId, 'contentId')
     : null
 
-  const initialSessionContentId = body.action?.contentId
+  const initialSessionContentId = (body.action?.type === 'generate_content' && body.action.contentId)
     ? validateOptionalUUID(body.action.contentId, 'action.contentId')
     : requestContentId
 
@@ -158,6 +166,13 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  if (!session) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to create chat session'
+    })
+  }
+
   let generationResult: Awaited<ReturnType<typeof generateContentDraftFromSource>> | null = null
   let patchSectionResult: Awaited<ReturnType<typeof updateContentSectionWithAI>> | null = null
 
@@ -172,14 +187,23 @@ export default defineEventHandler(async (event) => {
         transcript,
         metadata: { createdVia: 'chat_generate_action' },
         onProgress: async (progressMessage) => {
-          await addMessageToChatSession(db, {
-            sessionId: session.id,
-            organizationId,
-            role: 'assistant',
-            content: progressMessage
-          })
+          if (session) {
+            await addMessageToChatSession(db, {
+              sessionId: session.id,
+              organizationId,
+              role: 'assistant',
+              content: progressMessage
+            })
+          }
         }
       })
+
+      if (!manualSource) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to create source content from transcript'
+        })
+      }
 
       resolvedSourceContentId = manualSource.id
 
@@ -231,8 +255,9 @@ export default defineEventHandler(async (event) => {
           })
           .join('\n')
         const schemaSummary = frontmatter.schemaTypes.join(', ')
+        const contentTypeLabel = body.action?.contentType || 'content'
         const summaryLines = [
-          `Plan preview before drafting the full ${contentType}:`,
+          `Plan preview before drafting the full ${contentTypeLabel}:`,
           `Title: ${frontmatter.title ?? 'Untitled draft'}`,
           schemaSummary ? `Schema types: ${schemaSummary}` : 'Schema types: n/a',
           frontmatter.slugSuggestion ? `Slug suggestion: ${frontmatter.slugSuggestion}` : 'Slug suggestion: n/a',
@@ -355,6 +380,9 @@ export default defineEventHandler(async (event) => {
   if (processedSources.length > 0) {
     // Generate descriptive messages for each source
     for (const item of processedSources) {
+      if (!item.source) {
+        continue
+      }
       if (item.sourceType === 'youtube' && item.source.externalId) {
         // Try to fetch YouTube video metadata
         let videoTitle = 'YouTube video'
@@ -440,7 +468,7 @@ Keep it concise (2-3 sentences) and conversational.`
   }
 
   if (patchSectionResult) {
-    const sectionLabel = body.action?.sectionTitle || patchSectionResult.section?.title || 'that section'
+    const sectionLabel = (body.action?.type === 'patch_section' && body.action.sectionTitle) || patchSectionResult.section?.title || 'that section'
     assistantMessages.push(`Updated "${sectionLabel}". Refresh the draft to review the latest changes.`)
   }
 

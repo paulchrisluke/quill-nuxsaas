@@ -121,6 +121,13 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  if (!manualSource) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Manual source content is required'
+    })
+  }
+
   const result = await generateContentDraftFromSource(db, {
     organizationId,
     userId: user.id,

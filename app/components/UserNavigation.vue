@@ -4,6 +4,7 @@ interface DraftQuotaUsagePayload {
   used: number | null
   remaining: number | null
   label?: string | null
+  unlimited?: boolean | null
 }
 
 const localePath = useLocalePath()

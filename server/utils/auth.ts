@@ -1,6 +1,7 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { H3Event } from 'h3'
 import type { User } from '~~/shared/utils/types'
+import { createHash } from 'node:crypto'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
@@ -53,6 +54,11 @@ const DRAFT_QUOTA_SETTINGS = {
   paid: parseDraftQuotaValue(runtimeConfig.public?.draftQuota?.paid, 0)
 } as const
 const QUOTA_USAGE_THRESHOLDS = [0.5, 0.8, 1] as const
+
+const getQuotaAdvisoryLockKeys = (organizationId: string): [number, number] => {
+  const hash = createHash('sha256').update(`quota:${organizationId}`).digest()
+  return [hash.readInt32BE(0), hash.readInt32BE(4)]
+}
 
 export const createBetterAuth = () => betterAuth({
   baseURL: runtimeConfig.public.baseURL,
@@ -881,50 +887,65 @@ const logQuotaUsageSnapshot = async (
   organizationId: string,
   quota: DraftQuotaUsageResult
 ) => {
+  const thresholdsToLog: Array<{ threshold: number, ratio: number, used: number, limit: number }> = []
   try {
-    const [last] = await db
-      .select()
-      .from(schema.quotaUsageLog)
-      .where(eq(schema.quotaUsageLog.organizationId, organizationId))
-      .orderBy(desc(schema.quotaUsageLog.createdAt))
-      .limit(1)
+    await db.transaction(async (tx) => {
+      const [lockKeyA, lockKeyB] = getQuotaAdvisoryLockKeys(organizationId)
+      await tx.execute(sql`select pg_advisory_xact_lock(${lockKeyA}, ${lockKeyB})`)
 
-    const hasMeaningfulChange = !last ||
-      last.used !== quota.used ||
-      (last.quotaLimit ?? null) !== (quota.limit ?? null) ||
-      last.unlimited !== Boolean(quota.unlimited)
+      const [last] = await tx
+        .select()
+        .from(schema.quotaUsageLog)
+        .where(eq(schema.quotaUsageLog.organizationId, organizationId))
+        .orderBy(desc(schema.quotaUsageLog.createdAt))
+        .limit(1)
 
-    if (!hasMeaningfulChange) {
-      return
-    }
+      const hasMeaningfulChange = !last ||
+        last.used !== quota.used ||
+        (last.quotaLimit ?? null) !== (quota.limit ?? null) ||
+        last.unlimited !== Boolean(quota.unlimited)
 
-    await db.insert(schema.quotaUsageLog).values({
-      organizationId,
-      quotaLimit: quota.limit ?? null,
-      used: quota.used,
-      remaining: quota.remaining ?? (quota.limit !== null ? Math.max(0, quota.limit - quota.used) : null),
-      profile: quota.profile,
-      label: quota.label,
-      unlimited: Boolean(quota.unlimited)
-    })
+      if (!hasMeaningfulChange) {
+        return
+      }
 
-    if (quota.limit && quota.limit > 0) {
-      const ratio = quota.used / quota.limit
-      const lastRatio = last && last.quotaLimit ? (last.used / last.quotaLimit) : 0
-      for (const threshold of QUOTA_USAGE_THRESHOLDS) {
-        if (ratio >= threshold && lastRatio < threshold) {
-          await logAuditEvent({
-            category: 'quota',
-            action: `threshold_${Math.round(threshold * 100)}`,
-            targetType: 'organization',
-            targetId: organizationId,
-            details: `Usage at ${Math.round(ratio * 100)}% (${quota.used}/${quota.limit}).`
-          })
+      await tx.insert(schema.quotaUsageLog).values({
+        organizationId,
+        quotaLimit: quota.limit ?? null,
+        used: quota.used,
+        remaining: quota.remaining ?? (quota.limit !== null ? Math.max(0, quota.limit - quota.used) : null),
+        profile: quota.profile,
+        label: quota.label,
+        unlimited: Boolean(quota.unlimited)
+      })
+
+      if (quota.limit && quota.limit > 0) {
+        const ratio = quota.used / quota.limit
+        const lastRatio = last && last.quotaLimit ? (last.used / last.quotaLimit) : 0
+        for (const threshold of QUOTA_USAGE_THRESHOLDS) {
+          if (ratio >= threshold && lastRatio < threshold) {
+            thresholdsToLog.push({
+              threshold,
+              ratio,
+              used: quota.used,
+              limit: quota.limit
+            })
+          }
         }
       }
-    }
+    })
   } catch (error) {
     console.error('Unable to log quota usage snapshot', error)
+  }
+
+  for (const event of thresholdsToLog) {
+    await logAuditEvent({
+      category: 'quota',
+      action: `threshold_${Math.round(event.threshold * 100)}`,
+      targetType: 'organization',
+      targetId: organizationId,
+      details: `Usage at ${Math.round(event.ratio * 100)}% (${event.used}/${event.limit}).`
+    })
   }
 }
 

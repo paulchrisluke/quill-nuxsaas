@@ -128,7 +128,7 @@ definePageMeta({
             name="i-lucide-check-circle"
             class="h-12 w-12 mx-auto mb-2 text-amber-500"
           />
-          <p>Redirecting to dashboard...</p>
+          <p>Redirecting to your team...</p>
         </div>
       </div>
     </UCard>

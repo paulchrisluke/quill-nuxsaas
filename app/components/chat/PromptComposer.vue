@@ -40,7 +40,10 @@ const handleSubmit = (value: string) => {
       @submit="handleSubmit"
     >
       <template #footer>
-        <div class="flex items-center justify-between gap-2 w-full">
+        <div
+          data-slot="footer"
+          class="flex items-center justify-between gap-2 w-full"
+        >
           <div>
             <slot name="footer" />
           </div>
