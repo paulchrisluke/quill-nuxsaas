@@ -1,7 +1,8 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import type { H3Event } from 'h3'
 import type { FetchError } from 'ofetch'
 import { and, eq } from 'drizzle-orm'
-import { createError } from 'h3'
+import { createError, getRequestHeaders } from 'h3'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import * as schema from '../../database/schema'
 import { createChunksFromSourceContentText } from './chunkSourceContent'
@@ -27,16 +28,36 @@ export interface YouTubeTranscriptErrorData {
   suggestAccountLink?: boolean
   canRetry?: boolean
   videoId: string
-  innertubeError?: string
-  apiError?: string
+  workerError?: string
 }
 
 interface IngestYouTubeOptions {
+  event: H3Event
   db: NodePgDatabase<typeof schema>
   sourceContentId: string
   organizationId: string
   userId: string
   videoId: string
+}
+
+interface WorkerTranscriptResponse {
+  success: boolean
+  transcript?: {
+    text: string
+    format: string
+    language?: string | null
+    track_kind?: string | null
+  }
+  metadata?: {
+    client_version?: string | null
+    method?: string | null
+    video_id?: string
+  }
+  error?: {
+    code?: string
+    message?: string
+    details?: string
+  }
 }
 
 function hasYouTubeScopes(scope: string | null | undefined) {
@@ -48,7 +69,7 @@ function hasYouTubeScopes(scope: string | null | undefined) {
     scope.includes('https://www.googleapis.com/auth/youtube.force-ssl')
 }
 
-function stripVttToPlainText(vtt: string) {
+function _stripVttToPlainText(vtt: string) {
   return vtt
     .split(/\r?\n+/)
     .filter((line) => {
@@ -69,7 +90,7 @@ function stripVttToPlainText(vtt: string) {
     .trim()
 }
 
-function classifyTranscriptFailure(message: string) {
+function _classifyTranscriptFailure(message: string) {
   const lowerMessage = message.toLowerCase()
 
   if (lowerMessage.includes('no captions') || lowerMessage.includes('no transcripts')) {
@@ -106,8 +127,7 @@ function createTranscriptError(params: {
   suggestAccountLink?: boolean
   canRetry?: boolean
   videoId: string
-  innertubeError?: string
-  apiError?: string
+  workerError?: string
 }) {
   return createError({
     statusCode: 400,
@@ -119,107 +139,91 @@ function createTranscriptError(params: {
   })
 }
 
-async function fetchInnertubeClientConfig(videoId: string) {
-  const watchPage = await $fetch<string>(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=en`, {
-    responseType: 'text'
-  })
-
-  const apiKey = watchPage.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1]
-  const clientVersion = watchPage.match(/"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"/)?.[1]
-
-  if (!apiKey || !clientVersion) {
-    throw new Error('Unable to extract YouTube client configuration for transcript fetch.')
+function mapWorkerError(code: string | undefined, statusCode?: number) {
+  if (statusCode === 401) {
+    return { reasonCode: 'auth_failed' as const, userMessage: 'Authentication required to fetch YouTube transcript. Please sign in again.' }
+  }
+  if (statusCode === 429 || code === 'rate_limited') {
+    return { reasonCode: 'rate_limited' as const, userMessage: 'Too many requests, please try again later.', canRetry: true }
+  }
+  switch (code) {
+    case 'no_captions':
+      return { reasonCode: 'no_captions' as const, userMessage: 'This video doesn\'t have captions available.', canRetry: false }
+    case 'invalid_video':
+      return { reasonCode: 'private_or_unavailable' as const, userMessage: 'Invalid or unavailable YouTube video.' }
+    case 'blocked':
+      return { reasonCode: 'blocked' as const, userMessage: 'YouTube is blocking requests from our servers.' }
+    case 'network_error':
+      return { reasonCode: 'unknown' as const, userMessage: 'Network error while fetching YouTube transcript. Please try again.' }
+    case 'internal_error':
+      return { reasonCode: 'unknown' as const, userMessage: 'Internal error while fetching YouTube transcript.' }
+    default:
+      break
   }
 
-  return { apiKey, clientVersion }
-}
-
-function selectPreferredCaptionTrack(tracks: any[]) {
-  const englishNonAsr = tracks.find(track => track?.languageCode?.startsWith('en') && track?.kind !== 'asr')
-  if (englishNonAsr)
-    return englishNonAsr
-
-  const nonAsr = tracks.find(track => track?.kind !== 'asr')
-  if (nonAsr)
-    return nonAsr
-
-  return tracks[0]
-}
-
-function parseJson3Transcript(json: any) {
-  const events = Array.isArray(json?.events) ? json.events : []
-  const segments = events
-    .flatMap((event: any) => Array.isArray(event?.segs) ? event.segs : [])
-    .map((segment: any) => typeof segment?.utf8 === 'string' ? segment.utf8 : '')
-    .filter(Boolean)
-
-  return segments.join(' ').replace(/\s+/g, ' ').trim()
-}
-
-async function downloadInnertubeTranscript(track: any) {
-  if (!track || typeof track.baseUrl !== 'string' || !track.baseUrl.trim()) {
-    throw new Error('Invalid Innertube caption track: baseUrl is missing or empty.')
+  if (statusCode === 400) {
+    return { reasonCode: 'private_or_unavailable' as const, userMessage: 'Unable to fetch transcript for this video.' }
   }
 
-  let trackUrl: URL
+  return { reasonCode: 'unknown' as const, userMessage: 'Unable to fetch transcript.' }
+}
+
+class WorkerTranscriptError extends Error {
+  failure: { reasonCode: TranscriptFailureReason, userMessage: string, canRetry?: boolean }
+  statusCode?: number
+
+  constructor(message: string, failure: { reasonCode: TranscriptFailureReason, userMessage: string, canRetry?: boolean }, statusCode?: number) {
+    super(message)
+    this.failure = failure
+    this.statusCode = statusCode
+  }
+}
+
+async function fetchTranscriptViaWorker(event: H3Event, videoId: string) {
+  const headers: Record<string, string> = {}
+  const requestHeaders = getRequestHeaders(event) || {}
+
+  if (typeof requestHeaders.cookie === 'string' && requestHeaders.cookie) {
+    headers.cookie = requestHeaders.cookie
+  }
+
+  if (typeof requestHeaders.authorization === 'string' && requestHeaders.authorization) {
+    headers.authorization = requestHeaders.authorization
+  }
+
   try {
-    trackUrl = new URL(track.baseUrl)
-  } catch (error) {
-    throw new Error(`Invalid Innertube caption track baseUrl: ${(error as Error).message}`)
-  }
-  trackUrl.searchParams.set('fmt', 'json3')
+    const response = await $fetch<WorkerTranscriptResponse>(`${runtimeConfig.workerApiUrl}/api/proxy/youtube-transcript`, {
+      method: 'POST',
+      body: { video_id: videoId },
+      headers
+    })
 
-  try {
-    const json = await $fetch<any>(trackUrl.toString())
-    const text = parseJson3Transcript(json)
-    if (text) {
-      return { text, format: 'json3' as const }
+    if (!response?.success) {
+      const failure = mapWorkerError(response?.error?.code, undefined)
+      throw new WorkerTranscriptError(response?.error?.message || 'Failed to fetch transcript via Worker.', failure)
     }
-  } catch (error) {
-    console.warn('Failed to parse JSON3 transcript, falling back to VTT', error)
-  }
 
-  trackUrl.searchParams.set('fmt', 'vtt')
-  const vtt = await $fetch<string>(trackUrl.toString(), { responseType: 'text' })
-  const text = stripVttToPlainText(vtt)
-  if (!text) {
-    throw new Error('Transcript download returned empty content.')
-  }
-  return { text, format: 'vtt' as const }
-}
-
-async function fetchTranscriptViaInnertube(videoId: string) {
-  const { apiKey, clientVersion } = await fetchInnertubeClientConfig(videoId)
-
-  const playerResponse = await $fetch<any>(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
-    method: 'POST',
-    body: {
-      context: {
-        client: {
-          hl: 'en',
-          gl: 'US',
-          clientName: 'WEB',
-          clientVersion
-        }
-      },
-      videoId
+    if (!response.transcript?.text) {
+      throw new WorkerTranscriptError('Worker returned empty transcript content.', mapWorkerError('internal_error'))
     }
-  })
 
-  const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks
-  if (!Array.isArray(tracks) || !tracks.length) {
-    throw new Error('No transcripts available via YouTube web client.')
-  }
+    return {
+      text: response.transcript.text,
+      format: response.transcript.format,
+      language: response.transcript.language,
+      trackKind: response.transcript.track_kind,
+      metadata: response.metadata
+    }
+  } catch (error: any) {
+    if (error instanceof WorkerTranscriptError) {
+      throw error
+    }
 
-  const track = selectPreferredCaptionTrack(tracks)
-
-  const { text, format } = await downloadInnertubeTranscript(track)
-
-  return {
-    text,
-    track,
-    format,
-    clientVersion
+    const statusCode = (error as FetchError)?.statusCode
+    const code = (error as FetchError)?.data?.error?.code as string | undefined
+    const message = (error as FetchError)?.data?.error?.message || (error as Error).message || 'Failed to fetch transcript via Worker.'
+    const failure = mapWorkerError(code, statusCode)
+    throw new WorkerTranscriptError(message, failure, statusCode)
   }
 }
 
@@ -324,69 +328,6 @@ export async function fetchYouTubeVideoMetadata(accessToken: string, videoId: st
   }
 }
 
-async function downloadCaption(accessToken: string, captionId: string) {
-  try {
-    return await $fetch<string>(`https://youtube.googleapis.com/youtube/v3/captions/${captionId}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'text/plain'
-      },
-      query: {
-        tfmt: 'vtt',
-        alt: 'media'
-      },
-      responseType: 'text'
-    })
-  } catch (error: any) {
-    // Provide more helpful error messages for caption download errors
-    if (error?.statusCode === 403 || error?.data?.error?.code === 403) {
-      throw new Error('Permission denied when downloading captions. Please ensure you have access to manage this video\'s captions.')
-    }
-    if (error?.statusCode === 401 || error?.data?.error?.code === 401) {
-      throw new Error('Authentication failed when downloading captions. The access token may be invalid or expired.')
-    }
-    throw error
-  }
-}
-
-async function fetchCaptionMetadata(accessToken: string, videoId: string) {
-  try {
-    const response = await $fetch<any>('https://youtube.googleapis.com/youtube/v3/captions', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
-      query: {
-        part: 'id,snippet',
-        videoId
-      }
-    })
-
-    const items = response?.items || []
-    if (!items.length) {
-      throw new Error('No captions available for this video. The video may not have captions, or you may not have permission to access them. Note: You must own the video or have been granted caption management access.')
-    }
-
-    const preferred = items.find((item: any) => item?.snippet?.language?.startsWith('en') && item?.snippet?.trackKind !== 'ASR')
-      || items.find((item: any) => item?.snippet?.trackKind !== 'ASR')
-      || items[0]
-
-    return preferred
-  } catch (error: any) {
-    // Provide more helpful error messages for common API errors
-    if (error?.statusCode === 403 || error?.data?.error?.code === 403) {
-      throw new Error('Permission denied. You must own the YouTube video or have been granted caption management access. The YouTube Data API v3 requires ownership or explicit permission to access captions.')
-    }
-    if (error?.statusCode === 401 || error?.data?.error?.code === 401) {
-      throw new Error('Authentication failed. The access token may be invalid or expired. Please reconnect your YouTube integration.')
-    }
-    if (error?.statusCode === 404 || error?.data?.error?.code === 404) {
-      throw new Error('Video not found. Please verify the video ID is correct and the video exists.')
-    }
-    // Re-throw with original message if it's a different error
-    throw error
-  }
-}
-
 export async function findYouTubeAccount(db: NodePgDatabase<typeof schema>, organizationId: string, userId: string) {
   const [userAccount] = await db
     .select()
@@ -428,7 +369,7 @@ export async function findYouTubeAccount(db: NodePgDatabase<typeof schema>, orga
  * @returns Updated source content record with transcript
  */
 export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOptions) {
-  const { db, sourceContentId, organizationId, userId, videoId } = options
+  const { event, db, sourceContentId, organizationId: _organizationId, userId: _userId, videoId } = options
 
   const [source] = await db
     .select()
@@ -448,103 +389,54 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   const existingYoutubeMetadata = getBaseYoutubeMetadata(source.metadata)
   let transcriptText: string | null = null
   let youtubeMetadata = { ...existingYoutubeMetadata }
-  let lastInnertubeError: string | undefined
-  let ingestMethod: string | null = typeof (baseMetadata as any)?.ingestMethod === 'string'
-    ? (baseMetadata as any).ingestMethod
-    : null
+  const ingestMethod = 'youtube_worker'
 
   try {
-    const innertubeResult = await fetchTranscriptViaInnertube(videoId)
-    transcriptText = innertubeResult.text
-    ingestMethod = 'youtube_innertube'
+    const workerResult = await fetchTranscriptViaWorker(event, videoId)
+    transcriptText = workerResult.text
     youtubeMetadata = {
       ...youtubeMetadata,
-      transcriptMethod: 'innertube',
-      language: innertubeResult.track?.languageCode ?? innertubeResult.track?.languageName,
-      trackKind: innertubeResult.track?.kind,
-      transcriptFormat: innertubeResult.format,
-      clientVersion: innertubeResult.clientVersion,
+      transcriptMethod: 'worker',
+      language: workerResult.language,
+      trackKind: workerResult.trackKind,
+      transcriptFormat: workerResult.format,
+      workerMetadata: workerResult.metadata,
       lastIngestedAt: new Date().toISOString()
     }
   } catch (error) {
-    lastInnertubeError = (error as Error).message
-    console.warn('Innertube transcript fetch failed, falling back to YouTube API', error)
-  }
+    // Worker handles all fallbacks internally, so if it fails, surface the error clearly
+    const workerError = error as WorkerTranscriptError | Error
+    const failure = (workerError instanceof WorkerTranscriptError)
+      ? workerError.failure
+      : mapWorkerError(undefined, (error as FetchError)?.statusCode)
 
-  if (!transcriptText) {
-    const account = await findYouTubeAccount(db, organizationId, userId)
+    const errorMessage = (workerError instanceof WorkerTranscriptError)
+      ? workerError.message
+      : (error as Error).message || 'Failed to fetch transcript from Worker API'
 
-    if (!account) {
-      await db
-        .update(schema.sourceContent)
-        .set({
-          ingestStatus: 'failed',
-          metadata: {
-            ...baseMetadata,
-            ingestMethod,
-            youtube: {
-              ...youtubeMetadata,
-              lastError: 'No connected YouTube integration available.',
-              lastInnertubeError
-            }
-          },
-          updatedAt: new Date()
-        })
-        .where(eq(schema.sourceContent.id, sourceContentId))
-      throw createTranscriptError({
-        reasonCode: 'no_account',
-        userMessage: 'No YouTube account is connected for this organization.',
-        suggestAccountLink: true,
-        canRetry: true,
-        videoId,
-        innertubeError: lastInnertubeError
+    await db
+      .update(schema.sourceContent)
+      .set({
+        ingestStatus: 'failed',
+        metadata: {
+          ...baseMetadata,
+          ingestMethod,
+          youtube: {
+            ...youtubeMetadata,
+            lastError: errorMessage,
+            lastIngestedAt: new Date().toISOString()
+          }
+        },
+        updatedAt: new Date()
       })
-    }
+      .where(eq(schema.sourceContent.id, sourceContentId))
 
-    try {
-      const accessToken = await ensureAccessToken(db, account)
-      const caption = await fetchCaptionMetadata(accessToken, videoId)
-      const vttContent = await downloadCaption(accessToken, caption.id)
-      transcriptText = stripVttToPlainText(vttContent)
-      ingestMethod = 'youtube_api'
-      youtubeMetadata = {
-        ...youtubeMetadata,
-        transcriptMethod: 'youtube_api',
-        captionId: caption.id,
-        language: caption?.snippet?.language,
-        lastIngestedAt: new Date().toISOString(),
-        lastInnertubeError
-      }
-    } catch (error) {
-      const errorMessage = (error as FetchError)?.data?.error?.message || (error as Error).message || 'Unknown ingest error'
-      await db
-        .update(schema.sourceContent)
-        .set({
-          ingestStatus: 'failed',
-          metadata: {
-            ...baseMetadata,
-            ingestMethod,
-            youtube: {
-              ...youtubeMetadata,
-              lastError: errorMessage,
-              lastInnertubeError,
-              lastIngestedAt: new Date().toISOString()
-            }
-          },
-          updatedAt: new Date()
-        })
-        .where(eq(schema.sourceContent.id, sourceContentId))
-
-      const failure = classifyTranscriptFailure(errorMessage)
-
-      throw createTranscriptError({
-        ...failure,
-        videoId,
-        apiError: errorMessage,
-        innertubeError: lastInnertubeError,
-        suggestAccountLink: failure.reasonCode === 'auth_failed' || failure.reasonCode === 'permission_denied'
-      })
-    }
+    throw createTranscriptError({
+      ...failure,
+      videoId,
+      workerError: errorMessage,
+      suggestAccountLink: failure.reasonCode === 'auth_failed' || failure.reasonCode === 'permission_denied'
+    })
   }
 
   const metadata = {

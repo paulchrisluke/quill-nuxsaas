@@ -364,6 +364,7 @@ export default defineEventHandler(async (event) => {
     if (classification.sourceType === 'youtube' && classification.externalId && runtimeConfig.enableYoutubeIngestion) {
       try {
         record = await ingestYouTubeVideoAsSourceContent({
+          event,
           db,
           sourceContentId: record.id,
           organizationId,
