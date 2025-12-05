@@ -362,10 +362,11 @@ const handlePromptSubmit = async (value?: string) => {
   if (!trimmed) {
     return
   }
-  trimmed = normalizePromptCommands(trimmed)
-  if (!trimmed) {
+  const normalized = normalizePromptCommands(trimmed)
+  if (!normalized) {
     return
   }
+  trimmed = normalized
   const transcriptHandled = await maybeHandleTranscriptSubmission(trimmed)
   if (transcriptHandled) {
     prompt.value = ''
@@ -461,7 +462,7 @@ async function submitTranscript(text: string) {
     messages.value.push({
       id: createLocalId(),
       role: 'assistant',
-      content: `❌ ${errorMsg}`,
+      parts: [{ type: 'text', text: `❌ ${errorMsg}` }],
       createdAt: new Date()
     })
   } finally {
@@ -611,8 +612,8 @@ const handleCreateDraft = async () => {
     }
     return false
   } catch (error: any) {
-    // Check if this is an email verification limit error
-    if (error?.data?.anonLimitReached === true) {
+    // Check if this is a quota limit error
+    if (error?.data?.limitReached === true) {
       openQuotaModal({
         limit: error.data.limit || null,
         used: error.data.used || null,
@@ -635,6 +636,10 @@ const handleCreateDraft = async () => {
   } finally {
     createDraftLoading.value = false
   }
+}
+
+const handleCreateDraftClick = async () => {
+  await handleCreateDraft()
 }
 
 watch(
@@ -889,22 +894,13 @@ if (import.meta.client) {
                       variant="ghost"
                       size="sm"
                     >
-                      <template #label>
+                      <template #leading>
                         <div class="flex items-center gap-2">
                           <UIcon
                             :name="selectedContentTypeOption.icon"
                             class="w-4 h-4"
                           />
                           <span>{{ selectedContentTypeOption.label }}</span>
-                        </div>
-                      </template>
-                      <template #option="{ option }">
-                        <div class="flex items-center gap-2">
-                          <UIcon
-                            :name="option.icon"
-                            class="w-4 h-4"
-                          />
-                          <span>{{ option.label }}</span>
                         </div>
                       </template>
                     </USelectMenu>
@@ -932,7 +928,7 @@ if (import.meta.client) {
                     :loading="createDraftLoading"
                     :disabled="!canStartDraft"
                     class="w-full sm:w-auto"
-                    @click="handleCreateDraft"
+                    @click="handleCreateDraftClick"
                   >
                     {{ createDraftCta }}
                   </UButton>

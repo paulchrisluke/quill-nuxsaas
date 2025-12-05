@@ -1018,7 +1018,8 @@ export const ensureEmailVerifiedDraftCapacity = async (
       statusCode: 403,
       statusMessage,
       data: {
-        anonLimitReached: true,
+        limitReached: true,
+        anonLimitReached: quota.profile === 'anonymous',
         limit: quota.limit,
         used: quota.used,
         remaining: 0
