@@ -12,8 +12,13 @@ useHead(() => ({
 <template>
   <div class="min-h-screen flex flex-col bg-background">
     <header class="sticky top-0 z-40 border-b border-neutral-200/70 dark:border-neutral-800/60 bg-background/95 backdrop-blur-sm shadow-sm">
-      <div class="px-4 py-4 max-w-3xl mx-auto w-full">
-        <div v-if="workspaceHeader" class="space-y-3 w-full">
+      <div
+        class="px-4 py-4 max-w-3xl mx-auto w-full"
+      >
+        <div
+          v-if="workspaceHeader"
+          class="space-y-3 w-full"
+        >
           <div class="flex items-start gap-3 w-full">
             <div class="flex-shrink-0 pt-1.5">
               <UButton
@@ -21,6 +26,7 @@ useHead(() => ({
                 icon="i-lucide-arrow-left"
                 variant="ghost"
                 size="sm"
+                aria-label="Go back"
                 class="h-10 w-10 rounded-full p-0 flex items-center justify-center"
                 @click="workspaceHeader.onBack?.()"
               />

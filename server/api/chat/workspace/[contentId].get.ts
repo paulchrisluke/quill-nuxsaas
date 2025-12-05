@@ -52,7 +52,7 @@ async function findWorkspaceAcrossOrganizations(
 }
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event, { allowAnonymous: true })
+  const user = await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 

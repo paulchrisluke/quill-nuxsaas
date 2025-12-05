@@ -2,8 +2,8 @@
 import type { ContentType } from '#shared/constants/contentTypes'
 import type { ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
-import { shallowRef } from 'vue'
 import { useClipboard, useDebounceFn } from '@vueuse/core'
+import { shallowRef } from 'vue'
 
 import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
 import PromptComposer from './PromptComposer.vue'
@@ -73,9 +73,8 @@ const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = shallowRef<any | null>(null)
 const workspaceLoading = ref(false)
 const draftQuotaState = useState<DraftQuotaUsagePayload | null>('draft-quota-usage', () => null)
-const workspacePayloadCache = useState<Map<string, { payload: any | null, timestamp: number }>>('workspace-payload-cache', () => new Map())
+const workspacePayloadCache = useState<Record<string, { payload: any | null, timestamp: number }>>('workspace-payload-cache', () => ({}))
 const WORKSPACE_CACHE_TTL_MS = 30_000
-const debouncedRefreshDrafts = useDebounceFn(() => refreshDrafts(), 300)
 
 const scheduleIdleTask = (fn: () => void) => {
   if (typeof window === 'undefined')
@@ -93,24 +92,23 @@ const prefetchWorkspacePayload = (contentId?: string | null) => {
     return
   }
   scheduleIdleTask(() => {
-    const cacheEntry = workspacePayloadCache.value.get(contentId)
+    const cacheEntry = workspacePayloadCache.value[contentId]
     const now = Date.now()
     if (cacheEntry && (now - cacheEntry.timestamp) < WORKSPACE_CACHE_TTL_MS) {
       return
     }
     $fetch<{ workspace?: any | null }>(`/api/chat/workspace/${contentId}`)
       .then((response) => {
-        workspacePayloadCache.value.set(contentId, {
+        workspacePayloadCache.value[contentId] = {
           payload: response?.workspace ?? null,
           timestamp: Date.now()
-        })
+        }
       })
       .catch(() => {
         // Ignore prefetch errors
       })
   })
 }
-const debouncedRefreshDrafts = useDebounceFn(() => refreshDrafts(), 300)
 interface DraftQuotaUsagePayload {
   limit: number | null
   used: number | null
@@ -134,6 +132,7 @@ const {
     contents: []
   })
 })
+const debouncedRefreshDrafts = useDebounceFn(() => refreshDrafts(), 300)
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
 const draftQuotaUsage = computed<DraftQuotaUsagePayload | null>(() => workspaceDraftsPayload.value?.draftQuota ?? null)
@@ -248,7 +247,6 @@ const contentEntries = computed(() => {
 })
 
 const activeWorkspaceEntry = computed(() => contentEntries.value.find(entry => entry.id === activeWorkspaceId.value) ?? null)
-const isWorkspaceLoading = computed(() => workspaceLoading.value && isWorkspaceActive.value && !workspaceDetail.value)
 const canStartDraft = computed(() => messages.value.length > 0 && !!sessionId.value && !isBusy.value)
 const isStreaming = computed(() => ['submitted', 'streaming'].includes(status.value))
 const uiStatus = computed(() => status.value)
@@ -571,7 +569,7 @@ const loadWorkspaceDetail = async (contentId: string) => {
     return
   }
 
-  const cacheEntry = workspacePayloadCache.value.get(contentId)
+  const cacheEntry = workspacePayloadCache.value[contentId]
   const now = Date.now()
 
   if (cacheEntry) {
@@ -589,10 +587,10 @@ const loadWorkspaceDetail = async (contentId: string) => {
     const response = await $fetch<{ workspace?: any | null }>(`/api/chat/workspace/${contentId}`)
     const payload = response?.workspace ?? null
     workspaceDetail.value = payload
-    workspacePayloadCache.value.set(contentId, {
+    workspacePayloadCache.value[contentId] = {
       payload,
       timestamp: Date.now()
-    })
+    }
   } catch (error) {
     console.error('Unable to load workspace', error)
     if (!cacheEntry) {

@@ -38,7 +38,8 @@ const { data: contentData, pending, error } = await useFetch(`/api/content/${con
 
 // Transform to DraftEntry format (same as ChatDraftsList expects)
 const contentEntry = computed<DraftEntry | null>(() => {
-  if (!contentData.value) return null
+  if (!contentData.value)
+    return null
 
   const entry = contentData.value as any
   const content = entry.content

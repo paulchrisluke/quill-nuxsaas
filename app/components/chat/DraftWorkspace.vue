@@ -835,7 +835,6 @@ onBeforeUnmount(() => {
 <template>
   <div class="space-y-6">
     <section class="space-y-4 pt-2">
-
       <div
         v-if="activeViewTab === 'summary'"
         class="space-y-6"

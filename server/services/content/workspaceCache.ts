@@ -1,6 +1,6 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import type * as schema from '~~/server/database/schema'
 import { getContentWorkspacePayload } from './workspace'
-import * as schema from '~~/server/database/schema'
 
 export type WorkspacePayload = Awaited<ReturnType<typeof getContentWorkspacePayload>>
 
@@ -10,10 +10,22 @@ interface CacheEntry {
 }
 
 const WORKSPACE_CACHE_TTL_MS = 30_000
+const MAX_CACHE_SIZE = 500
 const workspaceCache = new Map<string, CacheEntry>()
+const inFlightRequests = new Map<string, Promise<WorkspacePayload>>()
 
 function cacheKey(organizationId: string, contentId: string, includeChat: boolean) {
   return `${organizationId}:${contentId}:chat:${includeChat ? '1' : '0'}`
+}
+
+function evictOldestIfNeeded() {
+  if (workspaceCache.size < MAX_CACHE_SIZE) {
+    return
+  }
+  const firstKey = workspaceCache.keys().next().value
+  if (firstKey) {
+    workspaceCache.delete(firstKey)
+  }
 }
 
 export function clearWorkspaceCache() {
@@ -40,10 +52,24 @@ export async function getWorkspaceWithCache(
     return existing.payload
   }
 
-  const payload = await getContentWorkspacePayload(db, organizationId, contentId, { includeChat })
-  workspaceCache.set(key, {
-    payload,
-    expiresAt: now + WORKSPACE_CACHE_TTL_MS
-  })
-  return payload
+  const pending = inFlightRequests.get(key)
+  if (pending) {
+    return pending
+  }
+
+  const fetchPromise = getContentWorkspacePayload(db, organizationId, contentId, { includeChat })
+    .then((payload) => {
+      evictOldestIfNeeded()
+      workspaceCache.set(key, {
+        payload,
+        expiresAt: Date.now() + WORKSPACE_CACHE_TTL_MS
+      })
+      return payload
+    })
+    .finally(() => {
+      inFlightRequests.delete(key)
+    })
+
+  inFlightRequests.set(key, fetchPromise)
+  return fetchPromise
 }
