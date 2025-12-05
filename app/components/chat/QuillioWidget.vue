@@ -4,7 +4,9 @@ import type { ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
 import { useClipboard } from '@vueuse/core'
 
+import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
 import PromptComposer from './PromptComposer.vue'
+import QuotaLimitModal from './QuotaLimitModal.vue'
 
 const props = withDefaults(defineProps<{
   initialDraftId?: string | null
@@ -16,7 +18,8 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter()
 const route = useRoute()
-const { loggedIn, user, useActiveOrganization, refreshActiveOrg } = useAuth()
+const auth = useAuth()
+const { loggedIn, user, useActiveOrganization, refreshActiveOrg, signIn } = auth
 const activeOrgState = useActiveOrganization()
 
 const {
@@ -35,8 +38,9 @@ const prompt = ref('')
 const promptSubmitting = ref(false)
 const createDraftLoading = ref(false)
 const createDraftError = ref<string | null>(null)
-const showEmailVerificationModal = ref(false)
-const emailVerificationLimitData = ref<{ limit: number, used: number, remaining: number } | null>(null)
+const showQuotaModal = ref(false)
+const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
+const showUpgradeModal = ref(false)
 const selectedContentType = ref<ContentType>(CONTENT_TYPE_OPTIONS[0]?.value ?? 'blog_post')
 
 const selectedContentTypeOption = computed(() => {
@@ -48,19 +52,38 @@ const selectedContentTypeOption = computed(() => {
 const linkedSources = ref<Array<{ id: string, type: 'transcript', value: string }>>([])
 const { copy } = useClipboard()
 const toast = useToast()
+const runtimeConfig = useRuntimeConfig()
+
+const parseDraftLimitValue = (value: unknown, fallback: number) => {
+  if (typeof value === 'number' && Number.isFinite(value))
+    return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed))
+      return parsed
+  }
+  return fallback
+}
+
+const guestDraftLimit = computed(() => parseDraftLimitValue(runtimeConfig.public?.draftQuota?.anonymous, 5))
+const verifiedDraftLimit = computed(() => parseDraftLimitValue(runtimeConfig.public?.draftQuota?.verified, 25))
 
 const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = ref<any | null>(null)
 const workspaceLoading = ref(false)
-interface EmailVerificationUsagePayload {
-  limit: number
-  used: number
-  remaining: number
+const draftQuotaState = useState<DraftQuotaUsagePayload | null>('draft-quota-usage', () => null)
+interface DraftQuotaUsagePayload {
+  limit: number | null
+  used: number | null
+  remaining: number | null
+  label?: string | null
+  unlimited?: boolean
+  profile?: 'anonymous' | 'verified' | 'paid'
 }
 
 interface WorkspaceResponse {
   contents: any[]
-  emailVerificationUsage?: EmailVerificationUsagePayload | null
+  draftQuota?: DraftQuotaUsagePayload | null
 }
 
 const {
@@ -74,19 +97,55 @@ const {
 })
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
-const emailVerificationUsage = computed<EmailVerificationUsagePayload | null>(() => workspaceDraftsPayload.value?.emailVerificationUsage ?? null)
-const remainingEmailVerificationDrafts = computed(() => {
-  if (user.value?.emailVerified)
-    return null // No limit for verified users
-  if (emailVerificationUsage.value)
-    return emailVerificationUsage.value.remaining
+const draftQuotaUsage = computed<DraftQuotaUsagePayload | null>(() => workspaceDraftsPayload.value?.draftQuota ?? null)
+const remainingDraftQuota = computed(() => {
+  const usage = draftQuotaUsage.value
+  if (!usage)
+    return null
+  if (typeof usage.remaining === 'number')
+    return usage.remaining
+  if (typeof usage.limit === 'number' && typeof usage.used === 'number')
+    return usage.limit - usage.used
   return null
 })
-const hasReachedEmailVerificationLimit = computed(() => {
-  if (user.value?.emailVerified)
+const hasReachedDraftQuota = computed(() => {
+  const remaining = remainingDraftQuota.value
+  if (remaining === null)
     return false
-  return remainingEmailVerificationDrafts.value !== null && remainingEmailVerificationDrafts.value <= 0
+  return remaining <= 0
 })
+const quotaBadgeLabel = computed(() => {
+  const usage = draftQuotaUsage.value
+  if (usage?.unlimited) {
+    return '∞'
+  }
+  if (!usage || typeof usage.limit !== 'number') {
+    return null
+  }
+  const limit = Math.max(0, usage.limit)
+  const used = Math.max(0, usage.used ?? (limit - (usage.remaining ?? 0)))
+  return `${Math.min(used, limit)}/${limit}`
+})
+const quotaPlanLabel = computed(() => draftQuotaUsage.value?.label ?? (loggedIn.value ? 'Current plan' : 'Guest access'))
+const quotaBadgeAriaLabel = computed(() => {
+  if (!quotaBadgeLabel.value)
+    return 'Draft quota details'
+  return `${quotaBadgeLabel.value} drafts used on ${quotaPlanLabel.value}. Tap for plan details.`
+})
+
+watch(draftQuotaUsage, (value) => {
+  if (value) {
+    draftQuotaState.value = {
+      limit: value.limit ?? null,
+      used: value.used ?? null,
+      remaining: value.remaining ?? null,
+      label: value.label ?? null,
+      unlimited: value.unlimited ?? false
+    }
+  } else {
+    draftQuotaState.value = null
+  }
+}, { immediate: true, deep: true })
 
 const contentEntries = computed(() => {
   const list = Array.isArray(workspaceDraftsPayload.value?.contents) ? workspaceDraftsPayload.value?.contents : []
@@ -164,14 +223,28 @@ const MAX_AUTO_DRAFT_RETRIES = 3
 const AUTO_DRAFT_COOLDOWN_MS = 5000 // 5 seconds
 
 const createDraftCta = computed(() => {
-  if (hasReachedEmailVerificationLimit.value) {
-    return 'Verify email to keep drafting'
+  if (hasReachedDraftQuota.value) {
+    return loggedIn.value ? 'Upgrade to keep drafting' : 'Create an account to keep drafting'
   }
   if (user.value?.emailVerified) {
     return 'Create draft'
   }
-  const remaining = remainingEmailVerificationDrafts.value
-  return remaining !== null ? `Save draft (${remaining} left)` : 'Create draft'
+  const remaining = remainingDraftQuota.value
+  return remaining !== null ? `Save draft (${Math.max(0, remaining)} left)` : 'Create draft'
+})
+const quotaHelperText = computed(() => {
+  if (draftQuotaUsage.value?.unlimited) {
+    return `${quotaPlanLabel.value || 'Pro plan'} unlocks unlimited drafts.`
+  }
+  const remaining = remainingDraftQuota.value
+  if (remaining === null)
+    return null
+  if (remaining > 0) {
+    return loggedIn.value
+      ? `${remaining} draft${remaining === 1 ? '' : 's'} left on your plan`
+      : `${remaining} draft${remaining === 1 ? '' : 's'} left before creating an account`
+  }
+  return loggedIn.value ? 'Upgrade your plan to unlock more drafts.' : 'Create an account to unlock more drafts.'
 })
 
 const handleWhatsNewSelect = (payload: { id: 'youtube' | 'transcript' | 'seo', command?: string }) => {
@@ -181,6 +254,106 @@ const handleWhatsNewSelect = (payload: { id: 'youtube' | 'transcript' | 'seo', c
   if (payload.command) {
     prompt.value = payload.command
   }
+}
+
+const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
+  const fallback = draftQuotaUsage.value
+  const baseLimit = typeof payload?.limit === 'number'
+    ? payload.limit
+    : (typeof fallback?.limit === 'number' ? fallback.limit : null)
+  const normalizedLimit = baseLimit ?? (loggedIn.value ? verifiedDraftLimit.value : guestDraftLimit.value)
+  const usedValue = typeof payload?.used === 'number'
+    ? payload.used
+    : (typeof fallback?.used === 'number' ? fallback.used : normalizedLimit)
+  const remainingValue = baseLimit !== null
+    ? Math.max(0, (baseLimit ?? 0) - (usedValue ?? 0))
+    : null
+  quotaModalData.value = {
+    limit: baseLimit ?? normalizedLimit,
+    used: usedValue ?? normalizedLimit,
+    remaining: payload?.remaining ?? fallback?.remaining ?? remainingValue,
+    planLabel: payload?.label ?? fallback?.label ?? quotaPlanLabel.value ?? null
+  }
+  showQuotaModal.value = true
+}
+
+const quotaModalMessage = computed(() => {
+  if (!loggedIn.value) {
+    return `Make an account to unlock ${verifiedDraftLimit.value} total drafts or archive drafts to continue writing.`
+  }
+  return 'Starter plans have a draft limit. Upgrade to unlock unlimited drafts or archive drafts to continue writing.'
+})
+
+const quotaModalTitle = computed(() => {
+  const limit = quotaModalData.value?.limit ?? draftQuotaUsage.value?.limit ?? null
+  const used = quotaModalData.value?.used ?? draftQuotaUsage.value?.used ?? null
+  if (typeof limit === 'number') {
+    const remaining = Math.max(0, limit - (typeof used === 'number' ? used : 0))
+    return `You have ${remaining}/${limit} drafts remaining.`
+  }
+  if (draftQuotaUsage.value?.unlimited) {
+    return 'Unlimited drafts unlocked.'
+  }
+  return loggedIn.value ? 'Upgrade to unlock more drafts.' : 'Create an account for more drafts.'
+})
+
+const quotaPrimaryLabel = computed(() => loggedIn.value ? 'Upgrade' : 'Sign up')
+
+const handleQuotaBadgeClick = () => {
+  openQuotaModal()
+}
+
+const handleQuotaModalPrimary = () => {
+  showQuotaModal.value = false
+  if (loggedIn.value) {
+    showUpgradeModal.value = true
+    return
+  }
+  const destination = `/signup?redirect=${encodeURIComponent('/')}`
+  router.push(destination)
+}
+
+const handleQuotaModalCancel = () => {
+  showQuotaModal.value = false
+}
+
+const handleUpgradeSuccess = async () => {
+  showUpgradeModal.value = false
+  await refreshActiveOrg()
+  await refreshDrafts()
+}
+
+const handleQuotaGoogleSignup = () => {
+  showQuotaModal.value = false
+  if (typeof window === 'undefined')
+    return
+  try {
+    signIn.social?.({
+      provider: 'google',
+      callbackURL: window.location.href
+    })
+  } catch (error) {
+    console.error('Failed to start Google signup', error)
+  }
+}
+
+const handleQuotaEmailSignup = () => {
+  showQuotaModal.value = false
+  const redirect = route.fullPath || '/'
+  router.push(`/signup?redirect=${encodeURIComponent(redirect)}`)
+}
+
+if (import.meta.client) {
+  const handleQuotaEvent = (event: Event) => {
+    const detail = (event as CustomEvent<{ limit?: number, used?: number, remaining?: number, label?: string, unlimited?: boolean }>).detail
+    openQuotaModal(detail || undefined)
+  }
+  onMounted(() => {
+    window.addEventListener('quillio:show-quota', handleQuotaEvent as EventListener)
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('quillio:show-quota', handleQuotaEvent as EventListener)
+  })
 }
 
 const handlePromptSubmit = async (value?: string) => {
@@ -403,22 +576,8 @@ const handleCreateDraft = async () => {
     return false
   }
 
-  if (hasReachedEmailVerificationLimit.value) {
-    const usage = emailVerificationUsage.value
-    if (usage) {
-      emailVerificationLimitData.value = {
-        limit: usage.limit,
-        used: usage.used,
-        remaining: usage.remaining
-      }
-    } else {
-      emailVerificationLimitData.value = emailVerificationLimitData.value ?? {
-        limit: 0,
-        used: 0,
-        remaining: 0
-      }
-    }
-    showEmailVerificationModal.value = true
+  if (hasReachedDraftQuota.value) {
+    openQuotaModal()
     return false
   }
 
@@ -454,12 +613,11 @@ const handleCreateDraft = async () => {
   } catch (error: any) {
     // Check if this is an email verification limit error
     if (error?.data?.anonLimitReached === true) {
-      emailVerificationLimitData.value = {
-        limit: error.data.limit || 5,
-        used: error.data.used || 5,
-        remaining: error.data.remaining || 0
-      }
-      showEmailVerificationModal.value = true
+      openQuotaModal({
+        limit: error.data.limit || null,
+        used: error.data.used || null,
+        remaining: error.data.remaining || null
+      })
       return false
     }
 
@@ -488,7 +646,7 @@ watch(
   }),
   async ({ active, canStart, count, loading }) => {
     // Don't attempt if workspace is active, loading, already triggered, can't start, no messages, or limit reached
-    if (active || loading || autoDraftTriggered.value || !canStart || count === 0 || hasReachedEmailVerificationLimit.value)
+    if (active || loading || autoDraftTriggered.value || !canStart || count === 0 || hasReachedDraftQuota.value)
       return
 
     // Prevent infinite retries: check failure counter and cooldown
@@ -767,25 +925,36 @@ if (import.meta.client) {
               v-if="messages.length"
               class="space-y-3 mt-6"
             >
-              <UButton
-                block
-                color="primary"
-                :loading="createDraftLoading"
-                :disabled="!canStartDraft"
-                @click="handleCreateDraft"
-              >
-                {{ createDraftCta }}
-              </UButton>
-              <p
-                v-if="!user?.emailVerified && remainingEmailVerificationDrafts !== null"
-                class="text-xs text-muted-500 text-center"
-              >
-                {{
-                  remainingEmailVerificationDrafts > 0
-                    ? `${remainingEmailVerificationDrafts} draft${remainingEmailVerificationDrafts === 1 ? '' : 's'} left before verification`
-                    : 'Verify your email to unlock more drafts.'
-                }}
-              </p>
+              <div class="flex flex-col gap-2">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-center gap-2">
+                  <UButton
+                    color="primary"
+                    :loading="createDraftLoading"
+                    :disabled="!canStartDraft"
+                    class="w-full sm:w-auto"
+                    @click="handleCreateDraft"
+                  >
+                    {{ createDraftCta }}
+                  </UButton>
+                  <UButton
+                    v-if="quotaBadgeLabel"
+                    size="xs"
+                    variant="soft"
+                    color="neutral"
+                    class="font-mono text-xs rounded-full px-4 py-3 w-full sm:w-auto justify-center min-h-[44px]"
+                    :aria-label="quotaBadgeAriaLabel"
+                    @click="handleQuotaBadgeClick"
+                  >
+                    {{ quotaBadgeLabel }}
+                  </UButton>
+                </div>
+                <p
+                  v-if="quotaHelperText"
+                  class="text-xs text-muted-500 text-center"
+                >
+                  {{ quotaHelperText }}
+                </p>
+              </div>
 
               <UAlert
                 v-if="createDraftError"
@@ -810,44 +979,50 @@ if (import.meta.client) {
       </div>
     </div>
 
-    <!-- Email Verification Limit Modal -->
-    <UModal
-      v-model:open="showEmailVerificationModal"
-      title="Draft Limit Reached"
+    <QuotaLimitModal
+      v-model:open="showQuotaModal"
+      :title="quotaModalTitle"
+      :limit="quotaModalData?.limit ?? draftQuotaUsage?.limit ?? null"
+      :used="quotaModalData?.used ?? draftQuotaUsage?.used ?? null"
+      :remaining="quotaModalData?.remaining ?? draftQuotaUsage?.remaining ?? null"
+      :plan-label="quotaModalData?.planLabel ?? quotaPlanLabel"
+      :message="quotaModalMessage"
+      :primary-label="quotaPrimaryLabel"
+      @primary="handleQuotaModalPrimary"
+      @cancel="handleQuotaModalCancel"
     >
-      <template #body>
-        <div class="space-y-4">
-          <p class="text-sm text-gray-600 dark:text-gray-400">
-            You've reached the limit of {{ emailVerificationLimitData?.limit || 5 }} drafts. Please verify your email address to continue creating drafts.
-          </p>
-          <div
-            v-if="emailVerificationLimitData"
-            class="text-xs text-gray-500"
-          >
-            Used: {{ emailVerificationLimitData.used }} / {{ emailVerificationLimitData.limit }}
-          </div>
-          <div class="flex justify-end gap-2 pt-4">
+      <template
+        v-if="!loggedIn"
+        #actions
+      >
+        <div class="flex flex-col gap-3 pt-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <UButton
-              v-if="loggedIn"
-              label="Go to Profile"
-              color="primary"
-              @click="router.push('/profile'); showEmailVerificationModal = false"
-            />
-            <UButton
-              v-else
-              label="Sign Up"
-              color="primary"
-              @click="router.push(`/signup?redirect=${encodeURIComponent('/')}`); showEmailVerificationModal = false"
-            />
-            <UButton
-              label="Cancel"
-              color="gray"
-              variant="ghost"
-              @click="showEmailVerificationModal = false"
-            />
+              color="neutral"
+              variant="soft"
+              icon="i-simple-icons-google"
+              class="flex-1 justify-center"
+              @click="handleQuotaGoogleSignup"
+            >
+              Continue with Google
+            </UButton>
+            <div class="flex-1 text-center sm:text-left">
+              <button
+                type="button"
+                class="text-sm text-primary-400 font-semibold hover:underline"
+                @click="handleQuotaEmailSignup"
+              >
+                Sign up
+              </button>
+            </div>
           </div>
         </div>
       </template>
-    </UModal>
+    </QuotaLimitModal>
+    <BillingUpgradeModal
+      v-model:open="showUpgradeModal"
+      :organization-id="activeOrgState?.value?.data?.id || undefined"
+      @upgraded="handleUpgradeSuccess"
+    />
   </div>
 </template>

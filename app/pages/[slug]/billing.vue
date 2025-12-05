@@ -5,6 +5,15 @@ definePageMeta({
   layout: 'default'
 })
 
+useHead({
+  title: 'Billing'
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Billing')
+}
+
 const { useActiveOrganization, subscription: stripeSubscription, client, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
 const router = useRouter()

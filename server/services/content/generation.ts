@@ -1134,6 +1134,22 @@ export const generateContentDraftFromSource = async (
       })
     }
 
+    const [membership] = await db
+      .select()
+      .from(schema.member)
+      .where(and(
+        eq(schema.member.userId, userId),
+        eq(schema.member.organizationId, organizationId)
+      ))
+      .limit(1)
+
+    if (!membership) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'User is not a member of this organization'
+      })
+    }
+
     await ensureEmailVerifiedDraftCapacity(db, organizationId, user)
   }
 

@@ -10,6 +10,15 @@ definePageMeta({
   layout: 'default'
 })
 
+useHead({
+  title: 'Members'
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Members')
+}
+
 const { organization, useActiveOrganization, session, user, fetchSession, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()

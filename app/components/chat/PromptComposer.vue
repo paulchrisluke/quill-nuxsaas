@@ -40,11 +40,15 @@ const handleSubmit = (value: string) => {
       @submit="handleSubmit"
     >
       <template #footer>
-        <div class="flex items-center justify-between gap-2">
-          <slot name="footer" />
-          <slot name="submit">
-            <UChatPromptSubmit :status="props.status || 'idle'" />
-          </slot>
+        <div class="flex items-center justify-between gap-2 w-full">
+          <div>
+            <slot name="footer" />
+          </div>
+          <div>
+            <slot name="submit">
+              <UChatPromptSubmit :status="props.status || 'idle'" />
+            </slot>
+          </div>
         </div>
       </template>
     </UChatPrompt>

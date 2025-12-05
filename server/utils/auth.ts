@@ -5,10 +5,9 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
-import { and, count, eq, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
 import { appendResponseHeader, getRequestHeaders } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
-import { UNVERIFIED_EMAIL_DRAFT_LIMIT } from '../../shared/constants/limits'
 import { ac, admin, member, owner } from '../../shared/utils/permissions'
 import * as schema from '../database/schema'
 import { logAuditEvent } from './auditLogger'
@@ -36,6 +35,24 @@ const trustedOrigins = [
   'http://127.0.0.1:4000',
   runtimeConfig.public.baseURL
 ]
+
+const parseDraftQuotaValue = (value: unknown, fallback: number) => {
+  if (typeof value === 'number' && Number.isFinite(value))
+    return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed))
+      return parsed
+  }
+  return fallback
+}
+
+const DRAFT_QUOTA_SETTINGS = {
+  anonymous: parseDraftQuotaValue(runtimeConfig.public?.draftQuota?.anonymous, 5),
+  verified: parseDraftQuotaValue(runtimeConfig.public?.draftQuota?.verified, 25),
+  paid: parseDraftQuotaValue(runtimeConfig.public?.draftQuota?.paid, 0)
+} as const
+const QUOTA_USAGE_THRESHOLDS = [0.5, 0.8, 1] as const
 
 export const createBetterAuth = () => betterAuth({
   baseURL: runtimeConfig.public.baseURL,
@@ -828,22 +845,138 @@ export const requireAuth = async (event: H3Event, options: RequireAuthOptions = 
   })
 }
 
-export const getEmailVerifiedDraftUsage = async (
+const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing'] as const
+
+const getOrganizationSubscriptionStatus = async (db: NodePgDatabase<typeof schema>, organizationId: string) => {
+  const [activeSubscription] = await db
+    .select({
+      plan: schema.subscription.plan,
+      status: schema.subscription.status
+    })
+    .from(schema.subscription)
+    .where(and(
+      eq(schema.subscription.referenceId, organizationId),
+      inArray(schema.subscription.status, ACTIVE_SUBSCRIPTION_STATUSES)
+    ))
+    .limit(1)
+
+  return {
+    hasActiveSubscription: Boolean(activeSubscription),
+    planLabel: activeSubscription ? 'Pro plan' : 'Starter plan'
+  }
+}
+
+const resolveDraftQuotaProfile = (user: User | null, hasActiveSubscription: boolean) => {
+  if (hasActiveSubscription) {
+    return { profile: 'paid' as const, label: 'Pro plan' }
+  }
+  if (!user || user.isAnonymous || !user.emailVerified) {
+    return { profile: 'anonymous' as const, label: 'Guest access' }
+  }
+  return { profile: 'verified' as const, label: 'Starter plan' }
+}
+
+const logQuotaUsageSnapshot = async (
   db: NodePgDatabase<typeof schema>,
-  organizationId: string
-): Promise<{ limit: number, used: number, remaining: number }> => {
+  organizationId: string,
+  quota: DraftQuotaUsageResult
+) => {
+  try {
+    const [last] = await db
+      .select()
+      .from(schema.quotaUsageLog)
+      .where(eq(schema.quotaUsageLog.organizationId, organizationId))
+      .orderBy(desc(schema.quotaUsageLog.createdAt))
+      .limit(1)
+
+    const hasMeaningfulChange = !last ||
+      last.used !== quota.used ||
+      (last.limit ?? null) !== (quota.limit ?? null) ||
+      last.unlimited !== Boolean(quota.unlimited)
+
+    if (!hasMeaningfulChange) {
+      return
+    }
+
+    await db.insert(schema.quotaUsageLog).values({
+      organizationId,
+      limit: quota.limit ?? null,
+      used: quota.used,
+      remaining: quota.remaining ?? (quota.limit !== null ? Math.max(0, quota.limit - quota.used) : null),
+      profile: quota.profile,
+      label: quota.label,
+      unlimited: Boolean(quota.unlimited)
+    })
+
+    if (quota.limit && quota.limit > 0) {
+      const ratio = quota.used / quota.limit
+      const lastRatio = last && last.limit ? (last.used / last.limit) : 0
+      for (const threshold of QUOTA_USAGE_THRESHOLDS) {
+        if (ratio >= threshold && lastRatio < threshold) {
+          await logAuditEvent({
+            category: 'quota',
+            action: `threshold_${Math.round(threshold * 100)}`,
+            targetType: 'organization',
+            targetId: organizationId,
+            details: `Usage at ${Math.round(ratio * 100)}% (${quota.used}/${quota.limit}).`
+          })
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Unable to log quota usage snapshot', error)
+  }
+}
+
+export interface DraftQuotaUsageResult {
+  limit: number | null
+  used: number
+  remaining: number | null
+  label: string
+  unlimited: boolean
+  profile: 'anonymous' | 'verified' | 'paid'
+}
+
+export const getDraftQuotaUsage = async (
+  db: NodePgDatabase<typeof schema>,
+  organizationId: string,
+  user: User | null
+): Promise<DraftQuotaUsageResult> => {
   const [{ total }] = await db
     .select({ total: count() })
     .from(schema.content)
     .where(eq(schema.content.organizationId, organizationId))
 
   const used = Number(total) || 0
-  const limit = UNVERIFIED_EMAIL_DRAFT_LIMIT
-  return {
+  const { hasActiveSubscription, planLabel } = await getOrganizationSubscriptionStatus(db, organizationId)
+  const { profile, label } = resolveDraftQuotaProfile(user, hasActiveSubscription)
+  const configuredLimit = DRAFT_QUOTA_SETTINGS[profile]
+  const unlimited = profile === 'paid' && configuredLimit <= 0
+
+  if (unlimited) {
+    const quota = {
+      limit: null,
+      used,
+      remaining: null,
+      label: planLabel,
+      unlimited: true,
+      profile
+    }
+    await logQuotaUsageSnapshot(db, organizationId, quota)
+    return quota
+  }
+
+  const limit = Math.max(0, configuredLimit)
+  const quota = {
     limit,
     used,
-    remaining: Math.max(0, limit - used)
+    remaining: Math.max(0, limit - used),
+    label,
+    unlimited: false,
+    profile
   }
+  await logQuotaUsageSnapshot(db, organizationId, quota)
+  return quota
 }
 
 export const ensureEmailVerifiedDraftCapacity = async (
@@ -851,32 +984,30 @@ export const ensureEmailVerifiedDraftCapacity = async (
   organizationId: string,
   user: User
 ): Promise<{ limit: number, used: number, remaining: number } | null> => {
-  // If email is verified, no limit
-  if (user.emailVerified) {
+  const quota = await getDraftQuotaUsage(db, organizationId, user)
+  if (!quota || quota.unlimited || quota.limit === null) {
     return null
   }
 
-  // Count existing content for organization
-  const [{ total }] = await db
-    .select({ total: count() })
-    .from(schema.content)
-    .where(eq(schema.content.organizationId, organizationId))
-
-  const used = Number(total) || 0
-  const limit = UNVERIFIED_EMAIL_DRAFT_LIMIT
-
-  if (used >= limit) {
+  if (quota.used >= quota.limit) {
+    const statusMessage = quota.profile === 'anonymous'
+      ? 'Draft limit reached. Please create an account to continue creating drafts.'
+      : 'Draft limit reached. Please upgrade your plan to continue creating drafts.'
     throw createError({
       statusCode: 403,
-      statusMessage: 'Draft limit reached. Please verify your email to continue creating drafts.',
+      statusMessage,
       data: {
         anonLimitReached: true,
-        limit,
-        used,
+        limit: quota.limit,
+        used: quota.used,
         remaining: 0
       }
     })
   }
 
-  return { limit, used, remaining: limit - used }
+  return {
+    limit: quota.limit,
+    used: quota.used,
+    remaining: quota.remaining ?? Math.max(0, quota.limit - quota.used)
+  }
 }

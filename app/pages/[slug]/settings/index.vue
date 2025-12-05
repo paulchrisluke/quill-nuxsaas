@@ -5,6 +5,15 @@ definePageMeta({
   layout: 'default'
 })
 
+useHead({
+  title: 'Settings'
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Settings')
+}
+
 const route = useRoute()
 const slug = computed(() => {
   const param = route.params.slug

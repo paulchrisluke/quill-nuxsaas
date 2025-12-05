@@ -10,8 +10,13 @@ definePageMeta({
 const { t } = useI18n()
 
 useHead({
-  title: t('signIn.signIn')
+  title: 'Sign In'
 })
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle('Sign In')
+}
 const auth = useAuth()
 const toast = useToast()
 const route = useRoute()

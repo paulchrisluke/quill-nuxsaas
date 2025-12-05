@@ -24,7 +24,7 @@ const emit = defineEmits<{
 const activeTab = ref(0)
 
 const tabs = [
-  { label: 'Tasks', value: 0 },
+  { label: 'Drafts', value: 0 },
   { label: 'Archived', value: 1 }
 ]
 
@@ -36,7 +36,7 @@ const filteredEntries = computed(() => {
       return status === 'archived'
     })
   }
-  // Show non-archived items (Tasks tab)
+  // Show non-archived items (Drafts tab)
   return props.contentEntries.filter((entry) => {
     const status = (entry.status || '').toLowerCase().trim()
     return status !== 'archived'

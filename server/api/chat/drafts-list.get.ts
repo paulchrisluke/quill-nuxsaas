@@ -1,6 +1,6 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import * as schema from '~~/server/database/schema'
-import { getEmailVerifiedDraftUsage, requireAuth } from '~~/server/utils/auth'
+import { getDraftQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 
@@ -89,12 +89,10 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  const emailVerificationUsage = !user.emailVerified
-    ? await getEmailVerifiedDraftUsage(db, organizationId)
-    : null
+  const draftQuota = await getDraftQuotaUsage(db, organizationId, user)
 
   return {
     contents: transformedContents,
-    emailVerificationUsage
+    draftQuota
   }
 })

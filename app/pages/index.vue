@@ -13,6 +13,15 @@ const layoutName = computed(() => (route.query.draft ? 'workspace' : 'default'))
 const title = `${t('global.appName')}: ${t('home.slogan')}`
 const desc = t('home.slogan')
 
+useHead({
+  title: t('global.appName')
+})
+
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle')
+if (setHeaderTitle) {
+  setHeaderTitle(t('global.appName'))
+}
+
 useSeoMeta({
   title,
   description: desc,

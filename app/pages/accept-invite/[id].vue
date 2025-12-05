@@ -67,7 +67,7 @@ onMounted(async () => {
       if (orgFetchFailed) {
         toast.add({
           title: 'Invitation accepted',
-          description: 'Failed to load organization details. Redirecting you to the members page.',
+          description: 'Failed to load organization details. Redirecting you to your active organization.',
           color: 'warning'
         })
       }

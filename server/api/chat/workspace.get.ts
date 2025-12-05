@@ -2,7 +2,7 @@ import { desc, eq } from 'drizzle-orm'
 import { getQuery } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { getContentWorkspacePayload } from '~~/server/services/content/workspace'
-import { getEmailVerifiedDraftUsage, requireAuth } from '~~/server/utils/auth'
+import { getDraftQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { validateOptionalUUID } from '~~/server/utils/validation'
@@ -66,13 +66,11 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const emailVerificationUsage = !user.emailVerified
-    ? await getEmailVerifiedDraftUsage(db, organizationId)
-    : null
+  const draftQuota = await getDraftQuotaUsage(db, organizationId, user)
 
   return {
     contents,
     workspace,
-    emailVerificationUsage
+    draftQuota
   }
 })
