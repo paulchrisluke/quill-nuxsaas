@@ -145,7 +145,19 @@ export function useChatSession() {
       const normalizedMessages = normalizeMessages(response.messages)
 
       if (normalizedMessages.length > 0) {
-        messages.value = normalizedMessages
+        // Merge new messages with existing ones
+        // Create a map of existing messages by ID for quick lookup
+        const existingMessageMap = new Map(messages.value.map(msg => [msg.id, msg]))
+
+        // Add or update messages from the response
+        for (const newMessage of normalizedMessages) {
+          existingMessageMap.set(newMessage.id, newMessage)
+        }
+
+        // Convert back to array and sort by createdAt
+        messages.value = Array.from(existingMessageMap.values()).sort((a, b) =>
+          a.createdAt.getTime() - b.createdAt.getTime()
+        )
       } else if (response.assistantMessage) {
         messages.value = [
           ...messages.value,

@@ -12,7 +12,7 @@ import {
 } from '~~/server/services/chatSession'
 import { generateContentDraftFromSource, updateContentSectionWithAI } from '~~/server/services/content/generation'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
-import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
+import { buildSourceContentSummary, buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
 import { ensureAccessToken, fetchYouTubeVideoMetadata, findYouTubeAccount, ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
@@ -142,8 +142,6 @@ async function composeWorkspaceCompletionMessages(
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
-  // Get active organization from Better Auth session (set by session.create.before hook)
-  const { organizationId } = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous })
   const db = await useDB(event)
 
   // Try to get organizationId from session first (faster and more reliable)
@@ -153,7 +151,7 @@ export default defineEventHandler(async (event) => {
   // If not in session, try to get from database via requireActiveOrganization
   if (!organizationId) {
     try {
-      const orgResult = await requireActiveOrganization(event, user.id)
+      const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous })
       organizationId = orgResult.organizationId
     } catch (error: any) {
       // If user is anonymous and doesn't have an org yet, throw a helpful error
@@ -188,16 +186,23 @@ export default defineEventHandler(async (event) => {
   }> = []
   const ingestionErrors: Array<{ content: string, payload?: Record<string, any> | null }> = []
   const readySources: typeof schema.sourceContent.$inferSelect[] = []
+  const newlyReadySources: typeof schema.sourceContent.$inferSelect[] = []
   const readySourceIds = new Set<string>()
   const suggestedSourceIds = new Set<string>()
 
-  const trackReadySource = (source: typeof schema.sourceContent.$inferSelect | null | undefined) => {
+  const trackReadySource = (
+    source: typeof schema.sourceContent.$inferSelect | null | undefined,
+    options?: { isNew?: boolean }
+  ) => {
     if (!source || !source.id || source.ingestStatus !== 'ingested' || readySourceIds.has(source.id)) {
       return
     }
 
     readySources.push(source)
     readySourceIds.add(source.id)
+    if (options?.isNew) {
+      newlyReadySources.push(source)
+    }
   }
 
   for (const rawUrl of urls) {
@@ -234,7 +239,7 @@ export default defineEventHandler(async (event) => {
           userId: user.id,
           videoId: classification.externalId
         })
-        trackReadySource(record)
+        trackReadySource(record, { isNew: true })
       } catch (error: any) {
         const errorData = error?.data as YouTubeTranscriptErrorData | undefined
         if (errorData?.transcriptFailed) {
@@ -293,7 +298,7 @@ export default defineEventHandler(async (event) => {
         if (manualSource?.id) {
           suggestedSourceIds.add(manualSource.id)
         }
-        trackReadySource(manualSource)
+        trackReadySource(manualSource, { isNew: true })
       }
     }
   } else if (message.trim().length > 500 && !urls.length) {
@@ -321,7 +326,7 @@ export default defineEventHandler(async (event) => {
         if (manualSource?.id) {
           suggestedSourceIds.add(manualSource.id)
         }
-        trackReadySource(manualSource)
+        trackReadySource(manualSource, { isNew: true })
       }
     }
   }
@@ -385,6 +390,72 @@ export default defineEventHandler(async (event) => {
       content: errorMessage.content,
       payload: errorMessage.payload ?? null
     })
+  }
+
+  for (const source of newlyReadySources) {
+    const summary = buildSourceContentSummary({ sourceContent: source })
+    if (!summary) {
+      continue
+    }
+    await addMessageToChatSession(db, {
+      sessionId: session.id,
+      organizationId,
+      role: 'assistant',
+      content: summary,
+      payload: {
+        type: 'source_summary',
+        sourceId: source.id,
+        sourceType: source.sourceType,
+        summary
+      }
+    })
+  }
+
+  // Auto-detect affirmative responses when sources are ready
+  // If user says "yes", "sure", "go ahead", etc. and there are ready sources, trigger generation
+  if (!body.action?.type && message.trim()) {
+    const normalizedMessage = message.trim().toLowerCase()
+    const affirmativePatterns = [
+      /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|let's do it|create|generate|make|start|do it|proceed)$/i,
+      /^(yes|yeah|yep|yup|sure|ok|okay|go ahead|let's do it|create|generate|make|start|do it|proceed)\s+/i,
+      /\b(yes|yeah|yep|yup|sure|ok|okay|go ahead|let's do it|create|generate|make|start|do it|proceed)\b/i
+    ]
+
+    const isAffirmative = affirmativePatterns.some(pattern => pattern.test(normalizedMessage))
+
+    if (isAffirmative) {
+      // Check for ready sources (newly processed or from session)
+      let sourceToUse: typeof schema.sourceContent.$inferSelect | null = null
+
+      if (readySources.length > 0) {
+        sourceToUse = readySources[0]
+      } else if (session.sourceContentId) {
+        // Check if session's source is ready
+        const [sessionSource] = await db
+          .select()
+          .from(schema.sourceContent)
+          .where(and(
+            eq(schema.sourceContent.id, session.sourceContentId),
+            eq(schema.sourceContent.organizationId, organizationId),
+            eq(schema.sourceContent.ingestStatus, 'ingested')
+          ))
+          .limit(1)
+
+        if (sessionSource && sessionSource.sourceText?.trim()) {
+          sourceToUse = sessionSource
+        }
+      }
+
+      if (sourceToUse) {
+        // Auto-trigger generation with the ready source
+        body.action = {
+          type: 'generate_content',
+          sourceContentId: sourceToUse.id,
+          contentId: session.contentId ?? undefined
+        }
+        resolvedSourceContentId = sourceToUse.id
+      }
+    }
   }
 
   let generationResult: Awaited<ReturnType<typeof generateContentDraftFromSource>> | null = null
@@ -677,12 +748,18 @@ export default defineEventHandler(async (event) => {
 
   // Add information about ready sources (ingested and ready for drafting)
   if (!generationResult && readySources.length > 0) {
-    const sourceSummaries = readySources.map((source) => {
+    for (const source of readySources) {
       const title = typeof source.title === 'string' && source.title.trim() ? source.title.trim() : null
       const typeLabel = source.sourceType?.replace('_', ' ') || 'source'
-      return title ? `${title} (${typeLabel})` : typeLabel
-    })
-    contextParts.push(`Successfully ingested ${sourceSummaries.length === 1 ? 'source' : 'sources'}: ${sourceSummaries.join(', ')}. Ready to create a draft.`)
+      const summary = buildSourceContentSummary({ sourceContent: source })
+      const intro = title ? `${title} (${typeLabel})` : typeLabel
+      if (summary) {
+        contextParts.push(`Source ready for drafting: ${intro}.
+Summary: ${summary}`)
+      } else {
+        contextParts.push(`Successfully ingested ${intro}. Ready to create a draft.`)
+      }
+    }
   }
 
   // Add information about generation results

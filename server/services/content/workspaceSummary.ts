@@ -6,6 +6,10 @@ interface WorkspaceSummaryInput {
   sourceContent?: typeof schema.sourceContent.$inferSelect | null
 }
 
+interface SourceSummaryInput {
+  sourceContent: typeof schema.sourceContent.$inferSelect
+}
+
 interface SectionLike {
   title?: string | null
   summary?: string | null
@@ -45,6 +49,25 @@ function normalizeStringList(value: unknown): string[] {
       .filter(Boolean)
   }
   return []
+}
+
+function extractSentences(text: string | null | undefined, limit = 2): string[] {
+  if (!text) {
+    return []
+  }
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized)
+    return []
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map(sentence => sentence.trim())
+    .filter(Boolean)
+  return sentences.slice(0, limit)
+}
+
+function finalizeSummary(summaryParts: string[]): string | null {
+  const summary = summaryParts.join(' ').trim()
+  return summary.length ? summary : null
 }
 
 function extractSections(version?: typeof schema.contentVersion.$inferSelect | null) {
@@ -166,6 +189,57 @@ export function buildWorkspaceSummary(payload: WorkspaceSummaryInput) {
     }
   }
 
-  const summary = summaryParts.join(' ').trim()
-  return summary.length ? summary : null
+  return finalizeSummary(summaryParts)
+}
+
+export function buildSourceContentSummary(payload: SourceSummaryInput) {
+  const source = payload.sourceContent
+  if (!source) {
+    return null
+  }
+
+  const summaryParts: string[] = []
+  const metadata = source.metadata as Record<string, any> | undefined
+  const baseTitle = normalizeString(source.title)
+    || normalizeString(metadata?.title)
+    || normalizeString(metadata?.name)
+    || 'This source'
+  const sourceType = normalizeString(source.sourceType) || 'source'
+  const wordCount = typeof source.sourceText === 'string'
+    ? source.sourceText.split(/\s+/).filter(Boolean).length
+    : null
+  const description = normalizeString(metadata?.description) || normalizeString(metadata?.summary)
+
+  summaryParts.push(`${baseTitle} is a ${sourceType}${wordCount ? ` (~${wordCount} words)` : ''} ready for drafting.`)
+
+  if (description) {
+    summaryParts.push(description)
+  } else if (wordCount) {
+    summaryParts.push(`It contains about ${wordCount} words of transcripted content to work from.`)
+  }
+
+  const highlightSentences = extractSentences(source.sourceText, 2)
+  if (highlightSentences.length) {
+    summaryParts.push(`Highlights include ${toSentenceList(highlightSentences)}.`)
+  }
+
+  const keywords = normalizeStringList(metadata?.keywords || metadata?.tags)
+  if (keywords.length) {
+    summaryParts.push(`Primary topics include ${toSentenceList(keywords.slice(0, 5))}.`)
+  }
+
+  const sourceUrl = normalizeString(metadata?.originalUrl)
+  if (sourceUrl) {
+    summaryParts.push(`Original link: ${sourceUrl}`)
+  }
+
+  const referenceDate = source.updatedAt || source.createdAt
+  if (referenceDate) {
+    const asDate = referenceDate instanceof Date ? referenceDate : new Date(referenceDate)
+    if (!Number.isNaN(asDate.getTime())) {
+      summaryParts.push(`Last ingested ${asDate.toLocaleDateString()} ${asDate.toLocaleTimeString()}.`)
+    }
+  }
+
+  return finalizeSummary(summaryParts)
 }

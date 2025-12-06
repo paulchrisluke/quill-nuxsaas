@@ -996,6 +996,37 @@ async function handlePublishDraft() {
   }
 }
 
+async function handleWriteDraftFromSource(sourceId?: string | null) {
+  if (!sourceId) {
+    toast.add({
+      title: 'Source unavailable',
+      description: 'Unable to locate the transcript for drafting.',
+      color: 'error'
+    })
+    return
+  }
+
+  if (chatIsBusy.value || chatStatus.value === 'submitted' || chatStatus.value === 'streaming') {
+    return
+  }
+
+  try {
+    await sendMessage('Please create a full draft from this transcript.', {
+      displayContent: 'Write draft from transcript',
+      contentId: contentId.value || sessionContentId.value,
+      action: {
+        type: 'generate_content',
+        sourceContentId: sourceId,
+        contentId: contentId.value || sessionContentId.value || undefined
+      }
+    })
+    await loadWorkspacePayload()
+  } catch (error: any) {
+    console.error('[DraftWorkspace] Failed to trigger draft generation from source', error)
+    chatErrorMessage.value = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to start draft from this transcript.'
+  }
+}
+
 function handleRegenerate(message: ChatMessage) {
   const text = message.parts[0]?.text?.trim()
   if (!text) {
@@ -1189,6 +1220,33 @@ onBeforeUnmount(() => {
                     </div>
                   </template>
                 </UAccordion>
+              </div>
+              <div
+                v-else-if="message.payload?.type === 'source_summary'"
+                class="space-y-3"
+              >
+                <div class="space-y-1">
+                  <p class="font-semibold">
+                    Transcript summary
+                  </p>
+                  <p class="text-sm leading-relaxed text-muted-100 whitespace-pre-line">
+                    {{ message.payload.summary }}
+                  </p>
+                </div>
+                <div class="space-y-2">
+                  <p class="text-xs uppercase tracking-wide text-muted-500">
+                    Next steps
+                  </p>
+                  <UButton
+                    color="primary"
+                    size="sm"
+                    :disabled="chatIsBusy || chatStatus === 'submitted' || chatStatus === 'streaming'"
+                    :loading="chatIsBusy || chatStatus === 'submitted' || chatStatus === 'streaming'"
+                    @click="handleWriteDraftFromSource(message.payload.sourceId)"
+                  >
+                    Write draft
+                  </UButton>
+                </div>
               </div>
               <div
                 v-else
