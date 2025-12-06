@@ -1,6 +1,6 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import * as schema from '~~/server/database/schema'
-import { getAuthSession, getDraftQuotaUsage, requireAuth } from '~~/server/utils/auth'
+import { getDraftQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
@@ -13,40 +13,42 @@ export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
   const db = getDB()
 
-  // Try to get organizationId from session first (faster and more reliable)
-  const session = await getAuthSession(event)
-  let organizationId: string | null = (session?.session as any)?.activeOrganizationId || null
+  // Get organizationId from Better Auth session (set by session.create.before hook)
+  // For anonymous users without an org yet, return empty list with default quota
+  let organizationId: string | null = null
+  try {
+    const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous })
+    organizationId = orgResult.organizationId
+    if (!organizationId) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Active organization not found'
+      })
+    }
+  } catch (error: any) {
+    // If user is anonymous and doesn't have an org yet, return empty list with default quota
+    // The organization should be created by the session middleware, but if it hasn't yet,
+    // we return a default quota based on anonymous profile
+    const isOrgNotFoundError = error?.statusCode === 400 || error?.message?.includes('organization')
+    if (user.isAnonymous && isOrgNotFoundError) {
+      const anonymousLimit = typeof runtimeConfig.public?.draftQuota?.anonymous === 'number'
+        ? runtimeConfig.public.draftQuota.anonymous
+        : 5
 
-  // If not in session, try to get from database via requireActiveOrganization
-  if (!organizationId) {
-    try {
-      const orgResult = await requireActiveOrganization(event, user.id)
-      organizationId = orgResult.organizationId
-    } catch (error: any) {
-      // If user is anonymous and doesn't have an org yet, return empty list with default quota
-      if (user.isAnonymous) {
-        // For anonymous users without org, return default quota structure
-        // The organization should be created by the session middleware, but if it hasn't yet,
-        // we return a default quota based on anonymous profile
-        const anonymousLimit = typeof runtimeConfig.public?.draftQuota?.anonymous === 'number'
-          ? runtimeConfig.public.draftQuota.anonymous
-          : 5
-
-        return {
-          contents: [],
-          draftQuota: {
-            limit: anonymousLimit,
-            used: 0,
-            remaining: anonymousLimit,
-            label: 'Anonymous',
-            unlimited: false,
-            profile: 'anonymous'
-          }
+      return {
+        contents: [],
+        draftQuota: {
+          limit: anonymousLimit,
+          used: 0,
+          remaining: anonymousLimit,
+          label: 'Guest access',
+          unlimited: false,
+          profile: 'anonymous'
         }
       }
-      // For authenticated users, re-throw the error
-      throw error
     }
+    // For authenticated users, re-throw the error
+    throw error
   }
 
   // Select only minimal fields needed for list view

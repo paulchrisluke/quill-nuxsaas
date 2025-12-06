@@ -57,19 +57,39 @@ export class FileService {
     mimeType: string,
     uploadedBy?: string,
     ipAddress?: string,
-    userAgent?: string
+    userAgent?: string,
+    options?: {
+      fileName?: string
+      overrideOriginalName?: string
+      contentId?: string
+    }
   ): Promise<FileRecord> {
     const db = await useDB()
     const fileId = uuidv7()
-    const fileName = this.generateFileName(originalName)
+    let fileName: string
+    if (options?.fileName != null) {
+      const sanitized = options.fileName.trim()
+      if (!sanitized || sanitized.includes('..') || sanitized.startsWith('/') || sanitized.includes('\\')) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Invalid file name'
+        })
+      }
+      const dateFolder = format(new Date(), 'yyyy-MM-dd')
+      const uniquePrefix = uuidv7()
+      fileName = `${dateFolder}/${uniquePrefix}-${sanitized}`
+    } else {
+      fileName = this.generateFileName(originalName)
+    }
     const fileType = getFileTypeFromMimeType(mimeType)
+    const resolvedOriginalName = options?.overrideOriginalName?.trim() || originalName
 
     try {
       const { path, url } = await this.storage.upload(fileBuffer, fileName, mimeType)
 
       const fileData = {
         id: fileId,
-        originalName,
+        originalName: resolvedOriginalName,
         fileName,
         mimeType,
         fileType,
@@ -78,6 +98,7 @@ export class FileService {
         url,
         storageProvider: this.storage.name,
         uploadedBy,
+        contentId: options?.contentId ?? null,
         isActive: true
       }
 
@@ -99,7 +120,7 @@ export class FileService {
         userAgent,
         status: 'success',
         details: JSON.stringify({
-          originalName,
+          originalName: resolvedOriginalName,
           fileName,
           mimeType,
           size: formatFileSize(fileBuffer.length),
@@ -118,7 +139,7 @@ export class FileService {
         userAgent,
         status: 'failure',
         details: JSON.stringify({
-          originalName,
+          originalName: resolvedOriginalName,
           mimeType,
           size: formatFileSize(fileBuffer.length),
           error: error instanceof Error ? error.message : 'Unknown error'

@@ -19,5 +19,6 @@ export interface WorkspaceHeaderState {
   onPrimaryAction?: (() => void) | null
   primaryActionLabel: string
   primaryActionColor: string
+  primaryActionIcon?: string | null
   primaryActionDisabled: boolean
 }

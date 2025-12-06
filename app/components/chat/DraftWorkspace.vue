@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
+import type { PublishContentResponse } from '~~/server/types/content'
 import type { WorkspaceHeaderState } from './workspaceHeader'
 import { useClipboard } from '@vueuse/core'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -440,9 +441,28 @@ watch(content, (value) => {
 }, { immediate: true })
 
 const title = computed(() => contentRecord.value?.title || 'Untitled draft')
+const frontmatter = computed(() => currentVersion.value?.frontmatter || null)
 const generatedContent = computed(() => currentVersion.value?.bodyMdx || currentVersion.value?.bodyHtml || null)
 const hasGeneratedContent = computed(() => !!generatedContent.value)
-const frontmatter = computed(() => currentVersion.value?.frontmatter || null)
+const fullMdx = computed(() => {
+  const body = typeof generatedContent.value === 'string' ? generatedContent.value.trim() : ''
+  // Check if bodyMdx already contains frontmatter (enriched MDX)
+  // Check if body starts with frontmatter block (--- followed by YAML and closing ---)
+  // Use a more specific pattern to avoid regex backtracking issues
+  const isEnriched = /^---\n[\s\S]*?\n---\n/m.test(body)
+  if (isEnriched) {
+    return body
+  }
+  const frontmatterBlock = _buildFrontmatterBlock(frontmatter.value || {})
+  const parts = [frontmatterBlock, body].filter(part => typeof part === 'string' && part.trim().length)
+  return parts.join('\n\n')
+})
+const hasFullMdx = computed(() => fullMdx.value.trim().length > 0)
+const isPublishing = ref(false)
+const canPublish = computed(() => {
+  return hasFullMdx.value && Boolean(contentRecord.value?.id && currentVersion.value?.id)
+})
+const publishActionLabel = computed(() => isPublishing.value ? 'Publishing…' : 'Publish draft')
 const contentDisplayTitle = computed(() => frontmatter.value?.seoTitle || frontmatter.value?.title || title.value)
 const seoSnapshot = computed(() => currentVersion.value?.seoSnapshot || null)
 const generatorDetails = computed(() => currentVersion.value?.assets?.generator || null)
@@ -521,10 +541,10 @@ const viewTabs: { label: string, value: ViewTabValue }[] = [
 const activeViewTab = ref<ViewTabValue>('summary')
 
 const headerTabs = computed(() => ({
-  items: viewTabs,
+  items: viewTabs.map(tab => ({ label: tab.label, value: tab.value })),
   modelValue: activeViewTab.value,
-  onUpdate: (value: ViewTabValue) => {
-    activeViewTab.value = value
+  onUpdate: (value: string) => {
+    activeViewTab.value = value as ViewTabValue
   }
 }))
 
@@ -543,13 +563,12 @@ const headerPayload = computed<WorkspaceHeaderState | null>(() => {
       contentId: headerData.value.contentId || contentId.value || null,
       showBackButton: showBackButton.value,
       onBack: showBackButton.value ? handleBackNavigation : null,
-      // Mobile-focused: removed Archive, Share, and PrimaryAction buttons
       onArchive: null,
-      onShare: null,
-      onPrimaryAction: null,
-      primaryActionLabel: '',
-      primaryActionColor: '',
-      primaryActionDisabled: false
+      onShare: hasFullMdx.value ? handleCopyFullMdx : null,
+      onPrimaryAction: canPublish.value ? handlePublishDraft : null,
+      primaryActionLabel: publishActionLabel.value,
+      primaryActionColor: 'primary',
+      primaryActionDisabled: !canPublish.value || isPublishing.value
     }
   }
 
@@ -569,13 +588,12 @@ const headerPayload = computed<WorkspaceHeaderState | null>(() => {
     contentId: contentRecord.value.id || contentId.value || null,
     showBackButton: showBackButton.value,
     onBack: showBackButton.value ? handleBackNavigation : null,
-    // Mobile-focused: removed Archive, Share, and PrimaryAction buttons
     onArchive: null,
-    onShare: null,
-    onPrimaryAction: null,
-    primaryActionLabel: '',
-    primaryActionColor: '',
-    primaryActionDisabled: false
+    onShare: hasFullMdx.value ? handleCopyFullMdx : null,
+    onPrimaryAction: canPublish.value ? handlePublishDraft : null,
+    primaryActionLabel: publishActionLabel.value,
+    primaryActionColor: 'primary',
+    primaryActionDisabled: !canPublish.value || isPublishing.value
   }
 })
 
@@ -831,6 +849,153 @@ function handleCopy(message: ChatMessage) {
   }
 }
 
+function handleCopyFullMdx() {
+  if (!hasFullMdx.value) {
+    toast.add({
+      title: 'No MDX available',
+      description: 'Generate content before copying the draft.',
+      color: 'error'
+    })
+    return
+  }
+
+  try {
+    copy(fullMdx.value)
+    toast.add({
+      title: 'Draft copied',
+      description: 'Frontmatter and body copied to clipboard.',
+      color: 'primary'
+    })
+  } catch (error) {
+    console.error('Failed to copy MDX', error)
+    toast.add({
+      title: 'Copy failed',
+      description: 'Could not copy the MDX draft.',
+      color: 'error'
+    })
+  }
+}
+
+async function handlePublishDraft() {
+  if (!canPublish.value || !contentRecord.value?.id || !currentVersion.value?.id) {
+    toast.add({
+      title: 'Cannot publish yet',
+      description: 'Generate content before publishing.',
+      color: 'error'
+    })
+    return
+  }
+  if (isPublishing.value) {
+    return
+  }
+  try {
+    isPublishing.value = true
+    const response = await $fetch<PublishContentResponse>(`/api/content/${contentRecord.value.id}/publish`, {
+      method: 'POST',
+      body: {
+        versionId: currentVersion.value.id
+      }
+    })
+    // Map response status to ContentStatus (filter out invalid statuses)
+    const mappedStatus: ContentStatus | undefined = (
+      response.content.status === 'draft' ||
+      response.content.status === 'published' ||
+      response.content.status === 'archived'
+    )
+      ? response.content.status as ContentStatus
+      : 'published'
+
+    if (content.value) {
+      content.value = {
+        ...content.value,
+        content: {
+          id: response.content.id,
+          title: response.content.title,
+          status: mappedStatus,
+          updatedAt: typeof response.content.updatedAt === 'string'
+            ? response.content.updatedAt
+            : new Date(response.content.updatedAt).toISOString(),
+          metadata: {
+            organizationId: response.content.organizationId,
+            slug: response.content.slug,
+            contentType: response.content.contentType,
+            publishedAt: response.content.publishedAt
+              ? (typeof response.content.publishedAt === 'string'
+                  ? response.content.publishedAt
+                  : new Date(response.content.publishedAt).toISOString())
+              : null
+          }
+        },
+        currentVersion: {
+          id: response.version.id,
+          bodyMdx: response.version.bodyMdx,
+          bodyHtml: response.version.bodyHtml ?? undefined,
+          frontmatter: response.version.frontmatter ?? undefined,
+          version: response.version.version,
+          updatedAt: typeof response.version.createdAt === 'string'
+            ? response.version.createdAt
+            : new Date(response.version.createdAt).toISOString()
+        }
+      }
+    } else {
+      // Handle case where content.value is null (shouldn't happen if canPublish passed)
+      console.warn('[DraftWorkspace] Publishing without existing content state')
+      content.value = {
+        content: {
+          id: response.content.id,
+          title: response.content.title,
+          status: mappedStatus,
+          updatedAt: typeof response.content.updatedAt === 'string'
+            ? response.content.updatedAt
+            : new Date(response.content.updatedAt).toISOString(),
+          metadata: {
+            organizationId: response.content.organizationId,
+            slug: response.content.slug,
+            contentType: response.content.contentType,
+            publishedAt: response.content.publishedAt
+              ? (typeof response.content.publishedAt === 'string'
+                  ? response.content.publishedAt
+                  : new Date(response.content.publishedAt).toISOString())
+              : null
+          }
+        },
+        currentVersion: {
+          id: response.version.id,
+          bodyMdx: response.version.bodyMdx,
+          bodyHtml: response.version.bodyHtml ?? undefined,
+          frontmatter: response.version.frontmatter ?? undefined,
+          version: response.version.version,
+          updatedAt: typeof response.version.createdAt === 'string'
+            ? response.version.createdAt
+            : new Date(response.version.createdAt).toISOString()
+        },
+        sourceContent: null,
+        chatSession: null,
+        chatMessages: null,
+        chatLogs: null,
+        workspaceSummary: null
+      }
+    }
+    toast.add({
+      title: 'Draft published',
+      description: response.file.url
+        ? `Available at ${response.file.url}`
+        : 'The latest version has been saved to your content storage.',
+      color: 'primary'
+    })
+  } catch (error: any) {
+    console.error('[DraftWorkspace] Failed to publish draft', error)
+    const description = error?.data?.message || error?.message || 'An unexpected error occurred while publishing.'
+    toast.add({
+      title: 'Publish failed',
+      description,
+      color: 'error'
+    })
+  } finally {
+    isPublishing.value = false
+  }
+}
+
 function handleRegenerate(message: ChatMessage) {
   const text = message.parts[0]?.text?.trim()
   if (!text) {
@@ -988,7 +1153,7 @@ onBeforeUnmount(() => {
                   Files
                 </p>
                 <UAccordion
-                  :items="message.payload.files.map(file => ({ value: file.id, file }))"
+                  :items="message.payload.files.map((file: any) => ({ value: file.id, file }))"
                   type="single"
                   collapsible
                   :ui="{ root: 'space-y-2' }"
