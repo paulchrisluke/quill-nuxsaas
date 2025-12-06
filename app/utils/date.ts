@@ -9,6 +9,10 @@ export const getTimeZone = () => {
   return timezone
 }
 
+/**
+ * @deprecated Use useDate().formatDate() or useDate().formatDateRelative() instead
+ * This function is kept for backward compatibility but should not be used in new code.
+ */
 export const formatDate = (date: Date | undefined) => {
   if (!date) {
     return ''
@@ -51,6 +55,10 @@ export const formatToDay = (value: CalendarDate | Date | string) => {
   return format(date, DATE_FORMAT)
 }
 
+/**
+ * @deprecated Use useDate().formatDateShort() with includeTime option instead
+ * This function is kept for backward compatibility but should not be used in new code.
+ */
 export const formatToDatetime = (value: CalendarDate | Date | string | undefined) => {
   if (!value) {
     return ''

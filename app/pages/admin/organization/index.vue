@@ -104,7 +104,10 @@ const columns: AdminTableColumn<any>[] = [
   {
     accessorKey: 'createdAt',
     header: t('global.page.createdAt'),
-    cell: ({ row }) => new Date(row.original.createdAt).toLocaleDateString()
+    cell: ({ row }) => {
+      const { formatDateShort } = useDate()
+      return formatDateShort(new Date(row.original.createdAt))
+    }
   }
 ]
 

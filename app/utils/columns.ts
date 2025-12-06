@@ -33,7 +33,8 @@ export const showMoreColumn = <T>(cell: ColumnCell<T>, length: number) => {
 
 export const dateColumn = <T>(cell: ColumnCell<T>) => {
   const value = cell.getValue() as Date | string
-  return formatToDatetime(value)
+  const { formatDateShort } = useDate()
+  return formatDateShort(value, { includeTime: true })
 }
 
 export const yesNoColumn = <T>(cell: ColumnCell<T>, t: TranFunction) => {
