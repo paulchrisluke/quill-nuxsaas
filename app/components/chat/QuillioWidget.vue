@@ -1083,7 +1083,7 @@ if (import.meta.client) {
       :ui="{
         overlay: 'bg-black/60 backdrop-blur-sm',
         container: 'max-w-sm mx-auto',
-        base: 'bg-neutral-900 text-white rounded-2xl shadow-2xl',
+        base: 'bg-background text-foreground rounded-2xl shadow-2xl border border-muted-200/80 dark:border-muted-800/70',
         header: 'hidden',
         body: 'p-4 space-y-4',
         footer: 'hidden'
@@ -1093,7 +1093,7 @@ if (import.meta.client) {
     >
       <template #body>
         <div class="space-y-3">
-          <p class="text-sm text-white/80 whitespace-pre-wrap max-h-48 overflow-y-auto">
+          <p class="text-sm text-muted-700 dark:text-muted-200 whitespace-pre-wrap max-h-48 overflow-y-auto">
             {{ messageActionSheetTarget ? getMessageText(messageActionSheetTarget) : '' }}
           </p>
           <div class="flex flex-col gap-2">

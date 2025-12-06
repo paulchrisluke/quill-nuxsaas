@@ -128,7 +128,7 @@ const formatUpdatedAt = (date: Date | null) => {
 
     <div
       v-if="hasFilteredContent"
-      class="divide-y divide-white/10"
+      class="divide-y divide-muted-200/80 dark:divide-muted-800/70"
     >
       <div
         v-for="entry in filteredEntries"

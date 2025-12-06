@@ -230,9 +230,9 @@ useEventListener(textareaRef, 'blur', () => {
   >
     <div
       v-if="mentionPanelVisible"
-      class="absolute bottom-full mb-2 left-0 w-full max-w-md rounded-lg border border-neutral-200/70 dark:border-neutral-800/60 bg-background shadow-lg z-20"
+      class="absolute bottom-full mb-2 left-0 w-full max-w-md rounded-lg border border-muted-200/80 dark:border-muted-800/70 bg-background shadow-lg z-20"
     >
-      <div class="px-3 py-2 border-b border-neutral-200/70 dark:border-neutral-800/60">
+      <div class="px-3 py-2 border-b border-muted-200/80 dark:border-muted-800/70">
         <p class="text-xs uppercase tracking-wide text-muted-500">
           Mention a section
         </p>
@@ -250,7 +250,7 @@ useEventListener(textareaRef, 'blur', () => {
           :key="section.id"
           type="button"
           class="w-full text-left px-3 py-2 rounded-md transition-colors"
-          :class="mentionHighlightedIndex === index ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-100' : 'hover:bg-neutral-100/70 dark:hover:bg-neutral-800/70'"
+          :class="mentionHighlightedIndex === index ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-100' : 'hover:bg-muted/40 dark:hover:bg-muted/60'"
           role="option"
           :aria-selected="mentionHighlightedIndex === index"
           :data-highlighted="mentionHighlightedIndex === index"
