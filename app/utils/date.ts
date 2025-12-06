@@ -9,23 +9,6 @@ export const getTimeZone = () => {
   return timezone
 }
 
-/**
- * @deprecated Use useDate().formatDate() or useDate().formatDateRelative() instead
- * This function is kept for backward compatibility but should not be used in new code.
- */
-export const formatDate = (date: Date | undefined) => {
-  if (!date) {
-    return ''
-  }
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
 export const toCalendarDate = (date: Date) => {
   return new CalendarDate(date.getFullYear(), date.getMonth() + 1, date.getDate())
 }
@@ -53,18 +36,6 @@ export const formatToDate = (value: CalendarDate | Date | string) => {
 export const formatToDay = (value: CalendarDate | Date | string) => {
   const date = formatToDate(value)
   return format(date, DATE_FORMAT)
-}
-
-/**
- * @deprecated Use useDate().formatDateShort() with includeTime option instead
- * This function is kept for backward compatibility but should not be used in new code.
- */
-export const formatToDatetime = (value: CalendarDate | Date | string | undefined) => {
-  if (!value) {
-    return ''
-  }
-  const date = formatToDate(value)
-  return format(date, DATETIME_FORMAT)
 }
 
 export const startOfDate = (date: CalendarDate | Date) => {

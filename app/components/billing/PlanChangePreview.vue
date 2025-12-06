@@ -204,7 +204,7 @@ const currentIntervalLabel = computed(() => {
         v-if="preview.periodEnd"
         class="mt-1"
       >
-        Change scheduled for <strong>{{ new Date(preview.periodEnd * 1000).toLocaleDateString() }}</strong>.
+        Change scheduled for <strong>{{ formatDateShort(new Date(preview.periodEnd * 1000)) }}</strong>.
       </p>
     </div>
   </div>

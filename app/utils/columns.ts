@@ -31,10 +31,36 @@ export const showMoreColumn = <T>(cell: ColumnCell<T>, length: number) => {
   ))
 }
 
+/**
+ * Creates a date column formatter that uses the provided formatDateShort function.
+ * This factory function should be called in component setup to get a properly configured dateColumn.
+ *
+ * @param formatDateShort - The date formatting function from useDate() composable
+ * @returns A cell renderer function for date columns
+ */
+export const createDateColumn = <T>(
+  formatDateShort: (value: Date | string, options?: { includeTime?: boolean }) => string
+) => {
+  return (cell: ColumnCell<T>) => {
+    const value = cell.getValue() as Date | string
+    return formatDateShort(value, { includeTime: true })
+  }
+}
+
+/**
+ * @deprecated Use createDateColumn() instead. This function cannot access composables.
+ * Kept for backward compatibility but will use a fallback formatter.
+ */
 export const dateColumn = <T>(cell: ColumnCell<T>) => {
   const value = cell.getValue() as Date | string
-  const { formatDateShort } = useDate()
-  return formatDateShort(value, { includeTime: true })
+  // Fallback formatter when composable is not available
+  return new Date(value).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
 }
 
 export const yesNoColumn = <T>(cell: ColumnCell<T>, t: TranFunction) => {

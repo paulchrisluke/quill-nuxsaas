@@ -1,4 +1,5 @@
-import { format, formatDistanceToNow, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns'
+import { format, formatDistanceToNow, isSameDay, isThisWeek, isThisYear, isYesterday } from 'date-fns'
+import { formatInTimeZone, toZonedTime } from 'date-fns-tz'
 
 export const useDate = () => {
   const { useActiveOrganization } = useAuth()
@@ -23,7 +24,8 @@ export const useDate = () => {
   })
 
   /**
-   * Convert a date to the active timezone
+   * Convert a date to represent the same moment in the target timezone
+   * This is used for formatting and comparisons in the target timezone context
    */
   const toTimezoneDate = (date: string | Date, timezoneOverride?: string): Date => {
     const dateObj = typeof date === 'string' ? new Date(date) : date
@@ -32,12 +34,57 @@ export const useDate = () => {
 
     const tz = timezoneOverride || activeTimezone.value
     try {
-      // Convert to timezone by formatting and parsing
-      const localString = dateObj.toLocaleString('en-US', { timeZone: tz })
-      return new Date(localString)
+      // Convert UTC date to the target timezone representation
+      return toZonedTime(dateObj, tz)
     } catch {
       return dateObj
     }
+  }
+
+  /**
+   * Convert Intl.DateTimeFormatOptions to date-fns format string
+   */
+  const optionsToFormatString = (options: Intl.DateTimeFormatOptions): string => {
+    const parts: string[] = []
+
+    // Month
+    if (options.month === 'short') {
+      parts.push('MMM')
+    } else if (options.month === 'long') {
+      parts.push('MMMM')
+    } else if (options.month === 'numeric' || options.month === '2-digit') {
+      parts.push('M')
+    }
+
+    // Day
+    if (options.day === 'numeric' || options.day === '2-digit') {
+      parts.push('d')
+    }
+
+    // Year
+    if (options.year === 'numeric') {
+      parts.push('yyyy')
+    } else if (options.year === '2-digit') {
+      parts.push('yy')
+    }
+
+    // Time components
+    if (options.hour) {
+      const hourFormat = options.hour === '2-digit' ? 'hh' : 'h'
+      parts.push(hourFormat)
+    }
+
+    if (options.minute) {
+      const minuteFormat = options.minute === '2-digit' ? 'mm' : 'm'
+      parts.push(minuteFormat)
+    }
+
+    // AM/PM
+    if (options.hour && options.hour12 !== false) {
+      parts.push('a')
+    }
+
+    return parts.join(' ')
   }
 
   /**
@@ -47,29 +94,39 @@ export const useDate = () => {
     if (!date)
       return 'Never'
 
-    const defaultOptions: Intl.DateTimeFormatOptions = {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric'
-    }
+    const dateObj = typeof date === 'string' ? new Date(date) : date
+    if (!dateObj || Number.isNaN(dateObj.getTime()))
+      return 'Never'
 
     const tz = timezoneOverride || activeTimezone.value
 
     try {
-      return new Date(date).toLocaleString('en-US', {
-        ...(options || defaultOptions),
-        timeZone: tz
-      })
+      // Build format string from options
+      const defaultOptions: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric'
+      }
+
+      const mergedOptions = { ...defaultOptions, ...options }
+      const formatStr = optionsToFormatString(mergedOptions)
+
+      return formatInTimeZone(dateObj, tz, formatStr)
     } catch {
-      // Fallback if timezone is invalid
-      return new Date(date).toLocaleString('en-US', options || defaultOptions)
+      // Fallback if timezone is invalid or format fails
+      try {
+        return formatInTimeZone(dateObj, tz, 'M/d/yyyy, h:mm a')
+      } catch {
+        return new Date(dateObj).toLocaleString('en-US', options)
+      }
     }
   }
 
   /**
    * Format date as relative time (e.g., "3m ago", "2 hours ago", "yesterday")
+   * Relative time is calculated relative to the user's local "now" for accuracy
    */
   const formatRelativeTime = (date: string | Date | null | undefined, options?: { addSuffix?: boolean, timezoneOverride?: string }): string => {
     if (!date)
@@ -80,10 +137,9 @@ export const useDate = () => {
       if (!dateObj || Number.isNaN(dateObj.getTime()))
         return '—'
 
-      // Use timezone-aware date for relative formatting
-      const tzDate = toTimezoneDate(dateObj, options?.timezoneOverride)
-
-      return formatDistanceToNow(tzDate, {
+      // Calculate relative time using the actual date (not timezone-adjusted)
+      // This ensures accurate relative time calculations
+      return formatDistanceToNow(dateObj, {
         addSuffix: options?.addSuffix !== false // Default to true
       })
     } catch {
@@ -113,8 +169,6 @@ export const useDate = () => {
 
       const mode = options?.mode || 'auto'
       const tz = options?.timezoneOverride || activeTimezone.value
-      const tzDate = toTimezoneDate(dateObj, tz)
-      const now = new Date()
 
       // Force modes
       if (mode === 'relative') {
@@ -138,15 +192,24 @@ export const useDate = () => {
       }
 
       // Auto mode: smart switching
-      const hoursDiff = Math.abs(now.getTime() - tzDate.getTime()) / (1000 * 60 * 60)
+      // For comparisons, we need to check dates in the target timezone context
+      const tzDate = toTimezoneDate(dateObj, tz)
+      const nowInTz = toZonedTime(new Date(), tz)
 
-      // Less than 24 hours: use relative time
+      // Calculate hours difference using timezone-aware dates
+      const hoursDiff = Math.abs(nowInTz.getTime() - tzDate.getTime()) / (1000 * 60 * 60)
+
+      // Less than 24 hours: use relative time (calculated from actual date)
       if (hoursDiff < 24) {
         return formatRelativeTime(date, { timezoneOverride: tz })
       }
 
+      // Check if it's today in the target timezone using date-fns functions
+      const isTodayInTz = isSameDay(tzDate, nowInTz)
+      const isYesterdayInTz = isYesterday(tzDate)
+
       // Today: "Today at 3:45 PM"
-      if (isToday(tzDate)) {
+      if (isTodayInTz) {
         const timeStr = formatDate(date, {
           hour: 'numeric',
           minute: '2-digit'
@@ -155,7 +218,7 @@ export const useDate = () => {
       }
 
       // Yesterday: "Yesterday at 3:45 PM"
-      if (isYesterday(tzDate)) {
+      if (isYesterdayInTz) {
         const timeStr = formatDate(date, {
           hour: 'numeric',
           minute: '2-digit'
@@ -163,7 +226,7 @@ export const useDate = () => {
         return `Yesterday at ${timeStr}`
       }
 
-      // This week: "Monday at 3:45 PM" or "Dec 9 at 3:45 PM"
+      // This week: Check if within 7 days in target timezone
       if (isThisWeek(tzDate)) {
         const dayStr = format(tzDate, 'EEEE') // Day name
         const timeStr = formatDate(date, {
@@ -221,8 +284,10 @@ export const useDate = () => {
 
       const tz = options?.timezoneOverride || activeTimezone.value
       const tzDate = toTimezoneDate(dateObj, tz)
+      const nowInTz = toZonedTime(new Date(), tz)
 
-      if (isThisYear(tzDate)) {
+      // Check if same year in target timezone
+      if (tzDate.getFullYear() === nowInTz.getFullYear()) {
         if (options?.includeTime) {
           return format(tzDate, 'MMM d, h:mm a')
         }
