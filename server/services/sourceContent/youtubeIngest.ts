@@ -1,8 +1,7 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import type { H3Event } from 'h3'
 import type { FetchError } from 'ofetch'
 import { and, eq } from 'drizzle-orm'
-import { createError, getRequestHeaders } from 'h3'
+import { createError } from 'h3'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import * as schema from '../../database/schema'
 import { createChunksFromSourceContentText } from './chunkSourceContent'
@@ -19,6 +18,7 @@ export type TranscriptFailureReason =
   | 'permission_denied'
   | 'auth_failed'
   | 'empty_transcript'
+  | 'internal_error'
   | 'unknown'
 
 export interface YouTubeTranscriptErrorData {
@@ -33,32 +33,11 @@ export interface YouTubeTranscriptErrorData {
 }
 
 interface IngestYouTubeOptions {
-  event: H3Event
   db: NodePgDatabase<typeof schema>
   sourceContentId: string
   organizationId: string
   userId: string
   videoId: string
-}
-
-interface WorkerTranscriptResponse {
-  success: boolean
-  transcript?: {
-    text: string
-    format: string
-    language?: string | null
-    track_kind?: string | null
-  }
-  metadata?: {
-    client_version?: string | null
-    method?: string | null
-    video_id?: string
-  }
-  error?: {
-    code?: string
-    message?: string
-    details?: string
-  }
 }
 
 interface TranscriptIoResponseEntry {
@@ -71,6 +50,8 @@ interface TranscriptIoResponseEntry {
   }>
   languages?: Array<{ label?: string | null, languageCode?: string | null }>
 }
+
+let transcriptIoCooldownUntil = 0
 
 function hasYouTubeScopes(scope: string | null | undefined) {
   if (!scope) {
@@ -112,6 +93,15 @@ function _joinTranscriptSegments(segments: Array<{ text?: string }> | undefined)
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function getRetryAfterSeconds(error: FetchError | undefined) {
+  const headerValue = (error as any)?.response?.headers?.get?.('retry-after') || (error as any)?.response?.headers?.get?.('Retry-After')
+  if (!headerValue) {
+    return null
+  }
+  const parsed = Number.parseInt(String(headerValue), 10)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 function _classifyTranscriptFailure(message: string) {
@@ -167,35 +157,6 @@ function createTranscriptError(params: {
   })
 }
 
-function mapWorkerError(code: string | undefined, statusCode?: number) {
-  if (statusCode === 401) {
-    return { reasonCode: 'auth_failed' as const, userMessage: 'Authentication required to fetch YouTube transcript. Please sign in again.' }
-  }
-  if (statusCode === 429 || code === 'rate_limited') {
-    return { reasonCode: 'rate_limited' as const, userMessage: 'Too many requests, please try again later.', canRetry: true }
-  }
-  switch (code) {
-    case 'no_captions':
-      return { reasonCode: 'no_captions' as const, userMessage: 'This video doesn\'t have captions available.', canRetry: false }
-    case 'invalid_video':
-      return { reasonCode: 'private_or_unavailable' as const, userMessage: 'Invalid or unavailable YouTube video.' }
-    case 'blocked':
-      return { reasonCode: 'blocked' as const, userMessage: 'YouTube is blocking requests from our servers.' }
-    case 'network_error':
-      return { reasonCode: 'unknown' as const, userMessage: 'Network error while fetching YouTube transcript. Please try again.' }
-    case 'internal_error':
-      return { reasonCode: 'unknown' as const, userMessage: 'Internal error while fetching YouTube transcript.' }
-    default:
-      break
-  }
-
-  if (statusCode === 400) {
-    return { reasonCode: 'private_or_unavailable' as const, userMessage: 'Unable to fetch transcript for this video.' }
-  }
-
-  return { reasonCode: 'unknown' as const, userMessage: 'Unable to fetch transcript.' }
-}
-
 function mapTranscriptIoError(statusCode?: number) {
   if (statusCode === 429) {
     return { reasonCode: 'rate_limited' as const, userMessage: 'Too many transcript requests, please wait a few seconds and try again.', canRetry: true }
@@ -242,6 +203,15 @@ async function fetchTranscriptViaTranscriptIo(videoId: string) {
     throw new TranscriptProviderError('Transcript provider is not configured.', { reasonCode: 'internal_error', userMessage: 'Transcript provider is not configured.' })
   }
 
+  if (Date.now() < transcriptIoCooldownUntil) {
+    const waitMs = Math.max(0, transcriptIoCooldownUntil - Date.now())
+    const waitSeconds = Math.ceil(waitMs / 1000)
+    throw new TranscriptProviderError(
+      `Transcript provider temporarily rate limited. Please wait ~${waitSeconds}s before retrying.`,
+      { reasonCode: 'rate_limited', userMessage: `Transcript provider is busy. Please wait about ${waitSeconds} seconds and try again.`, canRetry: true }
+    )
+  }
+
   try {
     const response = await $fetch<TranscriptIoResponseEntry[]>('https://www.youtube-transcript.io/api/transcripts', {
       method: 'POST',
@@ -283,58 +253,18 @@ async function fetchTranscriptViaTranscriptIo(videoId: string) {
       throw error
     }
     const statusCode = (error as FetchError)?.statusCode
+    const retryAfterSeconds = getRetryAfterSeconds(error as FetchError)
+    if (statusCode === 429) {
+      const cooldownMs = Math.max(1000, (retryAfterSeconds ?? 10) * 1000)
+      transcriptIoCooldownUntil = Date.now() + cooldownMs
+    }
     const failure = mapTranscriptIoError(statusCode)
+    if (statusCode === 429) {
+      const waitSeconds = retryAfterSeconds ?? Math.ceil(Math.max(0, transcriptIoCooldownUntil - Date.now()) / 1000)
+      failure.userMessage = `Transcript provider is rate limiting us. Please wait about ${waitSeconds} seconds and try again.`
+      failure.canRetry = true
+    }
     const message = (error as Error).message || 'Failed to fetch transcript via external provider.'
-    throw new TranscriptProviderError(message, failure, statusCode)
-  }
-}
-
-async function fetchTranscriptViaWorker(event: H3Event, videoId: string) {
-  const headers: Record<string, string> = {}
-  const requestHeaders = getRequestHeaders(event) || {}
-
-  // Forward authentication-related headers to ensure Better Auth can authenticate properly
-  // Better Auth needs cookie for session validation and may use other headers
-  const authHeaders = ['cookie', 'authorization', 'x-forwarded-for', 'user-agent']
-  for (const key of authHeaders) {
-    const value = requestHeaders[key]
-    if (value && typeof value === 'string') {
-      headers[key] = value
-    }
-  }
-
-  try {
-    const response = await $fetch<WorkerTranscriptResponse>(`${runtimeConfig.workerApiUrl}/api/proxy/youtube-transcript`, {
-      method: 'POST',
-      body: { video_id: videoId },
-      headers
-    })
-
-    if (!response?.success) {
-      const failure = mapWorkerError(response?.error?.code, undefined)
-      throw new TranscriptProviderError(response?.error?.message || 'Failed to fetch transcript via Worker.', failure)
-    }
-
-    if (!response.transcript?.text) {
-      throw new TranscriptProviderError('Worker returned empty transcript content.', mapWorkerError('internal_error'))
-    }
-
-    return {
-      text: response.transcript.text,
-      format: response.transcript.format,
-      language: response.transcript.language,
-      trackKind: response.transcript.track_kind,
-      metadata: response.metadata
-    }
-  } catch (error: any) {
-    if (error instanceof TranscriptProviderError) {
-      throw error
-    }
-
-    const statusCode = (error as FetchError)?.statusCode
-    const code = (error as FetchError)?.data?.error?.code as string | undefined
-    const message = (error as FetchError)?.data?.error?.message || (error as Error).message || 'Failed to fetch transcript via Worker.'
-    const failure = mapWorkerError(code, statusCode)
     throw new TranscriptProviderError(message, failure, statusCode)
   }
 }
@@ -481,7 +411,7 @@ export async function findYouTubeAccount(db: NodePgDatabase<typeof schema>, orga
  * @returns Updated source content record with transcript
  */
 export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOptions) {
-  const { event, db, sourceContentId, organizationId: _organizationId, userId: _userId, videoId } = options
+  const { db, sourceContentId, organizationId: _organizationId, userId: _userId, videoId } = options
 
   const [source] = await db
     .select()
@@ -501,33 +431,16 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   const existingYoutubeMetadata = getBaseYoutubeMetadata(source.metadata)
   let transcriptText: string | null = null
   let youtubeMetadata = { ...existingYoutubeMetadata }
-  const transcriptProviderErrors: TranscriptProviderError[] = []
-  let transcriptResult: Awaited<ReturnType<typeof fetchTranscriptViaTranscriptIo>> | Awaited<ReturnType<typeof fetchTranscriptViaWorker>> | null = null
+  let transcriptResult: Awaited<ReturnType<typeof fetchTranscriptViaTranscriptIo>> | null = null
 
-  const providerPipeline = [
-    async () => fetchTranscriptViaTranscriptIo(videoId),
-    async () => fetchTranscriptViaWorker(event, videoId)
-  ]
-
-  for (const provider of providerPipeline) {
-    try {
-      transcriptResult = await provider()
-      if (transcriptResult) {
-        break
-      }
-    } catch (error) {
-      if (error instanceof TranscriptProviderError) {
-        transcriptProviderErrors.push(error)
-      } else {
-        transcriptProviderErrors.push(new TranscriptProviderError((error as Error).message || 'Failed to fetch transcript.', mapWorkerError(undefined)))
-      }
-    }
-  }
-
-  if (!transcriptResult) {
-    const failureError = transcriptProviderErrors[transcriptProviderErrors.length - 1]
-    const failure = failureError?.failure ?? { reasonCode: 'unknown' as TranscriptFailureReason, userMessage: 'Unable to fetch transcript.' }
-    const errorMessage = failureError?.message || 'Unable to fetch transcript from any provider.'
+  try {
+    transcriptResult = await fetchTranscriptViaTranscriptIo(videoId)
+  } catch (error) {
+    const providerError = error as TranscriptProviderError | Error
+    const failure = providerError instanceof TranscriptProviderError
+      ? providerError.failure
+      : mapTranscriptIoError((providerError as FetchError)?.statusCode)
+    const errorMessage = providerError.message || 'Unable to fetch transcript from provider.'
 
     await db
       .update(schema.sourceContent)
@@ -535,7 +448,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
         ingestStatus: 'failed',
         metadata: {
           ...baseMetadata,
-          ingestMethod: 'transcript_provider',
+          ingestMethod: 'youtube_transcript_io',
           youtube: {
             ...youtubeMetadata,
             lastError: errorMessage,
@@ -561,7 +474,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   }
 
   transcriptText = transcriptResult.text
-  const providerMethod = transcriptResult.metadata?.method || 'worker'
+  const providerMethod = transcriptResult.metadata?.method || 'youtube-transcript-io'
   youtubeMetadata = {
     ...youtubeMetadata,
     transcriptMethod: providerMethod,
@@ -571,7 +484,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
     workerMetadata: transcriptResult.metadata,
     lastIngestedAt: new Date().toISOString()
   }
-  const ingestMethod = providerMethod === 'youtube-transcript-io' ? 'youtube_transcript_io' : 'youtube_worker'
+  const ingestMethod = 'youtube_transcript_io'
 
   const metadata = {
     ...baseMetadata,

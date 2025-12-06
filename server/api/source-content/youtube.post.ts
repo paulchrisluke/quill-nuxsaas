@@ -65,7 +65,6 @@ export default defineEventHandler(async (event) => {
   }
 
   const ingested = await ingestYouTubeVideoAsSourceContent({
-    event,
     db,
     sourceContentId: upserted.id,
     organizationId,
