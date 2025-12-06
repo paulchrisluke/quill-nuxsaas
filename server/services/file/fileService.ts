@@ -65,8 +65,8 @@ export class FileService {
   ): Promise<FileRecord> {
     const db = await useDB()
     const fileId = uuidv7()
-    let fileName = options?.fileName ?? this.generateFileName(originalName)
-    if (options?.fileName) {
+    let fileName: string
+    if (options?.fileName != null) {
       const sanitized = options.fileName.trim()
       if (!sanitized || sanitized.includes('..') || sanitized.startsWith('/') || sanitized.includes('\\')) {
         throw createError({
@@ -75,6 +75,8 @@ export class FileService {
         })
       }
       fileName = sanitized
+    } else {
+      fileName = this.generateFileName(originalName)
     }
     const fileType = getFileTypeFromMimeType(mimeType)
     const resolvedOriginalName = options?.overrideOriginalName?.trim() || originalName

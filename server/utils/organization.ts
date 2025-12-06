@@ -4,6 +4,18 @@ import * as schema from '../database/schema'
 import { getAuthSession } from './auth'
 import { getDB } from './db'
 
+interface BetterAuthSession {
+  session?: {
+    activeOrganizationId?: string
+  }
+  data?: {
+    session?: {
+      activeOrganizationId?: string
+    }
+  }
+  activeOrganizationId?: string
+}
+
 interface RequireActiveOrganizationOptions {
   requireRoles?: Array<'owner' | 'admin' | 'member'>
   /**
@@ -30,12 +42,12 @@ export const requireActiveOrganization = async (
   const db = getDB()
 
   // Get active organization from Better Auth session (set by session.create.before hook)
-  const session = await getAuthSession(event)
+  const session = await getAuthSession(event) as BetterAuthSession | null
 
   // Try multiple paths to get activeOrganizationId from session
-  let organizationId = (session?.session as any)?.activeOrganizationId
-    || (session?.data as any)?.session?.activeOrganizationId
-    || (session as any)?.activeOrganizationId as string | undefined
+  let organizationId = session?.session?.activeOrganizationId
+    ?? session?.data?.session?.activeOrganizationId
+    ?? session?.activeOrganizationId
 
   // Fallback: If session doesn't have it yet (e.g., just created anonymous session),
   // read from database. This happens when session was just created and cookies aren't

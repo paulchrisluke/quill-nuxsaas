@@ -912,12 +912,18 @@ async function handlePublishDraft() {
           id: response.content.id,
           title: response.content.title,
           status: mappedStatus,
-          updatedAt: response.content.updatedAt.toISOString(),
+          updatedAt: typeof response.content.updatedAt === 'string'
+            ? response.content.updatedAt
+            : new Date(response.content.updatedAt).toISOString(),
           metadata: {
             organizationId: response.content.organizationId,
             slug: response.content.slug,
             contentType: response.content.contentType,
-            publishedAt: response.content.publishedAt?.toISOString() ?? null
+            publishedAt: response.content.publishedAt
+              ? (typeof response.content.publishedAt === 'string'
+                  ? response.content.publishedAt
+                  : new Date(response.content.publishedAt).toISOString())
+              : null
           }
         },
         currentVersion: {
@@ -926,7 +932,9 @@ async function handlePublishDraft() {
           bodyHtml: response.version.bodyHtml ?? undefined,
           frontmatter: response.version.frontmatter ?? undefined,
           version: response.version.version,
-          updatedAt: response.version.createdAt.toISOString()
+          updatedAt: typeof response.version.createdAt === 'string'
+            ? response.version.createdAt
+            : new Date(response.version.createdAt).toISOString()
         }
       }
     } else {
@@ -937,12 +945,18 @@ async function handlePublishDraft() {
           id: response.content.id,
           title: response.content.title,
           status: mappedStatus,
-          updatedAt: response.content.updatedAt.toISOString(),
+          updatedAt: typeof response.content.updatedAt === 'string'
+            ? response.content.updatedAt
+            : new Date(response.content.updatedAt).toISOString(),
           metadata: {
             organizationId: response.content.organizationId,
             slug: response.content.slug,
             contentType: response.content.contentType,
-            publishedAt: response.content.publishedAt?.toISOString() ?? null
+            publishedAt: response.content.publishedAt
+              ? (typeof response.content.publishedAt === 'string'
+                  ? response.content.publishedAt
+                  : new Date(response.content.publishedAt).toISOString())
+              : null
           }
         },
         currentVersion: {
@@ -951,7 +965,9 @@ async function handlePublishDraft() {
           bodyHtml: response.version.bodyHtml ?? undefined,
           frontmatter: response.version.frontmatter ?? undefined,
           version: response.version.version,
-          updatedAt: response.version.createdAt.toISOString()
+          updatedAt: typeof response.version.createdAt === 'string'
+            ? response.version.createdAt
+            : new Date(response.version.createdAt).toISOString()
         },
         sourceContent: null,
         chatSession: null,

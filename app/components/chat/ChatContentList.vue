@@ -57,36 +57,31 @@ const filteredEntries = computed(() => {
 
 const hasFilteredContent = computed(() => filteredEntries.value.length > 0)
 
-const STATUS_META: Record<string, { icon: string, label: string, badgeClass: string, dotClass: string }> = {
+const STATUS_META: Record<string, { icon: string, label: string, badgeClass: string }> = {
   draft: {
     icon: 'i-lucide-pen-line',
     label: 'Draft',
-    badgeClass: 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30',
-    dotClass: 'bg-emerald-500'
+    badgeClass: 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
   },
   in_review: {
     icon: 'i-lucide-eye',
     label: 'In review',
-    badgeClass: 'bg-amber-400/20 text-amber-500 border border-amber-400/30',
-    dotClass: 'bg-amber-400'
+    badgeClass: 'bg-amber-400/20 text-amber-500 border border-amber-400/30'
   },
   ready_for_publish: {
     icon: 'i-lucide-rocket',
     label: 'Ready to publish',
-    badgeClass: 'bg-sky-400/20 text-sky-500 border border-sky-400/30',
-    dotClass: 'bg-sky-400'
+    badgeClass: 'bg-sky-400/20 text-sky-500 border border-sky-400/30'
   },
   published: {
     icon: 'i-lucide-badge-check',
     label: 'Published',
-    badgeClass: 'bg-purple-500/20 text-purple-500 border border-purple-500/30',
-    dotClass: 'bg-purple-500'
+    badgeClass: 'bg-purple-500/20 text-purple-500 border border-purple-500/30'
   },
   archived: {
     icon: 'i-lucide-archive',
     label: 'Archived',
-    badgeClass: 'bg-rose-500/20 text-rose-500 border border-rose-500/30',
-    dotClass: 'bg-rose-500'
+    badgeClass: 'bg-rose-500/20 text-rose-500 border border-rose-500/30'
   }
 }
 
@@ -94,12 +89,6 @@ const getStatusMeta = (status: string) => {
   const normalized = (status || '').toLowerCase().trim()
   return STATUS_META[normalized] || STATUS_META.draft
 }
-
-const statusLegend = computed(() => ([
-  { key: 'draft', label: STATUS_META.draft.label, dotClass: STATUS_META.draft.dotClass },
-  { key: 'published', label: STATUS_META.published.label, dotClass: STATUS_META.published.dotClass },
-  { key: 'archived', label: STATUS_META.archived.label, dotClass: STATUS_META.archived.dotClass }
-]))
 
 const handleOpenWorkspace = (entry: DraftEntry) => {
   emit('openWorkspace', entry)
@@ -136,7 +125,15 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
   const deltaX = touch.clientX - swipeState.value.startX
   const deltaY = touch.clientY - swipeState.value.startY
 
-  if (deltaX < -SWIPE_THRESHOLD && Math.abs(deltaY) < SWIPE_VERTICAL_THRESHOLD)
+  const isArchived = (entry.status || '').toLowerCase().trim() === 'archived'
+  const isProcessing = entry.isPending || props.archivingDraftId === entry.id
+
+  if (
+    deltaX < -SWIPE_THRESHOLD &&
+    Math.abs(deltaY) < SWIPE_VERTICAL_THRESHOLD &&
+    !isArchived &&
+    !isProcessing
+  )
     handleArchiveEntry(entry)
 
   swipeState.value = null
@@ -150,22 +147,6 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
       variant="link"
       :items="tabs"
     />
-
-    <div
-      class="flex items-center gap-4 text-xs text-muted-500"
-    >
-      <div
-        v-for="item in statusLegend"
-        :key="item.key"
-        class="flex items-center gap-2"
-      >
-        <span
-          class="h-2.5 w-2.5 rounded-full"
-          :class="item.dotClass"
-        />
-        <span>{{ item.label }}</span>
-      </div>
-    </div>
 
     <div
       v-if="hasFilteredContent"
@@ -184,70 +165,78 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
           :disabled="entry.isPending"
           @click="handleOpenWorkspace(entry)"
         >
-          <div class="flex items-center justify-between gap-3">
-            <p
-              v-if="!entry.isPending"
-              class="text-sm font-semibold leading-tight truncate text-white"
-            >
-              {{ entry.title }}
-            </p>
-            <div
-              v-else
-              class="flex-1"
-            >
-              <div class="h-5 w-44 rounded bg-white/10 animate-pulse" />
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex-1 space-y-1">
+              <p
+                v-if="!entry.isPending"
+                class="text-sm font-semibold leading-tight truncate text-white"
+              >
+                {{ entry.title }}
+              </p>
+              <div
+                v-else
+                class="flex-1"
+              >
+                <div class="h-5 w-44 rounded bg-white/10 animate-pulse" />
+              </div>
+              <div
+                v-if="!entry.isPending"
+                class="text-xs text-muted-400 flex flex-wrap items-center gap-1"
+              >
+                <span>{{ formatDateRelative(entry.updatedAt, { maxUnit: 'day', includeTime: false }) }}</span>
+                <span>·</span>
+                <span class="capitalize">
+                  {{ entry.contentType || 'content' }}
+                </span>
+                <span>·</span>
+                <span class="text-muted-500 truncate">
+                  {{ entry.id }}
+                </span>
+              </div>
+              <div
+                v-else
+                class="flex items-center gap-2 text-primary-200 font-semibold capitalize"
+              >
+                <span class="animate-pulse">{{ pendingMessage }}</span>
+                <UButton
+                  color="neutral"
+                  variant="ghost"
+                  size="xs"
+                  icon="i-lucide-square"
+                  aria-label="Stop generation"
+                  @click.stop="handleStopEntry(entry)"
+                />
+              </div>
             </div>
 
-            <UBadge
-              v-if="!entry.isPending"
-              variant="soft"
-              color="neutral"
-              class="rounded-full px-3 py-1.5 gap-1.5 flex items-center border"
-              :class="getStatusMeta(entry.status).badgeClass"
-            >
-              <UIcon
-                :name="getStatusMeta(entry.status).icon"
-                class="h-3.5 w-3.5"
-              />
-              <span class="leading-none">
-                {{ getStatusMeta(entry.status).label }}
-              </span>
-            </UBadge>
-            <div
-              v-else
-              class="flex items-center gap-2 text-primary-200 font-semibold capitalize"
-            >
-              <span class="animate-pulse">{{ pendingMessage }}</span>
-              <UButton
+            <div class="flex flex-col items-end gap-1">
+              <UBadge
+                v-if="!entry.isPending"
+                variant="soft"
                 color="neutral"
-                variant="ghost"
-                size="xs"
-                icon="i-lucide-square"
-                aria-label="Stop generation"
-                @click.stop="handleStopEntry(entry)"
-              />
+                class="rounded-full px-3 py-1.5 gap-1.5 inline-flex items-center border translate-y-[1px]"
+                :class="getStatusMeta(entry.status).badgeClass"
+              >
+                <UIcon
+                  :name="getStatusMeta(entry.status).icon"
+                  class="h-3.5 w-3.5"
+                />
+                <span class="leading-none">
+                  {{ getStatusMeta(entry.status).label }}
+                </span>
+              </UBadge>
+              <div
+                v-if="!entry.isPending"
+                class="text-xs font-semibold flex items-center gap-2"
+              >
+                <span class="text-emerald-500 dark:text-emerald-400">
+                  +{{ entry.additions ?? 0 }}
+                </span>
+                <span class="text-rose-500 dark:text-rose-400">
+                  -{{ entry.deletions ?? 0 }}
+                </span>
+              </div>
             </div>
-          </div>
-          <div
-            v-if="!entry.isPending"
-            class="text-sm text-muted-400 flex flex-wrap items-center gap-1"
-          >
-            <span>{{ formatDateRelative(entry.updatedAt) }}</span>
-            <span>·</span>
-            <span class="capitalize">
-              {{ entry.contentType || 'content' }}
-            </span>
-            <span>·</span>
-            <span class="text-muted-500 truncate">
-              {{ entry.id }}
-            </span>
-            <span>·</span>
-            <span class="text-emerald-500 dark:text-emerald-400">
-              +{{ entry.additions ?? 0 }}
-            </span>
-            <span class="text-rose-500 dark:text-rose-400">
-              -{{ entry.deletions ?? 0 }}
-            </span>
           </div>
           <div
             v-else

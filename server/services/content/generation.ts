@@ -1084,7 +1084,9 @@ function generateJsonLdStructuredData(params: {
 
   // Add URL if baseUrl is provided
   if (baseUrl && frontmatter.slug) {
-    structuredData.url = `${baseUrl}/${frontmatter.slug}`
+    const normalizedBase = baseUrl.replace(/\/+$/, '')
+    const normalizedSlug = frontmatter.slug.replace(/^\/+/, '')
+    structuredData.url = `${normalizedBase}/${normalizedSlug}`
   }
 
   // Add additional schema types as nested structures
@@ -2097,6 +2099,12 @@ export async function reEnrichContentVersion(
   }
 
   // Extract raw markdown from existing bodyMdx (handles both enriched and non-enriched)
+  if (!currentVersion.bodyMdx) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Content version has no body content to enrich'
+    })
+  }
   const rawMarkdown = extractRawMarkdownFromEnrichedMdx(currentVersion.bodyMdx)
 
   // Re-enrich with current frontmatter and seoSnapshot

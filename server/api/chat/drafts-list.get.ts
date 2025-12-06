@@ -19,6 +19,12 @@ export default defineEventHandler(async (event) => {
   try {
     const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: true })
     organizationId = orgResult.organizationId
+    if (!organizationId) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Active organization not found'
+      })
+    }
   } catch (error: any) {
     // If user is anonymous and doesn't have an org yet, return empty list with default quota
     // The organization should be created by the session middleware, but if it hasn't yet,

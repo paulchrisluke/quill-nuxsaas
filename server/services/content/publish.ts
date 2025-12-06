@@ -68,7 +68,10 @@ export async function publishContentVersion(
   const [versionRecord] = await db
     .select()
     .from(schema.contentVersion)
-    .where(eq(schema.contentVersion.id, resolvedVersionId))
+    .where(and(
+      eq(schema.contentVersion.id, resolvedVersionId),
+      eq(schema.contentVersion.contentId, contentId)
+    ))
     .limit(1)
 
   if (!versionRecord) {
@@ -149,6 +152,13 @@ export async function publishContentVersion(
         .where(eq(schema.content.id, contentRecord.id))
         .returning()
 
+      if (!contentUpdate) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to update content record'
+        })
+      }
+
       const [publication] = await tx
         .insert(schema.publication)
         .values({
@@ -166,10 +176,16 @@ export async function publishContentVersion(
         })
         .returning()
 
+      if (!publication) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to write publication record'
+        })
+      }
+
       return {
-        updatedContent: contentUpdate ?? contentRecord,
-        publicationRecord: publication,
-        publishedAt
+        updatedContent: contentUpdate,
+        publicationRecord: publication
       }
     })
 
