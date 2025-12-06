@@ -1093,7 +1093,7 @@ function generateJsonLdStructuredData(params: {
       ? frontmatter.primaryKeyword.trim()
       : ''
     const hasPrimary = normalizedPrimary
-      ? keywordEntries.some(keyword => keyword === normalizedPrimary)
+      ? keywordEntries.includes(normalizedPrimary)
       : false
     const keywordsList = normalizedPrimary && !hasPrimary
       ? [normalizedPrimary, ...keywordEntries]

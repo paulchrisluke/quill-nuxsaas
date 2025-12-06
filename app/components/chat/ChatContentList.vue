@@ -231,30 +231,30 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
                 v-else
                 class="flex items-center gap-2 sm:gap-3"
               >
-              <UBadge
-                variant="soft"
-                color="neutral"
+                <UBadge
+                  variant="soft"
+                  color="neutral"
                   class="rounded-full px-2 sm:px-2.5 py-1 gap-1 inline-flex items-center border text-[11px] shrink-0"
-                :class="getStatusMeta(entry.status).badgeClass"
-              >
-                <UIcon
-                  :name="getStatusMeta(entry.status).icon"
+                  :class="getStatusMeta(entry.status).badgeClass"
+                >
+                  <UIcon
+                    :name="getStatusMeta(entry.status).icon"
                     class="h-2.5 w-2.5 shrink-0"
-                />
+                  />
                   <span class="leading-none truncate">
-                  {{ getStatusMeta(entry.status).label }}
-                </span>
-              </UBadge>
+                    {{ getStatusMeta(entry.status).label }}
+                  </span>
+                </UBadge>
                 <div class="text-sm font-semibold flex items-center gap-2 tabular-nums shrink-0">
-                <span class="text-emerald-500 dark:text-emerald-400">
-                  +{{ entry.additions ?? 0 }}
-                </span>
-                <span class="text-rose-500 dark:text-rose-400">
-                  -{{ entry.deletions ?? 0 }}
-                </span>
+                  <span class="text-emerald-500 dark:text-emerald-400">
+                    +{{ entry.additions ?? 0 }}
+                  </span>
+                  <span class="text-rose-500 dark:text-rose-400">
+                    -{{ entry.deletions ?? 0 }}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
           </div>
         </button>
         <div class="absolute inset-y-0 right-0 flex items-center pr-2">
