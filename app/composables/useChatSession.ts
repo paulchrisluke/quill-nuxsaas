@@ -145,6 +145,15 @@ export function useChatSession() {
       const normalizedMessages = normalizeMessages(response.messages)
 
       if (normalizedMessages.length > 0) {
+        const serverHasUserMessage = normalizedMessages.some(message => message.role === 'user')
+
+        if (serverHasUserMessage) {
+          const lastMessage = messages.value[messages.value.length - 1]
+          if (lastMessage?.role === 'user') {
+            messages.value = messages.value.slice(0, -1)
+          }
+        }
+
         // Merge new messages with existing ones
         // Create a map of existing messages by ID for quick lookup
         const existingMessageMap = new Map(messages.value.map(msg => [msg.id, msg]))

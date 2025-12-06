@@ -7,7 +7,7 @@ interface WorkspaceSummaryInput {
 }
 
 interface SourceSummaryInput {
-  sourceContent: typeof schema.sourceContent.$inferSelect
+  sourceContent: typeof schema.sourceContent.$inferSelect | null
 }
 
 interface SectionLike {
@@ -215,7 +215,7 @@ export function buildSourceContentSummary(payload: SourceSummaryInput) {
   if (description) {
     summaryParts.push(description)
   } else if (wordCount) {
-    summaryParts.push(`It contains about ${wordCount} words of transcripted content to work from.`)
+    summaryParts.push(`It contains about ${wordCount} words of transcribed content to work from.`)
   }
 
   const highlightSentences = extractSentences(source.sourceText, 2)
