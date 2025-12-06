@@ -60,11 +60,8 @@ export default defineNuxtConfig({
       standalone: false
     }
   },
-  fonts: {
-    families: [
-      { name: 'Lora', provider: 'google' }
-    ]
-  },
+  // Fonts are now self-hosted locally for GDPR compliance, performance, and offline support
+  // See app/assets/css/main.css for @font-face declarations
   ogImage: {
     enabled: false
   },

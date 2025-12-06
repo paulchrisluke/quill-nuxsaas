@@ -545,6 +545,25 @@ const {
   onLoadWorkspace: loadWorkspacePayload
 })
 
+const handleDraftActionClick = () => {
+  if (!pendingDraftAction.value) {
+    return
+  }
+  const action = pendingDraftAction.value
+  if (action.hasExistingDraft && typeof action.existingDraftId === 'string') {
+    handlePublishDraftFromPlan(action.existingDraftId)
+  } else if (typeof action.sourceId === 'string') {
+    handleWriteDraftFromSourceComposable(action.sourceId)
+  }
+}
+
+const draftActionButtonText = computed(() => {
+  if (!pendingDraftAction.value || typeof pendingDraftAction.value.hasExistingDraft !== 'boolean') {
+    return 'Write draft'
+  }
+  return pendingDraftAction.value.hasExistingDraft ? 'Publish' : 'Write draft'
+})
+
 const messageBodyClass = 'text-[15px] leading-6 text-muted-800 dark:text-muted-100'
 
 const contentUpdatedAtLabel = computed(() => {
@@ -1010,8 +1029,6 @@ async function handlePublishDraft() {
   }
 }
 
-const handleWriteDraftFromSource = handleWriteDraftFromSourceComposable
-
 function handleRegenerate(message: ChatMessage) {
   const text = message.parts[0]?.text?.trim()
   if (!text) {
@@ -1171,9 +1188,9 @@ onBeforeUnmount(() => {
                     size="sm"
                     :disabled="chatIsBusy || chatStatus === 'submitted' || chatStatus === 'streaming'"
                     :loading="chatIsBusy || chatStatus === 'submitted' || chatStatus === 'streaming' || isPublishingFromPlan"
-                    @click="pendingDraftAction.hasExistingDraft ? handlePublishDraftFromPlan(pendingDraftAction.existingDraftId) : handleWriteDraftFromSource(pendingDraftAction.sourceId)"
+                    @click="handleDraftActionClick"
                   >
-                    {{ pendingDraftAction.hasExistingDraft ? 'Publish' : 'Write draft' }}
+                    {{ draftActionButtonText }}
                   </UButton>
                   <UChatPromptSubmit :status="uiStatus" />
                 </div>

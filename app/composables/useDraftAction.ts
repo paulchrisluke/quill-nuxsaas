@@ -2,6 +2,13 @@ import type { ChatMessage } from '#shared/utils/types'
 import type { Ref } from 'vue'
 import { computed, ref } from 'vue'
 
+export interface PendingDraftAction {
+  sourceId: string
+  existingDraftId: string | null
+  hasExistingDraft: boolean
+  preview: any | null
+}
+
 interface DraftActionOptions {
   messages: Ref<ChatMessage[]> | (() => ChatMessage[])
   isBusy: Ref<boolean> | (() => boolean)
@@ -50,12 +57,14 @@ export function useDraftAction(options: DraftActionOptions) {
   }
 
   const getContentEntries = () => {
-    if (!contentEntries) return []
+    if (!contentEntries)
+      return []
     return typeof contentEntries === 'function' ? contentEntries() : contentEntries.value
   }
 
   const getCurrentContentRecord = () => {
-    if (!currentContentRecord) return null
+    if (!currentContentRecord)
+      return null
     return typeof currentContentRecord === 'function' ? currentContentRecord() : currentContentRecord.value
   }
 
@@ -64,12 +73,14 @@ export function useDraftAction(options: DraftActionOptions) {
   }
 
   const getContentId = () => {
-    if (!contentId) return null
+    if (!contentId)
+      return null
     return typeof contentId === 'function' ? contentId() : contentId.value
   }
 
   const getSelectedContentType = () => {
-    if (!selectedContentType) return null
+    if (!selectedContentType)
+      return null
     return typeof selectedContentType === 'function' ? selectedContentType() : selectedContentType.value
   }
 
@@ -87,11 +98,16 @@ export function useDraftAction(options: DraftActionOptions) {
     return null
   })
 
-  const pendingDraftAction = computed(() => {
+  const pendingDraftAction = computed<PendingDraftAction | null>(() => {
     if (!latestPlanPreview.value) {
       return null
     }
     if (getIsBusy() || ['submitted', 'streaming'].includes(getStatus())) {
+      return null
+    }
+
+    const sourceId = latestPlanPreview.value.sourceId
+    if (!sourceId || typeof sourceId !== 'string') {
       return null
     }
 
@@ -100,14 +116,14 @@ export function useDraftAction(options: DraftActionOptions) {
 
     // First check current content record (for DraftWorkspace)
     const current = getCurrentContentRecord()
-    if (current?.sourceContentId === latestPlanPreview.value?.sourceId) {
+    if (current?.sourceContentId === sourceId) {
       existingDraft = { id: current.id }
     }
 
     // Then check contentEntries (for QuillioWidget)
     if (!existingDraft) {
       const found = getContentEntries().find(
-        entry => entry.sourceContentId === latestPlanPreview.value?.sourceId && entry.status === 'draft'
+        entry => entry.sourceContentId === sourceId && entry.status === 'draft'
       )
       if (found) {
         existingDraft = { id: found.id }
@@ -115,9 +131,10 @@ export function useDraftAction(options: DraftActionOptions) {
     }
 
     return {
-      ...latestPlanPreview.value,
+      sourceId,
       existingDraftId: existingDraft?.id ?? null,
-      hasExistingDraft: !!existingDraft
+      hasExistingDraft: !!existingDraft,
+      preview: latestPlanPreview.value.preview ?? null
     }
   })
 
@@ -145,7 +162,7 @@ export function useDraftAction(options: DraftActionOptions) {
 
     try {
       const resolvedContentId = getContentId() || getSessionContentId() || undefined
-      
+
       if (sendMessage) {
         // Use sendMessage from useChatSession if provided
         await sendMessage('Please create a full draft from this transcript.', {

@@ -343,15 +343,21 @@ export default defineEventHandler(async (event) => {
     ? validateOptionalUUID((body as any).contentId, 'contentId')
     : null
 
+  // Determine session contentId: action.contentId takes precedence for both generate_content and patch_section
   const initialSessionContentId = (body.action?.type === 'generate_content' && body.action.contentId)
     ? validateOptionalUUID(body.action.contentId, 'action.contentId')
-    : requestContentId
+    : (body.action?.type === 'patch_section' && body.action.contentId)
+        ? validateOptionalUUID(body.action.contentId, 'action.contentId')
+        : requestContentId
 
   let sessionSourceId = resolvedSourceContentId ?? null
 
   let session = null
   if (requestSessionId) {
     session = await getChatSessionById(db, requestSessionId, organizationId)
+    if (!session) {
+      console.warn(`Session ${requestSessionId} not found for organization ${organizationId}, creating new session`)
+    }
   }
 
   if (!session) {

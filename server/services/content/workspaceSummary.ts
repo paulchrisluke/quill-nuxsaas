@@ -66,64 +66,6 @@ function finalizeSummary(summaryParts: string[]): string | null {
   return summary.length ? summary : null
 }
 
-function truncateForSummary(text: string, maxLength = 85) {
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  if (normalized.length <= maxLength) {
-    return normalized
-  }
-  const truncated = normalized.slice(0, maxLength)
-  const lastSpace = truncated.lastIndexOf(' ')
-  const safeSlice = lastSpace > 70 ? truncated.slice(0, lastSpace) : truncated
-  return `${safeSlice.trim()}…`
-}
-
-function extractKeywords(text: string, limit = 12) {
-  return text
-    .toLowerCase()
-    .split(/\W+/)
-    .filter(word => word.length > 3)
-    .slice(0, limit)
-}
-
-function buildSummaryHints(text: string | null | undefined, limit = 4) {
-  if (!text) {
-    return []
-  }
-  const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized) {
-    return []
-  }
-  const sentences = normalized.split(/(?<=[.!?])\s+/).filter(Boolean)
-  if (!sentences.length) {
-    return []
-  }
-
-  const hints: string[] = []
-  for (const sentence of sentences) {
-    const keywords = extractKeywords(sentence)
-    if (!keywords.length) {
-      continue
-    }
-    const uniqueKeywords = Array.from(new Set(keywords))
-    const description = uniqueKeywords.slice(0, 3).join(', ')
-    hints.push(truncateForSummary(description.length ? `${description} insights` : sentence))
-    if (hints.length >= limit) {
-      break
-    }
-  }
-
-  if (!hints.length) {
-    const words = normalized.split(' ')
-    const chunkSize = Math.max(8, Math.floor(words.length / limit))
-    for (let i = 0; i < limit && i * chunkSize < words.length; i++) {
-      const chunk = words.slice(i * chunkSize, (i + 1) * chunkSize).join(' ')
-      hints.push(truncateForSummary(chunk))
-    }
-  }
-
-  return hints
-}
-
 function deriveSourcePresentation(source: typeof schema.sourceContent.$inferSelect | null) {
   if (!source) {
     return null

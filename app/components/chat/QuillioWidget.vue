@@ -5,11 +5,11 @@ import { useClipboard, useDebounceFn } from '@vueuse/core'
 import { shallowRef } from 'vue'
 
 import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
-import { resolveAiThinkingIndicator } from '~/utils/aiThinkingIndicators'
 import { useDraftAction } from '~/composables/useDraftAction'
+import { resolveAiThinkingIndicator } from '~/utils/aiThinkingIndicators'
+import ChatMessageContent from './ChatMessageContent.vue'
 import PromptComposer from './PromptComposer.vue'
 import QuotaLimitModal from './QuotaLimitModal.vue'
-import ChatMessageContent from './ChatMessageContent.vue'
 
 const props = withDefaults(defineProps<{
   initialDraftId?: string | null

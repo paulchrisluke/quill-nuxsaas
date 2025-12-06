@@ -363,37 +363,41 @@ export const useDate = () => {
 
       // Calculate time difference
       const diffMs = nowInTz.getTime() - tzDate.getTime()
+      const isFuture = diffMs < 0
       const diffHours = Math.abs(diffMs) / (1000 * 60 * 60)
       const diffDays = Math.abs(diffMs) / (1000 * 60 * 60 * 24)
 
       // Less than 1 hour: show minutes
       if (diffHours < 1) {
         const diffMins = Math.floor(Math.abs(diffMs) / (1000 * 60))
+        if (isFuture) {
+          return diffMins <= 1 ? 'in a moment' : `in ${diffMins}m`
+        }
         return diffMins <= 1 ? 'just now' : `${diffMins}m ago`
       }
 
       // Less than 24 hours: show hours
       if (diffHours < 24) {
         const hours = Math.floor(diffHours)
-        return `${hours}h ago`
+        return isFuture ? `in ${hours}h` : `${hours}h ago`
       }
 
       // Less than 7 days: show days
       if (diffDays < 7) {
         const days = Math.floor(diffDays)
-        return `${days}d ago`
+        return isFuture ? `in ${days}d` : `${days}d ago`
       }
 
       // Less than 4 weeks: show weeks
       if (diffDays < 28) {
         const weeks = Math.floor(diffDays / 7)
-        return `${weeks}w ago`
+        return isFuture ? `in ${weeks}w` : `${weeks}w ago`
       }
 
       // Less than 12 months: show months
       if (diffDays < 365) {
         const months = Math.floor(diffDays / 30)
-        return `${months}mo ago`
+        return isFuture ? `in ${months}mo` : `${months}mo ago`
       }
 
       // Older: show short date format (e.g., "Dec 5, 2024")

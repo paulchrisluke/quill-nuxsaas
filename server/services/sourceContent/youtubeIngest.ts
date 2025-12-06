@@ -51,6 +51,7 @@ interface YoutubeOEmbedResponse {
 interface TranscriptIoResponseEntry {
   id?: string
   text?: string
+  title?: string
   tracks?: Array<{
     language?: string | null
     kind?: string | null
@@ -253,6 +254,7 @@ async function fetchTranscriptViaTranscriptIo(videoId: string) {
         method: 'youtube-transcript-io',
         provider: 'youtube_transcript_io',
         video_id: videoId,
+        title: entry.title,
         languages: entry.languages,
         track_languages: entry.tracks?.map(track => track.language).filter(Boolean)
       }
@@ -546,12 +548,12 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   const resolvedTitle =
     normalizeMetadataString(baseMetadata.title) ||
     normalizeMetadataString(youtubeMetadata.preview?.title) ||
-    normalizeMetadataString((transcriptResult.metadata as any)?.title) ||
+    normalizeMetadataString(transcriptResult.metadata?.title) ||
     normalizeMetadataString(source.title)
 
   const metadata = {
     ...baseMetadata,
-    title: resolvedTitle ?? baseMetadata.title ?? null,
+    title: resolvedTitle ?? null,
     ingestMethod,
     youtube: youtubeMetadata
   }
@@ -562,7 +564,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
       sourceText: transcriptText,
       ingestStatus: 'processing',
       metadata,
-      title: resolvedTitle ?? source.title ?? null,
+      title: resolvedTitle ?? null,
       updatedAt: new Date()
     })
     .where(eq(schema.sourceContent.id, sourceContentId))

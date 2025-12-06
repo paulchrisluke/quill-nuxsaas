@@ -11,9 +11,37 @@ const props = withDefaults(defineProps<{
   bodyClass: ''
 })
 
+const ALLOWED_EMBED_DOMAINS = [
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'player.vimeo.com'
+  // Add other trusted domains
+]
+
 const payload = computed(() => (props.message.payload as Record<string, any> | null) ?? null)
 const resolvedText = computed(() => props.displayText ?? props.message.parts?.[0]?.text ?? '')
 const preview = computed(() => payload.value?.preview ?? null)
+
+const safeEmbedUrl = computed(() => {
+  const embedUrl = preview.value?.embedUrl
+  if (!embedUrl) {
+    return null
+  }
+
+  try {
+    const url = new URL(embedUrl)
+    if (url.protocol !== 'https:') {
+      return null
+    }
+    if (!ALLOWED_EMBED_DOMAINS.includes(url.hostname)) {
+      return null
+    }
+    return embedUrl
+  } catch {
+    return null
+  }
+})
 
 const workspaceSummaryBullets = computed(() => {
   if (payload.value?.type !== 'workspace_summary') {
@@ -42,7 +70,10 @@ function toSummaryBullets(summary: string | null | undefined) {
 </script>
 
 <template>
-  <div v-if="payload?.type === 'workspace_summary'" :class="baseClass">
+  <div
+    v-if="payload?.type === 'workspace_summary'"
+    :class="baseClass"
+  >
     <p class="text-sm font-semibold">
       Summary
     </p>
@@ -62,11 +93,16 @@ function toSummaryBullets(summary: string | null | undefined) {
     v-else
     :class="baseClass"
   >
-    <div v-if="preview?.embedUrl" class="mb-4">
+    <div
+      v-if="safeEmbedUrl"
+      class="mb-4"
+    >
       <iframe
-        :src="preview.embedUrl"
+        :src="safeEmbedUrl"
         class="w-full aspect-video rounded-xl"
         loading="lazy"
+        sandbox="allow-scripts allow-same-origin allow-presentation"
+        referrerpolicy="no-referrer"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowfullscreen
       />
