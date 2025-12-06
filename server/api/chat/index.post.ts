@@ -15,7 +15,7 @@ import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSumma
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
 import { ensureAccessToken, fetchYouTubeVideoMetadata, findYouTubeAccount, ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
-import { requireAuth } from '~~/server/utils/auth'
+import { getAuthSession, requireAuth } from '~~/server/utils/auth'
 import { classifyUrl, extractUrls } from '~~/server/utils/chat'
 import { CONTENT_STATUSES, CONTENT_TYPES } from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
@@ -317,8 +317,30 @@ async function composeWorkspaceCompletionMessages(
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
-  const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = await useDB(event)
+
+  // Try to get organizationId from session first (faster and more reliable)
+  const authSession = await getAuthSession(event)
+  let organizationId: string | null = (authSession?.session as any)?.activeOrganizationId || null
+
+  // If not in session, try to get from database via requireActiveOrganization
+  if (!organizationId) {
+    try {
+      const orgResult = await requireActiveOrganization(event, user.id)
+      organizationId = orgResult.organizationId
+    } catch (error: any) {
+      // If user is anonymous and doesn't have an org yet, throw a helpful error
+      if (user.isAnonymous) {
+        throw createValidationError('Please create an account to use the chat feature. Anonymous users need an organization to continue.')
+      }
+      // For authenticated users, re-throw the error
+      throw error
+    }
+  }
+
+  if (!organizationId) {
+    throw createValidationError('No active organization found. Please create an account or select an organization.')
+  }
 
   const body = await readBody<ChatRequestBody>(event)
 
