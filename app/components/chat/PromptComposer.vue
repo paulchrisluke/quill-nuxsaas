@@ -284,7 +284,7 @@ useEventListener(textareaRef, 'blur', () => {
       :placeholder="props.placeholder"
       variant="subtle"
       :disabled="props.disabled"
-      class="flex-1 w-full min-h-[120px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[120px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
+      class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&>form]:rounded-[18px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
       :autofocus="props.autofocus"
       @submit="handleSubmit"
     >
