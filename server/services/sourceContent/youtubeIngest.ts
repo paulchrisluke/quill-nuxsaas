@@ -199,7 +199,7 @@ function extractTranscriptIoText(entry: TranscriptIoResponseEntry) {
 
 async function fetchTranscriptViaTranscriptIo(videoId: string) {
   const token = runtimeConfig.youtubeTranscriptIoToken
-  console.log('[youtube-transcript.io] Token check:', { hasToken: !!token, tokenLength: token?.length, tokenPreview: token ? `${token.substring(0, 10)}...` : 'none' })
+  console.log('[youtube-transcript.io] Token check:', { hasToken: !!token })
   if (!token) {
     throw new TranscriptProviderError('Transcript provider is not configured.', { reasonCode: 'internal_error', userMessage: 'Transcript provider is not configured.' })
   }
