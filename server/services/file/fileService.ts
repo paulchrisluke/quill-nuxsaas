@@ -75,7 +75,9 @@ export class FileService {
           statusMessage: 'Invalid file name'
         })
       }
-      fileName = sanitized
+      const dateFolder = format(new Date(), 'yyyy-MM-dd')
+      const uniquePrefix = uuidv7()
+      fileName = `${dateFolder}/${uniquePrefix}-${sanitized}`
     } else {
       fileName = this.generateFileName(originalName)
     }

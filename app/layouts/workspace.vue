@@ -120,7 +120,7 @@ useHead(() => ({
                 <UButton
                   v-if="workspaceHeader.onPrimaryAction"
                   :color="workspaceHeader.primaryActionColor || 'primary'"
-                  icon="i-lucide-download"
+                  :icon="workspaceHeader.primaryActionIcon || 'i-lucide-arrow-right'"
                   size="sm"
                   :disabled="workspaceHeader.primaryActionDisabled"
                   @click="workspaceHeader.onPrimaryAction?.()"

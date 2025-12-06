@@ -143,7 +143,7 @@ async function composeWorkspaceCompletionMessages(
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
   // Get active organization from Better Auth session (set by session.create.before hook)
-  const { organizationId } = await requireActiveOrganization(event, user.id, { isAnonymousUser: true })
+  const { organizationId } = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous })
   const db = await useDB(event)
 
   const body = await readBody<ChatRequestBody>(event)

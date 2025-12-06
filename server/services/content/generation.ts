@@ -974,7 +974,7 @@ const combineSectionsIntoMarkdown = (params: {
   }
 }
 
-function formatScalarForYaml(value: any): string {
+function formatScalarForYaml(value: any, indent = 0): string {
   if (value == null) {
     return ''
   }
@@ -984,7 +984,8 @@ function formatScalarForYaml(value: any): string {
   if (typeof value === 'string') {
     const normalized = value.replace(/\r/g, '')
     if (normalized.includes('\n')) {
-      const indented = normalized.split('\n').map(line => `  ${line}`).join('\n')
+      const blockIndent = '  '.repeat(indent + 1)
+      const indented = normalized.split('\n').map(line => `${blockIndent}${line}`).join('\n')
       return `|\n${indented}`
     }
     return `"${normalized.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
@@ -1002,7 +1003,7 @@ function toYamlLinesForFrontmatter(value: any, indent = 0): string[] {
       if (entry && typeof entry === 'object') {
         return [`${prefix}-`, ...toYamlLinesForFrontmatter(entry, indent + 1)]
       }
-      return [`${prefix}- ${formatScalarForYaml(entry)}`]
+      return [`${prefix}- ${formatScalarForYaml(entry, indent)}`]
     })
   }
   if (value && typeof value === 'object') {
@@ -1014,10 +1015,10 @@ function toYamlLinesForFrontmatter(value: any, indent = 0): string[] {
       if (entry && typeof entry === 'object') {
         return [`${prefix}${key}:`, ...toYamlLinesForFrontmatter(entry, indent + 1)]
       }
-      return [`${prefix}${key}: ${formatScalarForYaml(entry)}`]
+      return [`${prefix}${key}: ${formatScalarForYaml(entry, indent)}`]
     })
   }
-  return [`${prefix}${formatScalarForYaml(value)}`]
+  return [`${prefix}${formatScalarForYaml(value, indent)}`]
 }
 
 function orderFrontmatterForBlock(frontmatter: Record<string, any>) {

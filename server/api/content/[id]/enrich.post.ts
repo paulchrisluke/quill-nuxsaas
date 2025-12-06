@@ -36,6 +36,15 @@ export default defineEventHandler(async (event) => {
   })
   const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl : undefined
 
+  // Validate baseUrl format if provided
+  if (baseUrl) {
+    try {
+      new URL(baseUrl)
+    } catch {
+      throw createError({ statusCode: 400, message: 'Invalid baseUrl format' })
+    }
+  }
+
   const result = await reEnrichContentVersion(db, {
     organizationId,
     userId: user.id,

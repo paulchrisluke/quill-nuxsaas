@@ -85,8 +85,12 @@ const STATUS_META: Record<string, { icon: string, label: string, badgeClass: str
   }
 }
 
+const normalizeStatus = (status: string) => {
+  return (status || '').toLowerCase().trim()
+}
+
 const getStatusMeta = (status: string) => {
-  const normalized = (status || '').toLowerCase().trim()
+  const normalized = normalizeStatus(status)
   return STATUS_META[normalized] || STATUS_META.draft
 }
 
@@ -132,7 +136,7 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
   const deltaX = touch.clientX - swipeState.value.startX
   const deltaY = touch.clientY - swipeState.value.startY
 
-  const isArchived = (entry.status || '').toLowerCase().trim() === 'archived'
+  const isArchived = normalizeStatus(entry.status) === 'archived'
   const isProcessing = entry.isPending || props.archivingDraftId === entry.id
 
   if (
@@ -257,7 +261,10 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
             </div>
           </div>
         </button>
-        <div class="absolute inset-y-0 right-0 flex items-center pr-2">
+        <div
+          v-if="!entry.isPending && normalizeStatus(entry.status) !== 'archived'"
+          class="absolute inset-y-0 right-0 flex items-center pr-2"
+        >
           <UButton
             color="neutral"
             variant="ghost"

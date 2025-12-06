@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   // For anonymous users without an org yet, return empty list with default quota
   let organizationId: string | null = null
   try {
-    const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: true })
+    const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous })
     organizationId = orgResult.organizationId
     if (!organizationId) {
       throw createError({
@@ -29,7 +29,8 @@ export default defineEventHandler(async (event) => {
     // If user is anonymous and doesn't have an org yet, return empty list with default quota
     // The organization should be created by the session middleware, but if it hasn't yet,
     // we return a default quota based on anonymous profile
-    if (user.isAnonymous) {
+    const isOrgNotFoundError = error?.statusCode === 400 || error?.message?.includes('organization')
+    if (user.isAnonymous && isOrgNotFoundError) {
       const anonymousLimit = typeof runtimeConfig.public?.draftQuota?.anonymous === 'number'
         ? runtimeConfig.public.draftQuota.anonymous
         : 5
