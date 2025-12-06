@@ -122,7 +122,7 @@ const formatUpdatedAt = (date: Date | null) => {
 
     <div
       v-if="hasFilteredContent"
-      class="divide-y divide-white/10"
+      class="divide-y divide-muted-200/80 dark:divide-muted-800/70"
     >
       <div
         v-for="entry in filteredEntries"
@@ -133,11 +133,11 @@ const formatUpdatedAt = (date: Date | null) => {
       >
         <button
           type="button"
-          class="w-full text-left py-4 pr-12 pl-1 space-y-2 hover:bg-muted/30 transition-colors text-sm"
+          class="w-full text-left py-4 pr-12 pl-1 space-y-2 hover:bg-muted/30 transition-colors text-sm text-foreground"
           @click="handleOpenWorkspace(entry)"
         >
           <div class="flex items-center justify-between gap-3">
-            <p class="text-sm font-semibold leading-tight truncate text-white">
+            <p class="text-sm font-semibold leading-tight truncate">
               {{ entry.title }}
             </p>
             <UBadge
