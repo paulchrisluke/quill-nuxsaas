@@ -3,6 +3,7 @@
 
 @theme {
   --font-sans: 'Public Sans', sans-serif;
+  --font-heading: 'Lora', serif;
   
   /* Semantic color tokens */
   --color-background: white;
@@ -27,6 +28,11 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Apply Lora font to all headings */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
   }
 
   /* Mobile-safe full height utility */

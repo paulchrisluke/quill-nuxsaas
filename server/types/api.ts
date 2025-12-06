@@ -100,6 +100,10 @@ export type ChatAction = ChatActionGenerateContent | ChatActionPatchSection
 export interface ChatRequestBody {
   /** User message */
   message: string
+  /** Optional existing session to continue */
+  sessionId?: string | null
+  /** Optional linked content id */
+  contentId?: string | null
   /** Optional action to perform */
   action?: ChatAction
 }

@@ -102,6 +102,7 @@ export function useChatSession() {
   const sessionId = useState<string | null>('chat/session-id', () => null)
   const sessionContentId = useState<string | null>('chat/session-content-id', () => null)
   const logs = useState<ChatLogEntry[]>('chat/logs', () => [])
+  const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
 
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
@@ -123,6 +124,7 @@ export function useChatSession() {
 
   async function callChatEndpoint(body: Record<string, any>) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+    requestStartedAt.value = new Date()
     status.value = 'submitted'
     errorMessage.value = null
 
@@ -133,9 +135,14 @@ export function useChatSession() {
 
     try {
       status.value = 'streaming'
+      const payload = withSelectedContentType(body)
+      if (sessionId.value) {
+        payload.sessionId = sessionId.value
+      }
+
       const response = await $fetch<ChatResponse>('/api/chat', {
         method: 'POST',
-        body: withSelectedContentType(body),
+        body: payload,
         signal: controller?.signal
       })
 
@@ -181,13 +188,16 @@ export function useChatSession() {
 
       logs.value = normalizeLogs(response.logs)
       status.value = 'ready'
+      requestStartedAt.value = null
       return response
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         status.value = 'ready'
+        requestStartedAt.value = null
         return null
       }
       status.value = 'error'
+      requestStartedAt.value = null
       const errorMsg = error?.data?.statusMessage || error?.data?.message || error?.message || 'Something went wrong.'
       errorMessage.value = errorMsg
 
@@ -203,6 +213,9 @@ export function useChatSession() {
     } finally {
       if (activeController.value === controller) {
         activeController.value = null
+      }
+      if (status.value === 'ready' || status.value === 'error') {
+        requestStartedAt.value = null
       }
     }
   }
@@ -316,6 +329,7 @@ export function useChatSession() {
     sessionId.value = null
     sessionContentId.value = null
     logs.value = []
+    requestStartedAt.value = null
   }
 
   return {
@@ -330,6 +344,7 @@ export function useChatSession() {
     createContentFromConversation,
     stopResponse,
     logs,
+    requestStartedAt,
     hydrateSession,
     loadSessionForContent,
     resetSession

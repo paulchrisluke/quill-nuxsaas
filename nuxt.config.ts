@@ -61,7 +61,9 @@ export default defineNuxtConfig({
     }
   },
   fonts: {
-    provider: 'local'
+    families: [
+      { name: 'Lora', provider: 'google' }
+    ]
   },
   ogImage: {
     enabled: false

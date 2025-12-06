@@ -40,6 +40,14 @@ interface IngestYouTubeOptions {
   videoId: string
 }
 
+interface YoutubeOEmbedResponse {
+  title?: string
+  author_name?: string
+  thumbnail_url?: string
+  provider_name?: string
+  provider_url?: string
+}
+
 interface TranscriptIoResponseEntry {
   id?: string
   text?: string
@@ -291,6 +299,30 @@ function getBaseYoutubeMetadata(metadata: any) {
   return {}
 }
 
+function normalizeMetadataString(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+async function fetchYoutubePreview(videoId: string): Promise<YoutubeOEmbedResponse | null> {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(videoUrl)}&format=json`
+
+  try {
+    const response = await $fetch<YoutubeOEmbedResponse>(endpoint)
+    return response
+  } catch (error) {
+    console.warn('[youtube-oembed] Failed to fetch preview metadata', {
+      videoId,
+      error: (error as Error)?.message || error
+    })
+    return null
+  }
+}
+
 async function refreshGoogleAccessToken(db: NodePgDatabase<typeof schema>, account: typeof schema.account.$inferSelect) {
   if (!account.refreshToken) {
     throw new Error('Google account is missing a refresh token.')
@@ -443,6 +475,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   let transcriptText: string | null = null
   let youtubeMetadata = { ...existingYoutubeMetadata }
   let transcriptResult: Awaited<ReturnType<typeof fetchTranscriptViaTranscriptIo>> | null = null
+  const previewMetadata = await fetchYoutubePreview(videoId)
 
   try {
     transcriptResult = await fetchTranscriptViaTranscriptIo(videoId)
@@ -497,8 +530,28 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   }
   const ingestMethod = 'youtube_transcript_io'
 
+  if (previewMetadata) {
+    youtubeMetadata.preview = {
+      ...(youtubeMetadata.preview ?? {}),
+      title: previewMetadata.title ?? youtubeMetadata.preview?.title ?? null,
+      authorName: previewMetadata.author_name ?? youtubeMetadata.preview?.authorName ?? null,
+      thumbnailUrl: previewMetadata.thumbnail_url ?? youtubeMetadata.preview?.thumbnailUrl ?? null,
+      providerName: previewMetadata.provider_name ?? youtubeMetadata.preview?.providerName ?? null
+    }
+    if (!baseMetadata.originalUrl) {
+      baseMetadata.originalUrl = `https://www.youtube.com/watch?v=${videoId}`
+    }
+  }
+
+  const resolvedTitle =
+    normalizeMetadataString(baseMetadata.title) ||
+    normalizeMetadataString(youtubeMetadata.preview?.title) ||
+    normalizeMetadataString((transcriptResult.metadata as any)?.title) ||
+    normalizeMetadataString(source.title)
+
   const metadata = {
     ...baseMetadata,
+    title: resolvedTitle ?? baseMetadata.title ?? null,
     ingestMethod,
     youtube: youtubeMetadata
   }
@@ -509,6 +562,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
       sourceText: transcriptText,
       ingestStatus: 'processing',
       metadata,
+      title: resolvedTitle ?? source.title ?? null,
       updatedAt: new Date()
     })
     .where(eq(schema.sourceContent.id, sourceContentId))

@@ -10,6 +10,16 @@ interface SourceSummaryInput {
   sourceContent: typeof schema.sourceContent.$inferSelect | null
 }
 
+export interface SourceSummaryPreview {
+  title: string | null
+  typeLabel: string
+  url: string | null
+  thumbnailUrl: string | null
+  authorName: string | null
+  providerName: string | null
+  embedUrl: string | null
+}
+
 interface SectionLike {
   title?: string | null
   summary?: string | null
@@ -51,23 +61,124 @@ function normalizeStringList(value: unknown): string[] {
   return []
 }
 
-function extractSentences(text: string | null | undefined, limit = 2): string[] {
+function finalizeSummary(summaryParts: string[]): string | null {
+  const summary = summaryParts.join('\n\n').trim()
+  return summary.length ? summary : null
+}
+
+function truncateForSummary(text: string, maxLength = 85) {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  const truncated = normalized.slice(0, maxLength)
+  const lastSpace = truncated.lastIndexOf(' ')
+  const safeSlice = lastSpace > 70 ? truncated.slice(0, lastSpace) : truncated
+  return `${safeSlice.trim()}…`
+}
+
+function extractKeywords(text: string, limit = 12) {
+  return text
+    .toLowerCase()
+    .split(/\W+/)
+    .filter(word => word.length > 3)
+    .slice(0, limit)
+}
+
+function buildSummaryHints(text: string | null | undefined, limit = 4) {
   if (!text) {
     return []
   }
   const normalized = text.replace(/\s+/g, ' ').trim()
-  if (!normalized)
+  if (!normalized) {
     return []
-  const sentences = normalized
-    .split(/(?<=[.!?])\s+/)
-    .map(sentence => sentence.trim())
-    .filter(Boolean)
-  return sentences.slice(0, limit)
+  }
+  const sentences = normalized.split(/(?<=[.!?])\s+/).filter(Boolean)
+  if (!sentences.length) {
+    return []
+  }
+
+  const hints: string[] = []
+  for (const sentence of sentences) {
+    const keywords = extractKeywords(sentence)
+    if (!keywords.length) {
+      continue
+    }
+    const uniqueKeywords = Array.from(new Set(keywords))
+    const description = uniqueKeywords.slice(0, 3).join(', ')
+    hints.push(truncateForSummary(description.length ? `${description} insights` : sentence))
+    if (hints.length >= limit) {
+      break
+    }
+  }
+
+  if (!hints.length) {
+    const words = normalized.split(' ')
+    const chunkSize = Math.max(8, Math.floor(words.length / limit))
+    for (let i = 0; i < limit && i * chunkSize < words.length; i++) {
+      const chunk = words.slice(i * chunkSize, (i + 1) * chunkSize).join(' ')
+      hints.push(truncateForSummary(chunk))
+    }
+  }
+
+  return hints
 }
 
-function finalizeSummary(summaryParts: string[]): string | null {
-  const summary = summaryParts.join(' ').trim()
-  return summary.length ? summary : null
+function deriveSourcePresentation(source: typeof schema.sourceContent.$inferSelect | null) {
+  if (!source) {
+    return null
+  }
+  const metadata = source.metadata as Record<string, any> | undefined
+  const youtubeMetadata = metadata?.youtube as Record<string, any> | undefined
+  const previewMetadata = youtubeMetadata?.preview as Record<string, any> | undefined
+  const baseTitle = normalizeString(source.title)
+    || normalizeString(metadata?.title)
+    || normalizeString(metadata?.name)
+    || normalizeString(youtubeMetadata?.workerMetadata?.title)
+    || null
+  const sourceTypeRaw = normalizeString(source.sourceType) || 'source'
+  const sourceTypeLabel = (() => {
+    switch (sourceTypeRaw) {
+      case 'youtube':
+        return 'YouTube video'
+      case 'google_doc':
+        return 'Google Doc'
+      default:
+        return sourceTypeRaw.replace(/_/g, ' ')
+    }
+  })()
+  const sourceUrl = normalizeString(metadata?.originalUrl)
+  const thumbnail = normalizeString(previewMetadata?.thumbnailUrl)
+    || normalizeString(youtubeMetadata?.workerMetadata?.thumbnail_url)
+    || null
+  const providerName = normalizeString(previewMetadata?.providerName)
+    || normalizeString(youtubeMetadata?.workerMetadata?.provider_name)
+    || null
+  const authorName = normalizeString(previewMetadata?.authorName)
+    || normalizeString(youtubeMetadata?.workerMetadata?.author_name)
+    || null
+  const videoId = source.sourceType === 'youtube'
+    ? source.externalId || youtubeMetadata?.workerMetadata?.video_id || youtubeMetadata?.workerMetadata?.videoId
+    : null
+  const embedUrl = videoId ? `https://www.youtube.com/embed/${videoId}` : null
+
+  return {
+    title: baseTitle,
+    typeLabel: sourceTypeLabel,
+    url: sourceUrl,
+    thumbnailUrl: thumbnail,
+    providerName,
+    authorName,
+    embedUrl
+  }
+}
+
+export function buildSourceSummaryPreview(payload: SourceSummaryInput): SourceSummaryPreview | null {
+  const presentation = deriveSourcePresentation(payload.sourceContent)
+  if (!presentation) {
+    return null
+  }
+  return presentation
 }
 
 function extractSections(version?: typeof schema.contentVersion.$inferSelect | null) {
@@ -186,58 +297,6 @@ export function buildWorkspaceSummary(payload: WorkspaceSummaryInput) {
     const asDate = updatedAt instanceof Date ? updatedAt : new Date(updatedAt)
     if (!Number.isNaN(asDate.getTime())) {
       summaryParts.push(`Last updated ${asDate.toLocaleDateString()} ${asDate.toLocaleTimeString()}.`)
-    }
-  }
-
-  return finalizeSummary(summaryParts)
-}
-
-export function buildSourceContentSummary(payload: SourceSummaryInput) {
-  const source = payload.sourceContent
-  if (!source) {
-    return null
-  }
-
-  const summaryParts: string[] = []
-  const metadata = source.metadata as Record<string, any> | undefined
-  const baseTitle = normalizeString(source.title)
-    || normalizeString(metadata?.title)
-    || normalizeString(metadata?.name)
-    || 'This source'
-  const sourceType = normalizeString(source.sourceType) || 'source'
-  const wordCount = typeof source.sourceText === 'string'
-    ? source.sourceText.split(/\s+/).filter(Boolean).length
-    : null
-  const description = normalizeString(metadata?.description) || normalizeString(metadata?.summary)
-
-  summaryParts.push(`${baseTitle} is a ${sourceType}${wordCount ? ` (~${wordCount} words)` : ''} ready for drafting.`)
-
-  if (description) {
-    summaryParts.push(description)
-  } else if (wordCount) {
-    summaryParts.push(`It contains about ${wordCount} words of transcribed content to work from.`)
-  }
-
-  const highlightSentences = extractSentences(source.sourceText, 2)
-  if (highlightSentences.length) {
-    summaryParts.push(`Highlights include ${toSentenceList(highlightSentences)}.`)
-  }
-
-  const keywords = normalizeStringList(metadata?.keywords || metadata?.tags)
-  if (keywords.length) {
-    summaryParts.push(`Primary topics include ${toSentenceList(keywords.slice(0, 5))}.`)
-  }
-
-  const sourceUrl = normalizeString(metadata?.originalUrl)
-  if (sourceUrl) {
-    summaryParts.push(`Original link: ${sourceUrl}`)
-  }
-
-  const referenceDate = source.updatedAt || source.createdAt
-  if (referenceDate) {
-    const asDate = referenceDate instanceof Date ? referenceDate : new Date(referenceDate)
-    if (!Number.isNaN(asDate.getTime())) {
-      summaryParts.push(`Last ingested ${asDate.toLocaleDateString()} ${asDate.toLocaleTimeString()}.`)
     }
   }
 
