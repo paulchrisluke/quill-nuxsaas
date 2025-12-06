@@ -279,31 +279,33 @@ useEventListener(textareaRef, 'blur', () => {
       </div>
     </div>
 
-    <UChatPrompt
-      v-model="modelValue"
-      :placeholder="props.placeholder"
-      variant="subtle"
-      :disabled="props.disabled"
-      class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&>form]:rounded-[18px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
-      :autofocus="props.autofocus"
-      @submit="handleSubmit"
-    >
-      <template #footer>
-        <div
-          data-slot="footer"
-          class="flex items-center justify-between gap-2 w-full"
-        >
-          <div>
-            <slot name="footer" />
+    <div class="rounded-3xl overflow-hidden">
+      <UChatPrompt
+        v-model="modelValue"
+        :placeholder="props.placeholder"
+        variant="subtle"
+        :disabled="props.disabled"
+        class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
+        :autofocus="props.autofocus"
+        @submit="handleSubmit"
+      >
+        <template #footer>
+          <div
+            data-slot="footer"
+            class="flex items-center justify-between gap-2 w-full"
+          >
+            <div>
+              <slot name="footer" />
+            </div>
+            <div>
+              <slot name="submit">
+                <UChatPromptSubmit :status="props.status || 'idle'" />
+              </slot>
+            </div>
           </div>
-          <div>
-            <slot name="submit">
-              <UChatPromptSubmit :status="props.status || 'idle'" />
-            </slot>
-          </div>
-        </div>
-      </template>
-    </UChatPrompt>
+        </template>
+      </UChatPrompt>
+    </div>
     <div
       v-if="props.contextLabel || props.hint || $slots.context"
       class="flex flex-wrap items-center justify-between text-xs text-muted-500 mt-1"

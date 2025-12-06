@@ -51,7 +51,7 @@ const handleSelect = (card: WhatsNewCard) => {
       <button
         v-for="card in cards"
         :key="card.id"
-        class="group flex items-center gap-3 rounded-[18px] border border-white/5 bg-white/5 px-5 py-4 text-left transition hover:border-primary-500/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/60 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-white/5 disabled:hover:bg-white/5"
+        class="group flex items-center gap-3 rounded-2xl border border-white/5 bg-white/5 px-5 py-4 text-left transition hover:border-primary-500/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/60 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-white/5 disabled:hover:bg-white/5"
         type="button"
         :disabled="card.disabled"
         @click="handleSelect(card)"
