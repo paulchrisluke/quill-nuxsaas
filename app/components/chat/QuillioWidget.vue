@@ -1139,7 +1139,7 @@ if (import.meta.client) {
         v-if="!isWorkspaceActive && contentEntries.length > 0"
         class="mt-8"
       >
-        <ChatDraftsList
+        <ChatContentList
           :drafts-pending="draftsPending"
           :content-entries="contentEntries"
           :archiving-draft-id="archivingDraftId"

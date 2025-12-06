@@ -200,7 +200,8 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
               v-if="!entry.isPending"
               variant="soft"
               color="neutral"
-              :class="['rounded-full px-3 py-1.5 gap-1.5 flex items-center border', getStatusMeta(entry.status).badgeClass]"
+              class="rounded-full px-3 py-1.5 gap-1.5 flex items-center border"
+              :class="getStatusMeta(entry.status).badgeClass"
             >
               <UIcon
                 :name="getStatusMeta(entry.status).icon"

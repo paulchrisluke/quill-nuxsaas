@@ -1174,34 +1174,50 @@ export const getDraftQuotaUsage = async (
 
       if (orgIds.length > 0) {
         // Aggregate content count across all anonymous orgs from this device
+        // Exclude archived content from quota (archived content doesn't count toward limit)
         const [aggregateResult] = await db
           .select({ total: count() })
           .from(schema.content)
-          .where(inArray(schema.content.organizationId, orgIds))
+          .where(and(
+            inArray(schema.content.organizationId, orgIds),
+            sql`${schema.content.status} != 'archived'`
+          ))
 
         used = Number(aggregateResult?.total ?? 0) || 0
       } else {
         // Fallback to current organization if no device match found
+        // Exclude archived content from quota
         const [countResult] = await db
           .select({ total: count() })
           .from(schema.content)
-          .where(eq(schema.content.organizationId, organizationId))
+          .where(and(
+            eq(schema.content.organizationId, organizationId),
+            sql`${schema.content.status} != 'archived'`
+          ))
         used = Number(countResult?.total ?? 0) || 0
       }
     } else {
       // Fallback to current organization if device fingerprint unavailable
+      // Exclude archived content from quota
       const [countResult] = await db
         .select({ total: count() })
         .from(schema.content)
-        .where(eq(schema.content.organizationId, organizationId))
+        .where(and(
+          eq(schema.content.organizationId, organizationId),
+          sql`${schema.content.status} != 'archived'`
+        ))
       used = Number(countResult?.total ?? 0) || 0
     }
   } else {
     // For non-anonymous users, use organization-based quota
+    // Exclude archived content from quota (archived content doesn't count toward limit)
     const [countResult] = await db
       .select({ total: count() })
       .from(schema.content)
-      .where(eq(schema.content.organizationId, organizationId))
+      .where(and(
+        eq(schema.content.organizationId, organizationId),
+        sql`${schema.content.status} != 'archived'`
+      ))
     used = Number(countResult?.total ?? 0) || 0
   }
 
