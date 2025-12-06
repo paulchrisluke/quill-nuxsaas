@@ -101,7 +101,7 @@ function toSummaryBullets(summary: string | null | undefined) {
         :src="safeEmbedUrl"
         class="w-full aspect-video rounded-xl"
         loading="lazy"
-        sandbox="allow-scripts allow-same-origin allow-presentation"
+        sandbox="allow-scripts allow-same-origin"
         referrerpolicy="no-referrer"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowfullscreen

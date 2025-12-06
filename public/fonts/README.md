@@ -4,7 +4,9 @@ This directory contains self-hosted font files for GDPR compliance, improved per
 
 ## Required Font Files
 
-The following font files should be placed in this directory:
+**Note:** Font files are not included in this repository. You must download and convert them yourself.
+
+The following font files must be placed in this directory (`public/fonts/`):
 
 - `lora-regular.woff2` - Lora Regular (400 weight) in WOFF2 format
 - `lora-regular.woff` - Lora Regular (400 weight) in WOFF format (fallback)
@@ -13,20 +15,52 @@ The following font files should be placed in this directory:
 
 ## How to Obtain Font Files
 
-### Option 1: Download from Google Fonts (for self-hosting)
+### Step 1: Download Lora Font
 
-1. Visit https://fonts.google.com/specimen/Lora
-2. Click "Download family" to get the TTF files
-3. Convert TTF to WOFF2/WOFF using a tool like:
-   - [woff2](https://github.com/google/woff2) (command line)
-   - [CloudConvert](https://cloudconvert.com/ttf-to-woff2) (online)
-   - [Font Squirrel Webfont Generator](https://www.fontsquirrel.com/tools/webfont-generator)
+1. Visit [Google Fonts - Lora](https://fonts.google.com/specimen/Lora)
+2. Click "Download family" to download the TTF font files
+3. Extract the ZIP file - you'll need:
+   - `Lora-Regular.ttf` (for regular weight)
+   - `Lora-Bold.ttf` (for bold weight)
 
-### Option 2: Use a Font Conversion Service
+### Step 2: Convert to Web Formats
 
-1. Download Lora from Google Fonts or another source
-2. Use a conversion tool to generate WOFF2 and WOFF formats
-3. Place the converted files in this directory
+Convert the TTF files to WOFF2 and WOFF formats using one of these methods:
+
+**Option A: Using woff2 (Recommended)**
+```bash
+# Install woff2 (macOS: brew install woff2)
+woff2_compress Lora-Regular.ttf    # Creates Lora-Regular.woff2
+woff2_compress Lora-Bold.ttf       # Creates Lora-Bold.woff2
+
+# For WOFF format, use a tool like:
+# - Font Squirrel Webfont Generator: https://www.fontsquirrel.com/tools/webfont-generator
+# - CloudConvert: https://cloudconvert.com/ttf-to-woff
+```
+
+**Option B: Online Conversion Tools**
+- [Font Squirrel Webfont Generator](https://www.fontsquirrel.com/tools/webfont-generator) - Upload TTF, download WOFF/WOFF2
+- [CloudConvert](https://cloudconvert.com/ttf-to-woff2) - Convert TTF to WOFF2 and WOFF
+
+### Step 3: Rename and Place Files
+
+After conversion, rename the files to match the expected names and place them in `public/fonts/`:
+
+- `Lora-Regular.woff2` → `lora-regular.woff2`
+- `Lora-Regular.woff` → `lora-regular.woff`
+- `Lora-Bold.woff2` → `lora-bold.woff2`
+- `Lora-Bold.woff` → `lora-bold.woff`
+
+## Font License
+
+**Lora** is licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
+
+- **Source:** [Google Fonts](https://fonts.google.com/specimen/Lora)
+- **License:** SIL Open Font License 1.1
+- **License URL:** https://scripts.sil.org/OFL
+- **Copyright:** Copyright 2011 The Lora Project Authors (https://github.com/cyrealtype/Lora)
+
+You are free to use, modify, and distribute Lora in your projects under the terms of the SIL Open Font License.
 
 ## Font Fallbacks
 
