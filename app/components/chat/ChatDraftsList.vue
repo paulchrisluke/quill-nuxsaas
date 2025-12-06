@@ -1,6 +1,4 @@
 <script setup lang="ts">
-const { formatDateRelative } = useDate()
-
 interface DraftEntry {
   id: string
   title: string
@@ -21,13 +19,15 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const pendingMessage = computed(() => props.pendingMessage?.trim() || 'Working on your draft...')
 
 const emit = defineEmits<{
   openWorkspace: [entry: DraftEntry]
   archiveEntry: [entry: DraftEntry]
   stopEntry: [entry: DraftEntry]
 }>()
+
+const { formatDateRelative } = useDate()
+const pendingMessage = computed(() => props.pendingMessage?.trim() || 'Working on your draft...')
 
 const activeTab = ref(0)
 

@@ -1,6 +1,6 @@
 import type { GenerateContentDraftFromSourceRequestBody } from '~~/server/types/content'
-import * as schema from '~~/server/database/schema'
 import { eq } from 'drizzle-orm'
+import * as schema from '~~/server/database/schema'
 import { addLogEntryToChatSession, addMessageToChatSession, getChatSessionById, getOrCreateChatSessionForContent } from '~~/server/services/chatSession'
 import { generateContentDraftFromSource } from '~~/server/services/content/generation'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'

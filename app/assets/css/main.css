@@ -3,12 +3,26 @@
 
 @theme {
   --font-sans: 'Public Sans', sans-serif;
+  
+  /* Semantic color tokens */
+  --color-background: white;
+  --color-foreground: #0f172a;
+  --color-muted-foreground: #64748b;
 }
 @layer base {
   /* Fix for mobile Safari viewport height */
   html, body {
     height: 100%;
     height: 100dvh;
+  }
+
+  /* Dark mode color overrides */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-background: #0f172a;
+      --color-foreground: #f8fafc;
+      --color-muted-foreground: #94a3b8;
+    }
   }
 
   body {

@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import type { ContentType } from '#shared/constants/contentTypes'
 import type { ChatMessage } from '#shared/utils/types'
 import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
 import { useClipboard, useDebounceFn } from '@vueuse/core'
 import { shallowRef } from 'vue'
 
-import { resolveAiThinkingIndicator } from '~/utils/aiThinkingIndicators'
-
 import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
+import { resolveAiThinkingIndicator } from '~/utils/aiThinkingIndicators'
 import PromptComposer from './PromptComposer.vue'
 import QuotaLimitModal from './QuotaLimitModal.vue'
 
@@ -1095,7 +1093,6 @@ if (import.meta.client) {
             >
               <ChatWhatsNewRow @select="handleWhatsNewSelect" />
             </div>
-
           </div>
         </template>
       </div>
