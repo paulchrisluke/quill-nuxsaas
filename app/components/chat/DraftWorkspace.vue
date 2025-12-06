@@ -442,6 +442,120 @@ watch(content, (value) => {
   })
 }, { immediate: true })
 
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function formatScalar(value: any): string {
+  if (value == null) {
+    return ''
+  }
+  if (value instanceof Date) {
+    return value.toISOString()
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (typeof value === 'string') {
+    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    return `"${escaped}"`
+  }
+  return JSON.stringify(value)
+}
+
+function toYamlLines(value: any, indent = 0): string[] {
+  const prefix = '  '.repeat(indent)
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      return [`${prefix}[]`]
+    }
+    return value.flatMap((entry) => {
+      if (isPlainObject(entry) || Array.isArray(entry)) {
+        const firstLine = `${prefix}-`
+        const nested = toYamlLines(entry, indent + 1)
+        return [firstLine, ...nested]
+      }
+      return [`${prefix}- ${formatScalar(entry)}`]
+    })
+  }
+  if (isPlainObject(value)) {
+    const entries = Object.entries(value)
+    if (!entries.length) {
+      return [`${prefix}{}`]
+    }
+    return entries.flatMap(([key, entry]) => {
+      if (isPlainObject(entry) || Array.isArray(entry)) {
+        return [
+          `${prefix}${key}:`,
+          ...toYamlLines(entry, indent + 1)
+        ]
+      }
+      return [`${prefix}${key}: ${formatScalar(entry)}`]
+    })
+  }
+  return [`${prefix}${formatScalar(value)}`]
+}
+
+const FRONTMATTER_KEY_ORDER = [
+  'title',
+  'seoTitle',
+  'description',
+  'slug',
+  'contentType',
+  'content_type',
+  'targetLocale',
+  'locale',
+  'status',
+  'primaryKeyword',
+  'keywords',
+  'tags',
+  'schemaTypes',
+  'sourceContentId',
+  'source_content_id',
+  'wordCount',
+  'version',
+  'createdAt',
+  'updatedAt'
+]
+
+function orderFrontmatter(frontmatter: Record<string, any>) {
+  const orderedEntries: [string, any][] = []
+  const seen = new Set<string>()
+  for (const key of FRONTMATTER_KEY_ORDER) {
+    if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+      orderedEntries.push([key, frontmatter[key]])
+      seen.add(key)
+    }
+  }
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (seen.has(key)) {
+      continue
+    }
+    orderedEntries.push([key, value])
+  }
+  return Object.fromEntries(orderedEntries)
+}
+
+function _buildFrontmatterBlock(frontmatter: Record<string, any> | null | undefined) {
+  if (!frontmatter || !isPlainObject(frontmatter)) {
+    return '---\n---'
+  }
+  const filtered = Object.fromEntries(
+    Object.entries(frontmatter).filter(([, value]) => {
+      if (Array.isArray(value)) {
+        return value.length > 0
+      }
+      if (value && typeof value === 'object') {
+        return Object.keys(value).length > 0
+      }
+      return value !== null && value !== undefined && value !== ''
+    })
+  )
+  const ordered = orderFrontmatter(filtered)
+  const lines = toYamlLines(ordered)
+  return ['---', ...lines, '---'].join('\n')
+}
+
 const title = computed(() => contentRecord.value?.title || 'Untitled draft')
 const frontmatter = computed(() => currentVersion.value?.frontmatter || null)
 const generatedContent = computed(() => currentVersion.value?.bodyMdx || currentVersion.value?.bodyHtml || null)
@@ -664,120 +778,6 @@ function normalizeStringList(value: unknown): string[] {
   return value
     .map(item => typeof item === 'string' ? item.trim() : '')
     .filter((item): item is string => Boolean(item && item.length))
-}
-
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-
-function formatScalar(value: any): string {
-  if (value == null) {
-    return ''
-  }
-  if (value instanceof Date) {
-    return value.toISOString()
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-  if (typeof value === 'string') {
-    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    return `"${escaped}"`
-  }
-  return JSON.stringify(value)
-}
-
-function toYamlLines(value: any, indent = 0): string[] {
-  const prefix = '  '.repeat(indent)
-  if (Array.isArray(value)) {
-    if (!value.length) {
-      return [`${prefix}[]`]
-    }
-    return value.flatMap((entry) => {
-      if (isPlainObject(entry) || Array.isArray(entry)) {
-        const firstLine = `${prefix}-`
-        const nested = toYamlLines(entry, indent + 1)
-        return [firstLine, ...nested]
-      }
-      return [`${prefix}- ${formatScalar(entry)}`]
-    })
-  }
-  if (isPlainObject(value)) {
-    const entries = Object.entries(value)
-    if (!entries.length) {
-      return [`${prefix}{}`]
-    }
-    return entries.flatMap(([key, entry]) => {
-      if (isPlainObject(entry) || Array.isArray(entry)) {
-        return [
-          `${prefix}${key}:`,
-          ...toYamlLines(entry, indent + 1)
-        ]
-      }
-      return [`${prefix}${key}: ${formatScalar(entry)}`]
-    })
-  }
-  return [`${prefix}${formatScalar(value)}`]
-}
-
-const FRONTMATTER_KEY_ORDER = [
-  'title',
-  'seoTitle',
-  'description',
-  'slug',
-  'contentType',
-  'content_type',
-  'targetLocale',
-  'locale',
-  'status',
-  'primaryKeyword',
-  'keywords',
-  'tags',
-  'schemaTypes',
-  'sourceContentId',
-  'source_content_id',
-  'wordCount',
-  'version',
-  'createdAt',
-  'updatedAt'
-]
-
-function orderFrontmatter(frontmatter: Record<string, any>) {
-  const orderedEntries: [string, any][] = []
-  const seen = new Set<string>()
-  for (const key of FRONTMATTER_KEY_ORDER) {
-    if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
-      orderedEntries.push([key, frontmatter[key]])
-      seen.add(key)
-    }
-  }
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (seen.has(key)) {
-      continue
-    }
-    orderedEntries.push([key, value])
-  }
-  return Object.fromEntries(orderedEntries)
-}
-
-function _buildFrontmatterBlock(frontmatter: Record<string, any> | null | undefined) {
-  if (!frontmatter || !isPlainObject(frontmatter)) {
-    return '---\n---'
-  }
-  const filtered = Object.fromEntries(
-    Object.entries(frontmatter).filter(([, value]) => {
-      if (Array.isArray(value)) {
-        return value.length > 0
-      }
-      if (value && typeof value === 'object') {
-        return Object.keys(value).length > 0
-      }
-      return value !== null && value !== undefined && value !== ''
-    })
-  )
-  const ordered = orderFrontmatter(filtered)
-  const lines = toYamlLines(ordered)
-  return ['---', ...lines, '---'].join('\n')
 }
 
 const selectedSectionId = ref<string | null>(null)

@@ -194,15 +194,24 @@ class TranscriptProviderError extends Error {
 }
 
 function extractTranscriptIoText(entry: TranscriptIoResponseEntry) {
+  // First, try direct text property
   if (entry && typeof entry.text === 'string' && entry.text.trim()) {
     return entry.text.trim()
   }
-  const trackWithContent = Array.isArray(entry?.tracks)
-    ? entry.tracks.find(track => Array.isArray(track.transcript) && track.transcript.some(segment => typeof segment?.text === 'string' && segment.text.trim()))
-    : null
-  if (trackWithContent?.transcript) {
-    return _joinTranscriptSegments(trackWithContent.transcript)
+
+  // Then, try all tracks to find one with transcript content
+  if (Array.isArray(entry?.tracks) && entry.tracks.length > 0) {
+    // Try to find a track with transcript segments that have actual text
+    for (const track of entry.tracks) {
+      if (Array.isArray(track.transcript) && track.transcript.length > 0) {
+        const joined = _joinTranscriptSegments(track.transcript)
+        if (joined && joined.trim().length > 0) {
+          return joined
+        }
+      }
+    }
   }
+
   return ''
 }
 
@@ -237,9 +246,53 @@ async function fetchTranscriptViaTranscriptIo(videoId: string) {
       throw new TranscriptProviderError('Transcript provider returned an empty response.', { reasonCode: 'unknown', userMessage: 'Transcript provider returned an empty response.' })
     }
 
+    // Log entry structure for debugging when transcript extraction fails
+    const hasText = typeof entry.text === 'string' && entry.text.trim().length > 0
+    const hasTracks = Array.isArray(entry.tracks) && entry.tracks.length > 0
+    const hasLanguages = Array.isArray(entry.languages) && entry.languages.length > 0
+    const tracksWithTranscript = Array.isArray(entry.tracks)
+      ? entry.tracks.filter(track => Array.isArray(track.transcript) && track.transcript.length > 0)
+      : []
+
     const text = extractTranscriptIoText(entry)
     if (!text) {
-      throw new TranscriptProviderError('Transcript provider returned no transcript text.', { reasonCode: 'empty_transcript', userMessage: 'Transcript provider returned no transcript text.' })
+      // Log detailed information about why extraction failed
+      console.warn('[youtube-transcript.io] Transcript extraction failed:', {
+        videoId,
+        hasText,
+        hasTracks,
+        hasLanguages,
+        tracksCount: entry.tracks?.length ?? 0,
+        tracksWithTranscriptCount: tracksWithTranscript.length,
+        entryStructure: {
+          hasText,
+          hasTracks,
+          entryId: entry.id,
+          entryTitle: entry.title,
+          tracks: entry.tracks?.map(t => ({
+            language: t.language,
+            kind: t.kind,
+            transcriptLength: Array.isArray(t.transcript) ? t.transcript.length : 0,
+            transcriptSample: Array.isArray(t.transcript) && t.transcript.length > 0
+              ? t.transcript.slice(0, 3).map(s => ({ text: typeof s?.text === 'string' ? s.text.substring(0, 50) : s?.text }))
+              : null
+          })),
+          languages: entry.languages,
+          // Log a sanitized version of the full entry for debugging (remove any sensitive data)
+          fullEntry: JSON.stringify(entry, null, 2).substring(0, 2000) // Limit to first 2000 chars
+        }
+      })
+
+      // Determine if this is a "no captions" case vs other issue
+      const reasonCode: TranscriptFailureReason = (hasTracks && tracksWithTranscript.length === 0) || (hasLanguages && !hasText)
+        ? 'no_captions'
+        : 'empty_transcript'
+
+      const userMessage = reasonCode === 'no_captions'
+        ? 'This video doesn\'t have captions available. Please check if the video has captions enabled on YouTube.'
+        : 'Transcript provider returned no transcript text. Please try again or check if the video has captions enabled.'
+
+      throw new TranscriptProviderError('Transcript provider returned no transcript text.', { reasonCode, userMessage, canRetry: false })
     }
 
     const firstTrack = Array.isArray(entry.tracks) ? entry.tracks.find(track => Array.isArray(track.transcript) && track.transcript.length) ?? entry.tracks[0] : undefined

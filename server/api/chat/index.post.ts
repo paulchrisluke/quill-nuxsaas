@@ -192,6 +192,7 @@ export default defineEventHandler(async (event) => {
   const readySources: typeof schema.sourceContent.$inferSelect[] = []
   const newlyReadySources: typeof schema.sourceContent.$inferSelect[] = []
   const readySourceIds = new Set<string>()
+  // Track source IDs that were suggested/processed for potential future use
   const suggestedSourceIds = new Set<string>()
 
   const trackReadySource = (
