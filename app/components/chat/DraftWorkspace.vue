@@ -447,8 +447,9 @@ const hasGeneratedContent = computed(() => !!generatedContent.value)
 const fullMdx = computed(() => {
   const body = typeof generatedContent.value === 'string' ? generatedContent.value.trim() : ''
   // Check if bodyMdx already contains frontmatter (enriched MDX)
-  // If it starts with '---', it's already enriched with frontmatter and JSON-LD
-  const isEnriched = body.startsWith('---')
+  // Check if body starts with frontmatter block (--- followed by YAML and closing ---)
+  // Use a more specific pattern to avoid regex backtracking issues
+  const isEnriched = /^---\n[\s\S]*?\n---\n/m.test(body)
   if (isEnriched) {
     return body
   }
@@ -895,11 +896,69 @@ async function handlePublishDraft() {
         versionId: currentVersion.value.id
       }
     })
-    const existing = content.value ?? { content: null }
-    content.value = {
-      ...existing,
-      content: response.content,
-      currentVersion: response.version
+    // Map response status to ContentStatus (filter out invalid statuses)
+    const mappedStatus: ContentStatus | undefined = (
+      response.content.status === 'draft' ||
+      response.content.status === 'published' ||
+      response.content.status === 'archived'
+    )
+      ? response.content.status as ContentStatus
+      : 'published'
+
+    if (content.value) {
+      content.value = {
+        ...content.value,
+        content: {
+          id: response.content.id,
+          title: response.content.title,
+          status: mappedStatus,
+          updatedAt: response.content.updatedAt.toISOString(),
+          metadata: {
+            organizationId: response.content.organizationId,
+            slug: response.content.slug,
+            contentType: response.content.contentType,
+            publishedAt: response.content.publishedAt?.toISOString() ?? null
+          }
+        },
+        currentVersion: {
+          id: response.version.id,
+          bodyMdx: response.version.bodyMdx,
+          bodyHtml: response.version.bodyHtml ?? undefined,
+          frontmatter: response.version.frontmatter ?? undefined,
+          version: response.version.version,
+          updatedAt: response.version.createdAt.toISOString()
+        }
+      }
+    } else {
+      // Handle case where content.value is null (shouldn't happen if canPublish passed)
+      console.warn('[DraftWorkspace] Publishing without existing content state')
+      content.value = {
+        content: {
+          id: response.content.id,
+          title: response.content.title,
+          status: mappedStatus,
+          updatedAt: response.content.updatedAt.toISOString(),
+          metadata: {
+            organizationId: response.content.organizationId,
+            slug: response.content.slug,
+            contentType: response.content.contentType,
+            publishedAt: response.content.publishedAt?.toISOString() ?? null
+          }
+        },
+        currentVersion: {
+          id: response.version.id,
+          bodyMdx: response.version.bodyMdx,
+          bodyHtml: response.version.bodyHtml ?? undefined,
+          frontmatter: response.version.frontmatter ?? undefined,
+          version: response.version.version,
+          updatedAt: response.version.createdAt.toISOString()
+        },
+        sourceContent: null,
+        chatSession: null,
+        chatMessages: null,
+        chatLogs: null,
+        workspaceSummary: null
+      }
     }
     toast.add({
       title: 'Draft published',

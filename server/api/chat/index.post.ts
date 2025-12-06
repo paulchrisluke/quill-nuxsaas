@@ -26,6 +26,32 @@ import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { validateEnum, validateNumber, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
 
+// eslint-disable-next-line no-control-regex
+const PROMPT_SANITIZE_PATTERN = /[\u0000-\u001F\u007F]+/g
+
+function sanitizePromptSnippet(value?: string, maxLength = 1000) {
+  if (!value) {
+    return ''
+  }
+  const normalized = value
+    .replace(PROMPT_SANITIZE_PATTERN, ' ')
+    .replace(/```/g, '\\`\\`\\`')
+    .replace(/<\/?system>/gi, '')
+    .trim()
+  if (!normalized) {
+    return ''
+  }
+  return normalized.slice(0, maxLength)
+}
+
+function wrapPromptSnippet(label: string, value?: string, maxLength = 1000) {
+  const sanitized = sanitizePromptSnippet(value, maxLength)
+  if (!sanitized) {
+    return ''
+  }
+  return `${label}:\n"""${sanitized}"""`
+}
+
 function buildYouTubeTranscriptErrorMessage(errorData: YouTubeTranscriptErrorData | undefined, hasYouTubeAccount: boolean) {
   const reason = (errorData?.userMessage || 'Unable to fetch transcript.').trim()
   const suggestions: string[] = []
@@ -117,7 +143,7 @@ async function composeWorkspaceCompletionMessages(
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
   // Get active organization from Better Auth session (set by session.create.before hook)
-  const { organizationId } = await requireActiveOrganization(event, user.id, { allowAnonymous: true })
+  const { organizationId } = await requireActiveOrganization(event, user.id, { isAnonymousUser: true })
   const db = await useDB(event)
 
   const body = await readBody<ChatRequestBody>(event)
@@ -596,11 +622,19 @@ export default defineEventHandler(async (event) => {
           console.error('Failed to fetch YouTube metadata', error)
         }
 
-        contextParts.push(`User shared a YouTube video: "${videoTitle}". ${videoDescription ? `Description: ${videoDescription.slice(0, 500)}` : 'Video content is being processed.'}`)
+        const safeTitle = sanitizePromptSnippet(videoTitle, 200) || 'YouTube video'
+        const safeDescription = sanitizePromptSnippet(videoDescription, 500)
+        if (safeDescription) {
+          contextParts.push(`User shared a YouTube video:\n"""${safeTitle}"""\nDescription:\n"""${safeDescription}"""`)
+        } else {
+          contextParts.push(`User shared a YouTube video:\n"""${safeTitle}"""\nVideo content is being processed.`)
+        }
       } else if (item.sourceType === 'manual_transcript') {
-        const transcriptPreview = item.source.sourceText ? item.source.sourceText.slice(0, 1000) : ''
-        const wordCount = transcriptPreview.split(/\s+/).length
-        contextParts.push(`User shared a transcript (${wordCount} words). Preview: "${transcriptPreview}"`)
+        const fullText = item.source.sourceText ?? ''
+        const wordCount = fullText.split(/\s+/).filter(Boolean).length
+        const transcriptPreview = sanitizePromptSnippet(fullText, 1000)
+        const previewBlock = transcriptPreview ? `\nPreview:\n"""${transcriptPreview}"""` : ''
+        contextParts.push(`User shared a transcript (~${wordCount} words).${previewBlock}`)
       } else {
         const typeLabel = item.sourceType.replace('_', ' ')
         contextParts.push(`User shared a ${typeLabel} source.`)
@@ -633,8 +667,8 @@ export default defineEventHandler(async (event) => {
   let assistantMessageBody = ''
   if (contextParts.length > 0 || message.trim()) {
     const { callChatCompletions } = await import('~~/server/utils/aiGateway')
-    const contextText = contextParts.length > 0 ? `Context:\n${contextParts.join('\n')}` : ''
-    const userMessage = message.trim() || 'User sent a message or action.'
+    const contextText = contextParts.length > 0 ? `Context:\n${contextParts.join('\n\n')}` : ''
+    const userMessage = wrapPromptSnippet('User message', message.trim(), 1500) || 'User sent a message or action.'
 
     const prompt = `${contextText}
 

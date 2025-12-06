@@ -969,7 +969,12 @@ function formatScalarForYaml(value: any): string {
     return String(value)
   }
   if (typeof value === 'string') {
-    return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+    const normalized = value.replace(/\r/g, '')
+    if (normalized.includes('\n')) {
+      const indented = normalized.split('\n').map(line => `  ${line}`).join('\n')
+      return `|\n${indented}`
+    }
+    return `"${normalized.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
   }
   return JSON.stringify(value)
 }
@@ -1044,14 +1049,17 @@ function generateJsonLdStructuredData(params: {
 }): string {
   const { frontmatter, seoSnapshot, baseUrl } = params
   const schemaTypes = Array.isArray(frontmatter.schemaTypes) ? frontmatter.schemaTypes : []
+  const normalizedSchemaTypes = schemaTypes
+    .map(type => (typeof type === 'string' ? type.trim() : ''))
+    .filter((type): type is string => Boolean(type))
 
-  if (!schemaTypes.length) {
+  if (!normalizedSchemaTypes.length) {
     return ''
   }
 
   const structuredData: Record<string, any> = {
     '@context': 'https://schema.org',
-    '@type': schemaTypes[0] || 'BlogPosting'
+    '@type': normalizedSchemaTypes[0] || 'BlogPosting'
   }
 
   // Basic article properties
@@ -1080,19 +1088,8 @@ function generateJsonLdStructuredData(params: {
   }
 
   // Add additional schema types as nested structures
-  if (schemaTypes.length > 1) {
-    const additionalTypes = schemaTypes.slice(1)
-    for (const type of additionalTypes) {
-      if (type === 'Recipe') {
-        structuredData['@type'] = ['BlogPosting', 'Recipe']
-      } else if (type === 'HowTo') {
-        structuredData['@type'] = ['BlogPosting', 'HowTo']
-      } else if (type === 'FAQPage') {
-        structuredData['@type'] = ['BlogPosting', 'FAQPage']
-      } else if (type === 'Course') {
-        structuredData['@type'] = ['BlogPosting', 'Course']
-      }
-    }
+  if (normalizedSchemaTypes.length > 1) {
+    structuredData['@type'] = normalizedSchemaTypes
   }
 
   const jsonLd = JSON.stringify(structuredData, null, 2)

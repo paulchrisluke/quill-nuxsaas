@@ -27,7 +27,13 @@ export default defineEventHandler(async (event) => {
 
   const validatedContentId = validateUUID(id, 'contentId')
 
-  const body = await readBody<ReEnrichContentRequestBody>(event).catch(() => ({}))
+  const body = await readBody<ReEnrichContentRequestBody>(event).catch((error) => {
+    // Log parsing errors for debugging while allowing empty bodies
+    if (error?.message && !error.message.includes('no body')) {
+      console.warn('Body parsing failed:', error)
+    }
+    return {} as Partial<ReEnrichContentRequestBody>
+  })
   const baseUrl = typeof body.baseUrl === 'string' ? body.baseUrl : undefined
 
   const result = await reEnrichContentVersion(db, {

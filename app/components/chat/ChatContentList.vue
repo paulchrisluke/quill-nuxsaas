@@ -138,6 +138,8 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
 
   if (deltaX < -SWIPE_THRESHOLD && Math.abs(deltaY) < SWIPE_VERTICAL_THRESHOLD)
     handleArchiveEntry(entry)
+
+  swipeState.value = null
 }
 </script>
 

@@ -114,60 +114,76 @@ export async function publishContentVersion(
   const storageProvider = await createStorageProvider(storageConfig.storage)
   const fileService = new FileService(storageProvider)
 
-  const buffer = Buffer.from(filePayload.fullMdx, 'utf8')
-  const uploadedFile = await fileService.uploadFile(
-    buffer,
-    filePayload.filename,
-    'text/markdown',
-    userId,
-    undefined,
-    undefined,
-    {
-      fileName: filePayload.filename,
-      originalName: filePayload.filename
-    }
-  )
+  let uploadedFile: typeof schema.file.$inferSelect | null = null
+  try {
+    const buffer = Buffer.from(filePayload.fullMdx, 'utf8')
+    uploadedFile = await fileService.uploadFile(
+      buffer,
+      filePayload.filename,
+      'text/markdown',
+      userId,
+      undefined,
+      undefined,
+      {
+        fileName: filePayload.filename,
+        overrideOriginalName: filePayload.filename
+      }
+    )
 
-  await db
-    .update(schema.file)
-    .set({ isActive: false })
-    .where(and(
-      eq(schema.file.path, filePayload.filename),
-      ne(schema.file.id, uploadedFile.id)
-    ))
+    const publishedAt = new Date()
+    const { updatedContent, publicationRecord } = await db.transaction(async (tx) => {
+      await tx
+        .update(schema.file)
+        .set({ isActive: false })
+        .where(and(
+          eq(schema.file.path, filePayload.filename),
+          ne(schema.file.id, uploadedFile!.id)
+        ))
 
-  const publishedAt = new Date()
-  const [updatedContent] = await db
-    .update(schema.content)
-    .set({
-      status: 'published',
-      publishedAt
-    })
-    .where(eq(schema.content.id, contentRecord.id))
-    .returning()
+      const [contentUpdate] = await tx
+        .update(schema.content)
+        .set({
+          status: 'published',
+          publishedAt
+        })
+        .where(eq(schema.content.id, contentRecord.id))
+        .returning()
 
-  const [publicationRecord] = await db
-    .insert(schema.publication)
-    .values({
-      organizationId,
-      contentId: contentRecord.id,
-      contentVersionId: versionRecord.id,
-      status: 'published',
-      publishedAt,
-      payloadSnapshot: {
-        fileId: uploadedFile.id,
-        path: uploadedFile.path,
-        url: uploadedFile.url ?? null,
-        filename: filePayload.filename
+      const [publication] = await tx
+        .insert(schema.publication)
+        .values({
+          organizationId,
+          contentId: contentRecord.id,
+          contentVersionId: versionRecord.id,
+          status: 'published',
+          publishedAt,
+          payloadSnapshot: {
+            fileId: uploadedFile!.id,
+            path: uploadedFile!.path,
+            url: uploadedFile!.url ?? null,
+            filename: filePayload.filename
+          }
+        })
+        .returning()
+
+      return {
+        updatedContent: contentUpdate ?? contentRecord,
+        publicationRecord: publication,
+        publishedAt
       }
     })
-    .returning()
 
-  return {
-    content: updatedContent ?? contentRecord,
-    version: versionRecord,
-    file: uploadedFile,
-    publication: publicationRecord,
-    filePayload
+    return {
+      content: updatedContent,
+      version: versionRecord,
+      file: uploadedFile,
+      publication: publicationRecord,
+      filePayload
+    }
+  } catch (error) {
+    if (uploadedFile) {
+      await fileService.deleteFile(uploadedFile.id).catch(() => {})
+    }
+    throw error
   }
 }

@@ -60,14 +60,24 @@ export class FileService {
     userAgent?: string,
     options?: {
       fileName?: string
-      originalName?: string
+      overrideOriginalName?: string
     }
   ): Promise<FileRecord> {
     const db = await useDB()
     const fileId = uuidv7()
-    const fileName = options?.fileName ?? this.generateFileName(originalName)
+    let fileName = options?.fileName ?? this.generateFileName(originalName)
+    if (options?.fileName) {
+      const sanitized = options.fileName.trim()
+      if (!sanitized || sanitized.includes('..') || sanitized.startsWith('/') || sanitized.includes('\\')) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Invalid file name'
+        })
+      }
+      fileName = sanitized
+    }
     const fileType = getFileTypeFromMimeType(mimeType)
-    const resolvedOriginalName = options?.originalName ?? originalName
+    const resolvedOriginalName = options?.overrideOriginalName?.trim() || originalName
 
     try {
       const { path, url } = await this.storage.upload(fileBuffer, fileName, mimeType)

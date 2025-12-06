@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   // For anonymous users without an org yet, return empty list with default quota
   let organizationId: string | null = null
   try {
-    const orgResult = await requireActiveOrganization(event, user.id, { allowAnonymous: true })
+    const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: true })
     organizationId = orgResult.organizationId
   } catch (error: any) {
     // If user is anonymous and doesn't have an org yet, return empty list with default quota

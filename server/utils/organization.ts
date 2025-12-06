@@ -6,7 +6,11 @@ import { getDB } from './db'
 
 interface RequireActiveOrganizationOptions {
   requireRoles?: Array<'owner' | 'admin' | 'member'>
-  allowAnonymous?: boolean
+  /**
+   * Indicates the current user is anonymous so we can surface a friendlier error.
+   * This does not bypass the organization requirement.
+   */
+  isAnonymousUser?: boolean
 }
 
 /**
@@ -50,7 +54,7 @@ export const requireActiveOrganization = async (
 
   if (!organizationId) {
     // For anonymous users, provide a more helpful error message
-    if (options?.allowAnonymous) {
+    if (options?.isAnonymousUser) {
       throw createError({
         statusCode: 400,
         statusMessage: 'No active organization found. Anonymous users need an organization to continue. Please create an account or wait for organization creation to complete.'

@@ -99,7 +99,7 @@ useHead(() => ({
               >
                 <UButton
                   v-if="workspaceHeader.onShare"
-                  icon="i-lucide-share"
+                  icon="i-lucide-copy"
                   size="sm"
                   color="neutral"
                   variant="ghost"
