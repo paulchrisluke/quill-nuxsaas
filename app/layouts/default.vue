@@ -49,8 +49,8 @@ provide('setHeaderTitle', (title: string | null) => {
 
 <template>
   <div class="min-h-screen flex flex-col bg-background text-foreground">
-    <header class="border-b border-neutral-200/70 dark:border-neutral-800/60 bg-background/90 backdrop-blur-sm">
-      <div class="px-4 py-3 flex items-center justify-between gap-3 max-w-3xl mx-auto w-full">
+    <header class="border-b border-muted-200/80 dark:border-muted-800/70 bg-background/90 backdrop-blur-sm">
+      <div class="px-4 py-3 flex items-center justify-between gap-3 max-w-3xl mx-auto w-full text-foreground">
         <div class="flex-1 flex items-center justify-start min-w-0">
           <slot name="header-title">
             <h1
