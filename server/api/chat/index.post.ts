@@ -362,6 +362,7 @@ export default defineEventHandler(async (event) => {
   const ingestionErrors: Array<{ content: string, payload?: Record<string, any> | null }> = []
   const readySources: typeof schema.sourceContent.$inferSelect[] = []
   const readySourceIds = new Set<string>()
+  const suggestedSourceIds = new Set<string>()
 
   const trackReadySource = (source: typeof schema.sourceContent.$inferSelect | null | undefined) => {
     if (!source || !source.id || source.ingestStatus !== 'ingested' || readySourceIds.has(source.id)) {
@@ -432,6 +433,9 @@ export default defineEventHandler(async (event) => {
       url: rawUrl,
       sourceType: classification.sourceType
     })
+    if (record?.id) {
+      suggestedSourceIds.add(record.id)
+    }
 
     seenKeys.add(key)
   }
@@ -459,6 +463,9 @@ export default defineEventHandler(async (event) => {
           url: '',
           sourceType: 'manual_transcript'
         })
+        if (manualSource?.id) {
+          suggestedSourceIds.add(manualSource.id)
+        }
         trackReadySource(manualSource)
       }
     }
@@ -484,6 +491,9 @@ export default defineEventHandler(async (event) => {
           url: '',
           sourceType: 'manual_transcript'
         })
+        if (manualSource?.id) {
+          suggestedSourceIds.add(manualSource.id)
+        }
         trackReadySource(manualSource)
       }
     }
