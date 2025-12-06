@@ -470,7 +470,7 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
       })
       .where(eq(schema.sourceContent.id, sourceContentId))
 
-    const shouldSuggestAccountLink = failure.reasonCode === 'auth_failed' || failure.reasonCode === 'permission_denied' || failure.reasonCode === 'private_or_unavailable'
+    const shouldSuggestAccountLink = failure.reasonCode === 'auth_failed' || failure.reasonCode === 'permission_denied'
     const accountLinkHint = shouldSuggestAccountLink
       ? 'Link your YouTube account from Settings -> Integrations so we can fall back to the official API for higher accuracy captions.'
       : undefined
