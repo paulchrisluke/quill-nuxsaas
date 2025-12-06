@@ -61,6 +61,7 @@ export class FileService {
     options?: {
       fileName?: string
       overrideOriginalName?: string
+      contentId?: string
     }
   ): Promise<FileRecord> {
     const db = await useDB()
@@ -95,6 +96,7 @@ export class FileService {
         url,
         storageProvider: this.storage.name,
         uploadedBy,
+        contentId: options?.contentId ?? null,
         isActive: true
       }
 

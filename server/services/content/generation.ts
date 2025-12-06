@@ -133,6 +133,19 @@ interface GeneratedSection {
   meta?: Record<string, any>
 }
 
+function isFrontmatterResult(value: unknown): value is FrontmatterResult {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const data = value as Record<string, any>
+  return typeof data.title === 'string'
+    && typeof data.slug === 'string'
+    && typeof data.slugSuggestion === 'string'
+    && typeof data.status === 'string'
+    && typeof data.contentType === 'string'
+    && Array.isArray(data.schemaTypes)
+}
+
 const PLAN_SYSTEM_PROMPT = 'You are an editorial strategist who preserves the authentic voice and personality of the original content while creating well-structured articles. Focus on maintaining the speaker\'s unique tone, expressions, and authentic voice over generic SEO optimization. Always respond with valid JSON.'
 const SECTION_SYSTEM_PROMPT = 'You are a skilled writer who preserves the original author\'s unique voice, personality, and authentic expressions while creating well-structured content. Maintain casual language, personal anecdotes, specific details, and the authentic tone from the source material. Write in MDX-compatible markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
 const SECTION_PATCH_SYSTEM_PROMPT = 'You are revising a single section of an existing article. Only update that section using the author instructions and contextual transcript snippets. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
@@ -1073,7 +1086,21 @@ function generateJsonLdStructuredData(params: {
     structuredData.keywords = frontmatter.primaryKeyword
   }
   if (Array.isArray(frontmatter.keywords) && frontmatter.keywords.length > 0) {
-    structuredData.keywords = frontmatter.keywords.join(', ')
+    const keywordEntries = frontmatter.keywords
+      .map(keyword => typeof keyword === 'string' ? keyword.trim() : '')
+      .filter((keyword): keyword is string => Boolean(keyword))
+    const normalizedPrimary = typeof frontmatter.primaryKeyword === 'string'
+      ? frontmatter.primaryKeyword.trim()
+      : ''
+    const hasPrimary = normalizedPrimary
+      ? keywordEntries.some(keyword => keyword === normalizedPrimary)
+      : false
+    const keywordsList = normalizedPrimary && !hasPrimary
+      ? [normalizedPrimary, ...keywordEntries]
+      : keywordEntries
+    if (keywordsList.length) {
+      structuredData.keywords = keywordsList.join(', ')
+    }
   }
 
   // Add datePublished if available
@@ -1110,14 +1137,23 @@ function extractRawMarkdownFromEnrichedMdx(enrichedMdx: string): string {
   }
 
   // Find the end of frontmatter block (second '---')
-  const frontmatterEnd = trimmed.indexOf('\n---', 3)
+  const delimiter = '\n---'
+  const frontmatterEnd = trimmed.indexOf(delimiter, 3)
   if (frontmatterEnd === -1) {
     // No closing frontmatter, return as-is
     return trimmed
   }
 
   // Extract content after frontmatter
-  let content = trimmed.substring(frontmatterEnd + 5).trim()
+  let contentStart = frontmatterEnd + delimiter.length
+  // Skip optional Windows line endings or trailing newline
+  if (trimmed[contentStart] === '\r') {
+    contentStart += 1
+  }
+  if (trimmed[contentStart] === '\n') {
+    contentStart += 1
+  }
+  let content = trimmed.substring(contentStart).trim()
 
   // Check if there's a JSON-LD script tag and remove it
   const jsonLdStart = content.indexOf('<script type="application/ld+json">')
@@ -2088,10 +2124,15 @@ export async function reEnrichContentVersion(
   }
 
   const currentVersion = record.version
-  const frontmatter = currentVersion.frontmatter as FrontmatterResult | null
+  const rawFrontmatter = currentVersion.frontmatter
+  const frontmatter = isFrontmatterResult(rawFrontmatter) ? rawFrontmatter : null
   const seoSnapshot = currentVersion.seoSnapshot as Record<string, any> | null
 
   if (!frontmatter) {
+    console.error('[reEnrichContentVersion] Invalid or missing frontmatter', {
+      contentId,
+      versionId: currentVersion.id
+    })
     throw createError({
       statusCode: 400,
       statusMessage: 'Content version has no frontmatter to use for enrichment'

@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow, isSameDay, isThisWeek, isThisYear, isYesterday } from 'date-fns'
+import { format, formatDistanceToNowStrict, isSameDay, isThisWeek, isThisYear, isYesterday } from 'date-fns'
 import { formatInTimeZone, toZonedTime } from 'date-fns-tz'
 
 export const useDate = () => {
@@ -173,8 +173,8 @@ export const useDate = () => {
         return '—'
 
       // Calculate relative time using the actual date (not timezone-adjusted)
-      // This ensures accurate relative time calculations
-      return formatDistanceToNow(dateObj, {
+      // formatDistanceToNowStrict avoids filler words such as "about"
+      return formatDistanceToNowStrict(dateObj, {
         addSuffix: options?.addSuffix !== false // Default to true
       })
     } catch {
@@ -339,11 +339,46 @@ export const useDate = () => {
     }
   }
 
+  /**
+   * Format date for list rows: show time for today, otherwise short date (e.g., "Dec 5")
+   */
+  const formatDateListStamp = (
+    date: string | Date | null | undefined,
+    options?: {
+      timezoneOverride?: string
+    }
+  ): string => {
+    if (!date)
+      return '—'
+
+    try {
+      const dateObj = typeof date === 'string' ? new Date(date) : date
+      if (!dateObj || Number.isNaN(dateObj.getTime()))
+        return '—'
+
+      const tz = options?.timezoneOverride || activeTimezone.value
+      const tzDate = toTimezoneDate(dateObj, tz)
+      const nowInTz = toZonedTime(new Date(), tz)
+
+      if (isSameDay(tzDate, nowInTz)) {
+        return formatDate(dateObj, {
+          hour: 'numeric',
+          minute: '2-digit'
+        }, tz)
+      }
+
+      return formatDateShort(dateObj, { timezoneOverride: tz })
+    } catch {
+      return '—'
+    }
+  }
+
   return {
     formatDate,
     formatRelativeTime,
     formatDateRelative,
     formatDateShort,
+    formatDateListStamp,
     activeTimezone
   }
 }

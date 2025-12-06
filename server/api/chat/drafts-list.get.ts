@@ -40,7 +40,7 @@ export default defineEventHandler(async (event) => {
           limit: anonymousLimit,
           used: 0,
           remaining: anonymousLimit,
-          label: 'Anonymous',
+          label: 'Guest access',
           unlimited: false,
           profile: 'anonymous'
         }

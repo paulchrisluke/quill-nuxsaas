@@ -26,7 +26,7 @@ const emit = defineEmits<{
   stopEntry: [entry: DraftEntry]
 }>()
 
-const { formatDateRelative } = useDate()
+const { formatDateListStamp } = useDate()
 const pendingMessage = computed(() => props.pendingMessage?.trim() || 'Working on your draft...')
 
 const activeTab = ref(0)
@@ -90,6 +90,13 @@ const getStatusMeta = (status: string) => {
   return STATUS_META[normalized] || STATUS_META.draft
 }
 
+const formatContentId = (id: string) => {
+  if (!id)
+    return ''
+  // Show first 8 characters for readability
+  return id.length > 8 ? `${id.slice(0, 8)}...` : id
+}
+
 const handleOpenWorkspace = (entry: DraftEntry) => {
   emit('openWorkspace', entry)
 }
@@ -133,24 +140,26 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
     Math.abs(deltaY) < SWIPE_VERTICAL_THRESHOLD &&
     !isArchived &&
     !isProcessing
-  )
+  ) {
     handleArchiveEntry(entry)
+  }
 
   swipeState.value = null
 }
 </script>
 
 <template>
-  <section class="space-y-3 w-full">
+  <section class="w-full">
     <UTabs
       v-model="activeTab"
       variant="link"
       :items="tabs"
+      class="[&>div]:!mb-0 [&_*]:!mb-0"
     />
 
     <div
       v-if="hasFilteredContent"
-      class="divide-y divide-muted-200/80 dark:divide-muted-800/70"
+      class="divide-y divide-white/5 dark:divide-white/10 mt-3"
     >
       <div
         v-for="entry in filteredEntries"
@@ -161,12 +170,12 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
       >
         <button
           type="button"
-          class="w-full text-left py-4 pr-12 pl-1 space-y-2 hover:bg-muted/30 transition-colors text-sm disabled:opacity-70 disabled:cursor-not-allowed"
+          class="w-full text-left py-4 pr-12 sm:pr-12 pl-1 space-y-2 hover:bg-muted/30 transition-colors text-sm disabled:opacity-70 disabled:cursor-not-allowed"
           :disabled="entry.isPending"
           @click="handleOpenWorkspace(entry)"
         >
-          <div class="flex items-start justify-between gap-3">
-            <div class="flex-1 space-y-1">
+          <div class="flex items-start justify-between gap-2 sm:gap-3 min-w-0">
+            <div class="flex-1 min-w-0 space-y-1">
               <p
                 v-if="!entry.isPending"
                 class="text-sm font-semibold leading-tight truncate text-white"
@@ -181,54 +190,62 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
               </div>
               <div
                 v-if="!entry.isPending"
-                class="text-xs text-muted-400 flex flex-wrap items-center gap-1"
+                class="text-sm text-muted-500 flex flex-wrap items-center gap-1 min-w-0"
               >
-                <span>{{ formatDateRelative(entry.updatedAt, { maxUnit: 'day', includeTime: false }) }}</span>
-                <span>·</span>
-                <span class="capitalize">
+                <span class="truncate">{{ formatDateListStamp(entry.updatedAt) }}</span>
+                <span class="shrink-0">·</span>
+                <span class="capitalize truncate">
                   {{ entry.contentType || 'content' }}
                 </span>
-                <span>·</span>
-                <span class="text-muted-500 truncate">
-                  {{ entry.id }}
+                <span class="shrink-0">·</span>
+                <span
+                  class="text-muted-500 truncate"
+                  :title="entry.id"
+                >
+                  {{ formatContentId(entry.id) }}
                 </span>
               </div>
               <div
                 v-else
                 class="flex items-center gap-2 text-primary-200 font-semibold capitalize"
               >
-                <span class="animate-pulse">{{ pendingMessage }}</span>
+                <span class="animate-pulse truncate">{{ pendingMessage }}</span>
                 <UButton
                   color="neutral"
                   variant="ghost"
                   size="xs"
                   icon="i-lucide-square"
                   aria-label="Stop generation"
+                  class="shrink-0"
                   @click.stop="handleStopEntry(entry)"
                 />
               </div>
             </div>
 
-            <div class="flex flex-col items-end gap-1">
+            <div class="flex flex-col items-end gap-1 shrink-0">
+              <div
+                v-if="entry.isPending"
+                class="h-6 w-28 rounded-full bg-white/10 animate-pulse"
+              />
+              <div
+                v-else
+                class="flex items-center gap-2 sm:gap-3"
+              >
               <UBadge
-                v-if="!entry.isPending"
                 variant="soft"
                 color="neutral"
-                class="rounded-full px-3 py-1.5 gap-1.5 inline-flex items-center border translate-y-[1px]"
+                  class="rounded-full px-2 sm:px-2.5 py-1 gap-1 inline-flex items-center border text-[11px] shrink-0"
                 :class="getStatusMeta(entry.status).badgeClass"
               >
                 <UIcon
                   :name="getStatusMeta(entry.status).icon"
-                  class="h-3.5 w-3.5"
+                    class="h-2.5 w-2.5 shrink-0"
                 />
-                <span class="leading-none">
+                  <span class="leading-none truncate">
                   {{ getStatusMeta(entry.status).label }}
                 </span>
               </UBadge>
-              <div
-                v-if="!entry.isPending"
-                class="text-xs font-semibold flex items-center gap-2"
-              >
+                <div class="text-sm font-semibold flex items-center gap-2 tabular-nums shrink-0">
                 <span class="text-emerald-500 dark:text-emerald-400">
                   +{{ entry.additions ?? 0 }}
                 </span>
@@ -238,11 +255,6 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
               </div>
             </div>
           </div>
-          <div
-            v-else
-            class="text-sm text-muted-400 flex flex-wrap items-center gap-2"
-          >
-            <div class="h-4 w-28 rounded bg-white/5 animate-pulse" />
           </div>
         </button>
         <div class="absolute inset-y-0 right-0 flex items-center pr-2">

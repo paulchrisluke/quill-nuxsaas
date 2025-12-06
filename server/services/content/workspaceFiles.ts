@@ -42,7 +42,11 @@ const sanitizeSegment = (segment?: string | null) => {
   if (!slug) {
     return null
   }
-  return slug.replace(/\.+/g, '.')
+  const scrubbed = slug.replace(/\./g, '')
+  if (!scrubbed) {
+    return null
+  }
+  return scrubbed
 }
 
 function normalizeStringArray(value: unknown): string[] {

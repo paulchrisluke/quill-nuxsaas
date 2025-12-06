@@ -129,7 +129,8 @@ export async function publishContentVersion(
       undefined,
       {
         fileName: filePayload.filename,
-        overrideOriginalName: filePayload.filename
+        overrideOriginalName: filePayload.filename,
+        contentId: contentRecord.id
       }
     )
 
@@ -140,6 +141,7 @@ export async function publishContentVersion(
         .set({ isActive: false })
         .where(and(
           eq(schema.file.path, filePayload.filename),
+          eq(schema.file.contentId, contentRecord.id),
           ne(schema.file.id, uploadedFile!.id)
         ))
 

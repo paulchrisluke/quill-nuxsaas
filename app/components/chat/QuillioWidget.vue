@@ -862,6 +862,22 @@ async function handleShare(message: ChatMessage) {
       return
     }
   } catch (error) {
+    const isAbortError = error && typeof error === 'object'
+      && (
+        (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError')
+        || (error as { name?: string }).name === 'AbortError'
+      )
+
+    if (isAbortError) {
+      console.info('Share cancelled by user', error)
+      toast.add({
+        title: 'Share cancelled',
+        description: 'No message was shared.',
+        color: 'neutral'
+      })
+      return
+    }
+
     console.warn('Navigator share failed, falling back to copy', error)
   }
 
