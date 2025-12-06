@@ -51,6 +51,20 @@ const filteredEntries = computed(() => {
 
 const hasFilteredContent = computed(() => filteredEntries.value.length > 0)
 
+const getStatusIcon = (status: string) => {
+  const normalized = (status || '').toLowerCase().trim()
+
+  if (normalized === 'archived') {
+    return 'i-lucide-archive'
+  }
+
+  if (normalized === 'published') {
+    return 'i-lucide-badge-check'
+  }
+
+  return 'i-lucide-pen-line'
+}
+
 const handleOpenWorkspace = (entry: DraftEntry) => {
   emit('openWorkspace', entry)
 }
@@ -108,7 +122,7 @@ const formatUpdatedAt = (date: Date | null) => {
 
     <div
       v-if="hasFilteredContent"
-      class="divide-y divide-muted-200/60"
+      class="divide-y divide-white/10"
     >
       <div
         v-for="entry in filteredEntries"
@@ -119,29 +133,35 @@ const formatUpdatedAt = (date: Date | null) => {
       >
         <button
           type="button"
-          class="w-full text-left py-4 pr-12 pl-1 space-y-2 hover:bg-muted/30 transition-colors"
+          class="w-full text-left py-4 pr-12 pl-1 space-y-2 hover:bg-muted/30 transition-colors text-sm"
           @click="handleOpenWorkspace(entry)"
         >
           <div class="flex items-center justify-between gap-3">
-            <p class="font-medium leading-tight truncate">
+            <p class="text-sm font-semibold leading-tight truncate text-white">
               {{ entry.title }}
             </p>
             <UBadge
               color="neutral"
               variant="soft"
-              class="capitalize"
+              class="capitalize rounded-full px-3 py-1.5 gap-1.5 flex items-center"
             >
-              {{ entry.status || 'draft' }}
+              <UIcon
+                :name="getStatusIcon(entry.status)"
+                class="h-3.5 w-3.5"
+              />
+              <span class="leading-none">
+                {{ entry.status || 'draft' }}
+              </span>
             </UBadge>
           </div>
-          <div class="text-xs text-muted-500 flex flex-wrap items-center gap-1">
+          <div class="text-sm text-muted-400 flex flex-wrap items-center gap-1">
             <span>{{ formatUpdatedAt(entry.updatedAt) }}</span>
             <span>·</span>
             <span class="capitalize">
               {{ entry.contentType || 'content' }}
             </span>
             <span>·</span>
-            <span class="font-mono text-[11px] text-muted-600 truncate">
+            <span class="text-muted-500 truncate">
               {{ entry.id }}
             </span>
             <span>·</span>
