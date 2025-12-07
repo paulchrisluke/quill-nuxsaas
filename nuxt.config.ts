@@ -17,6 +17,7 @@ export default defineNuxtConfig({
     '@nuxtjs/i18n',
     '@nuxtjs/seo',
     'nuxt-echarts',
+    '@scalar/nuxt',
     ...(process.env.NODE_ENV === 'test' ? ['@nuxt/test-utils/module'] : []),
     ...(process.env.NUXT_NITRO_PRESET !== 'node-server' ? ['@nuxthub/core'] : [])
   ],
@@ -122,8 +123,21 @@ export default defineNuxtConfig({
       ]
     }
   },
+  scalar: {
+    pathRouting: {
+      basePath: '/api-reference'
+    },
+    configuration: {
+      spec: {
+        url: '/_nitro/openapi.json'
+      }
+    }
+  },
   nitro: {
     preset: process.env.NUXT_NITRO_PRESET,
+    experimental: {
+      openAPI: true
+    },
     rollupConfig: {
       external: process.env.NUXT_NITRO_PRESET != 'node-server' ? ['pg-native'] : undefined
     },

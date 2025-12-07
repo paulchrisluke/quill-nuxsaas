@@ -28,6 +28,11 @@ declare module 'vue-router' {
 }
 
 export default defineNuxtRouteMiddleware(async (to) => {
+  // Exclude API documentation routes from auth
+  if (to.path.startsWith('/api-reference') || to.path.startsWith('/docs') || to.path.startsWith('/_nitro/openapi')) {
+    return
+  }
+
   // If auth is disabled, skip middleware
   if (to.meta?.auth === false) {
     return
