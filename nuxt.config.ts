@@ -123,16 +123,6 @@ export default defineNuxtConfig({
       ]
     }
   },
-  scalar: {
-    pathRouting: {
-      basePath: '/api-reference'
-    },
-    configuration: {
-      spec: {
-        url: '/_nitro/openapi.json'
-      }
-    }
-  },
   nitro: {
     preset: process.env.NUXT_NITRO_PRESET,
     experimental: {
