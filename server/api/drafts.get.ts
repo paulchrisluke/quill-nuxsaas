@@ -1,4 +1,5 @@
 import { desc, eq, sql } from 'drizzle-orm'
+import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { getDraftQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
@@ -7,7 +8,7 @@ import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 
 /**
  * Lightweight endpoint for drafts list - only returns minimal fields needed for list view
- * Full content is loaded via /api/chat/workspace/:contentId when a draft is opened
+ * Full content is loaded via /api/drafts/:id when a draft is opened
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
@@ -19,18 +20,11 @@ export default defineEventHandler(async (event) => {
   try {
     const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous })
     organizationId = orgResult.organizationId
-    if (!organizationId) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Active organization not found'
-      })
-    }
-  } catch (error: any) {
+  } catch (error) {
     // If user is anonymous and doesn't have an org yet, return empty list with default quota
     // The organization should be created by the session middleware, but if it hasn't yet,
     // we return a default quota based on anonymous profile
-    const isOrgNotFoundError = error?.statusCode === 400 || error?.message?.includes('organization')
-    if (user.isAnonymous && isOrgNotFoundError) {
+    if (user.isAnonymous) {
       const anonymousLimit = typeof runtimeConfig.public?.draftQuota?.anonymous === 'number'
         ? runtimeConfig.public.draftQuota.anonymous
         : 5
@@ -49,6 +43,14 @@ export default defineEventHandler(async (event) => {
     }
     // For authenticated users, re-throw the error
     throw error
+  }
+
+  // Handle case where requireActiveOrganization succeeded but returned null
+  if (!organizationId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Active organization not found'
+    })
   }
 
   // Select only minimal fields needed for list view

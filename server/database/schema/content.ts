@@ -29,6 +29,7 @@ export const content = pgTable('content', {
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
+  archivedAt: timestamp('archived_at'),
   publishedAt: timestamp('published_at')
 }, table => ({
   organizationIdx: index('content_organization_idx').on(table.organizationId),
