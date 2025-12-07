@@ -267,9 +267,7 @@ async function loadHeaderData() {
       additions: number
       deletions: number
       contentId: string | null
-    }>('/api/chat/workspace-header', {
-      query: { contentId: currentContentId }
-    })
+    }>(`/api/drafts/${currentContentId}/header`)
 
     // Verify contentId hasn't changed before updating state
     if (contentId.value === currentContentId) {
@@ -302,8 +300,8 @@ const fetchWorkspaceChat = async (workspaceContentId: string | null, sessionId: 
   chatLoading.value = true
   try {
     const [messagesResponse, logsResponse] = await Promise.all([
-      $fetch<{ messages: ContentChatMessage[] }>(`/api/chat/workspace/${workspaceContentId}/messages`),
-      $fetch<{ logs: ContentChatLog[] }>(`/api/chat/workspace/${workspaceContentId}/logs`)
+      $fetch<{ messages: ContentChatMessage[] }>(`/api/drafts/${workspaceContentId}/messages`),
+      $fetch<{ logs: ContentChatLog[] }>(`/api/drafts/${workspaceContentId}/logs`)
     ])
 
     if (!content.value || content.value.content.id !== workspaceContentId) {
@@ -343,7 +341,7 @@ async function loadWorkspacePayload() {
   pending.value = true
   error.value = null
   try {
-    const response = await $fetch<{ workspace: ContentResponse | null }>(`/api/chat/workspace/${contentId.value}`)
+    const response = await $fetch<{ workspace: ContentResponse | null }>(`/api/drafts/${contentId.value}`)
     content.value = response.workspace ?? null
     emitReady()
     maybeFetchChatData(content.value)

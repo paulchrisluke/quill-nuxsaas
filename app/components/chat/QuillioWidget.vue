@@ -127,7 +127,7 @@ const prefetchWorkspacePayload = (contentId?: string | null) => {
     if (cacheEntry && (now - cacheEntry.timestamp) < WORKSPACE_CACHE_TTL_MS) {
       return
     }
-    $fetch<{ workspace?: any | null }>(`/api/chat/workspace/${contentId}`)
+    $fetch<{ workspace?: any | null }>(`/api/drafts/${contentId}`)
       .then((response) => {
         workspacePayloadCache.value[contentId] = {
           payload: response?.workspace ?? null,
@@ -157,7 +157,7 @@ const {
   data: workspaceDraftsPayload,
   pending: draftsPending,
   refresh: refreshDrafts
-} = await useFetch<WorkspaceResponse>('/api/chat/drafts-list', {
+} = await useFetch<WorkspaceResponse>('/api/drafts', {
   default: () => ({
     contents: []
   })
@@ -558,7 +558,7 @@ const loadWorkspaceDetail = async (contentId: string) => {
 
   workspaceLoading.value = !cacheEntry
   try {
-    const response = await $fetch<{ workspace?: any | null }>(`/api/chat/workspace/${contentId}`)
+    const response = await $fetch<{ workspace?: any | null }>(`/api/drafts/${contentId}`)
     const payload = response?.workspace ?? null
     workspaceDetail.value = payload
     workspacePayloadCache.value[contentId] = {
@@ -650,7 +650,7 @@ const archiveDraft = async (entry: { id: string, title?: string | null }) => {
   archivingDraftId.value = entry.id
 
   try {
-    await $fetch(`/api/chat/drafts/${entry.id}/archive`, {
+    await $fetch(`/api/drafts/${entry.id}/archive`, {
       method: 'POST'
     })
 

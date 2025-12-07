@@ -35,7 +35,7 @@ async function findWorkspaceAcrossOrganizations(
       return await getWorkspaceWithCache(db, org.organizationId, contentId, { includeChat })
     } catch (error: any) {
       if (error?.statusCode !== 404) {
-        console.error('[workspace/:id] Failed to load workspace in alternate org', {
+        console.error('[drafts/:id] Failed to load workspace in alternate org', {
           contentId,
           organizationId: org.organizationId,
           userId,
@@ -56,8 +56,8 @@ export default defineEventHandler(async (event) => {
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 
-  const { contentId } = getRouterParams(event)
-  const validatedContentId = validateUUID(contentId, 'contentId')
+  const { id } = getRouterParams(event)
+  const validatedContentId = validateUUID(id, 'id')
   const query = getQuery(event)
   const includeChatParam = Array.isArray(query.includeChat) ? query.includeChat[0] : query.includeChat
   const includeChat = includeChatParam === 'true' || includeChatParam === '1'

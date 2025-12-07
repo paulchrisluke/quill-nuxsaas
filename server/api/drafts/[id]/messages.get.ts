@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { createError, getRouterParams } from 'h3'
 import * as schema from '~~/server/database/schema'
-import { findChatSession, getSessionLogs } from '~~/server/services/chatSession'
+import { findChatSession, getSessionMessages } from '~~/server/services/chatSession'
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
@@ -44,28 +44,28 @@ export default defineEventHandler(async (event) => {
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 
-  const { contentId } = getRouterParams(event)
-  const validatedContentId = validateUUID(contentId, 'contentId')
+  const { id } = getRouterParams(event)
+  const validatedContentId = validateUUID(id, 'id')
 
   let resolvedSession
   try {
     resolvedSession = await resolveSession(db, user.id, organizationId, validatedContentId)
   } catch (error: any) {
     if (error?.statusCode === 404) {
-      return { logs: [] }
+      return { messages: [] }
     }
     throw error
   }
 
-  const logs = await getSessionLogs(db, resolvedSession.session.id, resolvedSession.organizationId)
+  const messages = await getSessionMessages(db, resolvedSession.session.id, resolvedSession.organizationId)
 
   return {
-    logs: logs.map(log => ({
-      id: log.id,
-      type: log.type,
-      message: log.message,
-      payload: log.payload,
-      createdAt: log.createdAt
+    messages: messages.map(message => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      payload: message.payload,
+      createdAt: message.createdAt
     }))
   }
 })

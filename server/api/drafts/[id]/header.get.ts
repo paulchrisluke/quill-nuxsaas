@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm'
-import { createError, getQuery } from 'h3'
+import { createError, getRouterParams } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
@@ -8,15 +8,15 @@ import { validateUUID } from '~~/server/utils/validation'
 
 /**
  * Lightweight endpoint for workspace header - only returns minimal fields needed for header display
- * Full workspace content is loaded via /api/chat/workspace/:contentId when needed
+ * Full workspace content is loaded via /api/drafts/:id when needed
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 
-  const query = getQuery(event)
-  const contentId = validateUUID(query.contentId as string, 'contentId')
+  const { id } = getRouterParams(event)
+  const contentId = validateUUID(id, 'id')
 
   // Select only minimal fields needed for header
   const rows = await db

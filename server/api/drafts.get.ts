@@ -7,7 +7,7 @@ import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 
 /**
  * Lightweight endpoint for drafts list - only returns minimal fields needed for list view
- * Full content is loaded via /api/chat/workspace/:contentId when a draft is opened
+ * Full content is loaded via /api/drafts/:id when a draft is opened
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
