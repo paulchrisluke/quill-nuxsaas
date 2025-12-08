@@ -37,6 +37,7 @@ export interface GenerateContentInput {
   organizationId: string
   userId: string
   sourceContentId?: string | null
+  sourceText?: string | null
   contentId?: string | null
   overrides?: GenerateContentOverrides
   systemPrompt?: string
@@ -472,10 +473,15 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 const generateContentPlan = async (params: {
   contentType: typeof CONTENT_TYPES[number]
   instructions?: string
-  chunks: PipelineChunk[]
+  chunks: PipelineChunk[] | null
+  sourceText?: string | null
   sourceTitle?: string | null
 }): Promise<ContentPlanResult> => {
-  const preview = gatherChunkPreview(params.chunks)
+  const preview = params.chunks && params.chunks.length > 0
+    ? gatherChunkPreview(params.chunks)
+    : (params.sourceText
+        ? params.sourceText.slice(0, 6000) + (params.sourceText.length > 6000 ? '...' : '')
+        : 'No transcript snippets available.')
   const prompt = [
     `We are planning a ${params.contentType} that preserves the authentic voice and personality of the original content.`,
     params.sourceTitle ? `Source Title: ${params.sourceTitle}` : 'Source Title: Unknown',
@@ -693,28 +699,19 @@ const createFrontmatterFromContentPlan = (params: {
   }
 }
 
-const cleanFrontmatterTitle = (title: string, fallbacks: string[]) => {
-  const normalized = (title || '').replace(/\s+/g, ' ').trim()
-  for (const value of [normalized, ...fallbacks]) {
-    const candidate = (value || '').replace(/\s+/g, ' ').trim()
-    if (candidate.length) {
-      return candidate
-    }
-  }
-  return 'Untitled Draft'
-}
-
 const enrichFrontmatterMetadata = (params: {
   plan: ContentPlanResult
   frontmatter: FrontmatterResult
   sourceContent?: typeof schema.sourceContent.$inferSelect | null
 }) => {
   const { plan, frontmatter, sourceContent } = params
-  const fallbackTitles = [
-    plan.seo.title,
-    sourceContent?.title
-  ].filter((value): value is string => Boolean(value && value.trim()))
-  const title = cleanFrontmatterTitle(frontmatter.title, fallbackTitles)
+  const title = (frontmatter.title || '').replace(/\s+/g, ' ').trim()
+  if (!title) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Title is required in frontmatter'
+    })
+  }
   const slugCandidate = frontmatter.slug || frontmatter.slugSuggestion || title
   const slug = slugifyTitle(slugCandidate)
 
@@ -1412,6 +1409,7 @@ export const generateContentDraftFromSource = async (
     organizationId,
     userId,
     sourceContentId,
+    sourceText,
     contentId,
     overrides,
     systemPrompt,
@@ -1427,8 +1425,15 @@ export const generateContentDraftFromSource = async (
   }
 
   let sourceContent: typeof schema.sourceContent.$inferSelect | null = null
+  let resolvedSourceText: string | null = null
+  let resolvedIngestMethod: string | null = null
 
-  if (sourceContentId) {
+  // If inline sourceText is provided, use it directly
+  if (sourceText && sourceText.trim()) {
+    resolvedSourceText = sourceText.trim()
+    resolvedIngestMethod = 'inline_transcript'
+  } else if (sourceContentId) {
+    // Otherwise, fetch from source content
     const [row] = await db
       .select()
       .from(schema.sourceContent)
@@ -1443,13 +1448,15 @@ export const generateContentDraftFromSource = async (
     }
 
     sourceContent = row
+    resolvedSourceText = sourceContent.sourceText?.trim() || null
+    resolvedIngestMethod = resolveIngestMethodFromSourceContent(sourceContent)
 
     // Log for debugging
     console.log('[generateContentDraftFromSource] Source content found:', {
       id: sourceContent.id,
       ingestStatus: sourceContent.ingestStatus,
-      sourceTextLength: sourceContent.sourceText?.length || 0,
-      hasSourceText: !!sourceContent.sourceText?.trim(),
+      sourceTextLength: resolvedSourceText?.length || 0,
+      hasSourceText: !!resolvedSourceText,
       sourceType: sourceContent.sourceType,
       externalId: sourceContent.externalId
     })
@@ -1474,22 +1481,30 @@ export const generateContentDraftFromSource = async (
     existingContent = row
   }
 
-  if (!sourceContentId || !sourceContent?.sourceText?.trim()) {
+  if (!resolvedSourceText) {
     console.error('[generateContentDraftFromSource] Missing sourceText:', {
       sourceContentId,
       hasSourceContent: !!sourceContent,
-      sourceTextLength: sourceContent?.sourceText?.length || 0,
-      sourceTextPreview: sourceContent?.sourceText?.substring(0, 100) || 'null/empty',
+      sourceTextLength: resolvedSourceText?.length || 0,
+      sourceTextPreview: resolvedSourceText?.substring(0, 100) || 'null/empty',
       ingestStatus: sourceContent?.ingestStatus
     })
     throw createError({
       statusCode: 400,
-      statusMessage: 'A source transcript is required to create a draft'
+      statusMessage: 'A source transcript is required to create a draft. Provide either sourceContentId or sourceText.'
     })
   }
 
-  const chunks = await ensureChunksExistForSourceContent(db, sourceContent, sourceContent.sourceText)
-  const resolvedIngestMethod = resolveIngestMethodFromSourceContent(sourceContent)
+  // If we have sourceContent, use its chunks; otherwise create temporary chunks for inline text
+  let chunks: Awaited<ReturnType<typeof ensureChunksExistForSourceContent>> | null = null
+  if (sourceContent) {
+    chunks = await ensureChunksExistForSourceContent(db, sourceContent, resolvedSourceText!)
+  } else if (resolvedSourceText) {
+    // For inline sourceText without sourceContent, we'll need to create chunks on the fly
+    // For now, we'll skip chunking for inline text (the generation will work without chunks)
+    // In the future, we could create temporary chunks here
+    chunks = null
+  }
 
   if (!contentId) {
     // Fetch user to check email verification status
@@ -1548,7 +1563,8 @@ export const generateContentDraftFromSource = async (
   const plan = await generateContentPlan({
     contentType,
     instructions: systemPrompt,
-    chunks,
+    chunks: chunks || [], // Ensure chunks is always an array
+    sourceText: resolvedSourceText, // Pass inline sourceText if available
     sourceTitle: sourceContent?.title ?? existingContent?.title ?? null
   })
   pipelineStages.push('plan')
@@ -1573,7 +1589,7 @@ export const generateContentDraftFromSource = async (
   const sections = await generateSectionsFromOutline({
     outline: plan.outline,
     frontmatter,
-    chunks,
+    chunks: chunks || [],
     instructions: systemPrompt,
     temperature,
     organizationId,
@@ -2003,7 +2019,7 @@ export const updateContentSectionWithAI = async (
         createdByUserId: userId,
         frontmatter: {
           title: frontmatter.title,
-          description: frontmatter.description ?? record.version.frontmatter?.description,
+          description: frontmatter.description ?? (record.version?.frontmatter as Record<string, any> | null)?.description,
           slug,
           tags: frontmatter.tags,
           keywords: frontmatter.keywords,

@@ -36,7 +36,8 @@ const {
   selectedContentType,
   stopResponse,
   logs,
-  requestStartedAt
+  requestStartedAt,
+  agentContext
 } = useChatSession()
 
 const prompt = ref('')
@@ -215,48 +216,16 @@ watch(draftQuotaUsage, (value) => {
 const fetchedContentEntries = computed(() => {
   const list = Array.isArray(workspaceDraftsPayload.value?.contents) ? workspaceDraftsPayload.value?.contents : []
   return list.map((entry: any) => {
-    // Support new lightweight format with _computed fields
-    if (entry._computed) {
-      let updatedAt: Date | null = null
-      if (entry.content.updatedAt) {
-        const parsedDate = new Date(entry.content.updatedAt)
-        updatedAt = Number.isFinite(parsedDate.getTime()) ? parsedDate : null
-      }
-
-      return {
-        id: entry.content.id,
-        title: entry.content.title || 'Untitled draft',
-        slug: entry.content.slug,
-        status: entry.content.status,
-        updatedAt,
-        contentType: entry.currentVersion?.frontmatter?.contentType || entry.content.contentType,
-        sectionsCount: entry._computed.sectionsCount || 0,
-        wordCount: entry._computed.wordCount || 0,
-        sourceType: entry.sourceContent?.sourceType ?? null,
-        sourceContentId: entry.content.sourceContentId ?? null,
-        additions: entry._computed.additions,
-        deletions: entry._computed.deletions
-      }
+    if (!entry._computed) {
+      console.error('Entry missing _computed field, skipping entry:', entry)
+      return null
     }
-
-    // Fallback for old format (backwards compatibility)
-    const sections = Array.isArray(entry.currentVersion?.sections) ? entry.currentVersion.sections : []
-    const wordCount = sections.reduce((sum: number, section: Record<string, any>) => {
-      const rawValue = typeof section.wordCount === 'string' ? Number.parseInt(section.wordCount, 10) : Number(section.wordCount)
-      const safeValue = Number.isFinite(rawValue) ? rawValue : 0
-      return sum + safeValue
-    }, 0)
 
     let updatedAt: Date | null = null
     if (entry.content.updatedAt) {
       const parsedDate = new Date(entry.content.updatedAt)
       updatedAt = Number.isFinite(parsedDate.getTime()) ? parsedDate : null
     }
-
-    const versionStats = entry.currentVersion?.diffStats
-    const fmStats = entry.currentVersion?.frontmatter?.diffStats as { additions?: number, deletions?: number } | undefined
-    const additions = Number(versionStats?.additions ?? fmStats?.additions ?? 0)
-    const deletions = Number(versionStats?.deletions ?? fmStats?.deletions ?? 0)
 
     return {
       id: entry.content.id,
@@ -265,14 +234,14 @@ const fetchedContentEntries = computed(() => {
       status: entry.content.status,
       updatedAt,
       contentType: entry.currentVersion?.frontmatter?.contentType || entry.content.contentType,
-      sectionsCount: sections.length,
-      wordCount: Number.isFinite(wordCount) ? wordCount : 0,
+      sectionsCount: entry._computed.sectionsCount ?? 0,
+      wordCount: entry._computed.wordCount ?? 0,
       sourceType: entry.sourceContent?.sourceType ?? null,
       sourceContentId: entry.content.sourceContentId ?? null,
-      additions: Number.isFinite(additions) ? additions : undefined,
-      deletions: Number.isFinite(deletions) ? deletions : undefined
+      additions: entry._computed.additions ?? 0,
+      deletions: entry._computed.deletions ?? 0
     }
-  })
+  }).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 })
 
 const pendingContentEntries = computed(() => {
@@ -358,15 +327,12 @@ const displayMessages = computed<ChatMessage[]>(() => {
 })
 
 const {
-  pendingDraftAction,
   handleWriteDraftFromSource: handleWriteDraftFromSourceComposable,
   handlePublishDraft: handlePublishDraftComposable,
   isPublishing: isPublishingComposable
 } = useDraftAction({
-  messages,
   isBusy,
   status,
-  contentEntries,
   sessionContentId,
   selectedContentType,
   pendingDrafts,
@@ -991,6 +957,58 @@ if (import.meta.client) {
                 </template>
               </UChatMessages>
             </div>
+
+            <!-- Agent Context Display -->
+            <div
+              v-if="agentContext && (agentContext.readySources?.length || agentContext.ingestFailures?.length)"
+              class="w-full space-y-4"
+            >
+              <!-- Ready Sources -->
+              <UAlert
+                v-if="agentContext.readySources && agentContext.readySources.length > 0"
+                color="primary"
+                variant="soft"
+                icon="i-lucide-check-circle"
+                title="Ready Sources"
+              >
+                <template #description>
+                  <div class="space-y-2">
+                    <div
+                      v-for="(source, index) in agentContext.readySources"
+                      :key="source.id || source.title || `source-${index}`"
+                      class="text-sm"
+                    >
+                      <strong>{{ source.title || 'Untitled source' }}</strong>
+                      <span
+                        v-if="source.sourceType"
+                        class="text-surface-500"
+                      > ({{ source.sourceType.replace('_', ' ') }})</span>
+                    </div>
+                  </div>
+                </template>
+              </UAlert>
+
+              <!-- Ingestion Failures -->
+              <UAlert
+                v-if="agentContext.ingestFailures && agentContext.ingestFailures.length > 0"
+                color="error"
+                variant="soft"
+                icon="i-lucide-alert-triangle"
+                title="Ingestion Issues"
+              >
+                <template #description>
+                  <div class="space-y-1">
+                    <div
+                      v-for="(failure, index) in agentContext.ingestFailures"
+                      :key="index"
+                      class="text-sm"
+                    >
+                      {{ failure?.content || 'Unknown error' }}
+                    </div>
+                  </div>
+                </template>
+              </UAlert>
+            </div>
           </div>
 
           <div class="w-full space-y-6 mt-8">
@@ -1025,19 +1043,7 @@ if (import.meta.client) {
                     </USelectMenu>
                   </template>
                   <template #submit>
-                    <div class="flex items-center gap-2">
-                      <UButton
-                        v-if="pendingDraftAction"
-                        color="primary"
-                        size="sm"
-                        :disabled="isBusy || promptSubmitting"
-                        :loading="isBusy || isPublishing"
-                        @click="pendingDraftAction.hasExistingDraft ? handlePublishDraft(pendingDraftAction.existingDraftId) : handleWriteDraftFromSource(pendingDraftAction.sourceId)"
-                      >
-                        {{ pendingDraftAction.hasExistingDraft ? 'Publish' : 'Write draft' }}
-                      </UButton>
-                      <UChatPromptSubmit :status="promptSubmitting ? 'submitted' : uiStatus" />
-                    </div>
+                    <UChatPromptSubmit :status="promptSubmitting ? 'submitted' : uiStatus" />
                   </template>
                 </PromptComposer>
               </div>

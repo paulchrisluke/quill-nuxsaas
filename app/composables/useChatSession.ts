@@ -10,10 +10,32 @@ import { computed } from 'vue'
 
 type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
+interface AgentContext {
+  readySources?: Array<{
+    id: string
+    title: string | null
+    sourceType: string | null
+    ingestStatus: string
+    createdAt: Date | string
+    updatedAt: Date | string
+  }>
+  ingestFailures?: Array<{
+    content: string
+    payload?: Record<string, any> | null
+  }>
+  lastAction?: string | null
+  toolHistory?: Array<{
+    toolName: string
+    timestamp: Date | string
+    status: string
+  }>
+}
+
 interface ChatResponse {
   assistantMessage?: string
   sessionId?: string | null
   sessionContentId?: string | null
+  agentContext?: AgentContext
   messages?: Array<{
     id: string
     role: 'user' | 'assistant' | 'system'
@@ -83,16 +105,6 @@ function normalizeLogs(list: ChatResponse['logs']) {
   }))
 }
 
-interface CreateContentFromConversationPayload {
-  title: string
-  contentType: ContentType
-  messageIds?: string[]
-}
-
-interface CreateContentFromConversationResponse {
-  content: Record<string, any>
-  version: Record<string, any>
-}
 
 export function useChatSession() {
   const messages = useState<ChatMessage[]>('chat/messages', () => [])
@@ -104,6 +116,7 @@ export function useChatSession() {
   const logs = useState<ChatLogEntry[]>('chat/logs', () => [])
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
+  const agentContext = useState<AgentContext | null>('chat/agent-context', () => null)
 
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
 
@@ -113,12 +126,8 @@ export function useChatSession() {
       ...body,
       contentType
     }
-    if (nextBody.action && typeof nextBody.action === 'object' && nextBody.action !== null) {
-      nextBody.action = {
-        ...nextBody.action,
-        contentType: nextBody.action.contentType || contentType
-      }
-    }
+    // Note: contentType is now passed as a separate field, not in action
+    // The agent will use it from context if needed
     return nextBody
   }
 
@@ -187,6 +196,24 @@ export function useChatSession() {
       }
 
       logs.value = normalizeLogs(response.logs)
+      
+      // Update agentContext if provided
+      if (response.agentContext) {
+        agentContext.value = {
+          readySources: response.agentContext.readySources?.map(source => ({
+            ...source,
+            createdAt: toDate(source.createdAt),
+            updatedAt: toDate(source.updatedAt)
+          })),
+          ingestFailures: response.agentContext.ingestFailures || [],
+          lastAction: response.agentContext.lastAction || null,
+          toolHistory: response.agentContext.toolHistory?.map(tool => ({
+            ...tool,
+            timestamp: toDate(tool.timestamp)
+          })) || []
+        }
+      }
+      
       status.value = 'ready'
       requestStartedAt.value = null
       return response
@@ -220,7 +247,7 @@ export function useChatSession() {
     }
   }
 
-  async function sendMessage(prompt: string, options?: { displayContent?: string, contentId?: string | null, action?: Record<string, any> }) {
+  async function sendMessage(prompt: string, options?: { displayContent?: string, contentId?: string | null }) {
     const trimmed = prompt.trim()
     if (!trimmed) {
       return null
@@ -237,8 +264,7 @@ export function useChatSession() {
       message: trimmed,
       contentId: options?.contentId !== undefined
         ? options.contentId
-        : (sessionContentId.value || undefined),
-      action: options?.action
+        : (sessionContentId.value || undefined)
     })
   }
 
@@ -294,25 +320,6 @@ export function useChatSession() {
     return workspace
   }
 
-  async function createContentFromConversation(payload: CreateContentFromConversationPayload) {
-    if (!sessionId.value) {
-      throw new Error('Start a conversation before creating content.')
-    }
-
-    const response = await $fetch<CreateContentFromConversationResponse>(`/api/chat/${sessionId.value}/create-content`, {
-      method: 'POST',
-      body: {
-        ...payload,
-        messageIds: Array.isArray(payload.messageIds) ? payload.messageIds : undefined
-      }
-    })
-
-    if (response?.content?.id) {
-      sessionContentId.value = response.content.id
-    }
-
-    return response
-  }
 
   function stopResponse() {
     if (activeController.value) {
@@ -330,6 +337,7 @@ export function useChatSession() {
     sessionContentId.value = null
     logs.value = []
     requestStartedAt.value = null
+    agentContext.value = null
   }
 
   return {
@@ -341,10 +349,10 @@ export function useChatSession() {
     sendMessage,
     sessionId,
     sessionContentId,
-    createContentFromConversation,
     stopResponse,
     logs,
     requestStartedAt,
+    agentContext,
     hydrateSession,
     loadSessionForContent,
     resetSession

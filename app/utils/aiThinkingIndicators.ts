@@ -37,11 +37,6 @@ const PRESETS: Record<string, IndicatorPreset> = {
 }
 
 const LOG_TYPE_TO_PRESET: Record<string, keyof typeof PRESETS> = {
-  source_detected: 'collecting',
-  generation_started: 'drafting',
-  content_generated: 'saving',
-  generation_complete: 'finishing',
-  section_patched: 'updating',
   user_message: 'thinking'
 }
 
@@ -88,6 +83,40 @@ export function resolveAiThinkingIndicator(input: {
     : input.logs
 
   const latestLog = getLatestLog(scopedLogs)
+
+  // Handle tool_* log types with custom messages
+  if (latestLog?.type && latestLog.type.toLowerCase().startsWith('tool_')) {
+    const payload = latestLog as any
+    const toolName = payload?.payload?.toolName || 'tool'
+    const toolDisplayName = toolName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+    const logTypeLower = latestLog.type.toLowerCase()
+
+    if (logTypeLower === 'tool_started') {
+      return {
+        label: 'Running',
+        message: `Running ${toolDisplayName}...`
+      }
+    }
+    if (logTypeLower === 'tool_retrying') {
+      return {
+        label: 'Retrying',
+        message: `Retrying ${toolDisplayName}...`
+      }
+    }
+    if (logTypeLower === 'tool_failed') {
+      return {
+        label: 'Error',
+        message: `${toolDisplayName} failed. Retrying...`
+      }
+    }
+    if (logTypeLower === 'tool_succeeded') {
+      return {
+        label: 'Complete',
+        message: `${toolDisplayName} completed successfully.`
+      }
+    }
+  }
+
   const presetFromLog = latestLog?.type ? LOG_TYPE_TO_PRESET[(latestLog.type || '').toLowerCase()] : null
 
   if (presetFromLog && PRESETS[presetFromLog])

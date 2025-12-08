@@ -19,12 +19,12 @@ export class ChatTestRunner {
 
   /**
    * Send a message to the chat API and update session state
+   * Uses natural language - the LLM agent will determine which tools to use
    */
-  async sendMessage(message: string, action?: any): Promise<any> {
+  async sendMessage(message: string): Promise<any> {
     const payload: any = {
       message,
-      ...(this.session.sessionId && { sessionId: this.session.sessionId }),
-      ...(action && { action })
+      ...(this.session.sessionId && { sessionId: this.session.sessionId })
     }
 
     const response = await $fetch('/api/chat', {
@@ -59,24 +59,14 @@ export class ChatTestRunner {
    * Simulate a full content creation flow
    */
   async createContentFlow(topic: string, contentType: string = 'blog_post') {
-    // Step 1: Initial message
-    const initialResponse = await this.sendMessage(
-      `Create a ${contentType} about ${topic}`
-    )
-
-    // Step 2: Generate content
-    const generateResponse = await this.sendMessage(
-      `Generate the content now`,
-      {
-        type: 'generate_content',
-        contentType,
-        transcript: `Here is a transcript about ${topic}: ${topic} has been a key part of my routine this week.`
-      }
+    // Send natural language message - agent will handle tool selection
+    const transcript = `Here is a transcript about ${topic}: ${topic} has been a key part of my routine this week.`
+    const response = await this.sendMessage(
+      `Create a ${contentType} about ${topic}. Here's the transcript: ${transcript}`
     )
 
     return {
-      initial: initialResponse,
-      generated: generateResponse,
+      response,
       contentId: this.session.contentId
     }
   }
@@ -90,12 +80,13 @@ export class ChatTestRunner {
     instructions: string,
     sectionTitle?: string
   ) {
-    const response = await this.sendMessage(instructions, {
-      type: 'patch_section',
-      contentId,
-      sectionId,
-      sectionTitle
-    })
+    // Send natural language with section context - agent will use patch_section tool
+    const sectionContext = sectionTitle 
+      ? `Update the section titled "${sectionTitle}"`
+      : `Update section ${sectionId}`
+    const message = `${sectionContext}. ${instructions}`
+    
+    const response = await this.sendMessage(message)
 
     return response
   }
@@ -121,10 +112,13 @@ export class ChatTestRunner {
     const messageWithUrls = `${message} ${urls.join(' ')}`
     const response = await this.sendMessage(messageWithUrls)
 
+    // Check if agent used tools (ingest_youtube, etc.)
+    const hasToolHistory = Array.isArray(response.agentContext?.toolHistory) && response.agentContext.toolHistory.length > 0
+
     return {
       response,
-      hasActions: Array.isArray(response.actions) && response.actions.length > 0,
-      actionCount: response.actions?.length || 0
+      hasToolExecutions: hasToolHistory,
+      toolCount: response.agentContext?.toolHistory?.length || 0
     }
   }
 
@@ -176,7 +170,7 @@ export const chatTestScenarios = {
     return {
       success: !!result.contentId,
       contentId: result.contentId,
-      hasContent: !!result.generated.generation?.content,
+      hasContent: !!result.response?.sessionContentId,
       transcript: runner.getTranscript()
     }
   },
@@ -229,8 +223,8 @@ export const chatTestScenarios = {
     )
 
     return {
-      hasActions: result.hasActions,
-      actionCount: result.actionCount,
+      hasToolExecutions: result.hasToolExecutions,
+      toolCount: result.toolCount,
       response: result.response
     }
   }
