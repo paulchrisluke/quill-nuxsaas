@@ -326,11 +326,7 @@ const displayMessages = computed<ChatMessage[]>(() => {
   return baseMessages.filter(message => message.id !== THINKING_MESSAGE_ID)
 })
 
-const {
-  handleWriteDraftFromSource: handleWriteDraftFromSourceComposable,
-  handlePublishDraft: handlePublishDraftComposable,
-  isPublishing: isPublishingComposable
-} = useDraftAction({
+useDraftAction({
   isBusy,
   status,
   sessionContentId,
@@ -342,13 +338,6 @@ const {
     prefetchWorkspacePayload(sessionContentId.value || activeWorkspaceId.value)
   }
 })
-
-const isPublishing = isPublishingComposable
-
-async function handleWriteDraftFromSource(sourceId?: string | null) {
-  await handleWriteDraftFromSourceComposable(sourceId)
-  prefetchWorkspacePayload(sessionContentId.value || activeWorkspaceId.value)
-}
 
 const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
   const fallback = draftQuotaUsage.value
@@ -500,8 +489,6 @@ const handlePromptSubmit = async (value?: string) => {
     promptSubmitting.value = false
   }
 }
-
-const handlePublishDraft = handlePublishDraftComposable
 
 const loadWorkspaceDetail = async (contentId: string) => {
   if (!contentId) {
@@ -1043,7 +1030,13 @@ if (import.meta.client) {
                     </USelectMenu>
                   </template>
                   <template #submit>
-                    <UChatPromptSubmit :status="promptSubmitting ? 'submitted' : uiStatus" />
+                    <UChatPromptSubmit
+                      :status="promptSubmitting ? 'submitted' : uiStatus"
+                      submitted-color="primary"
+                      submitted-variant="solid"
+                      streaming-color="primary"
+                      streaming-variant="solid"
+                    />
                   </template>
                 </PromptComposer>
               </div>
@@ -1079,7 +1072,7 @@ if (import.meta.client) {
       :ui="{
         overlay: 'bg-black/60 backdrop-blur-sm',
         wrapper: 'max-w-sm mx-auto',
-        content: 'bg-background text-foreground rounded-2xl shadow-2xl border border-muted-200/80 dark:border-muted-800/70',
+        content: 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-2xl shadow-2xl border border-muted-200/80 dark:border-muted-800/70',
         header: 'hidden',
         body: 'p-4 space-y-4',
         footer: 'hidden'

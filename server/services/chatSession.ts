@@ -72,13 +72,18 @@ export async function getOrCreateChatSessionForContent(
 
   const status: ChatSessionStatus = input.status ?? 'active'
 
+  // Ensure null values are explicitly null (not undefined or empty strings)
+  const contentId = input.contentId?.trim() || null
+  const sourceContentId = input.sourceContentId?.trim() || null
+  const createdByUserId = input.createdByUserId?.trim() || null
+
   const [session] = await db
     .insert(schema.contentChatSession)
     .values({
       organizationId: input.organizationId,
-      contentId: input.contentId ?? null,
-      sourceContentId: input.sourceContentId ?? null,
-      createdByUserId: input.createdByUserId ?? null,
+      contentId,
+      sourceContentId,
+      createdByUserId,
       status,
       metadata: input.metadata ?? null
     })
