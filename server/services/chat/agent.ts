@@ -367,6 +367,8 @@ export async function runChatAgentWithMultiPassStream({
     }
 
     // Parse and execute all tool calls in batch
+    const maxRetryFailedTools: Array<{ toolCall: typeof accumulatedToolCalls[0], toolInvocation: ChatToolInvocation }> = []
+
     for (const toolCall of accumulatedToolCalls) {
       const toolInvocation = parseChatToolCall({
         id: toolCall.id,
@@ -385,16 +387,9 @@ export async function runChatAgentWithMultiPassStream({
       const retryCount = toolRetryCounts.get(toolKey) || 0
 
       if (retryCount >= MAX_TOOL_RETRIES) {
-        // Max retries reached, stop and return error
-        const errorMessage = `I tried running ${toolInvocation.name} multiple times but it kept failing. Please try a different approach or check if there's an issue with the input.`
-        if (onFinalMessage) {
-          onFinalMessage(errorMessage)
-        }
-        return {
-          finalMessage: errorMessage,
-          toolHistory,
-          conversationHistory: currentHistory
-        }
+        // Max retries reached, add to failed tools list and continue processing remaining tools
+        maxRetryFailedTools.push({ toolCall, toolInvocation })
+        continue
       }
 
       // Log retry if this is a retry attempt
@@ -459,6 +454,58 @@ export async function runChatAgentWithMultiPassStream({
         content: toolResultMessage,
         tool_call_id: toolCall.id
       })
+    }
+
+    // Process tools that hit max retries - add placeholder error responses
+    for (const { toolCall, toolInvocation } of maxRetryFailedTools) {
+      const timestamp = new Date()
+      const errorMessage = `I tried running ${toolInvocation.name} multiple times but it kept failing. Please try a different approach or check if there's an issue with the input.`
+
+      // Create placeholder error response matching ToolExecutionResult structure
+      const placeholderResult: ToolExecutionResult = {
+        success: false,
+        error: errorMessage
+      }
+
+      // Add to toolHistory with same structure as real tool responses
+      toolHistory.push({
+        toolName: toolInvocation.name,
+        invocation: toolInvocation,
+        result: placeholderResult,
+        timestamp
+      })
+
+      // Emit tool start and complete events for consistency
+      if (onToolStart) {
+        onToolStart(toolInvocation.name)
+      }
+      if (onToolComplete) {
+        onToolComplete(toolInvocation.name, placeholderResult)
+      }
+
+      // Add tool result as tool message (tool response) to conversation history
+      currentHistory.push({
+        role: 'tool',
+        content: `Tool ${toolInvocation.name} failed after ${MAX_TOOL_RETRIES + 1} attempts: ${errorMessage}`,
+        tool_call_id: toolCall.id
+      })
+    }
+
+    // If any tools hit max retries, return with aggregated error message
+    if (maxRetryFailedTools.length > 0) {
+      const failedToolNames = maxRetryFailedTools.map(({ toolInvocation }) => toolInvocation.name)
+      const errorMessage = failedToolNames.length === 1
+        ? `I tried running ${failedToolNames[0]} multiple times but it kept failing. Please try a different approach or check if there's an issue with the input.`
+        : `I tried running the following tools multiple times but they kept failing: ${failedToolNames.join(', ')}. Please try a different approach or check if there's an issue with the input.`
+
+      if (onFinalMessage) {
+        onFinalMessage(errorMessage)
+      }
+      return {
+        finalMessage: errorMessage,
+        toolHistory,
+        conversationHistory: currentHistory
+      }
     }
 
     // Add user message acknowledging tool results (this helps the model understand the context)
