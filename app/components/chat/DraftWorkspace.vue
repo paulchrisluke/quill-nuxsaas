@@ -643,38 +643,16 @@ const currentContentRecordForDraft = computed<{ id: string, sourceContentId: str
 })
 
 const {
-  pendingDraftAction,
   handleWriteDraftFromSource: handleWriteDraftFromSourceComposable,
   handlePublishDraft: handlePublishDraftFromPlan,
   isPublishing: isPublishingFromPlan
 } = useDraftAction({
-  messages,
   isBusy: chatIsBusy,
   status: chatStatus,
-  currentContentRecord: currentContentRecordForDraft,
   sessionContentId,
   contentId,
   sendMessage,
   onLoadWorkspace: loadWorkspacePayload
-})
-
-const handleDraftActionClick = () => {
-  if (!pendingDraftAction.value) {
-    return
-  }
-  const action = pendingDraftAction.value
-  if (action.hasExistingDraft && typeof action.existingDraftId === 'string') {
-    handlePublishDraftFromPlan(action.existingDraftId)
-  } else if (typeof action.sourceId === 'string') {
-    handleWriteDraftFromSourceComposable(action.sourceId)
-  }
-}
-
-const draftActionButtonText = computed(() => {
-  if (!pendingDraftAction.value || typeof pendingDraftAction.value.hasExistingDraft !== 'boolean') {
-    return 'Write draft'
-  }
-  return pendingDraftAction.value.hasExistingDraft ? 'Publish' : 'Write draft'
 })
 
 const messageBodyClass = 'text-[15px] leading-6 text-muted-800 dark:text-muted-100'
@@ -1218,19 +1196,7 @@ onBeforeUnmount(() => {
               @submit="_handleSubmit"
             >
               <template #submit>
-                <div class="flex items-center gap-2">
-                  <UButton
-                    v-if="pendingDraftAction"
-                    color="primary"
-                    size="sm"
-                    :disabled="chatIsBusy || chatStatus === 'submitted' || chatStatus === 'streaming'"
-                    :loading="chatIsBusy || chatStatus === 'submitted' || chatStatus === 'streaming' || isPublishingFromPlan"
-                    @click="handleDraftActionClick"
-                  >
-                    {{ draftActionButtonText }}
-                  </UButton>
-                  <UChatPromptSubmit :status="uiStatus" />
-                </div>
+                <UChatPromptSubmit :status="uiStatus" />
               </template>
             </PromptComposer>
           </div>

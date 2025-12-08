@@ -327,15 +327,12 @@ const displayMessages = computed<ChatMessage[]>(() => {
 })
 
 const {
-  pendingDraftAction,
   handleWriteDraftFromSource: handleWriteDraftFromSourceComposable,
   handlePublishDraft: handlePublishDraftComposable,
   isPublishing: isPublishingComposable
 } = useDraftAction({
-  messages,
   isBusy,
   status,
-  contentEntries,
   sessionContentId,
   selectedContentType,
   pendingDrafts,
@@ -1043,19 +1040,7 @@ if (import.meta.client) {
                     </USelectMenu>
                   </template>
                   <template #submit>
-                    <div class="flex items-center gap-2">
-                      <UButton
-                        v-if="pendingDraftAction"
-                        color="primary"
-                        size="sm"
-                        :disabled="isBusy || promptSubmitting"
-                        :loading="isBusy || isPublishing"
-                        @click="pendingDraftAction.hasExistingDraft ? handlePublishDraft(pendingDraftAction.existingDraftId) : handleWriteDraftFromSource(pendingDraftAction.sourceId)"
-                      >
-                        {{ pendingDraftAction.hasExistingDraft ? 'Publish' : 'Write draft' }}
-                      </UButton>
-                      <UChatPromptSubmit :status="promptSubmitting ? 'submitted' : uiStatus" />
-                    </div>
+                    <UChatPromptSubmit :status="promptSubmitting ? 'submitted' : uiStatus" />
                   </template>
                 </PromptComposer>
               </div>

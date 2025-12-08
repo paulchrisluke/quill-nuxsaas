@@ -1,19 +1,14 @@
 /**
  * Cloudflare Vectorize Integration
  *
- * IMPORTANT METADATA LIMITATION:
- * Cloudflare Vectorize is not storing or returning metadata in query responses.
- * Despite successful upsert operations with metadata, all vector queries return
- * empty metadata {} objects.
- *
- * Current workaround: Use vector ID pattern matching (sourceContentId:chunkIndex)
- * See docs/VECTORIZE_METADATA_ISSUE.md for full debugging details.
- *
  * Working features:
  * - ✅ Vector embeddings (768 dimensions, @cf/baai/bge-base-en-v1.5)
  * - ✅ Vector storage and retrieval
  * - ✅ Vector similarity search
- * - ❌ Metadata filtering (broken at Cloudflare level)
+ * - ✅ Metadata retrieval (using returnMetadata: 'all')
+ *
+ * Note: When using returnMetadata: 'all', topK is limited to 20 by Cloudflare.
+ * Metadata filtering requires fields to be indexed in the Vectorize index.
  */
 
 import { createError } from 'h3'
@@ -218,15 +213,20 @@ export const queryVectorMatches = async ({
     return []
   }
 
+  // Cloudflare Vectorize requires returnMetadata: 'all' to return metadata in query responses
+  // Note: When using returnMetadata: 'all', topK is limited to 20
+  const effectiveTopK = topK > 20 ? 20 : topK
+
   const response = await fetch(
     `${VECTORIZE_BASE}/vectorize/v2/indexes/${encodeURIComponent(CF_VECTORIZE_INDEX)}/query`,
     {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({
-        topK,
+        topK: effectiveTopK,
         vector,
-        filter
+        filter,
+        returnMetadata: 'all'
       })
     }
   )

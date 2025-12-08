@@ -1,20 +1,9 @@
-import type { ChatMessage } from '#shared/utils/types'
 import type { Ref } from 'vue'
-import { computed, ref } from 'vue'
-
-export interface PendingDraftAction {
-  sourceId: string
-  existingDraftId: string | null
-  hasExistingDraft: boolean
-  preview: any | null
-}
+import { ref } from 'vue'
 
 interface DraftActionOptions {
-  messages: Ref<ChatMessage[]> | (() => ChatMessage[])
   isBusy: Ref<boolean> | (() => boolean)
   status: Ref<string> | (() => string)
-  contentEntries?: Ref<Array<{ id: string, sourceContentId: string | null, status: string }>> | (() => Array<{ id: string, sourceContentId: string | null, status: string }>)
-  currentContentRecord?: Ref<{ id: string, sourceContentId: string | null } | null> | (() => { id: string, sourceContentId: string | null } | null)
   sessionContentId: Ref<string | null> | (() => string | null)
   contentId?: Ref<string> | (() => string | null)
   selectedContentType?: Ref<string | null> | (() => string | null)
@@ -26,11 +15,8 @@ interface DraftActionOptions {
 
 export function useDraftAction(options: DraftActionOptions) {
   const {
-    messages,
     isBusy,
     status,
-    contentEntries,
-    currentContentRecord,
     sessionContentId,
     contentId,
     selectedContentType,
@@ -43,29 +29,12 @@ export function useDraftAction(options: DraftActionOptions) {
   const isPublishing = ref(false)
   const toast = useToast()
 
-  const getMessages = () => {
-    const msgs = typeof messages === 'function' ? messages() : messages.value
-    return msgs
-  }
-
   const getIsBusy = () => {
     return typeof isBusy === 'function' ? isBusy() : isBusy.value
   }
 
   const getStatus = () => {
     return typeof status === 'function' ? status() : status.value
-  }
-
-  const getContentEntries = () => {
-    if (!contentEntries)
-      return []
-    return typeof contentEntries === 'function' ? contentEntries() : contentEntries.value
-  }
-
-  const getCurrentContentRecord = () => {
-    if (!currentContentRecord)
-      return null
-    return typeof currentContentRecord === 'function' ? currentContentRecord() : currentContentRecord.value
   }
 
   const getSessionContentId = () => {
@@ -84,59 +53,6 @@ export function useDraftAction(options: DraftActionOptions) {
     return typeof selectedContentType === 'function' ? selectedContentType() : selectedContentType.value
   }
 
-  const latestPlanPreview = computed(() => {
-    const reversed = [...getMessages()].reverse()
-    for (const entry of reversed) {
-      const payload = entry.payload as Record<string, any> | null | undefined
-      if (payload?.type === 'plan_preview' && typeof payload.sourceId === 'string') {
-        return {
-          sourceId: payload.sourceId as string,
-          preview: payload.preview ?? null
-        }
-      }
-    }
-    return null
-  })
-
-  const pendingDraftAction = computed<PendingDraftAction | null>(() => {
-    if (!latestPlanPreview.value) {
-      return null
-    }
-    if (getIsBusy() || ['submitted', 'streaming'].includes(getStatus())) {
-      return null
-    }
-
-    const sourceId = latestPlanPreview.value.sourceId
-    if (!sourceId || typeof sourceId !== 'string') {
-      return null
-    }
-
-    // Check if a draft already exists for this source
-    let existingDraft: { id: string } | null = null
-
-    // First check current content record (for DraftWorkspace)
-    const current = getCurrentContentRecord()
-    if (current?.sourceContentId === sourceId) {
-      existingDraft = { id: current.id }
-    }
-
-    // Then check contentEntries (for QuillioWidget)
-    if (!existingDraft) {
-      const found = getContentEntries().find(
-        entry => entry.sourceContentId === sourceId && entry.status === 'draft'
-      )
-      if (found) {
-        existingDraft = { id: found.id }
-      }
-    }
-
-    return {
-      sourceId,
-      existingDraftId: existingDraft?.id ?? null,
-      hasExistingDraft: !!existingDraft,
-      preview: latestPlanPreview.value.preview ?? null
-    }
-  })
 
   async function handleWriteDraftFromSource(sourceId?: string | null) {
     if (!sourceId) {
@@ -237,8 +153,6 @@ export function useDraftAction(options: DraftActionOptions) {
   }
 
   return {
-    latestPlanPreview,
-    pendingDraftAction,
     handleWriteDraftFromSource,
     handlePublishDraft,
     isPublishing

@@ -9,6 +9,7 @@ export interface ChatAgentInput {
   conversationHistory: ChatCompletionMessage[]
   userMessage: string
   contextBlocks?: string[]
+  onRetry?: (toolInvocation: ChatToolInvocation, retryCount: number) => Promise<void> | void
 }
 
 export interface ToolExecutionResult {
@@ -123,6 +124,11 @@ export async function runChatAgentWithMultiPass({
         toolHistory,
         conversationHistory: currentHistory
       }
+    }
+
+    // Log retry if this is a retry attempt
+    if (retryCount > 0 && onRetry) {
+      await onRetry(toolInvocation, retryCount)
     }
 
     // Execute tool

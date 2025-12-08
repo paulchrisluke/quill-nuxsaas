@@ -908,6 +908,20 @@ export default defineEventHandler(async (event) => {
         conversationHistory,
         userMessage: trimmedMessage,
         contextBlocks,
+        onRetry: async (toolInvocation: ChatToolInvocation, retryCount: number) => {
+          // Log tool retry
+          await addLogEntryToChatSession(db, {
+            sessionId: activeSession.id,
+            organizationId,
+            type: 'tool_retrying',
+            message: `Retrying ${toolInvocation.name} (attempt ${retryCount + 1}/3)...`,
+            payload: {
+              toolName: toolInvocation.name,
+              args: toolInvocation.arguments,
+              retryCount
+            }
+          })
+        },
         executeTool: async (toolInvocation: ChatToolInvocation) => {
           // Log tool start
           await addLogEntryToChatSession(db, {
@@ -1136,7 +1150,7 @@ export default defineEventHandler(async (event) => {
   } else if (contextParts.length > 0 || trimmedMessage) {
     const { callChatCompletions } = await import('~~/server/utils/aiGateway')
     const contextText = contextParts.length > 0 ? `Context:\n${contextParts.join('\n\n')}` : ''
-    const userMessage = wrapPromptSnippet('User message', trimmedMessage, 1500) || 'User sent a message or action.'
+    const userMessage = wrapPromptSnippet('User message', trimmedMessage, 1500) || 'User sent a message.'
 
     const prompt = `${contextText}
 
@@ -1208,10 +1222,20 @@ Keep it conversational and helpful.`
     .filter(log => log.type && log.type.startsWith('tool_'))
     .map((log) => {
       const payload = log.payload as Record<string, any> | null
+      let status = 'unknown'
+      if (log.type === 'tool_succeeded') {
+        status = 'succeeded'
+      } else if (log.type === 'tool_failed') {
+        status = 'failed'
+      } else if (log.type === 'tool_started') {
+        status = 'started'
+      } else if (log.type === 'tool_retrying') {
+        status = 'retrying'
+      }
       return {
         toolName: payload?.toolName || 'unknown',
         timestamp: log.createdAt,
-        status: log.type === 'tool_succeeded' ? 'succeeded' : log.type === 'tool_failed' ? 'failed' : log.type === 'tool_started' ? 'started' : 'unknown'
+        status
       }
     })
     .slice(-10) // Last 10 tool executions
