@@ -19,7 +19,7 @@ interface DraftActionOptions {
   contentId?: Ref<string> | (() => string | null)
   selectedContentType?: Ref<string | null> | (() => string | null)
   pendingDrafts?: Ref<Array<{ id: string, contentType: string | null }>>
-  sendMessage?: (message: string, options?: { displayContent?: string, contentId?: string | null, action?: Record<string, any> }) => Promise<any>
+  sendMessage?: (message: string, options?: { displayContent?: string, contentId?: string | null }) => Promise<any>
   onRefresh?: () => Promise<void> | void
   onLoadWorkspace?: () => Promise<void> | void
 }
@@ -163,32 +163,15 @@ export function useDraftAction(options: DraftActionOptions) {
     try {
       const resolvedContentId = getContentId() || getSessionContentId() || undefined
 
-      if (sendMessage) {
-        // Use sendMessage from useChatSession if provided
-        await sendMessage('Please create a full draft from this transcript.', {
-          displayContent: 'Write draft from transcript',
-          contentId: resolvedContentId,
-          action: {
-            type: 'generate_content',
-            sourceContentId: sourceId,
-            contentId: resolvedContentId
-          }
-        })
-      } else {
-        // Fallback to direct API call
-        await $fetch('/api/chat', {
-          method: 'POST',
-          body: {
-            message: 'Please create a full draft from this transcript.',
-            contentId: resolvedContentId,
-            action: {
-              type: 'generate_content',
-              sourceContentId: sourceId,
-              contentId: resolvedContentId
-            }
-          }
-        })
+      if (!sendMessage) {
+        throw new Error('sendMessage is required')
       }
+
+      // Send natural language message - the agent will determine the appropriate tool to use
+      await sendMessage(`Please create a full draft from the source with ID ${sourceId}.`, {
+        displayContent: 'Write draft from transcript',
+        contentId: resolvedContentId
+      })
 
       if (onLoadWorkspace) {
         await onLoadWorkspace()

@@ -177,7 +177,8 @@ const {
   isBusy: chatIsBusy,
   hydrateSession,
   sessionContentId,
-  sessionId
+  sessionId,
+  agentContext
 } = useChatSession()
 const uiStatus = computed(() => chatStatus.value)
 const workspaceHeaderState = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
@@ -1075,24 +1076,13 @@ async function _handleSubmit() {
     return
   }
 
-  const mentionedSection = sections.value.find(section => trimmed.includes(`@${section.anchor}`))
-  const targetSection = mentionedSection || selectedSection.value
-
-  const action = targetSection && contentId.value
-    ? {
-        type: 'patch_section',
-        contentId: contentId.value,
-        sectionId: targetSection.id,
-        sectionTitle: targetSection.title,
-        instructions: trimmed
-      }
-    : undefined
-
+  // The agent will automatically determine which tool to use based on the natural language message
+  // If a section is mentioned with @anchor, the agent will use patch_section tool
+  // Otherwise, it will respond conversationally or use the appropriate tool
   try {
     await sendMessage(trimmed, {
       displayContent: trimmed,
-      contentId: contentId.value || sessionContentId.value,
-      action
+      contentId: contentId.value || sessionContentId.value
     })
     prompt.value = ''
     await loadWorkspacePayload()
@@ -1120,6 +1110,55 @@ onBeforeUnmount(() => {
           icon="i-lucide-alert-triangle"
           :description="chatErrorMessage"
         />
+
+        <!-- Agent Context Display -->
+        <div
+          v-if="agentContext && (agentContext.readySources?.length || agentContext.ingestFailures?.length)"
+          class="space-y-4"
+        >
+          <!-- Ready Sources -->
+          <UAlert
+            v-if="agentContext.readySources && agentContext.readySources.length > 0"
+            color="primary"
+            variant="soft"
+            icon="i-lucide-check-circle"
+            title="Ready Sources"
+          >
+            <template #description>
+              <div class="space-y-2">
+                <div
+                  v-for="source in agentContext.readySources"
+                  :key="source.id"
+                  class="text-sm"
+                >
+                  <strong>{{ source.title || 'Untitled source' }}</strong>
+                  <span class="text-surface-500"> ({{ source.sourceType?.replace('_', ' ') || 'source' }})</span>
+                </div>
+              </div>
+            </template>
+          </UAlert>
+          
+          <!-- Ingestion Failures -->
+          <UAlert
+            v-if="agentContext.ingestFailures && agentContext.ingestFailures.length > 0"
+            color="error"
+            variant="soft"
+            icon="i-lucide-alert-triangle"
+            title="Ingestion Issues"
+          >
+            <template #description>
+              <div class="space-y-1">
+                <div
+                  v-for="(failure, index) in agentContext.ingestFailures"
+                  :key="index"
+                  class="text-sm"
+                >
+                  {{ failure.content }}
+                </div>
+              </div>
+            </template>
+          </UAlert>
+        </div>
 
         <div class="flex-1 flex flex-col gap-4">
           <UChatMessages

@@ -55,80 +55,24 @@ export interface ListResponse<T> {
 }
 
 /**
- * Chat action types for content generation
- */
-export type ChatActionType = 'generate_content' | 'patch_section'
-
-/**
- * Chat action for generating content
- */
-export interface ChatActionGenerateContent {
-  type: 'generate_content'
-  /** Source content ID to generate from (e.g., transcript, YouTube video) */
-  sourceContentId?: string | null
-  /**
-   * Target content ID to generate into (for updating existing draft).
-   * If provided, takes precedence over top-level `contentId` for session linking.
-   * If null/undefined, a new draft will be created.
-   */
-  contentId?: string | null
-  transcript?: string | null
-  title?: string | null
-  slug?: string | null
-  status?: ContentStatus
-  primaryKeyword?: string | null
-  targetLocale?: string | null
-  contentType?: ContentType
-  systemPrompt?: string | null
-  temperature?: number | null
-}
-
-/**
- * Chat action for patching a section
- */
-export interface ChatActionPatchSection {
-  type: 'patch_section'
-  /**
-   * Target content ID to patch a section in.
-   * Required when action type is 'patch_section'.
-   * This is independent of top-level `contentId` and always refers to the content being patched.
-   */
-  contentId: string
-  sectionId?: string | null
-  sectionTitle?: string | null
-  instructions?: string | null
-  temperature?: number | null
-}
-
-/**
- * Union type for all chat actions
- */
-export type ChatAction = ChatActionGenerateContent | ChatActionPatchSection
-
-/**
  * Request body for chat endpoint
+ *
+ * @description
+ * The chat endpoint uses LLM-driven tool selection. Send natural language messages
+ * and the agent will determine which tools to execute automatically.
  */
 export interface ChatRequestBody {
-  /** User message */
+  /** User message (natural language) */
   message: string
   /** Optional existing session to continue */
   sessionId?: string | null
   /**
    * Optional content ID to link the chat session to.
-   * Used for session linking when no action is provided or when action doesn't specify contentId.
-   *
-   * **Precedence rules:**
-   * - If `action.type === 'generate_content'` and `action.contentId` is provided,
-   *   `action.contentId` takes precedence for session linking.
-   * - If `action.type === 'patch_section'`, `action.contentId` is used for patching
-   *   (independent of this field).
-   * - Otherwise, this field is used for session linking.
+   * Used for session linking to provide context about the current draft.
    *
    * **Use cases:**
    * - Link a chat session to an existing draft for context
    * - Continue a conversation about a specific piece of content
    */
   contentId?: string | null
-  /** Optional action to perform */
-  action?: ChatAction
 }
