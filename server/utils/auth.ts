@@ -428,11 +428,17 @@ export const createBetterAuth = () => betterAuth({
                       .limit(1)
 
                     if (existingMember) {
-                      // Another transaction already created the org, update session and return
+                      // Another transaction already created the org, update session and user atomically
                       await tx
                         .update(schema.session)
                         .set({ activeOrganizationId: existingMember.organizationId })
                         .where(eq(schema.session.id, session.id))
+
+                      await tx
+                        .update(schema.user)
+                        .set({ lastActiveOrganizationId: existingMember.organizationId })
+                        .where(eq(schema.user.id, user.id))
+
                       return
                     }
 
