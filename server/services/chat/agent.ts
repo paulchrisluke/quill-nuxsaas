@@ -366,108 +366,102 @@ export async function runChatAgentWithMultiPassStream({
       }
     }
 
-    // Parse and execute tool (use first tool call)
-    const toolCall = accumulatedToolCalls[0]
-    const toolInvocation = parseChatToolCall({
-      id: toolCall.id,
-      type: toolCall.type,
-      function: toolCall.function
-    })
+    // Parse and execute all tool calls in batch
+    for (const toolCall of accumulatedToolCalls) {
+      const toolInvocation = parseChatToolCall({
+        id: toolCall.id,
+        type: toolCall.type,
+        function: toolCall.function
+      })
 
-    if (!toolInvocation) {
-      // Invalid tool call, break and return
-      const errorMessage = accumulatedContent || 'I encountered an error processing your request.'
-      if (onFinalMessage) {
-        onFinalMessage(errorMessage)
+      if (!toolInvocation) {
+        // Invalid tool call, skip and continue with next one
+        console.warn(`Invalid tool call skipped: ${toolCall.id}`)
+        continue
       }
-      return {
-        finalMessage: errorMessage,
-        toolHistory,
-        conversationHistory: currentHistory
+
+      // Check retry count for this tool
+      const toolKey = `${toolInvocation.name}:${JSON.stringify(toolInvocation.arguments)}`
+      const retryCount = toolRetryCounts.get(toolKey) || 0
+
+      if (retryCount >= MAX_TOOL_RETRIES) {
+        // Max retries reached, stop and return error
+        const errorMessage = `I tried running ${toolInvocation.name} multiple times but it kept failing. Please try a different approach or check if there's an issue with the input.`
+        if (onFinalMessage) {
+          onFinalMessage(errorMessage)
+        }
+        return {
+          finalMessage: errorMessage,
+          toolHistory,
+          conversationHistory: currentHistory
+        }
       }
-    }
 
-    // Check retry count for this tool
-    const toolKey = `${toolInvocation.name}:${JSON.stringify(toolInvocation.arguments)}`
-    const retryCount = toolRetryCounts.get(toolKey) || 0
-
-    if (retryCount >= MAX_TOOL_RETRIES) {
-      // Max retries reached, stop and return error
-      const errorMessage = `I tried running ${toolInvocation.name} multiple times but it kept failing. Please try a different approach or check if there's an issue with the input.`
-      if (onFinalMessage) {
-        onFinalMessage(errorMessage)
+      // Log retry if this is a retry attempt
+      if (retryCount > 0 && onRetry) {
+        await onRetry(toolInvocation, retryCount)
       }
-      return {
-        finalMessage: errorMessage,
-        toolHistory,
-        conversationHistory: currentHistory
+
+      // Emit tool start event
+      if (onToolStart) {
+        onToolStart(toolInvocation.name)
       }
-    }
 
-    // Log retry if this is a retry attempt
-    if (retryCount > 0 && onRetry) {
-      await onRetry(toolInvocation, retryCount)
-    }
-
-    // Emit tool start event
-    if (onToolStart) {
-      onToolStart(toolInvocation.name)
-    }
-
-    // Execute tool with error handling
-    let toolResult: ToolExecutionResult
-    const timestamp = new Date()
-    try {
-      toolResult = await executeTool(toolInvocation)
-    } catch (err: any) {
-      console.error(`Tool execution failed for ${toolInvocation.name}:`, err)
-      toolResult = {
-        success: false,
-        error: err?.message || String(err),
-        errorStack: err?.stack
+      // Execute tool with error handling
+      let toolResult: ToolExecutionResult
+      const timestamp = new Date()
+      try {
+        toolResult = await executeTool(toolInvocation)
+      } catch (err: any) {
+        console.error(`Tool execution failed for ${toolInvocation.name}:`, err)
+        toolResult = {
+          success: false,
+          error: err?.message || String(err),
+          errorStack: err?.stack
+        }
       }
-    }
 
-    toolHistory.push({
-      toolName: toolInvocation.name,
-      invocation: toolInvocation,
-      result: toolResult,
-      timestamp
-    })
+      toolHistory.push({
+        toolName: toolInvocation.name,
+        invocation: toolInvocation,
+        result: toolResult,
+        timestamp
+      })
 
-    // Emit tool complete event
-    if (onToolComplete) {
-      onToolComplete(toolInvocation.name, toolResult)
-    }
-
-    // If tool failed, increment retry count
-    if (!toolResult.success) {
-      toolRetryCounts.set(toolKey, retryCount + 1)
-    } else {
-      // Success, reset retry count
-      toolRetryCounts.delete(toolKey)
-    }
-
-    // Format tool result as assistant message for next iteration
-    let toolResultMessage = ''
-    if (toolResult.success) {
-      toolResultMessage = `Tool ${toolInvocation.name} executed successfully.`
-      if (toolResult.result) {
-        toolResultMessage += ` Result: ${JSON.stringify(toolResult.result)}`
+      // Emit tool complete event
+      if (onToolComplete) {
+        onToolComplete(toolInvocation.name, toolResult)
       }
-    } else {
-      const retryInfo = retryCount > 0 ? ` (attempt ${retryCount + 1}/${MAX_TOOL_RETRIES + 1})` : ''
-      toolResultMessage = `Tool ${toolInvocation.name} failed${retryInfo}: ${toolResult.error || 'Unknown error'}`
+
+      // If tool failed, increment retry count
+      if (!toolResult.success) {
+        toolRetryCounts.set(toolKey, retryCount + 1)
+      } else {
+        // Success, reset retry count
+        toolRetryCounts.delete(toolKey)
+      }
+
+      // Format tool result as assistant message for next iteration
+      let toolResultMessage = ''
+      if (toolResult.success) {
+        toolResultMessage = `Tool ${toolInvocation.name} executed successfully.`
+        if (toolResult.result) {
+          toolResultMessage += ` Result: ${JSON.stringify(toolResult.result)}`
+        }
+      } else {
+        const retryInfo = retryCount > 0 ? ` (attempt ${retryCount + 1}/${MAX_TOOL_RETRIES + 1})` : ''
+        toolResultMessage = `Tool ${toolInvocation.name} failed${retryInfo}: ${toolResult.error || 'Unknown error'}`
+      }
+
+      // Add tool result as tool message (tool response)
+      currentHistory.push({
+        role: 'tool',
+        content: toolResultMessage,
+        tool_call_id: toolCall.id
+      })
     }
 
-    // Add tool result as tool message (tool response)
-    currentHistory.push({
-      role: 'tool',
-      content: toolResultMessage,
-      tool_call_id: toolCall.id
-    })
-
-    // Add user message acknowledging tool result (this helps the model understand the context)
+    // Add user message acknowledging tool results (this helps the model understand the context)
     currentHistory.push({
       role: 'user',
       content: 'Continue with the next step.'
