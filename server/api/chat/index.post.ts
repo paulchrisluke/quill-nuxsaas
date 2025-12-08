@@ -127,7 +127,7 @@ async function logToolEvent(
   writeSSE?: (eventType: string, data: any) => void
 ) {
   const message = type === 'tool_retrying'
-    ? `Retrying ${toolName} (attempt ${retryCount! + 1}/3)...`
+    ? `Retrying ${toolName} (attempt ${(retryCount ?? 0) + 1}/3)...`
     : `Running ${toolName}...`
 
   const logEntry = await addLogEntryToChatSession(db, {

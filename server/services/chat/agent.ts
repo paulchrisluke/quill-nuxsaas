@@ -308,6 +308,22 @@ export async function runChatAgentWithMultiPassStream({
     } catch (error: any) {
       console.error('Streaming error:', error)
       // Return graceful error result instead of re-throwing
+      // Add any accumulated content to history for consistency
+      if (accumulatedContent || accumulatedToolCalls.length > 0) {
+        currentHistory.push({
+          role: 'assistant',
+          content: accumulatedContent,
+          ...(accumulatedToolCalls.length > 0
+            ? {
+                tool_calls: accumulatedToolCalls.map(tc => ({
+                  id: tc.id,
+                  type: tc.type,
+                  function: tc.function
+                }))
+              }
+            : {})
+        })
+      }
       const errorMessage = 'I encountered an error while processing your request. Please try again.'
       if (onFinalMessage) {
         onFinalMessage(errorMessage)
