@@ -247,7 +247,6 @@ export async function runChatAgentWithMultiPassStream({
     }> = []
     let responseId = ''
     let responseModel = ''
-    const _finishReason: string | null = null
 
     try {
       for await (const chunk of callChatCompletionsStream({
@@ -301,15 +300,19 @@ export async function runChatAgentWithMultiPassStream({
             }
           }
         }
-
-        // Track finish reason (unused but kept for potential future use)
-        // if (firstChoice.finish_reason) {
-        //   _finishReason = firstChoice.finish_reason
-        // }
       }
     } catch (error: any) {
       console.error('Streaming error:', error)
-      throw error
+      // Return graceful error result instead of re-throwing
+      const errorMessage = 'I encountered an error while processing your request. Please try again.'
+      if (onFinalMessage) {
+        onFinalMessage(errorMessage)
+      }
+      return {
+        finalMessage: errorMessage,
+        toolHistory,
+        conversationHistory: currentHistory
+      }
     }
 
     // Build the complete assistant message

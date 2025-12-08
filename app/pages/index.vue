@@ -33,5 +33,6 @@ useSeoMeta({
 
 <template>
   <!-- Chat is now in layout, so this page just needs to exist for routing -->
+  <!-- TODO: Create a proper home marketing screen with hero section, features, and CTA for SEO and accessibility -->
   <div />
 </template>

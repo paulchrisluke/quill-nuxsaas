@@ -274,10 +274,10 @@ export async function* callChatCompletionsStream({
     }
 
     const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
     try {
+      const decoder = new TextDecoder()
+      let buffer = ''
+
       while (true) {
         const { done, value } = await reader.read()
 
@@ -331,11 +331,16 @@ export async function* callChatCompletionsStream({
       error: error?.message || error
     })
 
+    // Preserve original error status code if it exists, otherwise default to 502
+    const statusCode = error?.statusCode || error?.status || 502
+    const statusMessage = error?.statusMessage || 'Failed to reach AI Gateway'
+    const errorMessage = error?.message || error?.data?.message || 'Unknown AI Gateway error'
+
     throw createError({
-      statusCode: 502,
-      statusMessage: 'Failed to reach AI Gateway',
+      statusCode,
+      statusMessage,
       data: {
-        message: error?.message || 'Unknown AI Gateway error'
+        message: errorMessage
       }
     })
   }

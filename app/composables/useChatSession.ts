@@ -181,11 +181,22 @@ export function useChatSession() {
       let currentAssistantMessageId: string | null = null
       let currentAssistantMessageText = ''
       let pendingEventType: string | null = null
+      // Activity state management: tool:start/tool:complete events take precedence over log:entry events
+      // This ensures consistent behavior regardless of which event types the server emits
+      // If both are present, dedicated events (tool:start/tool:complete) control the state
+      let activitySetByDedicatedEvent = false
 
-      // Remove the user message we just added (server will send it back)
+      // Mark the user message as sending (don't remove it - server will echo it back)
+      // Track the client message ID for deduplication
       const lastUserMessage = messages.value[messages.value.length - 1]
+      let clientUserMessageId: string | null = null
       if (lastUserMessage?.role === 'user') {
-        messages.value = messages.value.slice(0, -1)
+        clientUserMessageId = lastUserMessage.id
+        // Mark message as sending using payload
+        lastUserMessage.payload = {
+          ...(lastUserMessage.payload || {}),
+          _isSending: true
+        }
       }
 
       try {
@@ -231,6 +242,7 @@ export function useChatSession() {
                     // LLM is generating text
                     currentActivity.value = 'streaming_message'
                     currentToolName.value = null
+                    activitySetByDedicatedEvent = false // Reset flag when LLM starts streaming
 
                     if (!currentAssistantMessageId) {
                       currentAssistantMessageId = eventData.messageId || createId()
@@ -269,21 +281,24 @@ export function useChatSession() {
                     // Message complete, but might still be processing tools
                     if (currentActivity.value === 'streaming_message') {
                       currentActivity.value = null
+                      activitySetByDedicatedEvent = false // Reset flag
                     }
                     break
                   }
 
                   case 'tool:start': {
-                    // Tool execution started
+                    // Tool execution started - dedicated event takes precedence
                     currentActivity.value = 'tool_executing'
                     currentToolName.value = eventData.toolName || null
+                    activitySetByDedicatedEvent = true
                     break
                   }
 
                   case 'tool:complete': {
-                    // Tool execution completed
+                    // Tool execution completed - dedicated event takes precedence
                     currentActivity.value = null
                     currentToolName.value = null
+                    activitySetByDedicatedEvent = true
                     break
                   }
 
@@ -308,19 +323,24 @@ export function useChatSession() {
                     logs.value = [...logs.value, logEntry]
 
                     // Update activity state based on log type
+                    // Only use log:entry events if dedicated tool:start/tool:complete events haven't been used
+                    // This ensures consistent behavior regardless of which event types the server emits
                     const logType = logEntry.type?.toLowerCase() || ''
                     if (logType.startsWith('tool_')) {
-                      if (logType === 'tool_started') {
+                      if (logType === 'tool_started' && !activitySetByDedicatedEvent) {
+                        // Fallback: only set activity if not already set by dedicated event
                         currentActivity.value = 'tool_executing'
                         currentToolName.value = (logEntry.payload as any)?.toolName || null
                       } else if (logType === 'tool_succeeded' || logType === 'tool_failed') {
                         // Tool completed, but might have more tools or LLM response coming
                         // Don't clear activity yet - wait for next event
+                        // Note: If tool:complete was received, it already cleared activity
                       }
                     } else if (logType === 'user_message') {
                       // User message sent, LLM will start thinking
                       currentActivity.value = 'llm_thinking'
                       currentToolName.value = null
+                      activitySetByDedicatedEvent = false // Reset flag for next tool cycle
                     }
                     break
                   }
@@ -346,9 +366,22 @@ export function useChatSession() {
                     if (Array.isArray(eventData.messages)) {
                       const normalizedMessages = normalizeMessages(eventData.messages)
                       const existingMessageMap = new Map(messages.value.map(msg => [msg.id, msg]))
+
+                      // Merge server messages, replacing any temporary client messages
                       for (const newMessage of normalizedMessages) {
+                        // If this server message matches our client message ID, replace it
+                        // Otherwise, add/update the message
                         existingMessageMap.set(newMessage.id, newMessage)
                       }
+
+                      // Clear transient flags from all messages (server has echoed them back)
+                      for (const msg of existingMessageMap.values()) {
+                        if (msg.payload?._isSending) {
+                          const { _isSending, ...restPayload } = msg.payload
+                          msg.payload = Object.keys(restPayload).length > 0 ? restPayload : null
+                        }
+                      }
+
                       messages.value = Array.from(existingMessageMap.values()).sort((a, b) =>
                         a.createdAt.getTime() - b.createdAt.getTime()
                       )
@@ -381,6 +414,16 @@ export function useChatSession() {
                   case 'error': {
                     const errorMsg = eventData.message || eventData.error || 'An error occurred'
                     errorMessage.value = errorMsg
+
+                    // Clear transient flag from user message if it exists
+                    if (clientUserMessageId) {
+                      const userMsgIndex = messages.value.findIndex(m => m.id === clientUserMessageId)
+                      if (userMsgIndex >= 0 && messages.value[userMsgIndex]?.payload?._isSending) {
+                        const { _isSending, ...restPayload } = messages.value[userMsgIndex].payload || {}
+                        messages.value[userMsgIndex].payload = Object.keys(restPayload).length > 0 ? restPayload : null
+                      }
+                    }
+
                     messages.value.push({
                       id: createId(),
                       role: 'assistant' as const,
@@ -406,6 +449,14 @@ export function useChatSession() {
         }
       } finally {
         reader.releaseLock()
+        // Clear any remaining transient flags if stream completed without messages:complete event
+        if (clientUserMessageId) {
+          const userMsgIndex = messages.value.findIndex(m => m.id === clientUserMessageId)
+          if (userMsgIndex >= 0 && messages.value[userMsgIndex]?.payload?._isSending) {
+            const { _isSending, ...restPayload } = messages.value[userMsgIndex].payload || {}
+            messages.value[userMsgIndex].payload = Object.keys(restPayload).length > 0 ? restPayload : null
+          }
+        }
       }
 
       status.value = 'ready'
@@ -414,6 +465,13 @@ export function useChatSession() {
       currentToolName.value = null
       return null // Streaming doesn't return a response object
     } catch (error: any) {
+      // Clear transient flag from user message if it exists (preserve user input)
+      const lastUserMessage = messages.value[messages.value.length - 1]
+      if (lastUserMessage?.role === 'user' && lastUserMessage?.payload?._isSending) {
+        const { _isSending, ...restPayload } = lastUserMessage.payload || {}
+        lastUserMessage.payload = Object.keys(restPayload).length > 0 ? restPayload : null
+      }
+
       if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
         status.value = 'ready'
         requestStartedAt.value = null

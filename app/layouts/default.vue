@@ -177,7 +177,7 @@ const primaryActionColor = computed(() => {
                 </div>
               </div>
               <div
-                v-if="workspaceHeader.onArchive || workspaceHeader.onShare || workspaceHeader.onPrimaryAction"
+                v-if="workspaceHeader"
                 class="flex items-center gap-2 flex-wrap justify-end"
               >
                 <UButton
@@ -210,6 +210,7 @@ const primaryActionColor = computed(() => {
                 >
                   {{ workspaceHeader.primaryActionLabel || 'Continue' }}
                 </UButton>
+                <UserNavigation />
               </div>
             </div>
             <div

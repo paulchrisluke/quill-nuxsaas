@@ -72,7 +72,13 @@ function toSummaryBullets(text: string | null | undefined) {
 }
 
 function writeSSEEvent(event: any, eventType: string, data: any) {
-  const eventData = JSON.stringify(data)
+  let eventData: string
+  try {
+    eventData = JSON.stringify(data)
+  } catch (error) {
+    console.error('Failed to serialize SSE data:', error)
+    eventData = JSON.stringify({ error: 'Serialization failed' })
+  }
   return `event: ${eventType}\ndata: ${eventData}\n\n`
 }
 
@@ -134,6 +140,48 @@ interface ToolExecutionResult {
   error?: string
   sourceContentId?: string | null
   contentId?: string | null
+}
+
+async function logToolEvent(
+  db: Awaited<ReturnType<typeof useDB>>,
+  sessionId: string,
+  organizationId: string,
+  type: 'tool_started' | 'tool_retrying',
+  toolName: string,
+  args?: any,
+  retryCount?: number,
+  writeSSE?: (eventType: string, data: any) => void
+) {
+  const message = type === 'tool_retrying'
+    ? `Retrying ${toolName} (attempt ${retryCount! + 1}/3)...`
+    : `Running ${toolName}...`
+
+  const logEntry = await addLogEntryToChatSession(db, {
+    sessionId,
+    organizationId,
+    type,
+    message,
+    payload: { toolName, args, retryCount }
+  })
+
+  if (writeSSE && logEntry) {
+    writeSSE('log:entry', {
+      id: logEntry.id,
+      type: logEntry.type,
+      message: logEntry.message,
+      payload: logEntry.payload,
+      createdAt: logEntry.createdAt
+    })
+  }
+
+  if (type === 'tool_started' && writeSSE) {
+    writeSSE('tool:start', {
+      toolName,
+      timestamp: new Date().toISOString()
+    })
+  }
+
+  return logEntry
 }
 
 async function executeChatTool(
@@ -864,6 +912,18 @@ export default defineEventHandler(async (event) => {
   // Use activeSession variable to avoid null checks
   let activeSession = session
 
+  // Helper to write SSE event to response (only used in streaming mode)
+  const writeSSE = wantsStream
+    ? (eventType: string, data: any) => {
+        try {
+          const sseData = writeSSEEvent(event, eventType, data)
+          event.node.res.write(sseData)
+        } catch (error) {
+          console.error('Failed to write SSE event:', error)
+        }
+      }
+    : null
+
   // Track any existing source content from the session
   if (activeSession.sourceContentId && !readySourceIds.has(activeSession.sourceContentId)) {
     const [sessionSource] = await db
@@ -984,18 +1044,6 @@ export default defineEventHandler(async (event) => {
       contextBlocks.push(`Ingestion failures:\n${failureSummary}`)
     }
 
-    // Helper to write SSE event to response (only used in streaming mode)
-    const writeSSE = wantsStream
-      ? (eventType: string, data: any) => {
-          try {
-            const sseData = writeSSEEvent(event, eventType, data)
-            event.node.res.write(sseData)
-          } catch (error) {
-            console.error('Failed to write SSE event:', error)
-          }
-        }
-      : null
-
     // Import crypto for UUID generation (only needed in streaming mode)
     const { randomUUID } = wantsStream ? await import('crypto') : { randomUUID: () => '' }
 
@@ -1004,6 +1052,8 @@ export default defineEventHandler(async (event) => {
       if (wantsStream) {
         // Streaming mode: use streaming agent with SSE callbacks
         let currentMessageId: string | null = null
+        // Track assistant message for potential future use (used in callbacks)
+        let _currentAssistantMessage = ''
 
         // Send initial session update
         if (writeSSE) {
@@ -1018,7 +1068,7 @@ export default defineEventHandler(async (event) => {
           userMessage: trimmedMessage,
           contextBlocks,
           onLLMChunk: (chunk: string) => {
-            currentAssistantMessage += chunk
+            _currentAssistantMessage += chunk
             if (!currentMessageId) {
               currentMessageId = randomUUID()
             }
@@ -1031,30 +1081,16 @@ export default defineEventHandler(async (event) => {
           },
           onToolStart: async (toolName: string) => {
             // Log tool start
-            const logEntry = await addLogEntryToChatSession(db, {
-              sessionId: activeSession.id,
+            await logToolEvent(
+              db,
+              activeSession.id,
               organizationId,
-              type: 'tool_started',
-              message: `Running ${toolName}...`,
-              payload: {
-                toolName
-              }
-            })
-            if (writeSSE) {
-              writeSSE('tool:start', {
-                toolName,
-                timestamp: new Date().toISOString()
-              })
-              if (logEntry) {
-                writeSSE('log:entry', {
-                  id: logEntry.id,
-                  type: logEntry.type,
-                  message: logEntry.message,
-                  payload: logEntry.payload,
-                  createdAt: logEntry.createdAt
-                })
-              }
-            }
+              'tool_started',
+              toolName,
+              undefined,
+              undefined,
+              writeSSE || undefined
+            )
           },
           onToolComplete: async (toolName: string, result: any) => {
             if (writeSSE) {
@@ -1068,7 +1104,7 @@ export default defineEventHandler(async (event) => {
             }
           },
           onFinalMessage: (message: string) => {
-            currentAssistantMessage = message
+            _currentAssistantMessage = message
             if (writeSSE) {
               writeSSE('message:complete', {
                 messageId: currentMessageId,
@@ -1078,26 +1114,16 @@ export default defineEventHandler(async (event) => {
           },
           onRetry: async (toolInvocation: ChatToolInvocation, retryCount: number) => {
             // Log tool retry
-            const logEntry = await addLogEntryToChatSession(db, {
-              sessionId: activeSession.id,
+            await logToolEvent(
+              db,
+              activeSession.id,
               organizationId,
-              type: 'tool_retrying',
-              message: `Retrying ${toolInvocation.name} (attempt ${retryCount + 1}/3)...`,
-              payload: {
-                toolName: toolInvocation.name,
-                args: toolInvocation.arguments,
-                retryCount
-              }
-            })
-            if (writeSSE && logEntry) {
-              writeSSE('log:entry', {
-                id: logEntry.id,
-                type: logEntry.type,
-                message: logEntry.message,
-                payload: logEntry.payload,
-                createdAt: logEntry.createdAt
-              })
-            }
+              'tool_retrying',
+              toolInvocation.name,
+              toolInvocation.arguments,
+              retryCount,
+              writeSSE || undefined
+            )
           },
           executeTool: async (toolInvocation: ChatToolInvocation) => {
             return await executeChatTool(toolInvocation, {
@@ -1117,30 +1143,26 @@ export default defineEventHandler(async (event) => {
           contextBlocks,
           onRetry: async (toolInvocation: ChatToolInvocation, retryCount: number) => {
             // Log tool retry
-            await addLogEntryToChatSession(db, {
-              sessionId: activeSession.id,
+            await logToolEvent(
+              db,
+              activeSession.id,
               organizationId,
-              type: 'tool_retrying',
-              message: `Retrying ${toolInvocation.name} (attempt ${retryCount + 1}/3)...`,
-              payload: {
-                toolName: toolInvocation.name,
-                args: toolInvocation.arguments,
-                retryCount
-              }
-            })
+              'tool_retrying',
+              toolInvocation.name,
+              toolInvocation.arguments,
+              retryCount
+            )
           },
           executeTool: async (toolInvocation: ChatToolInvocation) => {
             // Log tool start
-            await addLogEntryToChatSession(db, {
-              sessionId: activeSession.id,
+            await logToolEvent(
+              db,
+              activeSession.id,
               organizationId,
-              type: 'tool_started',
-              message: `Running ${toolInvocation.name}...`,
-              payload: {
-                toolName: toolInvocation.name,
-                args: toolInvocation.arguments
-              }
-            })
+              'tool_started',
+              toolInvocation.name,
+              toolInvocation.arguments
+            )
             return await executeChatTool(toolInvocation, {
               db,
               organizationId,
@@ -1517,34 +1539,32 @@ Keep it conversational and helpful.`
       createdAt: log.createdAt
     }))
 
-    // Send final state
-    const writeSSE = (eventType: string, data: any) => {
-      try {
-        const sseData = writeSSEEvent(event, eventType, data)
-        event.node.res.write(sseData)
-      } catch (error) {
-        console.error('Failed to write SSE event:', error)
-      }
+    // Send final state (using existing writeSSE helper defined earlier)
+    // writeSSE is guaranteed to be non-null inside this if (wantsStream) block
+    if (writeSSE) {
+      writeSSE('messages:complete', {
+        messages: finalMessages
+      })
+
+      writeSSE('logs:complete', {
+        logs: finalLogs
+      })
+
+      writeSSE('agentContext:update', agentContext)
+
+      writeSSE('session:final', {
+        sessionId: activeSession.id,
+        sessionContentId: activeSession.contentId
+      })
+
+      // Send done event and close stream
+      writeSSE('done', {})
+      event.node.res.end()
+    } else {
+      // This should never happen in streaming mode, but handle gracefully
+      console.error('writeSSE is null in streaming mode - this should not happen')
+      event.node.res.end()
     }
-
-    writeSSE('messages:complete', {
-      messages: finalMessages
-    })
-
-    writeSSE('logs:complete', {
-      logs: finalLogs
-    })
-
-    writeSSE('agentContext:update', agentContext)
-
-    writeSSE('session:final', {
-      sessionId: activeSession.id,
-      sessionContentId: activeSession.contentId
-    })
-
-    // Send done event and close stream
-    writeSSE('done', {})
-    event.node.res.end()
 
     // Return null for streaming (response already sent)
     return null
