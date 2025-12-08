@@ -758,7 +758,6 @@ function normalizeStringList(value: unknown): string[] {
 }
 
 const selectedSectionId = ref<string | null>(null)
-const _selectedSection = computed(() => sections.value.find(section => section.id === selectedSectionId.value) ?? null)
 
 const _formatTranscriptText = (text: string) => {
   if (!text) {

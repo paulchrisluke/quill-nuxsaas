@@ -411,8 +411,31 @@ export const createBetterAuth = () => betterAuth({
 
               if (!member) {
                 // Create organization in after hook as fallback
+                // Use advisory lock to prevent race condition when multiple sessions create org concurrently
                 try {
                   await db.transaction(async (tx) => {
+                    // Use advisory lock based on user ID to serialize concurrent org creation
+                    const lockHash = createHash('sha256').update(`anon-org:${user.id}`).digest()
+                    const lockKeyA = lockHash.readInt32BE(0)
+                    const lockKeyB = lockHash.readInt32BE(4)
+                    await tx.execute(sql`select pg_advisory_xact_lock(${lockKeyA}, ${lockKeyB})`)
+
+                    // Re-check member after acquiring lock (another transaction may have created it)
+                    const [existingMember] = await tx
+                      .select()
+                      .from(schema.member)
+                      .where(eq(schema.member.userId, user.id))
+                      .limit(1)
+
+                    if (existingMember) {
+                      // Another transaction already created the org, update session and return
+                      await tx
+                        .update(schema.session)
+                        .set({ activeOrganizationId: existingMember.organizationId })
+                        .where(eq(schema.session.id, session.id))
+                      return
+                    }
+
                     const [newOrg] = await tx
                       .insert(schema.organization)
                       .values({
@@ -420,6 +443,9 @@ export const createBetterAuth = () => betterAuth({
                         name: 'Anonymous Workspace',
                         slug: `anonymous-${user.id}`,
                         createdAt: new Date()
+                      })
+                      .onConflictDoNothing({
+                        target: schema.organization.slug
                       })
                       .returning()
 
@@ -444,10 +470,27 @@ export const createBetterAuth = () => betterAuth({
                         .update(schema.session)
                         .set({ activeOrganizationId: newOrg.id })
                         .where(eq(schema.session.id, session.id))
+                    } else {
+                      // Org was created by another transaction, fetch it and update session
+                      const [existingOrg] = await tx
+                        .select()
+                        .from(schema.organization)
+                        .where(eq(schema.organization.slug, `anonymous-${user.id}`))
+                        .limit(1)
+
+                      if (existingOrg) {
+                        await tx
+                          .update(schema.session)
+                          .set({ activeOrganizationId: existingOrg.id })
+                          .where(eq(schema.session.id, session.id))
+                      }
                     }
                   })
                 } catch (error) {
-                  console.error('[Auth] Failed to create anonymous organization in after hook:', error)
+                  // Only log non-unique-constraint errors to avoid spurious logs from race conditions
+                  if (error && typeof error === 'object' && 'code' in error && error.code !== '23505') {
+                    console.error('[Auth] Failed to create anonymous organization in after hook:', error)
+                  }
                 }
               }
             }

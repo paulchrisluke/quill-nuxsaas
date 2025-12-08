@@ -53,14 +53,14 @@ export const parseAIResponseAsJSON = <T>(raw: string, label: string): T => {
 
   let parsed = tryParse(trimmed)
 
-  if (!parsed) {
+  if (parsed === null) {
     const match = trimmed.match(/```json([\s\S]*?)```/i)
     if (match && match[1]) {
       parsed = tryParse(match[1])
     }
   }
 
-  if (!parsed) {
+  if (parsed === null) {
     throw createError({
       statusCode: 502,
       statusMessage: `Failed to parse ${label} response from AI`

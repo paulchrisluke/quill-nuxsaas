@@ -326,11 +326,7 @@ const displayMessages = computed<ChatMessage[]>(() => {
   return baseMessages.filter(message => message.id !== THINKING_MESSAGE_ID)
 })
 
-const {
-  handleWriteDraftFromSource: handleWriteDraftFromSourceComposable,
-  handlePublishDraft: handlePublishDraftComposable,
-  isPublishing: isPublishingComposable
-} = useDraftAction({
+useDraftAction({
   isBusy,
   status,
   sessionContentId,
@@ -342,13 +338,6 @@ const {
     prefetchWorkspacePayload(sessionContentId.value || activeWorkspaceId.value)
   }
 })
-
-const _isPublishing = isPublishingComposable
-
-async function _handleWriteDraftFromSource(sourceId?: string | null) {
-  await handleWriteDraftFromSourceComposable(sourceId)
-  prefetchWorkspacePayload(sessionContentId.value || activeWorkspaceId.value)
-}
 
 const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
   const fallback = draftQuotaUsage.value
@@ -500,8 +489,6 @@ const handlePromptSubmit = async (value?: string) => {
     promptSubmitting.value = false
   }
 }
-
-const _handlePublishDraft = handlePublishDraftComposable
 
 const loadWorkspaceDetail = async (contentId: string) => {
   if (!contentId) {

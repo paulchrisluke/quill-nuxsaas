@@ -24,38 +24,25 @@ import {
   extractMarkdownFromEnrichedMdx
 } from './assembly'
 import {
-  buildChunkPreviewText,
-  createTextChunks,
   ensureSourceContentChunksExist,
   findRelevantChunksForSection
 } from './chunking'
 import {
   createFrontmatterFromOutline,
   enrichFrontmatterWithMetadata,
-  extractFrontmatterFromVersion,
-  formatFrontmatterAsYaml,
-  orderFrontmatterKeys
+  extractFrontmatterFromVersion
 } from './frontmatter'
 import { createGenerationMetadata, createSectionUpdateMetadata } from './metadata'
-import { CONTENT_OUTLINE_SYSTEM_PROMPT, generateContentOutline, MAX_OUTLINE_SECTIONS } from './planning'
+import { generateContentOutline } from './planning'
 import {
-  CONTENT_SECTION_SYSTEM_PROMPT,
   CONTENT_SECTION_UPDATE_SYSTEM_PROMPT,
-  extractSectionContent,
   generateContentSectionsFromOutline,
-  MAX_SECTION_CONTEXT_CHUNKS,
   normalizeContentSections
 } from './sections'
-import { generateStructuredDataJsonLd } from './structured-data'
 import {
-  calculateChunkRelevanceScore,
-  calculateCosineSimilarity,
   countWords,
   isValidContentFrontmatter,
-  normalizeContentKeywords,
-  normalizeContentSchemaTypes,
-  parseAIResponseAsJSON,
-  tokenizeTextForSearch
+  parseAIResponseAsJSON
 } from './utils'
 
 // Re-export types for backward compatibility
@@ -236,7 +223,7 @@ export const generateContentDraftFromSource = async (
     })
   }
 
-  const plan = await generateContentPlan({
+  const plan = await generateContentOutline({
     contentType,
     instructions: systemPrompt,
     chunks: chunks || [], // Ensure chunks is always an array
@@ -262,7 +249,7 @@ export const generateContentDraftFromSource = async (
     await input.onPlanReady({ plan, frontmatter })
   }
 
-  const sections = await generateSectionsFromOutline({
+  const sections = await generateContentSectionsFromOutline({
     outline: plan.outline,
     frontmatter,
     chunks: chunks || [],

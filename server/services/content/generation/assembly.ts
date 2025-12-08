@@ -106,7 +106,14 @@ export const assembleMarkdownFromSections = (params: {
     }
   })
 
-  markdown = `${markdown.trim()}\n`
+  const trimmedMarkdown = markdown.trimEnd()
+  markdown = `${trimmedMarkdown}\n`
+
+  // Adjust final section's endOffset if it extended into trimmed area
+  if (sectionsWithOffsets.length > 0) {
+    const last = sectionsWithOffsets[sectionsWithOffsets.length - 1]
+    last.endOffset = Math.min(last.endOffset, markdown.length)
+  }
 
   return {
     markdown,
