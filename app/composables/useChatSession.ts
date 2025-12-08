@@ -116,6 +116,9 @@ export function useChatSession() {
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
   const agentContext = useState<AgentContext | null>('chat/agent-context', () => null)
+  const prompt = useState<string>('chat/prompt', () => '')
+  const currentActivity = useState<'llm_thinking' | 'tool_executing' | 'streaming_message' | null>('chat/current-activity', () => null)
+  const currentToolName = useState<string | null>('chat/current-tool-name', () => null)
 
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
 
@@ -135,6 +138,8 @@ export function useChatSession() {
     requestStartedAt.value = new Date()
     status.value = 'submitted'
     errorMessage.value = null
+    currentActivity.value = 'llm_thinking' // Initial state - LLM is thinking about the request
+    currentToolName.value = null
 
     if (activeController.value) {
       activeController.value.abort()
@@ -148,93 +153,307 @@ export function useChatSession() {
         payload.sessionId = sessionId.value
       }
 
-      const response = await $fetch<ChatResponse>('/api/chat', {
+      // Chat API is streaming-only (SSE)
+      const url = '/api/chat?stream=true'
+      const response = await fetch(url, {
         method: 'POST',
-        body: payload,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify(payload),
         signal: controller?.signal
       })
 
-      sessionId.value = response.sessionId ?? sessionId.value
-      sessionContentId.value = response.sessionContentId ?? sessionContentId.value ?? null
-
-      const normalizedMessages = normalizeMessages(response.messages)
-
-      if (normalizedMessages.length > 0) {
-        const serverHasUserMessage = normalizedMessages.some(message => message.role === 'user')
-
-        if (serverHasUserMessage) {
-          const lastMessage = messages.value[messages.value.length - 1]
-          if (lastMessage?.role === 'user') {
-            messages.value = messages.value.slice(0, -1)
-          }
-        }
-
-        // Merge new messages with existing ones
-        // Create a map of existing messages by ID for quick lookup
-        const existingMessageMap = new Map(messages.value.map(msg => [msg.id, msg]))
-
-        // Add or update messages from the response
-        for (const newMessage of normalizedMessages) {
-          existingMessageMap.set(newMessage.id, newMessage)
-        }
-
-        // Convert back to array and sort by createdAt
-        messages.value = Array.from(existingMessageMap.values()).sort((a, b) =>
-          a.createdAt.getTime() - b.createdAt.getTime()
-        )
-      } else if (response.assistantMessage) {
-        messages.value = [
-          ...messages.value,
-          {
-            id: createId(),
-            role: 'assistant' as const,
-            parts: [{ type: 'text' as const, text: response.assistantMessage }] as NonEmptyArray<{ type: 'text', text: string }>,
-            createdAt: new Date()
-          }
-        ]
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.statusMessage || errorData.message || `HTTP ${response.status}`)
       }
 
-      logs.value = normalizeLogs(response.logs)
-
-      // Update agentContext if provided
-      if (response.agentContext) {
-        agentContext.value = {
-          readySources: response.agentContext.readySources?.map(source => ({
-            ...source,
-            createdAt: toDate(source.createdAt),
-            updatedAt: toDate(source.updatedAt)
-          })),
-          ingestFailures: response.agentContext.ingestFailures || [],
-          lastAction: response.agentContext.lastAction || null,
-          toolHistory: response.agentContext.toolHistory?.map(tool => ({
-            ...tool,
-            timestamp: toDate(tool.timestamp)
-          })) || []
-        }
+      if (!response.body) {
+        throw new Error('No response body')
       }
 
+      // Parse SSE stream
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let currentAssistantMessageId: string | null = null
+      let currentAssistantMessageText = ''
+      let pendingEventType: string | null = null
+      // Activity state management: tool:start/tool:complete events take precedence over log:entry events
+      // This ensures consistent behavior regardless of which event types the server emits
+      // If both are present, dedicated events (tool:start/tool:complete) control the state
+      let activitySetByDedicatedEvent = false
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) {
+            break
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            const trimmedLine = line.trim()
+            if (!trimmedLine) {
+              // Empty line indicates end of event, reset pending event type
+              pendingEventType = null
+              continue
+            }
+
+            if (trimmedLine.startsWith('event: ')) {
+              pendingEventType = trimmedLine.slice(7).trim()
+              continue
+            }
+
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.slice(6)
+              if (jsonStr === '[DONE]') {
+                pendingEventType = null
+                continue
+              }
+
+              const eventType = pendingEventType
+              pendingEventType = null
+
+              try {
+                const eventData = JSON.parse(jsonStr)
+
+                switch (eventType) {
+                  case 'message:chunk': {
+                    // LLM is generating text - server sends chunks for live display
+                    currentActivity.value = 'streaming_message'
+                    currentToolName.value = null
+                    activitySetByDedicatedEvent = false // Reset flag when LLM starts streaming
+
+                    // Server-provided messageId is required (server generates UUID on first chunk)
+                    if (!eventData.messageId) {
+                      console.warn('message:chunk missing messageId, skipping')
+                      break
+                    }
+
+                    // Create TEMPORARY assistant message on first chunk using SERVER-GENERATED messageId
+                    // This is optimistic UI for live streaming; the authoritative message list comes in messages:complete
+                    if (!currentAssistantMessageId && eventData.messageId) {
+                      currentAssistantMessageId = eventData.messageId
+                      currentAssistantMessageText = ''
+                      messages.value.push({
+                        id: eventData.messageId, // Use server-provided ID
+                        role: 'assistant' as const,
+                        parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<{ type: 'text', text: string }>,
+                        createdAt: new Date()
+                      })
+                    }
+                    // Accumulate chunks and update temporary message for live display
+                    currentAssistantMessageText += eventData.chunk || ''
+                    if (currentAssistantMessageId) {
+                      const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
+                      if (messageIndex >= 0 && messages.value[messageIndex]?.parts?.[0]) {
+                        messages.value[messageIndex].parts[0].text = currentAssistantMessageText
+                      }
+                    }
+                    break
+                  }
+
+                  case 'message:complete': {
+                    // LLM text generation finished for current turn (intermediate signal before DB snapshot)
+                    // Update final text, but authoritative message list comes in messages:complete
+                    if (eventData.messageId && eventData.message) {
+                      const messageIndex = messages.value.findIndex(m => m.id === eventData.messageId)
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                      if (message?.parts?.[0]) {
+                        message.parts[0].text = eventData.message
+                      }
+                    }
+                    // Clear streaming state (tools may still be executing)
+                    currentAssistantMessageId = null
+                    currentAssistantMessageText = ''
+                    if (currentActivity.value === 'streaming_message') {
+                      currentActivity.value = null
+                      activitySetByDedicatedEvent = false // Reset flag
+                    }
+                    break
+                  }
+
+                  case 'tool:start': {
+                    // Tool execution started - dedicated event takes precedence
+                    currentActivity.value = 'tool_executing'
+                    currentToolName.value = eventData.toolName || null
+                    activitySetByDedicatedEvent = true
+                    break
+                  }
+
+                  case 'tool:complete': {
+                    // Tool execution completed - dedicated event takes precedence
+                    currentActivity.value = null
+                    currentToolName.value = null
+                    activitySetByDedicatedEvent = true
+                    break
+                  }
+
+                  case 'session:update': {
+                    if (eventData.sessionId) {
+                      sessionId.value = eventData.sessionId ?? sessionId.value
+                    }
+                    if (eventData.sessionContentId !== undefined) {
+                      sessionContentId.value = eventData.sessionContentId ?? null
+                    }
+                    break
+                  }
+
+                  case 'log:entry': {
+                    const logEntry = {
+                      id: eventData.id || createId(),
+                      type: eventData.type || 'unknown',
+                      message: eventData.message || '',
+                      payload: eventData.payload ?? null,
+                      createdAt: toDate(eventData.createdAt || new Date())
+                    }
+                    logs.value = [...logs.value, logEntry]
+
+                    // Update activity state based on log type
+                    // Only use log:entry events if dedicated tool:start/tool:complete events haven't been used
+                    // This ensures consistent behavior regardless of which event types the server emits
+                    const logType = logEntry.type?.toLowerCase() || ''
+                    if (logType.startsWith('tool_')) {
+                      if (logType === 'tool_started' && !activitySetByDedicatedEvent) {
+                        // Fallback: only set activity if not already set by dedicated event
+                        currentActivity.value = 'tool_executing'
+                        currentToolName.value = (logEntry.payload as any)?.toolName || null
+                      } else if (logType === 'tool_succeeded' || logType === 'tool_failed') {
+                        // Tool completed, but might have more tools or LLM response coming
+                        // Don't clear activity yet - wait for next event
+                        // Note: If tool:complete was received, it already cleared activity
+                      }
+                    } else if (logType === 'user_message') {
+                      // User message sent, LLM will start thinking
+                      currentActivity.value = 'llm_thinking'
+                      currentToolName.value = null
+                      activitySetByDedicatedEvent = false // Reset flag for next tool cycle
+                    }
+                    break
+                  }
+
+                  case 'agentContext:update': {
+                    agentContext.value = {
+                      readySources: eventData.readySources?.map((source: any) => ({
+                        ...source,
+                        createdAt: toDate(source.createdAt),
+                        updatedAt: toDate(source.updatedAt)
+                      })) || [],
+                      ingestFailures: eventData.ingestFailures || [],
+                      lastAction: eventData.lastAction || null,
+                      toolHistory: eventData.toolHistory?.map((tool: any) => ({
+                        ...tool,
+                        timestamp: toDate(tool.timestamp)
+                      })) || []
+                    }
+                    break
+                  }
+
+                  case 'messages:complete': {
+                    // AUTHORITATIVE message list from database (single source of truth)
+                    // Client MUST replace its messages array with this snapshot and clear all temporary streaming state
+                    if (Array.isArray(eventData.messages)) {
+                      const normalizedMessages = normalizeMessages(eventData.messages)
+                      // Replace all messages with server's authoritative list (sorted by createdAt)
+                      messages.value = normalizedMessages.sort((a, b) =>
+                        a.createdAt.getTime() - b.createdAt.getTime()
+                      )
+                      // Clear all temporary streaming state
+                      currentAssistantMessageId = null
+                      currentAssistantMessageText = ''
+                    }
+                    break
+                  }
+
+                  case 'logs:complete': {
+                    if (Array.isArray(eventData.logs)) {
+                      logs.value = normalizeLogs(eventData.logs)
+                    }
+                    break
+                  }
+
+                  case 'session:final': {
+                    if (eventData.sessionId) {
+                      sessionId.value = eventData.sessionId ?? sessionId.value
+                    }
+                    if (eventData.sessionContentId !== undefined) {
+                      sessionContentId.value = eventData.sessionContentId ?? null
+                    }
+                    break
+                  }
+
+                  case 'done': {
+                    // Stream completion signal from server
+                    // If messages:complete was not received before this, treat as error/incomplete
+                    // The finally block will clear streaming state
+                    break
+                  }
+
+                  case 'error': {
+                    // Server-side error during processing
+                    // Error messages are also added to database and included in messages:complete
+                    const errorMsg = eventData.message || eventData.error || 'An error occurred'
+                    errorMessage.value = errorMsg
+                    break
+                  }
+
+                  default: {
+                    // Unknown event type, log for debugging
+                    if (eventType) {
+                      console.warn('Unknown SSE event type:', eventType, eventData)
+                    }
+                    break
+                  }
+                }
+              } catch (parseError) {
+                console.error('Failed to parse SSE data:', jsonStr, parseError)
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+        // Always clear streaming state when stream ends (success or failure)
+        // If messages:complete was received, messages are already replaced with authoritative list
+        // If stream was aborted or failed, temporary messages remain until next successful turn
+        currentAssistantMessageId = null
+        currentAssistantMessageText = ''
+      }
+
+      // Stream completed successfully
+      // If messages:complete was received, messages array was replaced with authoritative snapshot
       status.value = 'ready'
       requestStartedAt.value = null
-      return response
+      currentActivity.value = null
+      currentToolName.value = null
+      return null // Streaming doesn't return a response object
     } catch (error: any) {
-      if (error?.name === 'AbortError') {
+      // Handle stream errors and aborts
+      if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+        // User aborted the request - clear state gracefully
         status.value = 'ready'
         requestStartedAt.value = null
+        currentActivity.value = null
+        currentToolName.value = null
+        // Note: Temporary streaming messages may remain in UI until next successful turn
         return null
       }
+      // Stream failed (network error, server error, etc.)
       status.value = 'error'
       requestStartedAt.value = null
-      const errorMsg = error?.data?.statusMessage || error?.data?.message || error?.message || 'Something went wrong.'
+      currentActivity.value = null
+      currentToolName.value = null
+      const errorMsg = error?.message || error?.data?.statusMessage || error?.data?.message || 'Something went wrong.'
       errorMessage.value = errorMsg
-
-      // Also add error as a chat message so user can see it
-      messages.value.push({
-        id: createId(),
-        role: 'assistant' as const,
-        parts: [{ type: 'text' as const, text: `❌ Error: ${errorMsg}` }] as NonEmptyArray<{ type: 'text', text: string }>,
-        createdAt: new Date()
-      })
-
+      // Note: If server committed any messages before error, they will be in messages:complete
+      // If stream failed before messages:complete, temporary messages may remain until next turn
       return null
     } finally {
       if (activeController.value === controller) {
@@ -252,13 +471,9 @@ export function useChatSession() {
       return null
     }
 
-    messages.value.push({
-      id: createId(),
-      role: 'user' as const,
-      parts: [{ type: 'text' as const, text: options?.displayContent?.trim() || trimmed }] as NonEmptyArray<{ type: 'text', text: string }>,
-      createdAt: new Date()
-    })
-
+    // User messages are created on the server after processing (not optimistically)
+    // Assistant messages are created optimistically on first message:chunk with server-generated ID
+    // Final authoritative message list (including user message) comes in messages:complete
     return await callChatEndpoint({
       message: trimmed,
       contentId: options?.contentId !== undefined
@@ -336,6 +551,9 @@ export function useChatSession() {
     logs.value = []
     requestStartedAt.value = null
     agentContext.value = null
+    prompt.value = ''
+    currentActivity.value = null
+    currentToolName.value = null
   }
 
   return {
@@ -353,6 +571,9 @@ export function useChatSession() {
     agentContext,
     hydrateSession,
     loadSessionForContent,
-    resetSession
+    resetSession,
+    prompt,
+    currentActivity,
+    currentToolName
   }
 }
