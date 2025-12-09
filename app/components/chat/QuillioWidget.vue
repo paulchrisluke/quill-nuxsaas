@@ -821,7 +821,7 @@ const fetchWorkspaceChat = async (workspaceContentId: string | null, existingCon
       $fetch<{ logs: ContentConversationLog[] }>(`/api/conversations/${conversationId}/logs`)
     ])
 
-    if (!workspaceContent.value || workspaceContent.value.content.id !== workspaceContentId) {
+    if (!workspaceContent.value || workspaceContent.value?.content?.id !== workspaceContentId) {
       return
     }
 
@@ -869,12 +869,33 @@ async function loadWorkspacePayload() {
   }
 }
 
+// Type guard to verify if an object is a valid ContentResponse
+function isContentResponse(obj: any): obj is ContentResponse {
+  // Must be an object (not null/undefined)
+  if (!obj || typeof obj !== 'object') {
+    return false
+  }
+  // Must have content with a valid id
+  if (!obj.content || typeof obj.content !== 'object' || !obj.content.id || typeof obj.content.id !== 'string') {
+    return false
+  }
+  // Must have currentVersion that is not null and has required fields
+  if (!obj.currentVersion || typeof obj.currentVersion !== 'object') {
+    return false
+  }
+  // currentVersion must have at least an id or version number
+  if (!obj.currentVersion.id && (obj.currentVersion.version === undefined || obj.currentVersion.version === null)) {
+    return false
+  }
+  return true
+}
+
 // Initialize workspace when workspaceDetail changes
 watch(() => workspaceDetail.value, async (detail) => {
   if (detail?.content?.id) {
-    // If detail is already a ContentResponse (has currentVersion), use it directly
-    if (detail.content && 'currentVersion' in detail) {
-      workspaceContent.value = detail as ContentResponse
+    // If detail is already a valid ContentResponse, use it directly
+    if (isContentResponse(detail)) {
+      workspaceContent.value = detail
       maybeFetchChatData(workspaceContent.value)
     } else {
       // Otherwise load it
