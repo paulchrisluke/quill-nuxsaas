@@ -11,7 +11,7 @@ This test suite provides comprehensive coverage for:
 
 ## Test Structure
 
-```
+```bash
 tests/
 ├── unit/                    # Unit tests (fast, isolated)
 │   ├── chat/

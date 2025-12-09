@@ -1,6 +1,6 @@
 import type { ChatToolInvocation } from '~~/server/services/chat/tools'
 import { describe, expect, it } from 'vitest'
-import { getToolKind } from '~~/server/services/chat/tools'
+import { getModeEnforcementError, getToolKind } from '~~/server/services/chat/tools'
 
 /**
  * Integration tests for tool execution and mode enforcement
@@ -27,11 +27,11 @@ describe('tool Execution Mode Enforcement', () => {
         expect(shouldBlock).toBe(true)
         expect(toolKind).toBe('write')
 
-        // Verify error message format
-        const expectedError = `Tool "${toolName}" is not available in chat mode (it can modify content or ingest new data). Switch to agent mode.`
-        expect(expectedError).toContain('not available in chat mode')
-        expect(expectedError).toContain('Switch to agent mode')
-        expect(expectedError).toContain(toolName)
+        // Verify error message format using the actual implementation
+        const actualError = getModeEnforcementError(toolName)
+        expect(actualError).toContain('not available in chat mode')
+        expect(actualError).toContain('Switch to agent mode')
+        expect(actualError).toContain(toolName)
       })
     }
   })
@@ -108,11 +108,11 @@ describe('tool Execution Mode Enforcement', () => {
       ]
 
       for (const toolName of blockedTools) {
-        const expectedMessage = `Tool "${toolName}" is not available in chat mode (it can modify content or ingest new data). Switch to agent mode.`
+        const actualMessage = getModeEnforcementError(toolName)
 
-        expect(expectedMessage).toContain(`Tool "${toolName}"`)
-        expect(expectedMessage).toContain('not available in chat mode')
-        expect(expectedMessage).toContain('Switch to agent mode')
+        expect(actualMessage).toContain(`Tool "${toolName}"`)
+        expect(actualMessage).toContain('not available in chat mode')
+        expect(actualMessage).toContain('Switch to agent mode')
       }
     })
   })

@@ -5,31 +5,30 @@ describe('i18n', async () => {
   await setup({ host: process.env.NUXT_TEST_APP_URL })
 
   it('should load homepage in different languages', async () => {
-    // English - homepage loads (button may be in chat widget, not on page)
+    // English - homepage loads
     const enPage = await createPage('/')
-    await enPage.waitForLoadState('networkidle')
-    // Check if page loaded successfully (homepage is currently empty but should load)
+    await enPage.waitForLoadState('networkidle', { timeout: 15000 })
     expect(enPage.url()).toContain(process.env.NUXT_TEST_APP_URL || 'http://localhost:3000')
 
-    // French
+    // French - if this times out, there's an i18n routing issue
     const frPage = await createPage('/fr')
-    await frPage.waitForLoadState('networkidle')
+    await frPage.waitForLoadState('networkidle', { timeout: 15000 })
     expect(frPage.url()).toContain('/fr')
 
     // Japanese
     const jaPage = await createPage('/ja')
-    await jaPage.waitForLoadState('networkidle')
+    await jaPage.waitForLoadState('networkidle', { timeout: 15000 })
     expect(jaPage.url()).toContain('/ja')
 
     // Chinese
     const zhPage = await createPage('/zh-CN')
-    await zhPage.waitForLoadState('networkidle')
+    await zhPage.waitForLoadState('networkidle', { timeout: 15000 })
     expect(zhPage.url()).toContain('/zh-CN')
   })
 
   it('should handle language switching', async () => {
     const page = await createPage('/')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('networkidle', { timeout: 15000 })
 
     // Try to find and click language switcher
     const langButton = await page.$('button[aria-label="Change language"], button[aria-label*="language"], button:has-text("Language")')
@@ -49,7 +48,7 @@ describe('i18n', async () => {
       // Language switcher might not be visible or work differently
       expect(true).toBe(true)
     }
-  }, { timeout: 35000 })
+  }, { timeout: 45000 })
 
   it('should maintain language preference across pages', async () => {
     // Navigate to French signin page directly

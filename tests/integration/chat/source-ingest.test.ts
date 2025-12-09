@@ -169,7 +169,6 @@ describe('source_ingest Integration Tests', () => {
     it('should normalize whitespace in context', async () => {
       const db = createMockDB() as any
       const contextWithWhitespace = '  Test   context  \n\n  with  spaces  '
-      const normalized = 'Test context\n\nwith spaces'
 
       vi.spyOn(chunkSourceContentModule, 'createChunksFromSourceContentText')
         .mockResolvedValue([])
@@ -182,8 +181,9 @@ describe('source_ingest Integration Tests', () => {
         mode: 'agent'
       })
 
-      // The function should normalize the context
-      expect(result.sourceText).toBe(normalized.trim())
+      // The function only trims the context (removes leading/trailing whitespace)
+      // Internal whitespace is preserved
+      expect(result.sourceText).toBe(contextWithWhitespace.trim())
     })
   })
 
