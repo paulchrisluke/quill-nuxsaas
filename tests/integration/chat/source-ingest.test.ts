@@ -1,6 +1,6 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import type * as schema from '~~/server/database/schema'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as schema from '~~/server/database/schema'
 import * as chunkSourceContentModule from '~~/server/services/sourceContent/chunkSourceContent'
 import { createSourceContentFromContext } from '~~/server/services/sourceContent/manualTranscript'
 
@@ -16,30 +16,73 @@ vi.mock('~~/server/services/vectorize', () => ({
 // Mock database - we'll use a simple in-memory mock for unit tests
 function createMockDB(): Partial<NodePgDatabase<typeof schema>> {
   const sourceContents: any[] = []
+  const chunks: any[] = []
 
   return {
     transaction: vi.fn(async (callback: any) => {
       return callback({
-        insert: vi.fn(() => ({
-          values: vi.fn(() => ({
-            returning: vi.fn(async () => {
-              const mockSource = {
-                id: 'source-123',
-                organizationId: 'org-123',
-                sourceType: 'manual_transcript',
-                sourceText: 'Test context',
-                ingestStatus: 'ingested',
-                title: 'Test Source',
-                createdAt: new Date(),
-                updatedAt: new Date()
-              }
+        insert: vi.fn((table: any) => ({
+          values: vi.fn((values: any) => {
+            // Handle chunk inserts - store chunks in memory
+            if (table === schema.chunk) {
+              const insertedChunks = Array.isArray(values) ? values : [values]
+              const chunksWithIds = insertedChunks.map((chunk: any) => ({
+                ...chunk,
+                id: chunk.id || `chunk-${chunks.length + 1}`,
+                createdAt: chunk.createdAt || new Date()
+              }))
+              chunks.push(...chunksWithIds)
+              // Return a promise that resolves when insert completes
+              // (the actual function doesn't use the return value, it just awaits it)
+              return Promise.resolve()
+            }
+            // Handle source content inserts - support onConflictDoUpdate
+            const insertValues = Array.isArray(values) ? values[0] : values
+            const mockSource = {
+              id: insertValues?.id || 'source-123',
+              organizationId: insertValues?.organizationId || 'org-123',
+              sourceType: insertValues?.sourceType || 'manual_transcript',
+              sourceText: insertValues?.sourceText || 'Test context',
+              ingestStatus: insertValues?.ingestStatus || 'ingested',
+              title: insertValues?.title || 'Test Source',
+              createdAt: insertValues?.createdAt || new Date(),
+              updatedAt: insertValues?.updatedAt || new Date(),
+              ...insertValues
+            }
+
+            // Check if source already exists (for onConflictDoUpdate)
+            const existingIndex = sourceContents.findIndex(
+              (s: any) => s.organizationId === mockSource.organizationId
+                && s.sourceType === mockSource.sourceType
+            )
+
+            if (existingIndex >= 0) {
+              // Update existing
+              sourceContents[existingIndex] = { ...sourceContents[existingIndex], ...mockSource }
+            } else {
+              // Insert new
               sourceContents.push(mockSource)
-              return [mockSource]
-            })
-          }))
+            }
+
+            // Return object that supports onConflictDoUpdate().returning()
+            return {
+              onConflictDoUpdate: vi.fn(() => ({
+                returning: vi.fn(() => Promise.resolve([mockSource]))
+              })),
+              returning: vi.fn(() => Promise.resolve([mockSource]))
+            }
+          })
         })),
-        delete: vi.fn(() => ({
-          where: vi.fn(() => Promise.resolve())
+        delete: vi.fn((table: any) => ({
+          where: vi.fn((_condition: any) => {
+            // Handle chunk deletes - remove chunks matching the condition
+            if (table === schema.chunk) {
+              // Simple mock: clear all chunks for the sourceContentId
+              // In a real scenario, this would filter by the where condition
+              chunks.length = 0
+            }
+            return Promise.resolve()
+          })
         })),
         select: vi.fn(() => ({
           from: vi.fn(() => ({
@@ -54,6 +97,10 @@ function createMockDB(): Partial<NodePgDatabase<typeof schema>> {
 }
 
 describe('source_ingest Integration Tests', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
   describe('sourceType="context" path', () => {
     it('should create source content from context text', async () => {
       const db = createMockDB() as any
@@ -166,40 +213,33 @@ describe('source_ingest Integration Tests', () => {
         updatedAt: new Date()
       }
 
-      // Mock the chunking to return multiple chunks
-      const mockChunks = [
-        {
-          id: 'chunk-1',
-          chunkIndex: 0,
-          text: longText.slice(0, 1000),
-          textPreview: longText.slice(0, 200),
-          sourceContentId: 'source-123',
-          organizationId: 'org-123',
-          embedding: null
-        },
-        {
-          id: 'chunk-2',
-          chunkIndex: 1,
-          text: longText.slice(1000),
-          textPreview: longText.slice(1000, 1200),
-          sourceContentId: 'source-123',
-          organizationId: 'org-123',
-          embedding: null
-        }
-      ]
-
-      vi.spyOn(chunkSourceContentModule, 'createChunksFromSourceContentText')
-        .mockResolvedValue(mockChunks)
-
+      // Call the real implementation without mocking
       const chunks = await chunkSourceContentModule.createChunksFromSourceContentText({
         db,
         sourceContent: mockSourceContent as any,
         onProgress: vi.fn()
       })
 
-      expect(chunks).toHaveLength(2)
+      // The real implementation should create multiple chunks from the long text
+      expect(chunks.length).toBeGreaterThan(0)
       expect(chunks[0].chunkIndex).toBe(0)
-      expect(chunks[1].chunkIndex).toBe(1)
+      expect(chunks[0].sourceContentId).toBe('source-123')
+      expect(chunks[0].organizationId).toBe('org-123')
+      expect(chunks[0].text).toBeDefined()
+      expect(chunks[0].textPreview).toBeDefined()
+      expect(chunks[0].startChar).toBeDefined()
+      expect(chunks[0].endChar).toBeDefined()
+
+      // Verify chunks are in order
+      for (let i = 0; i < chunks.length; i++) {
+        expect(chunks[i].chunkIndex).toBe(i)
+      }
+
+      // Verify all chunks belong to the same source
+      chunks.forEach((chunk) => {
+        expect(chunk.sourceContentId).toBe('source-123')
+        expect(chunk.organizationId).toBe('org-123')
+      })
     })
 
     it('should handle empty source text', async () => {
@@ -220,7 +260,7 @@ describe('source_ingest Integration Tests', () => {
           db,
           sourceContent: mockSourceContent as any
         })
-      ).rejects.toThrow('Source text is required')
+      ).rejects.toThrow('Source text is required to create chunks')
     })
   })
 })

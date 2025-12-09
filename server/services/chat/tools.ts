@@ -567,6 +567,28 @@ export function getToolsByKind(kind: ToolKind): ChatCompletionToolDefinition[] {
     .map(([_, tool]) => tool.definition)
 }
 
+/**
+ * Checks if a tool is allowed in the given mode.
+ * Chat mode only allows read tools; agent mode allows all tools.
+ */
+export function isToolAllowedInMode(toolName: ChatToolName, mode: 'chat' | 'agent'): boolean {
+  const toolKind = getToolKind(toolName)
+
+  // Enforce read-only in chat mode
+  if (mode === 'chat' && (toolKind === 'write' || toolKind === 'ingest')) {
+    return false
+  }
+
+  return true
+}
+
+/**
+ * Generates the error message for when a tool is not available in chat mode.
+ */
+export function getModeEnforcementError(toolName: ChatToolName): string {
+  return `Tool "${toolName}" is not available in chat mode (it can modify content or ingest new data). Switch to agent mode.`
+}
+
 export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInvocation | null {
   const args = safeParseArguments(toolCall.function.arguments || '{}')
   if (!args) {

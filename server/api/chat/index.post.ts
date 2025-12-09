@@ -172,15 +172,14 @@ async function executeChatTool(
 ): Promise<ToolExecutionResult> {
   const { mode, db, organizationId, userId, conversationId } = context
 
-  // Import getToolKind for mode enforcement
-  const { getToolKind } = await import('~~/server/services/chat/tools')
-  const toolKind = getToolKind(toolInvocation.name)
+  // Import mode enforcement functions
+  const { isToolAllowedInMode, getModeEnforcementError } = await import('~~/server/services/chat/tools')
 
   // Enforce read-only in chat mode
-  if (mode === 'chat' && (toolKind === 'write' || toolKind === 'ingest')) {
+  if (!isToolAllowedInMode(toolInvocation.name, mode)) {
     return {
       success: false,
-      error: `Tool "${toolInvocation.name}" is not available in chat mode (it can modify content or ingest new data). Switch to agent mode.`
+      error: getModeEnforcementError(toolInvocation.name)
     }
   }
 
