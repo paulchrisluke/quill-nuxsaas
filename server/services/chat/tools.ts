@@ -500,7 +500,7 @@ function buildReadSourceListParameters(): ParameterSchema {
     properties: {
       sourceType: {
         type: ['string', 'null'],
-        description: 'Filter by source type (youtube, manual_transcript, etc.).'
+        description: 'Filter by source type (youtube, context, etc.).'
       },
       ingestStatus: {
         type: ['string', 'null'],
