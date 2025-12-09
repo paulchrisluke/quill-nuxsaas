@@ -1,5 +1,3 @@
-import { runtimeConfig } from '../utils/runtimeConfig'
-
 export default defineEventHandler(async (event) => {
   const start = performance.now()
 
@@ -11,7 +9,7 @@ export default defineEventHandler(async (event) => {
     const url = req.url
 
     // Only log access in development
-    if (runtimeConfig.public.appEnv === 'development') {
+    if (process.env.NODE_ENV === 'development') {
       const timestamp = new Date().toLocaleString('en-US', {
         year: 'numeric',
         month: '2-digit',

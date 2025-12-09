@@ -842,7 +842,7 @@ export default defineEventHandler(async (event) => {
   let multiPassResult: Awaited<ReturnType<typeof runChatAgentWithMultiPassStream>> | null = null
 
   let conversation: typeof schema.conversation.$inferSelect | null = null
-  if (requestSessionId) {
+  if (requestConversationId) {
     conversation = await getConversationById(db, requestConversationId, organizationId)
     if (!conversation) {
       console.warn(`Conversation ${requestConversationId} not found for organization ${organizationId}, creating new conversation`)
@@ -856,7 +856,7 @@ export default defineEventHandler(async (event) => {
     const lastAction = trimmedMessage ? 'message' : null
     conversation = await getOrCreateConversationForContent(db, {
       organizationId,
-      contentId: initialConversationContentId ?? null, // Explicitly null if undefined
+      contentId: _initialSessionContentId ?? null, // Explicitly null if undefined
       sourceContentId: null, // Tools will set this when sources are created
       createdByUserId: user.id,
       metadata: {

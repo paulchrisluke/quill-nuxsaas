@@ -1,4 +1,5 @@
 import type * as schema from '~~/server/database/schema'
+import type { ConversationQuotaUsageResult } from '~~/server/utils/auth'
 
 /**
  * Conversation status values
@@ -73,10 +74,5 @@ export interface ConversationResponse {
  */
 export interface ConversationListResponse {
   conversations: Conversation[]
-  pagination?: {
-    limit: number
-    offset: number
-    total: number
-    hasMore: boolean
-  }
+  conversationQuota: ConversationQuotaUsageResult
 }

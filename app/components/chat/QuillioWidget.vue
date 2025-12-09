@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
-import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
 import { useClipboard, useDebounceFn } from '@vueuse/core'
 import { shallowRef } from 'vue'
 
@@ -47,12 +46,8 @@ const promptSubmitting = ref(false)
 const showQuotaModal = ref(false)
 const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
 const showUpgradeModal = ref(false)
-const selectedContentTypeOption = computed(() => {
-  if (!CONTENT_TYPE_OPTIONS.length) {
-    return null
-  }
-  return CONTENT_TYPE_OPTIONS.find(option => option.value === selectedContentType.value) ?? CONTENT_TYPE_OPTIONS[0]
-})
+// Placeholder for chat/agent mode selector (not wired up yet)
+const chatMode = ref<'chat' | 'agent'>('agent')
 const MAX_USER_MESSAGE_LENGTH = 500
 const LONG_PRESS_DELAY_MS = 500
 const LONG_PRESS_MOVE_THRESHOLD_PX = 10
@@ -1072,10 +1067,13 @@ if (import.meta.client) {
                   @submit="handlePromptSubmit"
                 >
                   <template #footer>
+                    <!-- Placeholder: Chat/Agent mode selector (not wired up yet) -->
                     <USelectMenu
-                      v-if="selectedContentTypeOption"
-                      v-model="selectedContentType"
-                      :items="CONTENT_TYPE_OPTIONS"
+                      v-model="chatMode"
+                      :items="[
+                        { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' },
+                        { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' }
+                      ]"
                       value-key="value"
                       option-attribute="label"
                       variant="ghost"
@@ -1083,7 +1081,7 @@ if (import.meta.client) {
                     >
                       <template #leading>
                         <UIcon
-                          :name="selectedContentTypeOption.icon"
+                          :name="chatMode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
                           class="w-4 h-4"
                         />
                       </template>
