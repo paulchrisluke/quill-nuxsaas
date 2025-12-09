@@ -1196,14 +1196,14 @@ async function executeChatTool(
  * - Error handling - automatic retries with configurable limits
  *
  * **Modes:**
- * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`) to inspect content
- *   but cannot modify content or ingest new data. Write/ingest tools are filtered out.
+ * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`) to inspect content
+ *   but cannot modify content or ingest new data. Write/ingest tools are filtered out at both the tool selection and execution layers.
  * - `agent` (read+write): Full toolset available including write and ingest operations.
  *
  * **Available Tools:**
- * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`
- * - Write tools (agent mode only): `content_write`, `edit_section`, `edit_metadata`
- * - Ingest tools (agent mode only): `fetch_youtube`, `save_source`
+ * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`
+ * - Write tools (agent mode only): `content_write` (with action="create" or action="enrich"), `edit_section`, `edit_metadata`
+ * - Ingest tools (agent mode only): `source_ingest` (with sourceType="youtube" or sourceType="context")
  *
  * @contract
  * **Input:**
@@ -1244,8 +1244,8 @@ async function executeChatTool(
  * }
  *
  * // The agent will automatically:
- * // 1. Call fetch_youtube tool to fetch captions
- * // 2. Call content_write tool to create the content
+ * // 1. Call source_ingest tool with sourceType="youtube" to fetch captions
+ * // 2. Call content_write tool with action="create" to create the content
  * // 3. Return a friendly message confirming completion
  * ```
  *

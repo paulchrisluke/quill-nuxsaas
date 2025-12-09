@@ -281,7 +281,25 @@ function buildContentWriteParameters(): ParameterSchema {
         description: 'Optional base URL for generating absolute URLs in JSON-LD structured data (for action="enrich").'
       }
     },
-    required: ['action']
+    required: ['action'],
+    oneOf: [
+      {
+        properties: {
+          action: { const: 'create' }
+        },
+        anyOf: [
+          { required: ['sourceContentId'] },
+          { required: ['sourceText'] },
+          { required: ['context'] }
+        ]
+      },
+      {
+        properties: {
+          action: { const: 'enrich' }
+        },
+        required: ['contentId']
+      }
+    ]
   }
 }
 
