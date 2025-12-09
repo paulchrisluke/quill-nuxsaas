@@ -1137,47 +1137,11 @@ async function handlePublishDraft() {
         versionId: workspaceCurrentVersion.value.id
       }
     })
-    const mappedStatus: ContentStatus | undefined = (
-      response.content.status === 'draft' ||
-      response.content.status === 'published' ||
-      response.content.status === 'archived'
-    )
-      ? response.content.status as ContentStatus
-      : 'published'
 
-    if (workspaceContent.value) {
-      workspaceContent.value = {
-        ...workspaceContent.value,
-        content: {
-          id: response.content.id,
-          title: response.content.title,
-          status: mappedStatus,
-          updatedAt: typeof response.content.updatedAt === 'string'
-            ? response.content.updatedAt
-            : new Date(response.content.updatedAt).toISOString(),
-          metadata: {
-            organizationId: response.content.organizationId,
-            slug: response.content.slug,
-            contentType: response.content.contentType,
-            publishedAt: response.content.publishedAt
-              ? (typeof response.content.publishedAt === 'string'
-                  ? response.content.publishedAt
-                  : new Date(response.content.publishedAt).toISOString())
-              : null
-          }
-        },
-        currentVersion: {
-          id: response.version.id,
-          bodyMdx: response.version.bodyMdx,
-          bodyHtml: response.version.bodyHtml ?? undefined,
-          frontmatter: response.version.frontmatter ?? undefined,
-          version: response.version.version,
-          updatedAt: typeof response.version.createdAt === 'string'
-            ? response.version.createdAt
-            : new Date(response.version.createdAt).toISOString()
-        }
-      }
-    }
+    // Reload workspace payload to get complete data including sections, diffStats, seoSnapshot, etc.
+    // This ensures we preserve all metadata after publishing instead of only mapping a subset of fields
+    await loadWorkspacePayload()
+
     toast.add({
       title: 'Draft published',
       description: response.file.url
