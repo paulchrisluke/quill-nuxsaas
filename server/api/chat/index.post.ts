@@ -800,7 +800,7 @@ async function executeChatTool(
         }
       }
 
-      const section = sections.find(s => s.id === sectionId)
+      const section = sections.find(s => s.id === sectionId || (s as any).section_id === sectionId)
 
       if (!section) {
         return {
@@ -1008,7 +1008,8 @@ export default defineEventHandler(async (event) => {
 
   validateRequestBody(body)
 
-  const mode: 'chat' | 'agent' = body.mode
+  const VALID_MODES = ['chat', 'agent'] as const
+  const mode = validateEnum(body.mode, VALID_MODES, 'mode')
 
   const message = typeof body.message === 'string' ? body.message : ''
   const trimmedMessage = message.trim()

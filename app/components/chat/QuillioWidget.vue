@@ -1069,13 +1069,14 @@ if (import.meta.client) {
                     <USelectMenu
                       v-model="mode"
                       :items="[
-                        { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' },
-                        { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' }
+                        { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
+                        { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' }
                       ]"
                       value-key="value"
                       option-attribute="label"
                       variant="ghost"
                       size="sm"
+                      :searchable="false"
                     >
                       <template #leading>
                         <UIcon

@@ -1,4 +1,4 @@
-import { $fetch } from '@nuxt/test-utils/runtime'
+import { $fetch } from 'ofetch'
 
 export interface ChatTestConversation {
   conversationId: string | null
@@ -28,27 +28,117 @@ export class ChatTestRunner {
       ...(this.conversation.conversationId && { conversationId: this.conversation.conversationId })
     }
 
-    const response = await $fetch('/api/chat?stream=true', {
+    const responseText = await $fetch('/api/chat?stream=true', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream'
       },
       body: payload
-    })
+    }) as string
 
-    // Note: The API now returns SSE stream, so we need to parse it
-    // For test purposes, we'll extract conversationId from the stream
-    // This is a simplified implementation - real tests should parse SSE properly
-    // Update conversation state from response (if available)
-    // The actual implementation would parse the SSE stream for conversation:update events
+    // Parse SSE stream
+    const parsedResponse: {
+      conversationId: string | null
+      conversationContentId: string | null
+      messages: any[]
+      logs: any[]
+      agentContext: any
+    } = {
+      conversationId: null,
+      conversationContentId: null,
+      messages: [],
+      logs: [],
+      agentContext: null
+    }
+    let assistantMessage = ''
+
+    const lines = responseText.split('\n')
+    let currentEventType: string | null = null
+
+    for (const line of lines) {
+      const trimmedLine = line.trim()
+      if (!trimmedLine) {
+        continue
+      }
+
+      if (trimmedLine.startsWith('event: ')) {
+        currentEventType = trimmedLine.slice(7)
+        continue
+      }
+
+      if (trimmedLine.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(trimmedLine.slice(6))
+
+          switch (currentEventType) {
+            case 'conversation:update':
+            case 'conversation:final':
+              if (data.conversationId) {
+                parsedResponse.conversationId = data.conversationId
+                this.conversation.conversationId = data.conversationId
+              }
+              if (data.conversationContentId !== undefined) {
+                parsedResponse.conversationContentId = data.conversationContentId
+                this.conversation.conversationContentId = data.conversationContentId
+              }
+              break
+
+            case 'message:chunk':
+              assistantMessage += data.chunk || ''
+              break
+
+            case 'message:complete':
+              if (data.message) {
+                assistantMessage = data.message
+              }
+              break
+
+            case 'messages:complete':
+              if (data.messages) {
+                parsedResponse.messages = data.messages
+              }
+              break
+
+            case 'logs:complete':
+              if (data.logs) {
+                parsedResponse.logs = data.logs
+              }
+              break
+
+            case 'agentContext:update':
+              parsedResponse.agentContext = data
+              break
+          }
+        } catch {
+          // Skip malformed JSON lines
+        }
+        currentEventType = null
+      }
+    }
+
+    // Add user message
     this.conversation.messages.push({
       role: 'user',
       content: message,
       timestamp: new Date()
     })
 
-    return response
+    // Add assistant message if we captured one
+    if (assistantMessage) {
+      this.conversation.messages.push({
+        role: 'assistant',
+        content: assistantMessage,
+        timestamp: new Date()
+      })
+    }
+
+    return {
+      ...parsedResponse,
+      conversationId: parsedResponse.conversationId || this.conversation.conversationId,
+      conversationContentId: parsedResponse.conversationContentId || this.conversation.conversationContentId,
+      assistantMessage
+    }
   }
 
   /**
@@ -90,11 +180,11 @@ export class ChatTestRunner {
   /**
    * Simulate a conversation with multiple back-and-forth messages
    */
-  async conversationFlow(messages: string[]) {
-    const responses = []
+  async conversationFlow(messages: string[]): Promise<any[]> {
+    const responses: any[] = []
 
     for (const message of messages) {
-      const response = await this.sendMessage(message)
+      const response: any = await this.sendMessage(message)
       responses.push(response)
     }
 
@@ -204,7 +294,7 @@ export const chatTestScenarios = {
 
     return {
       messageCount: responses.length,
-      conversationMaintained: responses.every(r => r.conversationId === responses[0].conversationId),
+      conversationMaintained: responses.length > 0 && responses.every((r: any) => r.conversationId === (responses[0] as any).conversationId),
       transcript: runner.getTranscript()
     }
   },
