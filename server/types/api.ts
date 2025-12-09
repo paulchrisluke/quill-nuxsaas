@@ -63,15 +63,17 @@ export interface ListResponse<T> {
 export interface ChatRequestBody {
   /** User message (natural language) */
   message: string
-  /** Optional existing session to continue */
-  sessionId?: string | null
+  /** Optional existing conversation to continue */
+  conversationId?: string | null
   /**
-   * Optional content ID to link the chat session to.
-   * Used for session linking to provide context about the current draft.
+   * Optional content ID to link the conversation to.
+   * Used for conversation linking to provide context about the current content.
    *
    * **Use cases:**
-   * - Link a chat session to an existing draft for context
+   * - Link a conversation to an existing content item for context
    * - Continue a conversation about a specific piece of content
    */
   contentId?: string | null
+  /** Chat mode: 'chat' for read-only, 'agent' for read+write */
+  mode?: 'chat' | 'agent'
 }

@@ -54,11 +54,6 @@ const columns: AdminTableColumn<Subscription>[] = [
     accessorKey: 'cancelAtPeriodEnd',
     header: 'Cancels At Period End'
   }
-  // {
-  //   accessorKey: 'createdAt',
-  //   header: t('global.page.createdAt'),
-  //   cell: dateColumn
-  // },
 ]
 
 const getStatusColor = (status: string): 'primary' | 'success' | 'info' | 'warning' | 'error' | 'neutral' => {

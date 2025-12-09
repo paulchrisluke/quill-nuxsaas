@@ -5,17 +5,17 @@ import { and, eq } from 'drizzle-orm'
 import { createError, setHeader, setResponseStatus } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
-import {
-  addLogEntryToChatSession,
-  addMessageToChatSession,
-  getChatSessionById,
-  getOrCreateChatSessionForContent,
-  getSessionLogs,
-  getSessionMessages
-} from '~~/server/services/chatSession'
 import { generateContentFromSource, updateContentSection } from '~~/server/services/content/generation'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
+import {
+  addLogEntryToConversation,
+  addMessageToConversation,
+  getConversationById,
+  getConversationLogs,
+  getConversationMessages,
+  getOrCreateConversationForContent
+} from '~~/server/services/conversation'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
 import { ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
@@ -86,7 +86,7 @@ async function composeWorkspaceCompletionMessages(
     sourceContent
   })
   const summaryBullets = toSummaryBullets(workspaceSummary)
-  const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Draft updated.']).map(item => `- ${item}`)].join('\n')
+  const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Content updated.']).map(item => `- ${item}`)].join('\n')
   const filesPayload = buildWorkspaceFilesPayload(content, version, sourceContent)
   const filesText = ['**Files**', ...filesPayload.map(file => `- ${file.filename}`)].join('\n')
 
@@ -95,7 +95,7 @@ async function composeWorkspaceCompletionMessages(
       content: summaryText,
       payload: {
         type: 'workspace_summary',
-        summary: workspaceSummary || 'Draft updated.'
+        summary: workspaceSummary || 'Content updated.'
       }
     },
     files: {
@@ -118,7 +118,7 @@ interface ToolExecutionResult {
 
 async function logToolEvent(
   db: Awaited<ReturnType<typeof useDB>>,
-  sessionId: string,
+  conversationId: string,
   organizationId: string,
   type: 'tool_started' | 'tool_retrying',
   toolName: string,
@@ -130,8 +130,8 @@ async function logToolEvent(
     ? `Retrying ${toolName} (attempt ${(retryCount ?? 0) + 1}/3)...`
     : `Running ${toolName}...`
 
-  const logEntry = await addLogEntryToChatSession(db, {
-    sessionId,
+  const logEntry = await addLogEntryToConversation(db, {
+    conversationId,
     organizationId,
     type,
     message,
@@ -164,15 +164,15 @@ async function executeChatTool(
     db: Awaited<ReturnType<typeof useDB>>
     organizationId: string
     userId: string
-    sessionId: string
+    conversationId: string
     event: any
   }
 ): Promise<ToolExecutionResult> {
-  const { db, organizationId, userId, sessionId } = context
+  const { db, organizationId, userId, conversationId } = context
 
-  if (toolInvocation.name === 'ingest_youtube') {
-    // TypeScript now knows this is ingest_youtube
-    const args = toolInvocation.arguments as ChatToolInvocation<'ingest_youtube'>['arguments']
+  if (toolInvocation.name === 'fetch_youtube') {
+    // TypeScript now knows this is fetch_youtube
+    const args = toolInvocation.arguments as ChatToolInvocation<'fetch_youtube'>['arguments']
     const youtubeUrl = validateRequiredString(args.youtubeUrl, 'youtubeUrl')
     const titleHint = validateOptionalString(args.titleHint, 'titleHint')
 
@@ -256,9 +256,9 @@ async function executeChatTool(
     }
   }
 
-  if (toolInvocation.name === 'save_transcript') {
-    // TypeScript now knows this is save_transcript
-    const args = toolInvocation.arguments as ChatToolInvocation<'save_transcript'>['arguments']
+  if (toolInvocation.name === 'save_source') {
+    // TypeScript now knows this is save_source
+    const args = toolInvocation.arguments as ChatToolInvocation<'save_source'>['arguments']
     const transcript = validateRequiredString(args.transcript, 'transcript')
     const title = validateOptionalString(args.title, 'title')
 
@@ -269,10 +269,10 @@ async function executeChatTool(
         userId,
         transcript,
         title: title ?? null,
-        metadata: { createdVia: 'chat_save_transcript_tool' },
+        metadata: { createdVia: 'chat_save_source_tool' },
         onProgress: async (progressMessage) => {
-          await addMessageToChatSession(db, {
-            sessionId,
+          await addMessageToConversation(db, {
+            conversationId,
             organizationId,
             role: 'assistant',
             content: progressMessage
@@ -308,9 +308,9 @@ async function executeChatTool(
     }
   }
 
-  if (toolInvocation.name === 'update_metadata') {
-    // TypeScript now knows this is update_metadata
-    const args = toolInvocation.arguments as ChatToolInvocation<'update_metadata'>['arguments']
+  if (toolInvocation.name === 'edit_metadata') {
+    // TypeScript now knows this is edit_metadata
+    const args = toolInvocation.arguments as ChatToolInvocation<'edit_metadata'>['arguments']
     const contentId = validateUUID(args.contentId, 'contentId')
 
     try {
@@ -425,9 +425,9 @@ async function executeChatTool(
     }
   }
 
-  if (toolInvocation.name === 'generate_content') {
-    // TypeScript now knows this is generate_content
-    const args = toolInvocation.arguments as ChatToolInvocation<'generate_content'>['arguments']
+  if (toolInvocation.name === 'write_content') {
+    // TypeScript now knows this is write_content
+    const args = toolInvocation.arguments as ChatToolInvocation<'write_content'>['arguments']
 
     try {
       let resolvedSourceContentId: string | null = args.sourceContentId ?? null
@@ -440,10 +440,10 @@ async function executeChatTool(
           organizationId,
           userId,
           transcript: resolvedSourceText,
-          metadata: { createdVia: 'chat_generate_content_tool' },
+          metadata: { createdVia: 'chat_write_content_tool' },
           onProgress: async (progressMessage) => {
-            await addMessageToChatSession(db, {
-              sessionId,
+            await addMessageToConversation(db, {
+              conversationId,
               organizationId,
               role: 'assistant',
               content: progressMessage
@@ -484,7 +484,7 @@ async function executeChatTool(
         userId,
         sourceContentId: resolvedSourceContentId ?? null,
         sourceText: resolvedSourceText,
-        contentId: args.contentId ?? null,
+        contentId: null, // write_content only creates new content, never updates existing ones
         event: context.event,
         overrides: {
           title: args.title ? validateRequiredString(args.title, 'title') : null,
@@ -521,21 +521,21 @@ async function executeChatTool(
     }
   }
 
-  if (toolInvocation.name === 'patch_section') {
-    // TypeScript now knows this is patch_section
-    const args = toolInvocation.arguments as ChatToolInvocation<'patch_section'>['arguments']
+  if (toolInvocation.name === 'edit_section') {
+    // TypeScript now knows this is edit_section
+    const args = toolInvocation.arguments as ChatToolInvocation<'edit_section'>['arguments']
 
     if (!args.contentId) {
       return {
         success: false,
-        error: 'contentId is required for patch_section'
+        error: 'contentId is required for edit_section'
       }
     }
 
     if (!args.instructions) {
       return {
         success: false,
-        error: 'instructions is required for patch_section'
+        error: 'instructions is required for edit_section'
       }
     }
 
@@ -589,13 +589,13 @@ async function executeChatTool(
         if (!resolvedSectionId) {
           return {
             success: false,
-            error: `Section with title "${sectionTitle}" not found in this draft`
+            error: `Section with title "${sectionTitle}" not found in this content`
           }
         }
       } else {
         return {
           success: false,
-          error: 'Either sectionId or sectionTitle is required for patch_section'
+          error: 'Either sectionId or sectionTitle is required for edit_section'
         }
       }
 
@@ -629,8 +629,8 @@ async function executeChatTool(
     }
   }
 
-  if (toolInvocation.name === 're_enrich_content') {
-    const args = toolInvocation.arguments as ChatToolInvocation<'re_enrich_content'>['arguments']
+  if (toolInvocation.name === 'enrich_content') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'enrich_content'>['arguments']
     const contentId = validateUUID(args.contentId, 'contentId')
     const baseUrl = validateOptionalString(args.baseUrl, 'baseUrl')
 
@@ -685,18 +685,18 @@ async function executeChatTool(
  * - Error handling - automatic retries with configurable limits
  *
  * **Available Tools:**
- * - `ingest_youtube` - Fetch captions from YouTube videos
- * - `save_transcript` - Save pasted transcripts as source content
- * - `generate_content` - Create or update content drafts from sources
- * - `patch_section` - Update specific sections of existing drafts
- * - `update_metadata` - Update draft metadata (title, slug, status, etc.)
+ * - `fetch_youtube` - Fetch captions from YouTube videos
+ * - `save_source` - Save pasted transcripts as source content
+ * - `write_content` - Create new content items from sources
+ * - `edit_section` - Update specific sections of existing content
+ * - `edit_metadata` - Update content metadata (title, slug, status, etc.)
  *
  * @contract
  * **Input:**
  * ```typescript
  * {
  *   message: string (required) - Natural language user message
- *   sessionId?: string - Existing chat session ID to continue conversation
+ *   conversationId?: string - Existing conversation ID to continue conversation
  *   contentId?: string - Content ID to link the session to (provides workspace context)
  * }
  * ```
@@ -704,7 +704,7 @@ async function executeChatTool(
  * **Output (SSE Stream):**
  * This endpoint returns a Server-Sent Events (SSE) stream with the following events:
  *
- * - `session:update` - Session state changes (sessionId, sessionContentId)
+ * - `conversation:update` - Conversation state changes (conversationId, conversationContentId)
  * - `message:chunk` - Incremental LLM text chunks (`{ messageId: string, chunk: string }`)
  * - `message:complete` - LLM text generation finished (`{ messageId: string, message: string }`)
  * - `tool:start` - Tool execution started (`{ toolName: string, timestamp: string }`)
@@ -713,7 +713,7 @@ async function executeChatTool(
  * - `messages:complete` - **Authoritative message list from database** (`{ messages: Array }`)
  * - `logs:complete` - Authoritative log list from database (`{ logs: Array }`)
  * - `agentContext:update` - Final agent context (`{ readySources, ingestFailures, lastAction, toolHistory }`)
- * - `session:final` - Final session state (`{ sessionId, sessionContentId }`)
+ * - `conversation:final` - Final conversation state (`{ conversationId, conversationContentId }`)
  * - `done` - Stream completion signal (`{}`)
  *
  * **Important:** The `messages:complete` event contains the authoritative, DB-backed message list.
@@ -724,13 +724,13 @@ async function executeChatTool(
  * // Natural language request
  * POST /api/chat
  * {
- *   "message": "Create a draft from this YouTube video: https://youtube.com/watch?v=...",
- *   "sessionId": "abc-123"
+ *   "message": "Create content from this YouTube video: https://youtube.com/watch?v=...",
+ *   "conversationId": "abc-123"
  * }
  *
  * // The agent will automatically:
- * // 1. Call ingest_youtube tool to fetch captions
- * // 2. Call generate_content tool to create the draft
+ * // 1. Call fetch_youtube tool to fetch captions
+ * // 2. Call write_content tool to create the content
  * // 3. Return a friendly message confirming completion
  * ```
  *
@@ -792,7 +792,12 @@ export default defineEventHandler(async (event) => {
 
   const message = typeof body.message === 'string' ? body.message : ''
   const trimmedMessage = message.trim()
-  const requestSessionId = body.sessionId ? validateOptionalUUID(body.sessionId, 'sessionId') : null
+  // Support both conversationId (new) and sessionId (legacy) for backwards compatibility
+  const requestConversationId = body.conversationId
+    ? validateOptionalUUID(body.conversationId, 'conversationId')
+    : body.sessionId
+      ? validateOptionalUUID(body.sessionId, 'sessionId')
+      : null
 
   if (!trimmedMessage) {
     throw createValidationError('Message is required')
@@ -831,27 +836,27 @@ export default defineEventHandler(async (event) => {
     : null
 
   // Determine session contentId from request
-  const initialSessionContentId = requestContentId
+  const _initialSessionContentId = requestContentId
 
   // Declare multiPassResult variable for use later
   let multiPassResult: Awaited<ReturnType<typeof runChatAgentWithMultiPassStream>> | null = null
 
-  let session: typeof schema.contentChatSession.$inferSelect | null = null
-  if (requestSessionId) {
-    session = await getChatSessionById(db, requestSessionId, organizationId)
-    if (!session) {
-      console.warn(`Session ${requestSessionId} not found for organization ${organizationId}, creating new session`)
+  let conversation: typeof schema.conversation.$inferSelect | null = null
+  if (requestConversationId) {
+    conversation = await getConversationById(db, requestConversationId, organizationId)
+    if (!conversation) {
+      console.warn(`Conversation ${requestConversationId} not found for organization ${organizationId}, creating new conversation`)
     }
   }
 
-  if (!session) {
-    // Check conversation quota before creating a new session
+  if (!conversation) {
+    // Check conversation quota before creating a new conversation
     await ensureConversationCapacity(db, organizationId, user, event)
 
     const lastAction = trimmedMessage ? 'message' : null
-    session = await getOrCreateChatSessionForContent(db, {
+    conversation = await getOrCreateConversationForContent(db, {
       organizationId,
-      contentId: initialSessionContentId ?? null, // Explicitly null if undefined
+      contentId: _initialSessionContentId ?? null, // Explicitly null if undefined
       sourceContentId: null, // Tools will set this when sources are created
       createdByUserId: user.id,
       metadata: {
@@ -859,22 +864,22 @@ export default defineEventHandler(async (event) => {
       }
     })
   } else {
-    // Update session metadata with last action if provided
+    // Update conversation metadata with last action if provided
     if (trimmedMessage) {
       const lastAction = 'message'
-      const [updatedSession] = await db
-        .update(schema.contentChatSession)
+      const [updatedConversation] = await db
+        .update(schema.conversation)
         .set({
           metadata: {
-            ...(session.metadata as Record<string, any> || {}),
+            ...(conversation.metadata as Record<string, any> || {}),
             lastAction
           },
           updatedAt: new Date()
         })
-        .where(eq(schema.contentChatSession.id, session.id))
+        .where(eq(schema.conversation.id, conversation.id))
         .returning()
-      if (updatedSession) {
-        session = updatedSession
+      if (updatedConversation) {
+        conversation = updatedConversation
       }
     }
   }
@@ -887,8 +892,8 @@ export default defineEventHandler(async (event) => {
   }
 
   // From this point on, session is guaranteed to be non-null
-  // Use activeSession variable to avoid null checks
-  let activeSession = session
+  // Use activeConversation variable to avoid null checks
+  let activeConversation = conversation
 
   // Helper to write SSE event to response stream
   const writeSSE = (eventType: string, data: any) => {
@@ -905,23 +910,23 @@ export default defineEventHandler(async (event) => {
   // This ensures the client-side message ID matches the server-side message ID
   let currentMessageId: string | null = null
 
-  // Track any existing source content from the session
-  if (activeSession.sourceContentId && !readySourceIds.has(activeSession.sourceContentId)) {
-    const [sessionSource] = await db
+  // Track any existing source content from the conversation
+  if (activeConversation.sourceContentId && !readySourceIds.has(activeConversation.sourceContentId)) {
+    const [conversationSource] = await db
       .select()
       .from(schema.sourceContent)
       .where(and(
-        eq(schema.sourceContent.id, activeSession.sourceContentId),
+        eq(schema.sourceContent.id, activeConversation.sourceContentId),
         eq(schema.sourceContent.organizationId, organizationId)
       ))
       .limit(1)
-    if (sessionSource) {
-      trackReadySource(sessionSource)
+    if (conversationSource) {
+      trackReadySource(conversationSource)
     }
   }
 
   if (trimmedMessage) {
-    const previousMessages = await getSessionMessages(db, activeSession.id, organizationId)
+    const previousMessages = await getConversationMessages(db, activeConversation.id, organizationId)
     const conversationHistory: ChatCompletionMessage[] = previousMessages.map(message => ({
       role: message.role === 'assistant'
         ? 'assistant'
@@ -934,13 +939,13 @@ export default defineEventHandler(async (event) => {
     const contextBlocks: string[] = []
 
     // Build workspace summary if content exists
-    if (activeSession.contentId) {
+    if (activeConversation.contentId) {
       try {
         const [contentRecord] = await db
           .select()
           .from(schema.content)
           .where(and(
-            eq(schema.content.id, activeSession.contentId),
+            eq(schema.content.id, activeConversation.contentId),
             eq(schema.content.organizationId, organizationId)
           ))
           .limit(1)
@@ -975,15 +980,15 @@ export default defineEventHandler(async (event) => {
             if (workspaceSummary) {
               contextBlocks.push(`Workspace Summary:\n${workspaceSummary}`)
             } else {
-              contextBlocks.push(`Current draft: "${contentRecord.title}" (${contentRecord.status})`)
+              contextBlocks.push(`Current content: "${contentRecord.title}" (${contentRecord.status})`)
             }
           } else {
-            contextBlocks.push(`Current draft ID: ${activeSession.contentId}`)
+            contextBlocks.push(`Current content ID: ${activeConversation.contentId}`)
           }
         }
       } catch (error) {
         console.error('Failed to build workspace summary for context', error)
-        contextBlocks.push(`Current draft ID: ${activeSession.contentId}`)
+        contextBlocks.push(`Current content ID: ${activeConversation.contentId}`)
       }
     }
 
@@ -995,12 +1000,12 @@ export default defineEventHandler(async (event) => {
         const status = source.ingestStatus === 'ingested' ? 'ready' : source.ingestStatus
         return `- ${title} (${typeLabel}, ${status})`
       }).join('\n')
-      contextBlocks.push(`Ready sources for drafting:\n${sourceDetails}`)
+      contextBlocks.push(`Ready sources for content generation:\n${sourceDetails}`)
     }
 
     // Add recent tool outcomes from session logs
     try {
-      const recentLogs = await getSessionLogs(db, activeSession.id, organizationId)
+      const recentLogs = await getConversationLogs(db, activeConversation.id, organizationId)
       const toolLogs = recentLogs
         .filter(log => log.type && log.type.startsWith('tool_'))
         .slice(-5) // Last 5 tool logs
@@ -1033,12 +1038,12 @@ export default defineEventHandler(async (event) => {
       // Track assistant message for potential future use (used in callbacks)
       let _currentAssistantMessage = ''
 
-      // Send initial session update
-      // Event: session:update - Emitted when session state changes (e.g., session created, contentId updated)
-      // Client should update sessionId and sessionContentId state
-      writeSSE('session:update', {
-        sessionId: activeSession.id,
-        sessionContentId: activeSession.contentId
+      // Send initial conversation update
+      // Event: conversation:update - Emitted when conversation state changes (e.g., conversation created, contentId updated)
+      // Client should update conversationId and conversationContentId state
+      writeSSE('conversation:update', {
+        conversationId: activeConversation.id,
+        conversationContentId: activeConversation.contentId
       })
 
       multiPassResult = await runChatAgentWithMultiPassStream({
@@ -1062,7 +1067,7 @@ export default defineEventHandler(async (event) => {
           // Log tool start to database
           await logToolEvent(
             db,
-            activeSession.id,
+            activeConversation.id,
             organizationId,
             'tool_started',
             toolName,
@@ -1095,7 +1100,7 @@ export default defineEventHandler(async (event) => {
           // Log tool retry to database
           await logToolEvent(
             db,
-            activeSession.id,
+            activeConversation.id,
             organizationId,
             'tool_retrying',
             toolInvocation.name,
@@ -1109,7 +1114,7 @@ export default defineEventHandler(async (event) => {
             db,
             organizationId,
             userId: user.id,
-            sessionId: activeSession.id,
+            conversationId: activeConversation.id,
             event
           })
         }
@@ -1117,22 +1122,22 @@ export default defineEventHandler(async (event) => {
 
       // Process multi-pass results
       if (multiPassResult.toolHistory.length > 0) {
-        // Update session with any new sources or content created
+        // Update conversation with any new sources or content created
         for (const toolExec of multiPassResult.toolHistory) {
           if (toolExec.result.success && toolExec.result.sourceContentId) {
             const newSourceId = toolExec.result.sourceContentId
-            // Update session with new source if different from current
-            if (activeSession.sourceContentId !== newSourceId) {
-              const [updatedSession] = await db
-                .update(schema.contentChatSession)
+            // Update conversation with new source if different from current
+            if (activeConversation.sourceContentId !== newSourceId) {
+              const [updatedConversation] = await db
+                .update(schema.conversation)
                 .set({ sourceContentId: newSourceId })
-                .where(eq(schema.contentChatSession.id, activeSession.id))
+                .where(eq(schema.conversation.id, activeConversation.id))
                 .returning()
-              if (updatedSession) {
-                activeSession = updatedSession
-                writeSSE('session:update', {
-                  sessionId: activeSession.id,
-                  sessionContentId: activeSession.contentId
+              if (updatedConversation) {
+                activeConversation = updatedConversation
+                writeSSE('conversation:update', {
+                  conversationId: activeConversation.id,
+                  conversationContentId: activeConversation.contentId
                 })
               }
             }
@@ -1149,36 +1154,36 @@ export default defineEventHandler(async (event) => {
               trackReadySource(sourceRecord, { isNew: true })
             }
           }
-          // Update session with new content if generate_content or patch_section succeeded
+          // Update conversation with new content if write_content or edit_section succeeded
           if (toolExec.result.success && toolExec.result.contentId) {
             const newContentId = toolExec.result.contentId
-            if (activeSession.contentId !== newContentId) {
-              const [updatedSession] = await db
-                .update(schema.contentChatSession)
+            if (activeConversation.contentId !== newContentId) {
+              const [updatedConversation] = await db
+                .update(schema.conversation)
                 .set({
                   contentId: newContentId,
                   metadata: {
-                    ...(activeSession.metadata as Record<string, any> || {}),
+                    ...(activeConversation.metadata as Record<string, any> || {}),
                     linkedContentId: newContentId,
                     linkedAt: new Date().toISOString()
                   },
                   updatedAt: new Date()
                 })
-                .where(eq(schema.contentChatSession.id, activeSession.id))
+                .where(eq(schema.conversation.id, activeConversation.id))
                 .returning()
-              if (updatedSession) {
-                activeSession = updatedSession
-                writeSSE('session:update', {
-                  sessionId: activeSession.id,
-                  sessionContentId: activeSession.contentId
+              if (updatedConversation) {
+                activeConversation = updatedConversation
+                writeSSE('conversation:update', {
+                  conversationId: activeConversation.id,
+                  conversationContentId: activeConversation.contentId
                 })
               }
             }
           }
 
           // Log tool execution
-          const logEntry = await addLogEntryToChatSession(db, {
-            sessionId: activeSession.id,
+          const logEntry = await addLogEntryToConversation(db, {
+            conversationId: activeConversation.id,
             organizationId,
             type: toolExec.result.success ? 'tool_succeeded' : 'tool_failed',
             message: toolExec.result.success
@@ -1204,22 +1209,22 @@ export default defineEventHandler(async (event) => {
             })
           }
 
-          // Update session metadata with last successful tool
+          // Update conversation metadata with last successful tool
           if (toolExec.result.success) {
-            const [updatedSession] = await db
-              .update(schema.contentChatSession)
+            const [updatedConversation] = await db
+              .update(schema.conversation)
               .set({
                 metadata: {
-                  ...(activeSession.metadata as Record<string, any> || {}),
+                  ...(activeConversation.metadata as Record<string, any> || {}),
                   lastAction: toolExec.toolName,
                   lastToolSuccess: new Date().toISOString()
                 },
                 updatedAt: new Date()
               })
-              .where(eq(schema.contentChatSession.id, activeSession.id))
+              .where(eq(schema.conversation.id, activeConversation.id))
               .returning()
-            if (updatedSession) {
-              activeSession = updatedSession
+            if (updatedConversation) {
+              activeConversation = updatedConversation
             }
           }
         }
@@ -1240,8 +1245,8 @@ export default defineEventHandler(async (event) => {
   }
 
   for (const errorMessage of ingestionErrors) {
-    await addMessageToChatSession(db, {
-      sessionId: activeSession.id,
+    await addMessageToConversation(db, {
+      conversationId: activeConversation.id,
       organizationId,
       role: 'assistant',
       content: errorMessage.content,
@@ -1252,7 +1257,7 @@ export default defineEventHandler(async (event) => {
   // Check if any tools created content that needs completion messages
   let completionMessages: Awaited<ReturnType<typeof composeWorkspaceCompletionMessages>> | null = null
   if (multiPassResult && multiPassResult.toolHistory.length > 0) {
-    // Find generate_content or patch_section results
+    // Find write_content or edit_section results
     for (const toolExec of multiPassResult.toolHistory) {
       if (toolExec.result.success && toolExec.result.contentId) {
         try {
@@ -1290,14 +1295,14 @@ export default defineEventHandler(async (event) => {
   }
 
   if (trimmedMessage) {
-    await addMessageToChatSession(db, {
-      sessionId: activeSession.id,
+    await addMessageToConversation(db, {
+      conversationId: activeConversation.id,
       organizationId,
       role: 'user',
       content: trimmedMessage
     })
-    await addLogEntryToChatSession(db, {
-      sessionId: activeSession.id,
+    await addLogEntryToConversation(db, {
+      conversationId: activeConversation.id,
       organizationId,
       type: 'user_message',
       message: 'User sent a chat prompt'
@@ -1306,9 +1311,9 @@ export default defineEventHandler(async (event) => {
 
   // Save agent's reply if available (use the same message ID from streaming to avoid duplicates)
   if (agentAssistantReply) {
-    await addMessageToChatSession(db, {
+    await addMessageToConversation(db, {
       id: currentMessageId || undefined, // Use streaming message ID to match client-side message
-      sessionId: activeSession.id,
+      conversationId: activeConversation.id,
       organizationId,
       role: 'assistant',
       content: agentAssistantReply
@@ -1316,8 +1321,8 @@ export default defineEventHandler(async (event) => {
   }
 
   if (completionMessages?.summary) {
-    await addMessageToChatSession(db, {
-      sessionId: activeSession.id,
+    await addMessageToConversation(db, {
+      conversationId: activeConversation.id,
       organizationId,
       role: 'assistant',
       content: completionMessages.summary.content,
@@ -1326,8 +1331,8 @@ export default defineEventHandler(async (event) => {
   }
 
   if (completionMessages?.files) {
-    await addMessageToChatSession(db, {
-      sessionId: activeSession.id,
+    await addMessageToConversation(db, {
+      conversationId: activeConversation.id,
       organizationId,
       role: 'assistant',
       content: completionMessages.files.content,
@@ -1335,8 +1340,8 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const messages = await getSessionMessages(db, activeSession.id, organizationId)
-  const logs = await getSessionLogs(db, activeSession.id, organizationId)
+  const messages = await getConversationMessages(db, activeConversation.id, organizationId)
+  const logs = await getConversationLogs(db, activeConversation.id, organizationId)
 
   // Build tool history from logs
   const toolHistory = logs
@@ -1362,7 +1367,7 @@ export default defineEventHandler(async (event) => {
     .slice(-10) // Last 10 tool executions
 
   // Get last action from session metadata
-  const lastAction = (activeSession.metadata as Record<string, any> | null)?.lastAction || null
+  const lastAction = (activeConversation.metadata as Record<string, any> | null)?.lastAction || null
 
   // Build agentContext
   const agentContext = {
@@ -1417,11 +1422,11 @@ export default defineEventHandler(async (event) => {
   // Client should update agentContext state with this data
   writeSSE('agentContext:update', agentContext)
 
-  // Event: session:final - Final session state after all processing
-  // Client should update sessionId and sessionContentId with final values
-  writeSSE('session:final', {
-    sessionId: activeSession.id,
-    sessionContentId: activeSession.contentId
+  // Event: conversation:final - Final conversation state after all processing
+  // Client should update conversationId and conversationContentId with final values
+  writeSSE('conversation:final', {
+    conversationId: activeConversation.id,
+    conversationContentId: activeConversation.contentId
   })
 
   // Event: done - Stream completion signal

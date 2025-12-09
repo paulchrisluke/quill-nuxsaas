@@ -1317,15 +1317,15 @@ export const getConversationQuotaUsage = async (
       const orgIds = anonymousOrgs.map(org => org.id)
 
       if (orgIds.length > 0) {
-        // Count chat sessions across all anonymous orgs from this device
-        // Exclude archived/completed sessions from quota
+        // Count conversations across all anonymous orgs from this device
+        // Exclude archived/completed conversations from quota
         const [aggregateResult] = await db
           .select({ total: count() })
-          .from(schema.contentChatSession)
+          .from(schema.conversation)
           .where(and(
-            inArray(schema.contentChatSession.organizationId, orgIds),
-            sql`${schema.contentChatSession.status} != 'archived'`,
-            sql`${schema.contentChatSession.status} != 'completed'`
+            inArray(schema.conversation.organizationId, orgIds),
+            sql`${schema.conversation.status} != 'archived'`,
+            sql`${schema.conversation.status} != 'completed'`
           ))
 
         used = Number(aggregateResult?.total ?? 0) || 0
@@ -1333,11 +1333,11 @@ export const getConversationQuotaUsage = async (
         // Fallback to current organization if no device match found
         const [countResult] = await db
           .select({ total: count() })
-          .from(schema.contentChatSession)
+          .from(schema.conversation)
           .where(and(
-            eq(schema.contentChatSession.organizationId, organizationId),
-            sql`${schema.contentChatSession.status} != 'archived'`,
-            sql`${schema.contentChatSession.status} != 'completed'`
+            eq(schema.conversation.organizationId, organizationId),
+            sql`${schema.conversation.status} != 'archived'`,
+            sql`${schema.conversation.status} != 'completed'`
           ))
         used = Number(countResult?.total ?? 0) || 0
       }
@@ -1345,11 +1345,11 @@ export const getConversationQuotaUsage = async (
       // Fallback to current organization if device fingerprint unavailable
       const [countResult] = await db
         .select({ total: count() })
-        .from(schema.contentChatSession)
+        .from(schema.conversation)
         .where(and(
-          eq(schema.contentChatSession.organizationId, organizationId),
-          sql`${schema.contentChatSession.status} != 'archived'`,
-          sql`${schema.contentChatSession.status} != 'completed'`
+          eq(schema.conversation.organizationId, organizationId),
+          sql`${schema.conversation.status} != 'archived'`,
+          sql`${schema.conversation.status} != 'completed'`
         ))
       used = Number(countResult?.total ?? 0) || 0
     }
@@ -1357,11 +1357,11 @@ export const getConversationQuotaUsage = async (
     // For non-anonymous users, use organization-based quota
     const [countResult] = await db
       .select({ total: count() })
-      .from(schema.contentChatSession)
+      .from(schema.conversation)
       .where(and(
-        eq(schema.contentChatSession.organizationId, organizationId),
-        sql`${schema.contentChatSession.status} != 'archived'`,
-        sql`${schema.contentChatSession.status} != 'completed'`
+        eq(schema.conversation.organizationId, organizationId),
+        sql`${schema.conversation.status} != 'archived'`,
+        sql`${schema.conversation.status} != 'completed'`
       ))
     used = Number(countResult?.total ?? 0) || 0
   }

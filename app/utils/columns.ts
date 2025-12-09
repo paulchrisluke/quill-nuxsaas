@@ -47,32 +47,6 @@ export const createDateColumn = <T>(
   }
 }
 
-/**
- * @deprecated Use createDateColumn() instead. This function cannot access composables.
- * Kept for backward compatibility but will use a fallback formatter.
- */
-export const dateColumn = <T>(cell: ColumnCell<T>) => {
-  const value = cell.getValue() as Date | string
-  const date = new Date(value)
-
-  // Handle invalid dates
-  if (Number.isNaN(date.getTime())) {
-    return '—'
-  }
-
-  // Fallback formatter when composable is not available
-  // Use browser's default locale if available, otherwise fallback to en-US
-  const locale = typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en-US'
-
-  return date.toLocaleString(locale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-}
-
 export const yesNoColumn = <T>(cell: ColumnCell<T>, t: TranFunction) => {
   const value = cell.getValue() as boolean
   const color = value ? 'success' : 'error'

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
-import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
 import { useClipboard, useDebounceFn } from '@vueuse/core'
 import { shallowRef } from 'vue'
 
@@ -12,7 +11,7 @@ import PromptComposer from './PromptComposer.vue'
 import QuotaLimitModal from './QuotaLimitModal.vue'
 
 const props = withDefaults(defineProps<{
-  initialDraftId?: string | null
+  initialDraftId?: string | null // Legacy prop name, maps to contentId
   routeSync?: boolean
 }>(), {
   initialDraftId: null,
@@ -32,6 +31,7 @@ const {
   sendMessage,
   isBusy,
   sessionContentId,
+  conversationId,
   resetSession,
   selectedContentType,
   stopResponse,
@@ -41,17 +41,13 @@ const {
   prompt,
   currentActivity,
   currentToolName
-} = useChatSession()
+} = useConversation()
 const promptSubmitting = ref(false)
 const showQuotaModal = ref(false)
 const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
 const showUpgradeModal = ref(false)
-const selectedContentTypeOption = computed(() => {
-  if (!CONTENT_TYPE_OPTIONS.length) {
-    return null
-  }
-  return CONTENT_TYPE_OPTIONS.find(option => option.value === selectedContentType.value) ?? CONTENT_TYPE_OPTIONS[0]
-})
+// Placeholder for chat/agent mode selector (not wired up yet)
+const chatMode = ref<'chat' | 'agent'>('agent')
 const MAX_USER_MESSAGE_LENGTH = 500
 const LONG_PRESS_DELAY_MS = 500
 const LONG_PRESS_MOVE_THRESHOLD_PX = 10
@@ -102,7 +98,7 @@ const verifiedConversationLimit = computed(() => parseConversationLimitValue((ru
 const activeWorkspaceId = ref<string | null>(null)
 const workspaceDetail = shallowRef<any | null>(null)
 const workspaceLoading = ref(false)
-const archivingDraftId = ref<string | null>(null)
+const archivingConversationId = ref<string | null>(null)
 const pendingDrafts = ref<Array<{ id: string, contentType: string | null }>>([])
 const conversationQuotaState = useState<ConversationQuotaUsagePayload | null>('conversation-quota-usage', () => null)
 const workspacePayloadCache = useState<Record<string, { payload: any | null, timestamp: number }>>('workspace-payload-cache', () => ({}))
@@ -119,26 +115,36 @@ const scheduleIdleTask = (fn: () => void) => {
   }
 }
 
-const prefetchWorkspacePayload = (contentId?: string | null) => {
-  if (!import.meta.client || !contentId) {
+const prefetchWorkspacePayload = (conversationId?: string | null) => {
+  if (!import.meta.client || !conversationId) {
     return
   }
   scheduleIdleTask(() => {
-    const cacheEntry = workspacePayloadCache.value[contentId]
+    const cacheEntry = workspacePayloadCache.value[conversationId]
     const now = Date.now()
     if (cacheEntry && (now - cacheEntry.timestamp) < WORKSPACE_CACHE_TTL_MS) {
       return
     }
-    $fetch<{ workspace?: any | null }>(`/api/drafts/${contentId}`)
-      .then((response) => {
-        workspacePayloadCache.value[contentId] = {
-          payload: response?.workspace ?? null,
-          timestamp: Date.now()
-        }
-      })
-      .catch(() => {
-        // Ignore prefetch errors
-      })
+    // Prefetch conversation and its artifacts
+    Promise.all([
+      $fetch<{ conversation: any }>(`/api/conversations/${conversationId}`).catch(() => null),
+      $fetch<{ artifacts: Array<{ contentId: string }> }>(`/api/conversations/${conversationId}/artifacts`).catch(() => ({ artifacts: [] }))
+    ]).then(([convResponse, artifactsResponse]) => {
+      if (!convResponse)
+        return
+      const contentId = artifactsResponse.artifacts?.[0]?.contentId || convResponse.conversation.contentId
+      if (contentId) {
+        return $fetch<{ workspace?: any | null }>(`/api/content/${contentId}`)
+          .then((response) => {
+            workspacePayloadCache.value[conversationId] = {
+              payload: response?.workspace ?? null,
+              timestamp: Date.now()
+            }
+          })
+      }
+    }).catch(() => {
+      // Ignore prefetch errors
+    })
   })
 }
 interface ConversationQuotaUsagePayload {
@@ -150,55 +156,64 @@ interface ConversationQuotaUsagePayload {
   profile?: 'anonymous' | 'verified' | 'paid'
 }
 
-interface WorkspaceResponse {
-  contents: any[]
+interface ConversationListResponse {
+  conversations: Array<{
+    id: string
+    status: string
+    updatedAt: Date | string
+    createdAt: Date | string
+    contentId: string | null
+    sourceContentId: string | null
+    metadata: Record<string, any> | null
+    _computed?: {
+      artifactCount: number
+      firstArtifactTitle: string | null
+    }
+  }>
   conversationQuota?: ConversationQuotaUsagePayload | null
 }
 
 const {
-  data: workspaceDraftsPayload,
-  pending: draftsPending,
-  refresh: refreshDrafts
-} = await useFetch<WorkspaceResponse>('/api/drafts', {
+  data: conversationsPayload,
+  pending: conversationsPending,
+  refresh: refreshConversations
+} = await useFetch<ConversationListResponse>('/api/conversations', {
   default: () => ({
-    contents: []
+    conversations: []
   })
 })
-const debouncedRefreshDrafts = useDebounceFn(() => refreshDrafts(), 300)
-// Populate drafts list cache for header reuse
-const draftsListCache = useState<Map<string, any>>('drafts-list-cache', () => new Map())
+const debouncedRefreshConversations = useDebounceFn(() => refreshConversations(), 300)
+// Populate conversation list cache for header reuse
+const conversationListCache = useState<Map<string, any>>('conversation-list-cache', () => new Map())
 
-const updateLocalDraftStatus = (draftId: string, status: string) => {
-  const currentPayload = workspaceDraftsPayload.value
-  if (!currentPayload?.contents?.length)
+const updateLocalConversationStatus = (conversationId: string, status: string) => {
+  const currentPayload = conversationsPayload.value
+  if (!currentPayload?.conversations?.length)
     return
 
-  const nextContents = currentPayload.contents.map((entry) => {
-    if (entry.content?.id !== draftId)
-      return entry
+  const nextConversations = currentPayload.conversations.map((conv) => {
+    if (conv.id !== conversationId)
+      return conv
     return {
-      ...entry,
-      content: {
-        ...entry.content,
-        status
-      }
+      ...conv,
+      status
     }
   })
 
-  workspaceDraftsPayload.value = {
+  conversationsPayload.value = {
     ...currentPayload,
-    contents: nextContents
+    conversations: nextConversations
   }
 
-  const archivedEntry = nextContents.find(entry => entry.content?.id === draftId)
-  if (archivedEntry) {
-    draftsListCache.value.set(draftId, archivedEntry)
+  const archivedConversation = nextConversations.find(conv => conv.id === conversationId)
+  if (archivedConversation) {
+    conversationListCache.value.set(conversationId, archivedConversation)
   }
 }
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
 const conversationQuotaUsage = computed<ConversationQuotaUsagePayload | null>(() =>
-  workspaceDraftsPayload.value?.conversationQuota ?? null
+  conversationsPayload.value?.conversationQuota ?? null
 )
 const quotaPlanLabel = computed(() => conversationQuotaUsage.value?.label ?? (loggedIn.value ? 'Current plan' : 'Guest access'))
 
@@ -216,73 +231,64 @@ watch(conversationQuotaUsage, (value) => {
   }
 }, { immediate: true, deep: true })
 
-const fetchedContentEntries = computed(() => {
-  const list = Array.isArray(workspaceDraftsPayload.value?.contents) ? workspaceDraftsPayload.value?.contents : []
-  return list.map((entry: any) => {
-    if (!entry._computed) {
-      console.error('Entry missing _computed field, skipping entry:', entry)
-      return null
-    }
-
+const fetchedConversationEntries = computed(() => {
+  const list = Array.isArray(conversationsPayload.value?.conversations) ? conversationsPayload.value?.conversations : []
+  return list.map((conv: any) => {
     let updatedAt: Date | null = null
-    if (entry.content.updatedAt) {
-      const parsedDate = new Date(entry.content.updatedAt)
+    if (conv.updatedAt) {
+      const parsedDate = new Date(conv.updatedAt)
       updatedAt = Number.isFinite(parsedDate.getTime()) ? parsedDate : null
     }
 
     return {
-      id: entry.content.id,
-      title: entry.content.title || 'Untitled draft',
-      slug: entry.content.slug,
-      status: entry.content.status,
+      id: conv.id,
+      title: conv._computed?.firstArtifactTitle || 'Untitled conversation',
+      status: conv.status,
       updatedAt,
-      contentType: entry.currentVersion?.frontmatter?.contentType || entry.content.contentType,
-      sectionsCount: entry._computed.sectionsCount ?? 0,
-      wordCount: entry._computed.wordCount ?? 0,
-      sourceType: entry.sourceContent?.sourceType ?? null,
-      sourceContentId: entry.content.sourceContentId ?? null,
-      additions: entry._computed.additions ?? 0,
-      deletions: entry._computed.deletions ?? 0
+      artifactCount: conv._computed?.artifactCount ?? 0,
+      contentId: conv.contentId,
+      sourceContentId: conv.sourceContentId,
+      metadata: conv.metadata
     }
   }).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 })
 
-const pendingContentEntries = computed(() => {
-  const existingIds = new Set(fetchedContentEntries.value.map(entry => entry.id))
+const pendingConversationEntries = computed(() => {
+  const existingIds = new Set(fetchedConversationEntries.value.map(entry => entry.id))
 
   return pendingDrafts.value
     .filter(entry => entry.id && !existingIds.has(entry.id))
     .map(entry => ({
       id: entry.id,
-      title: '',
-      slug: '',
-      status: 'generating',
+      title: 'New conversation',
+      status: 'active',
       updatedAt: null,
-      contentType: entry.contentType || 'content',
-      additions: 0,
-      deletions: 0,
+      artifactCount: 0,
+      contentId: null,
+      sourceContentId: null,
+      metadata: null,
       isPending: true
     }))
 })
 
-const contentEntries = computed(() => {
+const conversationEntries = computed(() => {
   return [
-    ...pendingContentEntries.value,
-    ...fetchedContentEntries.value
+    ...pendingConversationEntries.value,
+    ...fetchedConversationEntries.value
   ]
 })
 
-watch(sessionContentId, (value, previous) => {
+watch(conversationId, (value, previous) => {
   if (!value || value === previous)
     return
 
-  const alreadyPresent = fetchedContentEntries.value.some(entry => entry.id === value)
+  const alreadyPresent = fetchedConversationEntries.value.some(entry => entry.id === value)
     || pendingDrafts.value.some(entry => entry.id === value)
 
   if (alreadyPresent)
     return
 
-  // Remove any temp entries (they'll be replaced by the real draft)
+  // Remove any temp entries (they'll be replaced by the real conversation)
   pendingDrafts.value = pendingDrafts.value.filter(entry => !entry.id.startsWith('temp-'))
 
   pendingDrafts.value = [
@@ -290,15 +296,15 @@ watch(sessionContentId, (value, previous) => {
     ...pendingDrafts.value
   ]
 
-  debouncedRefreshDrafts()
+  debouncedRefreshConversations()
 })
 
-watch(fetchedContentEntries, (entries) => {
+watch(fetchedConversationEntries, (entries) => {
   const presentIds = new Set(entries.map(entry => entry.id))
   pendingDrafts.value = pendingDrafts.value.filter(entry => !presentIds.has(entry.id))
 })
 
-const activeWorkspaceEntry = computed(() => contentEntries.value.find(entry => entry.id === activeWorkspaceId.value) ?? null)
+const activeWorkspaceEntry = computed(() => conversationEntries.value.find(entry => entry.id === activeWorkspaceId.value) ?? null)
 const isStreaming = computed(() => ['submitted', 'streaming'].includes(status.value))
 const uiStatus = computed(() => status.value)
 const shouldShowWhatsNew = computed(() => !isWorkspaceActive.value && messages.value.length === 0)
@@ -307,7 +313,7 @@ const aiThinkingIndicator = computed(() => resolveAiThinkingIndicator({
   status: status.value,
   logs: logs.value,
   activeSince: requestStartedAt.value,
-  fallbackMessage: 'Working on your draft...',
+  fallbackMessage: 'Working on your content...',
   currentActivity: currentActivity.value,
   currentToolName: currentToolName.value
 }))
@@ -339,8 +345,10 @@ useDraftAction({
   pendingDrafts,
   sendMessage,
   onRefresh: async () => {
-    await refreshDrafts()
-    prefetchWorkspacePayload(sessionContentId.value || activeWorkspaceId.value)
+    await refreshConversations()
+    if (activeWorkspaceId.value) {
+      prefetchWorkspacePayload(activeWorkspaceId.value)
+    }
   }
 })
 
@@ -443,7 +451,7 @@ const handleQuotaModalCancel = () => {
 const handleUpgradeSuccess = async () => {
   showUpgradeModal.value = false
   await refreshActiveOrg()
-  await refreshDrafts()
+  await refreshConversations()
 }
 
 const handleQuotaGoogleSignup = () => {
@@ -488,20 +496,22 @@ const handlePromptSubmit = async (value?: string) => {
   promptSubmitting.value = true
   try {
     await sendMessage(trimmed)
-    prefetchWorkspacePayload(sessionContentId.value || activeWorkspaceId.value)
+    if (activeWorkspaceId.value) {
+      prefetchWorkspacePayload(activeWorkspaceId.value)
+    }
     prompt.value = ''
   } finally {
     promptSubmitting.value = false
   }
 }
 
-const loadWorkspaceDetail = async (contentId: string) => {
-  if (!contentId) {
+const loadWorkspaceDetail = async (conversationId: string) => {
+  if (!conversationId) {
     workspaceDetail.value = null
     return
   }
 
-  const cacheEntry = workspacePayloadCache.value[contentId]
+  const cacheEntry = workspacePayloadCache.value[conversationId]
   const now = Date.now()
 
   if (cacheEntry) {
@@ -516,15 +526,43 @@ const loadWorkspaceDetail = async (contentId: string) => {
 
   workspaceLoading.value = !cacheEntry
   try {
-    const response = await $fetch<{ workspace?: any | null }>(`/api/drafts/${contentId}`)
-    const payload = response?.workspace ?? null
-    workspaceDetail.value = payload
-    workspacePayloadCache.value[contentId] = {
-      payload,
-      timestamp: Date.now()
+    // First, get the conversation to find its content artifacts
+    const conversationResponse = await $fetch<{ conversation: any }>(`/api/conversations/${conversationId}`)
+    const conversation = conversationResponse.conversation
+
+    // Get artifacts for this conversation
+    const artifactsResponse = await $fetch<{ artifacts: Array<{ contentId: string, data: any }> }>(`/api/conversations/${conversationId}/artifacts`)
+
+    // Use the first content artifact, or the legacy contentId if available
+    const contentIdToLoad = artifactsResponse.artifacts?.[0]?.contentId || conversation.contentId
+
+    if (contentIdToLoad) {
+      // Load the content workspace
+      const workspaceResponse = await $fetch<{ workspace?: any | null }>(`/api/content/${contentIdToLoad}`)
+      const payload = workspaceResponse.workspace ?? null
+      workspaceDetail.value = payload
+      workspacePayloadCache.value[conversationId] = {
+        payload,
+        timestamp: Date.now()
+      }
+    } else {
+      // No content artifacts yet - create a minimal workspace payload
+      workspaceDetail.value = {
+        conversation: {
+          id: conversation.id,
+          status: conversation.status,
+          metadata: conversation.metadata
+        },
+        content: null,
+        artifacts: artifactsResponse.artifacts || []
+      }
+      workspacePayloadCache.value[conversationId] = {
+        payload: workspaceDetail.value,
+        timestamp: Date.now()
+      }
     }
   } catch (error) {
-    console.error('Unable to load workspace', error)
+    console.error('Unable to load conversation workspace', error)
     if (!cacheEntry) {
       workspaceDetail.value = null
     }
@@ -533,7 +571,7 @@ const loadWorkspaceDetail = async (contentId: string) => {
   }
 }
 
-const normalizeDraftId = (value: unknown): string | null => {
+const normalizeContentId = (value: unknown): string | null => {
   if (Array.isArray(value)) {
     const first = value[0]
     return typeof first === 'string' ? first : null
@@ -547,52 +585,56 @@ const resetWorkspaceState = () => {
   workspaceLoading.value = false
 }
 
-const routeDraftId = computed(() => normalizeDraftId(route.query.draft))
-const standaloneDraftId = computed(() => props.initialDraftId ?? routeDraftId.value ?? null)
+const routeContentId = computed(() => normalizeContentId(route.query.content || route.query.draft)) // Support both 'content' and legacy 'draft' query param
+const standaloneContentId = computed(() => props.initialDraftId ?? routeContentId.value ?? null)
 
-const syncWorkspace = async (draftId: string | null) => {
-  if (!draftId) {
+const syncWorkspace = async (conversationId: string | null) => {
+  if (!conversationId) {
     resetWorkspaceState()
     return
   }
-  if (activeWorkspaceId.value === draftId && workspaceDetail.value) {
+  if (activeWorkspaceId.value === conversationId && workspaceDetail.value) {
     return
   }
-  activeWorkspaceId.value = draftId
-  await loadWorkspaceDetail(draftId)
+  activeWorkspaceId.value = conversationId
+  await loadWorkspaceDetail(conversationId)
 }
 
-const scheduleSyncWorkspace = useDebounceFn((draftId: string | null) => {
-  void syncWorkspace(draftId)
+const scheduleSyncWorkspace = useDebounceFn((conversationId: string | null) => {
+  void syncWorkspace(conversationId)
 }, 200)
 
-const updateDraftRoute = async (draftId: string | null) => {
+const updateContentRoute = async (contentId: string | null) => {
   const nextQuery = { ...route.query }
-  if (draftId) {
-    nextQuery.draft = draftId
+  if (contentId) {
+    nextQuery.content = contentId
+    // Remove legacy 'draft' param if it exists
+    delete nextQuery.draft
   } else {
+    delete nextQuery.content
     delete nextQuery.draft
   }
   try {
     await router.replace({ query: nextQuery })
   } catch (error) {
-    console.warn('Failed to update draft route', error)
+    console.warn('Failed to update content route', error)
   }
 }
 
-const initialDraftId = computed(() => (props.routeSync ? routeDraftId.value : standaloneDraftId.value) ?? null)
+const initialContentId = computed(() => (props.routeSync ? routeContentId.value : standaloneContentId.value) ?? null)
 
-await syncWorkspace(initialDraftId.value)
+await syncWorkspace(initialContentId.value)
 
-const activateWorkspace = async (draftId: string | null) => {
+const activateWorkspace = async (conversationId: string | null) => {
   if (props.routeSync) {
-    await updateDraftRoute(draftId)
+    await updateContentRoute(conversationId)
   } else {
-    await syncWorkspace(draftId)
+    await syncWorkspace(conversationId)
   }
 }
 
-const openWorkspace = async (entry: { id: string, slug?: string | null }) => {
+const openConversation = async (entry: { id: string }) => {
+  // Open conversation by conversationId (not contentId)
   await activateWorkspace(entry.id)
 }
 
@@ -601,34 +643,34 @@ const resetConversation = () => {
   resetSession()
 }
 
-const archiveDraft = async (entry: { id: string, title?: string | null }) => {
-  if (!entry?.id || archivingDraftId.value === entry.id)
+const archiveConversation = async (entry: { id: string, title?: string | null }) => {
+  if (!entry?.id || archivingConversationId.value === entry.id)
     return
 
-  archivingDraftId.value = entry.id
+  archivingConversationId.value = entry.id
 
   try {
-    await $fetch(`/api/drafts/${entry.id}/archive`, {
-      method: 'POST'
+    await $fetch(`/api/conversations/${entry.id}`, {
+      method: 'DELETE'
     })
 
-    updateLocalDraftStatus(entry.id, 'archived')
+    updateLocalConversationStatus(entry.id, 'archived')
 
     if (activeWorkspaceId.value === entry.id) {
       await activateWorkspace(null)
       resetConversation()
     }
 
-    await refreshDrafts()
+    await refreshConversations()
 
     toast.add({
-      title: 'Draft archived',
-      description: entry.title || 'Draft moved to archive.',
+      title: 'Content archived',
+      description: entry.title || 'Content moved to archive.',
       color: 'neutral',
       icon: 'i-lucide-archive'
     })
   } catch (error: any) {
-    const message = error?.data?.statusMessage || error?.statusMessage || 'Failed to archive draft'
+    const message = error?.data?.statusMessage || error?.statusMessage || 'Failed to archive conversation'
     toast.add({
       title: 'Archive failed',
       description: message,
@@ -636,17 +678,17 @@ const archiveDraft = async (entry: { id: string, title?: string | null }) => {
       icon: 'i-lucide-alert-triangle'
     })
   } finally {
-    archivingDraftId.value = null
+    archivingConversationId.value = null
   }
 }
 
-const stopWorkingDraft = (entry: { id: string }) => {
+const stopWorkingContent = (entry: { id: string }) => {
   if (!entry?.id || entry.id !== sessionContentId.value) {
     return
   }
 
   const stopped = stopResponse()
-  pendingDrafts.value = pendingDrafts.value.filter(draft => draft.id !== entry.id)
+  pendingDrafts.value = pendingDrafts.value.filter(content => content.id !== entry.id)
 
   if (stopped) {
     toast.add({
@@ -666,15 +708,15 @@ const closeWorkspace = async () => {
 }
 
 if (props.routeSync) {
-  watch(routeDraftId, (draftId) => {
-    scheduleSyncWorkspace(draftId ?? null)
+  watch(routeContentId, (contentId) => {
+    scheduleSyncWorkspace(contentId ?? null)
   })
 } else {
-  watch(standaloneDraftId, (draftId) => {
+  watch(standaloneContentId, (contentId) => {
     if (!import.meta.client) {
       return
     }
-    scheduleSyncWorkspace(draftId ?? null)
+    scheduleSyncWorkspace(contentId ?? null)
   })
 }
 
@@ -823,20 +865,20 @@ function closeMessageActionSheet() {
   clearMessageLongPress()
 }
 
-watch(workspaceDraftsPayload, (payload) => {
-  if (!payload?.contents)
+watch(conversationsPayload, (payload) => {
+  if (!payload?.conversations)
     return
-  const cache = draftsListCache.value
-  payload.contents.forEach((entry: any) => {
-    if (entry.content?.id) {
-      cache.set(entry.content.id, entry)
+  const cache = conversationListCache.value
+  payload.conversations.forEach((conv: any) => {
+    if (conv.id) {
+      cache.set(conv.id, conv)
     }
   })
 }, { immediate: true, deep: true })
 
 if (import.meta.client) {
   watch(loggedIn, () => {
-    debouncedRefreshDrafts()
+    debouncedRefreshConversations()
   }, { immediate: true })
 }
 </script>
@@ -868,7 +910,7 @@ if (import.meta.client) {
           class="space-y-6 w-full"
         >
           <ClientOnly>
-            <ChatDraftWorkspace
+            <ChatConversationWorkspace
               v-if="workspaceDetail?.content?.id"
               :content-id="workspaceDetail.content.id"
               :organization-slug="workspaceDetail.content.slug || activeOrgState?.value?.data?.slug || null"
@@ -877,6 +919,14 @@ if (import.meta.client) {
               :back-to="null"
               @close="closeWorkspace"
             />
+            <div
+              v-else-if="workspaceDetail?.conversation"
+              class="space-y-6 w-full"
+            >
+              <div class="text-center text-muted-500">
+                Conversation loaded. No content artifacts yet.
+              </div>
+            </div>
             <template #fallback>
               <div class="space-y-6 w-full" />
             </template>
@@ -1012,15 +1062,18 @@ if (import.meta.client) {
                   placeholder="Paste a transcript or describe what you need..."
                   :disabled="isBusy || promptSubmitting"
                   :status="promptSubmitting ? 'submitted' : uiStatus"
-                  :context-label="isWorkspaceActive ? 'Active draft' : undefined"
+                  :context-label="isWorkspaceActive ? 'Active content' : undefined"
                   :context-value="activeWorkspaceEntry?.title || null"
                   @submit="handlePromptSubmit"
                 >
                   <template #footer>
+                    <!-- Placeholder: Chat/Agent mode selector (not wired up yet) -->
                     <USelectMenu
-                      v-if="selectedContentTypeOption"
-                      v-model="selectedContentType"
-                      :items="CONTENT_TYPE_OPTIONS"
+                      v-model="chatMode"
+                      :items="[
+                        { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' },
+                        { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' }
+                      ]"
                       value-key="value"
                       option-attribute="label"
                       variant="ghost"
@@ -1028,7 +1081,7 @@ if (import.meta.client) {
                     >
                       <template #leading>
                         <UIcon
-                          :name="selectedContentTypeOption.icon"
+                          :name="chatMode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
                           class="w-4 h-4"
                         />
                       </template>
@@ -1057,17 +1110,17 @@ if (import.meta.client) {
         </template>
       </div>
       <div
-        v-if="!isWorkspaceActive && contentEntries.length > 0"
+        v-if="!isWorkspaceActive && conversationEntries.length > 0"
         class="mt-8"
       >
         <ChatContentList
-          :drafts-pending="draftsPending"
-          :content-entries="contentEntries"
-          :archiving-draft-id="archivingDraftId"
+          :drafts-pending="conversationsPending"
+          :content-entries="conversationEntries"
+          :archiving-draft-id="archivingConversationId"
           :pending-message="aiThinkingIndicator.message"
-          @open-workspace="openWorkspace"
-          @archive-entry="archiveDraft"
-          @stop-entry="stopWorkingDraft"
+          @open-workspace="openConversation"
+          @archive-entry="archiveConversation"
+          @stop-entry="stopWorkingContent"
         />
       </div>
     </div>

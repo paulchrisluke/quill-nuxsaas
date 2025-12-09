@@ -4,8 +4,6 @@ import { resolve } from 'node:path'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 import { getAppUrl } from './shared/utils/app-url'
 
-console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
-
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-22',
   devtools: { enabled: true },
@@ -79,10 +77,6 @@ export default defineNuxtConfig({
       pagesToRemove.forEach((page: NuxtPage) => {
         pages.splice(pages.indexOf(page), 1)
       })
-      // Uncomment to show current Routes
-      // console.log(`\nCurrent Routes:`)
-      // console.log(pages)
-      // console.log(`\n`)
     }
   },
   ...(process.env.NUXT_NITRO_PRESET !== 'node-server'

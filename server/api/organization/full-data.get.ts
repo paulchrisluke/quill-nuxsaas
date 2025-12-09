@@ -23,7 +23,9 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    console.log('Session found:', { userId: session.user.id, activeOrgId: (session.session as any).activeOrganizationId })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Session found:', { userId: session.user.id, activeOrgId: (session.session as any).activeOrganizationId })
+    }
 
     const activeOrgId = (session.session as any).activeOrganizationId
 
@@ -143,7 +145,9 @@ export default defineEventHandler(async (event) => {
     // Only the first org gets a free trial
     const userOwnsMultipleOrgs = ownedMemberships.length > 1
 
-    console.log('[API] Full Data - Org:', activeOrgId, 'Subs:', subscriptions.length, 'NeedsUpgrade:', needsUpgrade, 'UserOwnsMultipleOrgs:', userOwnsMultipleOrgs)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[API] Full Data - Org:', activeOrgId, 'Subs:', subscriptions.length, 'NeedsUpgrade:', needsUpgrade, 'UserOwnsMultipleOrgs:', userOwnsMultipleOrgs)
+    }
 
     return {
       organization: org,

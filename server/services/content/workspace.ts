@@ -2,7 +2,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
-import { findChatSession, getSessionLogs, getSessionMessages } from '../chatSession'
+import { findConversation, getConversationLogs, getConversationMessages } from '../conversation'
 import { buildWorkspaceSummary } from './workspaceSummary'
 
 export async function getContentWorkspacePayload(
@@ -36,7 +36,6 @@ export async function getContentWorkspacePayload(
     })
   }
 
-  let chatSession = null
   let chatMessages: Array<{
     id: string
     role: string
@@ -52,15 +51,17 @@ export async function getContentWorkspacePayload(
     createdAt: Date
   }> = []
 
-  try {
-    const session = await findChatSession(db, organizationId, record.content.id)
+  let conversation: typeof schema.conversation.$inferSelect | null = null
 
-    if (session) {
-      chatSession = session
+  try {
+    conversation = await findConversation(db, organizationId, record.content.id)
+
+    if (conversation) {
+      // conversation already set above
       if (includeChat) {
         const [messages, logs] = await Promise.all([
-          getSessionMessages(db, session.id, organizationId),
-          getSessionLogs(db, session.id, organizationId)
+          getConversationMessages(db, conversation.id, organizationId),
+          getConversationLogs(db, conversation.id, organizationId)
         ])
 
         chatMessages = messages.map(message => ({
@@ -80,7 +81,7 @@ export async function getContentWorkspacePayload(
       }
     }
   } catch (error) {
-    console.error('Failed to load chat session', {
+    console.error('Failed to load conversation', {
       contentId,
       organizationId,
       error
@@ -96,7 +97,7 @@ export async function getContentWorkspacePayload(
   return {
     ...record,
     workspaceSummary,
-    chatSession,
+    chatSession: conversation, // Legacy field name for backwards compatibility
     chatMessages: includeChat ? chatMessages : null,
     chatLogs: includeChat ? chatLogs : null
   }

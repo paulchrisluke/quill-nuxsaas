@@ -135,7 +135,9 @@ export const syncStripeCustomerName = async (organizationId: string, newName?: s
   await client.customers.update(org.stripeCustomerId, {
     name: nameToSync
   })
-  console.log(`[Stripe] Synced customer ${org.stripeCustomerId} name to "${nameToSync}"`)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[Stripe] Synced customer ${org.stripeCustomerId} name to "${nameToSync}"`)
+  }
 }
 
 export const addPaymentLog = async (action: string, subscription: any) => {
@@ -226,7 +228,9 @@ export const setupStripe = () => stripe({
         : paymentIntent.customer?.id
 
       if (customerId) {
-        console.log('[Stripe] Payment failed for customer:', customerId, 'Amount:', paymentIntent.amount, 'PI:', paymentIntent.id)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Stripe] Payment failed for customer:', customerId, 'Amount:', paymentIntent.amount, 'PI:', paymentIntent.id)
+        }
         // sendPaymentFailedEmail has built-in deduplication using KV storage
         await sendPaymentFailedEmail(customerId, paymentIntent.amount, paymentIntent.id)
       }
@@ -315,7 +319,9 @@ export const setupStripe = () => stripe({
           const inviteCount = organization.invitations.filter(i => i.status === 'pending').length
           const count = memberCount + inviteCount
           quantity = count > 0 ? count : 1
-          console.log('[Stripe] Calculated Quantity:', quantity, 'Members:', memberCount, 'Invites:', inviteCount, 'Org:', targetOrgId)
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Stripe] Calculated Quantity:', quantity, 'Members:', memberCount, 'Invites:', inviteCount, 'Org:', targetOrgId)
+          }
         }
       }
 
@@ -348,7 +354,9 @@ export const setupStripe = () => stripe({
           freeTrial: {
             days: PLANS.PRO_MONTHLY.trialDays,
             onTrialStart: async (subscription: Subscription) => {
-              console.log('[Stripe] PRO_MONTHLY onTrialStart fired:', { referenceId: subscription.referenceId })
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[Stripe] PRO_MONTHLY onTrialStart fired:', { referenceId: subscription.referenceId })
+              }
               await addPaymentLog('trial_start', subscription)
               // Send trial started email
               if (subscription.referenceId) {
@@ -356,12 +364,16 @@ export const setupStripe = () => stripe({
               }
             },
             onTrialEnd: async ({ subscription }: { subscription: Subscription }) => {
-              console.log('[Stripe] PRO_MONTHLY onTrialEnd fired:', { referenceId: subscription.referenceId, status: subscription.status })
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[Stripe] PRO_MONTHLY onTrialEnd fired:', { referenceId: subscription.referenceId, status: subscription.status })
+              }
               await addPaymentLog('trial_end', subscription)
               // Only send confirmation if payment succeeded (status is active)
               // If payment failed (past_due), onTrialExpired will handle it to avoid duplicate emails
               if (subscription.referenceId && subscription.status === 'active') {
-                console.log('[Stripe] Sending subscription confirmed email for trial end')
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('[Stripe] Sending subscription confirmed email for trial end')
+                }
                 await sendSubscriptionConfirmedEmail(subscription.referenceId, subscription)
               }
             },
@@ -382,7 +394,9 @@ export const setupStripe = () => stripe({
           freeTrial: {
             days: PLANS.PRO_YEARLY.trialDays,
             onTrialStart: async (subscription: Subscription) => {
-              console.log('[Stripe] PRO_YEARLY onTrialStart fired:', { referenceId: subscription.referenceId })
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[Stripe] PRO_YEARLY onTrialStart fired:', { referenceId: subscription.referenceId })
+              }
               await addPaymentLog('trial_start', subscription)
               // Send trial started email
               if (subscription.referenceId) {
@@ -390,12 +404,16 @@ export const setupStripe = () => stripe({
               }
             },
             onTrialEnd: async ({ subscription }: { subscription: Subscription }) => {
-              console.log('[Stripe] PRO_YEARLY onTrialEnd fired:', { referenceId: subscription.referenceId, status: subscription.status })
+              if (process.env.NODE_ENV === 'development') {
+                console.log('[Stripe] PRO_YEARLY onTrialEnd fired:', { referenceId: subscription.referenceId, status: subscription.status })
+              }
               await addPaymentLog('trial_end', subscription)
               // Only send confirmation if payment succeeded (status is active)
               // If payment failed (past_due), onTrialExpired will handle it to avoid duplicate emails
               if (subscription.referenceId && subscription.status === 'active') {
-                console.log('[Stripe] Sending subscription confirmed email for trial end')
+                if (process.env.NODE_ENV === 'development') {
+                  console.log('[Stripe] Sending subscription confirmed email for trial end')
+                }
                 await sendSubscriptionConfirmedEmail(subscription.referenceId, subscription)
               }
             },
@@ -438,11 +456,13 @@ export const setupStripe = () => stripe({
       }
     },
     onSubscriptionUpdate: async ({ subscription }) => {
-      console.log('[Stripe] onSubscriptionUpdate fired:', {
-        referenceId: subscription.referenceId,
-        status: subscription.status,
-        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd
-      })
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Stripe] onSubscriptionUpdate fired:', {
+          referenceId: subscription.referenceId,
+          status: subscription.status,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd
+        })
+      }
       await addPaymentLog('subscription_updated', subscription)
       // Sync customer name back to org name (in case payment method changed it)
       if (subscription.referenceId) {
@@ -451,7 +471,9 @@ export const setupStripe = () => stripe({
         // Check if this is a cancellation (cancel_at_period_end was just set to true)
         // This happens when user clicks "Downgrade to Free"
         if (subscription.cancelAtPeriodEnd) {
-          console.log('[Stripe] Subscription scheduled for cancellation, sending cancellation email')
+          if (process.env.NODE_ENV === 'development') {
+            console.log('[Stripe] Subscription scheduled for cancellation, sending cancellation email')
+          }
           await sendSubscriptionCanceledEmail(subscription.referenceId, subscription)
         }
 

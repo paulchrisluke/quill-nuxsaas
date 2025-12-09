@@ -39,8 +39,10 @@ export const createSourceContentFromTranscript = async ({
   metadata,
   onProgress
 }: CreateManualTranscriptOptions) => {
-  console.log(`🚀 [MANUAL_TRANSCRIPT] Starting manual transcript creation...`)
-  console.log(`🚀 [MANUAL_TRANSCRIPT] Transcript length: ${transcript.length} characters`)
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`🚀 [MANUAL_TRANSCRIPT] Starting manual transcript creation...`)
+    console.log(`🚀 [MANUAL_TRANSCRIPT] Transcript length: ${transcript.length} characters`)
+  }
 
   const normalizedTranscript = transcript.trim()
   if (!normalizedTranscript) {
@@ -75,8 +77,10 @@ export const createSourceContentFromTranscript = async ({
       })
     }
 
-    console.log(`✅ [MANUAL_TRANSCRIPT] Created sourceContent: ${sourceContent.id}`)
-    console.log(`🔧 [MANUAL_TRANSCRIPT] About to call chunkSourceContentText...`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`✅ [MANUAL_TRANSCRIPT] Created sourceContent: ${sourceContent.id}`)
+      console.log(`🔧 [MANUAL_TRANSCRIPT] About to call chunkSourceContentText...`)
+    }
 
     await onProgress?.('Chunking transcript into searchable segments...')
 
@@ -97,7 +101,9 @@ export const createSourceContentFromTranscript = async ({
 
     await onProgress?.('Generating embeddings for semantic search...')
 
-    console.log(`🎉 [MANUAL_TRANSCRIPT] Completed chunking for: ${sourceContent.id}`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`🎉 [MANUAL_TRANSCRIPT] Completed chunking for: ${sourceContent.id}`)
+    }
     return sourceContent
   })
 

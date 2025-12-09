@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm'
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { v7 as uuidv7 } from 'uuid'
 import { account, organization, user } from './auth'
+import { conversation } from './chat'
 import { sourceContent } from './sourceContent'
 
 export const contentStatusEnum = pgEnum('content_status', ['draft', 'in_review', 'ready_for_publish', 'published', 'archived'])
@@ -12,6 +13,8 @@ export const content = pgTable('content', {
   organizationId: text('organization_id')
     .notNull()
     .references(() => organization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id')
+    .references(() => conversation.id, { onDelete: 'set null' }),
   sourceContentId: uuid('source_content_id').references(() => sourceContent.id, { onDelete: 'set null' }),
   createdByUserId: text('created_by_user_id')
     .notNull()
@@ -33,6 +36,7 @@ export const content = pgTable('content', {
   publishedAt: timestamp('published_at')
 }, table => ({
   organizationIdx: index('content_organization_idx').on(table.organizationId),
+  conversationIdx: index('content_conversation_idx').on(table.conversationId),
   statusIdx: index('content_status_idx').on(table.status),
   slugOrgUnique: uniqueIndex('content_org_slug_idx').on(table.organizationId, table.slug),
   orgStatusIdx: index('content_org_status_idx').on(table.organizationId, table.status)
@@ -87,6 +91,10 @@ export const contentRelations = relations(content, ({ one, many }) => ({
   organization: one(organization, {
     fields: [content.organizationId],
     references: [organization.id]
+  }),
+  conversation: one(conversation, {
+    fields: [content.conversationId],
+    references: [conversation.id]
   }),
   sourceContent: one(sourceContent, {
     fields: [content.sourceContentId],

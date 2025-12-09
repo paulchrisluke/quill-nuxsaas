@@ -7,7 +7,7 @@ interface DraftActionOptions {
   sessionContentId: Ref<string | null> | (() => string | null)
   contentId?: Ref<string> | (() => string | null)
   selectedContentType?: Ref<string | null> | (() => string | null)
-  pendingDrafts?: Ref<Array<{ id: string, contentType: string | null }>>
+  pendingDrafts?: Ref<Array<{ id: string, contentType: string | null }>> // Legacy name, represents pending content items
   sendMessage?: (message: string, options?: { displayContent?: string, contentId?: string | null }) => Promise<any>
   onRefresh?: () => Promise<void> | void
   onLoadWorkspace?: () => Promise<void> | void
@@ -57,7 +57,7 @@ export function useDraftAction(options: DraftActionOptions) {
     if (!sourceId) {
       toast.add({
         title: 'Source unavailable',
-        description: 'Unable to locate the transcript for drafting.',
+        description: 'Unable to locate the transcript for content generation.',
         color: 'error'
       })
       return
@@ -66,12 +66,12 @@ export function useDraftAction(options: DraftActionOptions) {
       return
     }
 
-    // Optimistically add draft to list immediately (for QuillioWidget)
+    // Optimistically add content to list immediately (for QuillioWidget)
     if (pendingDrafts) {
-      const tempDraftId = `temp-${sourceId}-${Date.now()}`
+      const tempContentId = `temp-${sourceId}-${Date.now()}`
       const alreadyHasTemp = pendingDrafts.value.some(entry => entry.id.startsWith(`temp-${sourceId}-`))
       if (!alreadyHasTemp) {
-        pendingDrafts.value.push({ id: tempDraftId, contentType: getSelectedContentType() || null })
+        pendingDrafts.value.push({ id: tempContentId, contentType: getSelectedContentType() || null })
       }
     }
 
@@ -83,8 +83,8 @@ export function useDraftAction(options: DraftActionOptions) {
       }
 
       // Send natural language message - the agent will determine the appropriate tool to use
-      await sendMessage(`Please create a full draft from the source with ID ${sourceId}.`, {
-        displayContent: 'Write draft from transcript',
+      await sendMessage(`Please create content from the source with ID ${sourceId}.`, {
+        displayContent: 'Write content from transcript',
         contentId: resolvedContentId
       })
 
@@ -100,10 +100,10 @@ export function useDraftAction(options: DraftActionOptions) {
         pendingDrafts.value = pendingDrafts.value.filter(entry => !entry.id.startsWith(tempId))
       }
 
-      console.error('[useDraftAction] Failed to trigger draft generation from source', error)
+      console.error('[useDraftAction] Failed to trigger content generation from source', error)
       toast.add({
-        title: 'Unable to start draft',
-        description: error?.data?.statusMessage || error?.data?.message || error?.message || 'Something went wrong while creating the draft.',
+        title: 'Unable to start content generation',
+        description: error?.data?.statusMessage || error?.data?.message || error?.message || 'Something went wrong while creating the content.',
         color: 'error'
       })
     }
@@ -112,8 +112,8 @@ export function useDraftAction(options: DraftActionOptions) {
   async function handlePublishDraft(draftId: string | null) {
     if (!draftId) {
       toast.add({
-        title: 'Draft unavailable',
-        description: 'Unable to locate the draft for publishing.',
+        title: 'Content unavailable',
+        description: 'Unable to locate the content for publishing.',
         color: 'error'
       })
       return
@@ -130,7 +130,7 @@ export function useDraftAction(options: DraftActionOptions) {
         }
       })
       toast.add({
-        title: 'Draft published',
+        title: 'Content published',
         description: response.file.url
           ? `Available at ${response.file.url}`
           : 'The latest version has been saved to your content storage.',
@@ -140,7 +140,7 @@ export function useDraftAction(options: DraftActionOptions) {
         await onRefresh()
       }
     } catch (error: any) {
-      console.error('[useDraftAction] Failed to publish draft', error)
+      console.error('[useDraftAction] Failed to publish content', error)
       toast.add({
         title: 'Publish failed',
         description: error?.data?.statusMessage || error?.data?.message || error?.message || 'Something went wrong while publishing.',

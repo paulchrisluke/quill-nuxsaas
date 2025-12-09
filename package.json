@@ -59,7 +59,6 @@
     "@nuxt/eslint": "^1.10.0",
     "@nuxt/test-utils": "^3.20.1",
     "@react-email/components": "^1.0.1",
-    "@react-email/render": "^2.0.0",
     "@types/pg": "^8.15.6",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

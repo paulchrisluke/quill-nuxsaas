@@ -143,23 +143,27 @@ async function getStripeSubscriptionDetails(subscription: any): Promise<{
       return null
     }
 
-    console.log('[Stripe Email] Fetching subscription details for:', subId)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Stripe Email] Fetching subscription details for:', subId)
+    }
 
     const client = createStripeClient()
     const stripeSub = await client.subscriptions.retrieve(subId, {
       expand: ['items.data.price']
     }) as Stripe.Subscription
 
-    console.log('[Stripe Email] Stripe subscription:', {
-      id: stripeSub.id,
-      status: stripeSub.status,
-      current_period_end: stripeSub.current_period_end,
-      items: stripeSub.items.data.map(i => ({
-        quantity: i.quantity,
-        unit_amount: i.price?.unit_amount,
-        currency: i.price?.currency
-      }))
-    })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Stripe Email] Stripe subscription:', {
+        id: stripeSub.id,
+        status: stripeSub.status,
+        current_period_end: stripeSub.current_period_end,
+        items: stripeSub.items.data.map(i => ({
+          quantity: i.quantity,
+          unit_amount: i.price?.unit_amount,
+          currency: i.price?.currency
+        }))
+      })
+    }
 
     const seats = stripeSub.items.data[0]?.quantity || 1
     const unitAmount = stripeSub.items.data[0]?.price?.unit_amount || 0
@@ -176,7 +180,9 @@ async function getStripeSubscriptionDetails(subscription: any): Promise<{
       ? new Date(stripeSub.current_period_end * 1000)
       : null
 
-    console.log('[Stripe Email] Calculated:', { seats, amount, periodEnd })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Stripe Email] Calculated:', { seats, amount, periodEnd })
+    }
 
     return {
       seats,
@@ -214,7 +220,9 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
       subject,
       html
     })
-    console.log(`[Stripe Email] Sent "${subject}" to ${to}`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Stripe Email] Sent "${subject}" to ${to}`)
+    }
     return true
   } catch (e) {
     console.error(`[Stripe Email] Failed to send "${subject}":`, e)
@@ -460,7 +468,9 @@ export async function sendSubscriptionResumedEmail(organizationId: string, subsc
  * Triggered by payment_intent.payment_failed webhook
  */
 export async function sendPaymentFailedEmail(customerId: string, amount?: number, paymentIntentId?: string) {
-  console.log('[Email] Sending payment failed email for customer:', customerId, paymentIntentId ? `PI: ${paymentIntentId}` : '')
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Email] Sending payment failed email for customer:', customerId, paymentIntentId ? `PI: ${paymentIntentId}` : '')
+  }
 
   // Look up organization by Stripe customer ID
   const db = await useDB()
@@ -469,14 +479,18 @@ export async function sendPaymentFailedEmail(customerId: string, amount?: number
   })
 
   if (!org) {
-    console.log('[Email] No organization found for customer:', customerId)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Email] No organization found for customer:', customerId)
+    }
     return
   }
 
   // Get owner info
   const info = await getOrgOwnerInfo(org.id)
   if (!info) {
-    console.log('[Email] Could not get owner info for org:', org.id)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Email] Could not get owner info for org:', org.id)
+    }
     return
   }
 
@@ -500,11 +514,15 @@ export async function sendPaymentFailedEmail(customerId: string, amount?: number
  * Triggered when subscription is deleted (grace period ended)
  */
 export async function sendSubscriptionExpiredEmail(organizationId: string, subscription: any, membersRemoved: number): Promise<void> {
-  console.log('[Email] Sending subscription expired email for org:', organizationId)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Email] Sending subscription expired email for org:', organizationId)
+  }
 
   const info = await getOrgOwnerInfo(organizationId)
   if (!info) {
-    console.log('[Email] Could not get owner info for org:', organizationId)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Email] Could not get owner info for org:', organizationId)
+    }
     return
   }
 

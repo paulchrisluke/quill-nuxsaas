@@ -33,8 +33,8 @@ interface AgentContext {
 
 interface ChatResponse {
   assistantMessage?: string
-  sessionId?: string | null
-  sessionContentId?: string | null
+  conversationId?: string | null
+  conversationContentId?: string | null
   agentContext?: AgentContext
   messages?: Array<{
     id: string
@@ -105,13 +105,13 @@ function normalizeLogs(list: ChatResponse['logs']) {
   }))
 }
 
-export function useChatSession() {
+export function useConversation() {
   const messages = useState<ChatMessage[]>('chat/messages', () => [])
   const status = useState<ChatStatus>('chat/status', () => 'ready')
   const errorMessage = useState<string | null>('chat/error', () => null)
   const selectedContentType = useState<ContentType>('chat/content-type', () => DEFAULT_CONTENT_TYPE)
-  const sessionId = useState<string | null>('chat/session-id', () => null)
-  const sessionContentId = useState<string | null>('chat/session-content-id', () => null)
+  const conversationId = useState<string | null>('chat/conversation-id', () => null)
+  const conversationContentId = useState<string | null>('chat/conversation-content-id', () => null)
   const logs = useState<ChatLogEntry[]>('chat/logs', () => [])
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
@@ -149,8 +149,8 @@ export function useChatSession() {
     try {
       status.value = 'streaming'
       const payload = withSelectedContentType(body)
-      if (sessionId.value) {
-        payload.sessionId = sessionId.value
+      if (conversationId.value) {
+        payload.conversationId = conversationId.value
       }
 
       // Chat API is streaming-only (SSE)
@@ -296,12 +296,12 @@ export function useChatSession() {
                     break
                   }
 
-                  case 'session:update': {
-                    if (eventData.sessionId) {
-                      sessionId.value = eventData.sessionId ?? sessionId.value
+                  case 'conversation:update': {
+                    if (eventData.conversationId) {
+                      conversationId.value = eventData.conversationId ?? conversationId.value
                     }
-                    if (eventData.sessionContentId !== undefined) {
-                      sessionContentId.value = eventData.sessionContentId ?? null
+                    if (eventData.conversationContentId !== undefined) {
+                      conversationContentId.value = eventData.conversationContentId ?? null
                     }
                     break
                   }
@@ -379,12 +379,12 @@ export function useChatSession() {
                     break
                   }
 
-                  case 'session:final': {
-                    if (eventData.sessionId) {
-                      sessionId.value = eventData.sessionId ?? sessionId.value
+                  case 'conversation:final': {
+                    if (eventData.conversationId) {
+                      conversationId.value = eventData.conversationId ?? conversationId.value
                     }
-                    if (eventData.sessionContentId !== undefined) {
-                      sessionContentId.value = eventData.sessionContentId ?? null
+                    if (eventData.conversationContentId !== undefined) {
+                      conversationContentId.value = eventData.conversationContentId ?? null
                     }
                     break
                   }
@@ -478,22 +478,22 @@ export function useChatSession() {
       message: trimmed,
       contentId: options?.contentId !== undefined
         ? options.contentId
-        : (sessionContentId.value || undefined)
+        : (conversationContentId.value || undefined)
     })
   }
 
   function hydrateSession(payload: {
     messages?: ChatResponse['messages']
     logs?: ChatResponse['logs']
-    sessionId?: string | null
-    sessionContentId?: string | null
+    conversationId?: string | null
+    conversationContentId?: string | null
   }) {
-    if (payload.sessionId !== undefined) {
-      sessionId.value = payload.sessionId
+    if (payload.conversationId !== undefined) {
+      conversationId.value = payload.conversationId
     }
 
-    if (payload.sessionContentId !== undefined) {
-      sessionContentId.value = payload.sessionContentId
+    if (payload.conversationContentId !== undefined) {
+      conversationContentId.value = payload.conversationContentId
     }
 
     if (payload.messages) {
@@ -506,26 +506,28 @@ export function useChatSession() {
   }
 
   async function loadSessionForContent(contentId: string) {
-    const response = await $fetch<{ workspace: Record<string, any> | null }>(`/api/drafts/${contentId}`)
+    const response = await $fetch<{ workspace: Record<string, any> | null }>(`/api/content/${contentId}`)
 
     const workspace = response?.workspace
     if (workspace?.content?.id) {
       if (workspace.chatSession?.id && (!workspace.chatMessages || !workspace.chatLogs)) {
         try {
+          // Use conversation endpoints for messages and logs
+          const conversationId = workspace.chatSession.id
           const [messagesResponse, logsResponse] = await Promise.all([
-            $fetch<{ messages: any[] }>(`/api/drafts/${workspace.content.id}/messages`),
-            $fetch<{ logs: any[] }>(`/api/drafts/${workspace.content.id}/logs`)
+            $fetch<{ messages: any[] }>(`/api/conversations/${conversationId}/messages`),
+            $fetch<{ logs: any[] }>(`/api/conversations/${conversationId}/logs`)
           ])
           workspace.chatMessages = messagesResponse.messages
           workspace.chatLogs = logsResponse.logs
         } catch (error) {
-          console.error('[useChatSession] Failed to fetch chat history', error)
+          console.error('[useConversation] Failed to fetch conversation history', error)
         }
       }
 
       hydrateSession({
-        sessionId: workspace.chatSession?.id ?? null,
-        sessionContentId: workspace.chatSession?.contentId ?? workspace.content.id,
+        conversationId: workspace.chatSession?.id ?? null,
+        conversationContentId: workspace.chatSession?.contentId ?? workspace.content.id,
         messages: workspace.chatMessages,
         logs: workspace.chatLogs
       })
@@ -546,8 +548,8 @@ export function useChatSession() {
     messages.value = []
     status.value = 'ready'
     errorMessage.value = null
-    sessionId.value = null
-    sessionContentId.value = null
+    conversationId.value = null
+    conversationContentId.value = null
     logs.value = []
     requestStartedAt.value = null
     agentContext.value = null
@@ -563,8 +565,11 @@ export function useChatSession() {
     isBusy,
     selectedContentType,
     sendMessage,
-    sessionId,
-    sessionContentId,
+    conversationId,
+    conversationContentId,
+    // Legacy aliases for backwards compatibility during transition
+    sessionId: conversationId,
+    sessionContentId: conversationContentId,
     stopResponse,
     logs,
     requestStartedAt,
