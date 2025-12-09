@@ -63,7 +63,13 @@ export default defineNuxtConfig({
       scan: {
         globInclude: ['**\/*.{vue,jsx,tsx,md,mdc,mdx}', 'app/**/*.ts']
       }
-    }
+    },
+    customCollections: [
+      {
+        prefix: 'custom',
+        dir: './app/assets/icons'
+      }
+    ]
   },
   hooks: {
     'pages:extend': function (pages) {

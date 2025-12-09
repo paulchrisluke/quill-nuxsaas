@@ -16,6 +16,7 @@ import {
   getConversationMessages,
   getOrCreateConversationForContent
 } from '~~/server/services/conversation'
+import { generateConversationTitle } from '~~/server/services/conversation/title'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
 import { ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
@@ -1514,6 +1515,11 @@ export default defineEventHandler(async (event) => {
   }
 
   if (trimmedMessage) {
+    // Check if this is the first message before adding it (for title generation)
+    const existingTitle = activeConversation.metadata?.title
+    const messagesBeforeAdd = await getConversationMessages(db, activeConversation.id, organizationId)
+    const isFirstMessage = messagesBeforeAdd.length === 0 && !existingTitle
+
     await addMessageToConversation(db, {
       conversationId: activeConversation.id,
       organizationId,
@@ -1526,6 +1532,31 @@ export default defineEventHandler(async (event) => {
       type: 'user_message',
       message: 'User sent a chat prompt'
     })
+
+    // Generate conversation title if this is the first message
+    if (isFirstMessage) {
+      // Generate title asynchronously (don't block the response)
+      generateConversationTitle(trimmedMessage)
+        .then(async (title) => {
+          try {
+            await db
+              .update(schema.conversation)
+              .set({
+                metadata: {
+                  ...(activeConversation.metadata as Record<string, any> || {}),
+                  title
+                },
+                updatedAt: new Date()
+              })
+              .where(eq(schema.conversation.id, activeConversation.id))
+          } catch (error) {
+            console.error('[chat] Failed to save conversation title:', error)
+          }
+        })
+        .catch((error) => {
+          console.error('[chat] Failed to generate conversation title:', error)
+        })
+    }
   }
 
   // Save agent's reply if available (use the same message ID from streaming to avoid duplicates)

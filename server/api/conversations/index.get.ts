@@ -3,6 +3,7 @@ import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { getConversationQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
+import { getConversationTitle } from '~~/server/services/conversation/title'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 
@@ -84,21 +85,25 @@ export default defineEventHandler(async (event) => {
   const conversationQuota = await getConversationQuotaUsage(db, organizationId, user, event)
 
   return {
-    conversations: conversations.map(row => ({
-      id: row.conversation.id,
-      organizationId: row.conversation.organizationId,
-      contentId: row.conversation.contentId,
-      sourceContentId: row.conversation.sourceContentId,
-      createdByUserId: row.conversation.createdByUserId,
-      status: row.conversation.status,
-      metadata: row.conversation.metadata,
-      createdAt: row.conversation.createdAt,
-      updatedAt: row.conversation.updatedAt,
-      _computed: {
-        artifactCount: Number(row.artifactCount) || 0,
-        firstArtifactTitle: row.firstArtifactTitle || null
+    conversations: conversations.map((row) => {
+      const title = getConversationTitle(row.conversation, row.firstArtifactTitle)
+      return {
+        id: row.conversation.id,
+        organizationId: row.conversation.organizationId,
+        contentId: row.conversation.contentId,
+        sourceContentId: row.conversation.sourceContentId,
+        createdByUserId: row.conversation.createdByUserId,
+        status: row.conversation.status,
+        metadata: row.conversation.metadata,
+        createdAt: row.conversation.createdAt,
+        updatedAt: row.conversation.updatedAt,
+        _computed: {
+          artifactCount: Number(row.artifactCount) || 0,
+          firstArtifactTitle: row.firstArtifactTitle || null,
+          title // Include computed title
+        }
       }
-    })),
+    }),
     conversationQuota
   }
 })

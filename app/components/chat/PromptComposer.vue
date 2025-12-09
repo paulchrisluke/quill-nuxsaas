@@ -303,6 +303,7 @@ useEventListener(textareaRef, 'blur', () => {
                   :status="props.status || 'idle'"
                   submitted-color="primary"
                   submitted-variant="solid"
+                  submitted-icon="i-custom-square-solid"
                   streaming-color="primary"
                   streaming-variant="solid"
                 />

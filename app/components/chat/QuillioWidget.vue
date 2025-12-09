@@ -241,7 +241,7 @@ const fetchedConversationEntries = computed(() => {
 
     return {
       id: conv.id,
-      title: conv._computed?.firstArtifactTitle || 'Untitled conversation',
+      title: conv._computed?.title || conv._computed?.firstArtifactTitle || 'Untitled conversation',
       status: conv.status,
       updatedAt,
       artifactCount: conv._computed?.artifactCount ?? 0,
@@ -1085,15 +1085,6 @@ if (import.meta.client) {
                         />
                       </template>
                     </USelectMenu>
-                  </template>
-                  <template #submit>
-                    <UChatPromptSubmit
-                      :status="promptSubmitting ? 'submitted' : uiStatus"
-                      submitted-color="primary"
-                      submitted-variant="solid"
-                      streaming-color="primary"
-                      streaming-variant="solid"
-                    />
                   </template>
                 </PromptComposer>
               </div>
