@@ -8,7 +8,7 @@ import { validateUUID } from '~~/server/utils/validation'
 
 /**
  * Lightweight endpoint for workspace header - only returns minimal fields needed for header display
- * Full workspace content is loaded via /api/drafts/:id when needed
+ * Full workspace content is loaded via /api/content/:id when needed
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
@@ -53,7 +53,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const contentType = record.frontmatterContentType || null
-  const displayTitle = record.frontmatterSeoTitle || record.frontmatterTitle || record.content.title || 'Untitled draft'
+  const displayTitle = record.frontmatterSeoTitle || record.frontmatterTitle || record.content.title || 'Untitled content'
   const diffStats = record.diffStats as { additions?: number, deletions?: number } | null
 
   // Format updatedAt

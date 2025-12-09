@@ -4,18 +4,18 @@ import { and, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
 
-type ChatSessionStatus = typeof schema.contentChatSession.$inferSelect['status']
+type ConversationStatus = typeof schema.conversation.$inferSelect['status']
 
-export interface EnsureChatSessionInput {
+export interface EnsureConversationInput {
   organizationId: string
   contentId?: string | null
   sourceContentId?: string | null
   createdByUserId?: string | null
-  status?: ChatSessionStatus
+  status?: ConversationStatus
   metadata?: Record<string, any> | null
 }
 
-export async function findChatSession(
+export async function findConversation(
   db: NodePgDatabase<typeof schema>,
   organizationId: string,
   contentId?: string | null
@@ -24,61 +24,61 @@ export async function findChatSession(
     return null
   }
 
-  const [session] = await db
+  const [conv] = await db
     .select()
-    .from(schema.contentChatSession)
+    .from(schema.conversation)
     .where(and(
-      eq(schema.contentChatSession.organizationId, organizationId),
-      eq(schema.contentChatSession.contentId, contentId)
+      eq(schema.conversation.organizationId, organizationId),
+      eq(schema.conversation.contentId, contentId)
     ))
-    .orderBy(desc(schema.contentChatSession.createdAt))
+    .orderBy(desc(schema.conversation.createdAt))
     .limit(1)
 
-  return session ?? null
+  return conv ?? null
 }
 
-export async function getChatSessionById(
+export async function getConversationById(
   db: NodePgDatabase<typeof schema>,
-  sessionId: string,
+  conversationId: string,
   organizationId: string
 ) {
-  const [session] = await db
+  const [conv] = await db
     .select()
-    .from(schema.contentChatSession)
+    .from(schema.conversation)
     .where(and(
-      eq(schema.contentChatSession.id, sessionId),
-      eq(schema.contentChatSession.organizationId, organizationId)
+      eq(schema.conversation.id, conversationId),
+      eq(schema.conversation.organizationId, organizationId)
     ))
     .limit(1)
 
-  return session ?? null
+  return conv ?? null
 }
 
 /**
- * Gets an existing chat session for content or creates a new one
+ * Gets an existing conversation for content or creates a new one
  *
  * @param db - Database instance
- * @param input - Input parameters for chat session
- * @returns Existing or newly created chat session
+ * @param input - Input parameters for conversation
+ * @returns Existing or newly created conversation
  */
-export async function getOrCreateChatSessionForContent(
+export async function getOrCreateConversationForContent(
   db: NodePgDatabase<typeof schema>,
-  input: EnsureChatSessionInput
+  input: EnsureConversationInput
 ) {
-  const existing = await findChatSession(db, input.organizationId, input.contentId ?? null)
+  const existing = await findConversation(db, input.organizationId, input.contentId ?? null)
   if (existing) {
     return existing
   }
 
-  const status: ChatSessionStatus = input.status ?? 'active'
+  const status: ConversationStatus = input.status ?? 'active'
 
   // Ensure null values are explicitly null (not undefined or empty strings)
   const contentId = input.contentId?.trim() || null
   const sourceContentId = input.sourceContentId?.trim() || null
   const createdByUserId = input.createdByUserId?.trim() || null
 
-  const [session] = await db
-    .insert(schema.contentChatSession)
+  const [conv] = await db
+    .insert(schema.conversation)
     .values({
       organizationId: input.organizationId,
       contentId,
@@ -89,11 +89,11 @@ export async function getOrCreateChatSessionForContent(
     })
     .returning()
 
-  return session
+  return conv
 }
 
-export interface AddChatMessageInput {
-  sessionId: string
+export interface AddConversationMessageInput {
+  conversationId: string
   organizationId: string
   role: ChatMessage['role'] | 'system'
   content: string
@@ -102,28 +102,28 @@ export interface AddChatMessageInput {
 }
 
 /**
- * Adds a message to a chat session
+ * Adds a message to a conversation
  *
  * @param db - Database instance
  * @param input - Message input parameters
  * @returns Created message record
  */
-export async function addMessageToChatSession(
+export async function addMessageToConversation(
   db: NodePgDatabase<typeof schema>,
-  input: AddChatMessageInput
+  input: AddConversationMessageInput
 ) {
   if (!input.content.trim()) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Chat message content cannot be empty'
+      statusMessage: 'Conversation message content cannot be empty'
     })
   }
 
   const [message] = await db
-    .insert(schema.contentChatMessage)
+    .insert(schema.conversationMessage)
     .values({
       id: input.id, // Use provided ID if available, otherwise use default (uuidv7)
-      sessionId: input.sessionId,
+      conversationId: input.conversationId,
       organizationId: input.organizationId,
       role: input.role,
       content: input.content,
@@ -134,8 +134,8 @@ export async function addMessageToChatSession(
   return message
 }
 
-export interface AddChatLogInput {
-  sessionId: string
+export interface AddConversationLogInput {
+  conversationId: string
   organizationId: string
   type?: string
   message: string
@@ -143,27 +143,27 @@ export interface AddChatLogInput {
 }
 
 /**
- * Adds a log entry to a chat session
+ * Adds a log entry to a conversation
  *
  * @param db - Database instance
  * @param input - Log entry input parameters
  * @returns Created log entry record
  */
-export async function addLogEntryToChatSession(
+export async function addLogEntryToConversation(
   db: NodePgDatabase<typeof schema>,
-  input: AddChatLogInput
+  input: AddConversationLogInput
 ) {
   if (!input.message.trim()) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'Chat log message cannot be empty'
+      statusMessage: 'Conversation log message cannot be empty'
     })
   }
 
   const [log] = await db
-    .insert(schema.contentChatLog)
+    .insert(schema.conversationLog)
     .values({
-      sessionId: input.sessionId,
+      conversationId: input.conversationId,
       organizationId: input.organizationId,
       type: input.type ?? 'info',
       message: input.message,
@@ -174,32 +174,32 @@ export async function addLogEntryToChatSession(
   return log
 }
 
-export async function getSessionMessages(
+export async function getConversationMessages(
   db: NodePgDatabase<typeof schema>,
-  sessionId: string,
+  conversationId: string,
   organizationId: string
 ) {
   return await db
     .select()
-    .from(schema.contentChatMessage)
+    .from(schema.conversationMessage)
     .where(and(
-      eq(schema.contentChatMessage.sessionId, sessionId),
-      eq(schema.contentChatMessage.organizationId, organizationId)
+      eq(schema.conversationMessage.conversationId, conversationId),
+      eq(schema.conversationMessage.organizationId, organizationId)
     ))
-    .orderBy(schema.contentChatMessage.createdAt)
+    .orderBy(schema.conversationMessage.createdAt)
 }
 
-export async function getSessionLogs(
+export async function getConversationLogs(
   db: NodePgDatabase<typeof schema>,
-  sessionId: string,
+  conversationId: string,
   organizationId: string
 ) {
   return await db
     .select()
-    .from(schema.contentChatLog)
+    .from(schema.conversationLog)
     .where(and(
-      eq(schema.contentChatLog.sessionId, sessionId),
-      eq(schema.contentChatLog.organizationId, organizationId)
+      eq(schema.conversationLog.conversationId, conversationId),
+      eq(schema.conversationLog.organizationId, organizationId)
     ))
-    .orderBy(schema.contentChatLog.createdAt)
+    .orderBy(schema.conversationLog.createdAt)
 }

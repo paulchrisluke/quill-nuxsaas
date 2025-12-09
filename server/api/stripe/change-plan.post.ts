@@ -147,7 +147,9 @@ export default defineEventHandler(async (event) => {
     // If trial was ended (status changed from trialing to active), capture the trial_end timestamp
     if (subscription.status === 'trialing' && updatedSub.status === 'active' && updatedSub.trial_end) {
       updateData.trialEnd = new Date(updatedSub.trial_end * 1000)
-      console.log('[change-plan] Trial ended at:', updateData.trialEnd)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[change-plan] Trial ended at:', updateData.trialEnd)
+      }
     }
   }
 

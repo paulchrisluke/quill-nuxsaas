@@ -12,20 +12,22 @@ export type ContentStatus = typeof CONTENT_STATUSES[number]
 export type ContentType = typeof CONTENT_TYPES[number]
 
 /**
- * Request body for generating content draft from source
+ * Request body for writing content from source
  *
- * @description Generates a content draft from a source content (transcript, YouTube video, etc.)
+ * @description Creates a content item from a source content (transcript, YouTube video, etc.)
  * Either provide sourceContentId or transcript (which will create source content first)
  */
-export interface GenerateContentDraftFromSourceRequestBody {
+export interface WriteContentRequestBody {
   /** Raw transcript text (alternative to sourceContentId - creates source content first) */
   transcript?: string
   /** ID of existing source content to generate from */
   sourceContentId?: string | null
-  /** ID of existing content to regenerate/update */
+  /** ID of existing content to update (deprecated - use edit_metadata or edit_section for edits) */
   contentId?: string | null
-  /** Optional chat session to attach generation messages to */
-  sessionId?: string | null
+  /** ID of conversation that this content belongs to */
+  conversationId?: string | null
+  /** Optional conversation to attach generation messages to */
+  conversationId?: string | null
   /** Override title for the generated content */
   title?: string | null
   /** Override slug for the generated content */
@@ -45,9 +47,9 @@ export interface GenerateContentDraftFromSourceRequestBody {
 }
 
 /**
- * Response from generating content draft from source
+ * Response from writing content from source
  */
-export interface GenerateContentDraftFromSourceResponse {
+export interface WriteContentResponse {
   /** The created/updated content record */
   content: {
     id: string
@@ -88,10 +90,10 @@ export interface GenerateContentDraftFromSourceResponse {
       generatedSections: number
     }
   }
-  /** Chat session associated with the generation, if available */
-  sessionId?: string | null
-  /** Content ID linked to the chat session */
-  sessionContentId?: string | null
+  /** Conversation associated with the generation, if available */
+  conversationId?: string | null
+  /** Content ID linked to the conversation */
+  conversationContentId?: string | null
 }
 
 /**
@@ -129,9 +131,9 @@ export interface UpdateContentSectionWithAIRequestBody {
 }
 
 /**
- * Request body for creating content from chat session
+ * Request body for creating content from conversation
  */
-export interface CreateContentFromChatRequestBody {
+export interface CreateContentFromConversationRequestBody {
   /** Title of the content (required) */
   title: string
   /** Type of content to generate */

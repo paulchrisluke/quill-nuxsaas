@@ -1,33 +1,38 @@
 <script setup lang="ts">
-interface DraftEntry {
+interface ConversationEntry {
   id: string
   title: string
-  slug: string
   status: string
   updatedAt: Date | null
-  contentType: string
+  artifactCount?: number
+  contentId?: string | null
+  sourceContentId?: string | null
+  metadata?: Record<string, any> | null
+  isPending?: boolean
+  // Legacy fields for backwards compatibility
+  slug?: string
+  contentType?: string
   additions?: number
   deletions?: number
-  isPending?: boolean
 }
 
 interface Props {
-  draftsPending: boolean
-  contentEntries: DraftEntry[]
-  archivingDraftId?: string | null
+  draftsPending: boolean // Legacy prop name, maps to conversationsPending
+  contentEntries: ConversationEntry[] // Now represents conversations
+  archivingDraftId?: string | null // Legacy prop name, maps to archivingConversationId
   pendingMessage?: string
 }
 
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  openWorkspace: [entry: DraftEntry]
-  archiveEntry: [entry: DraftEntry]
-  stopEntry: [entry: DraftEntry]
+  openWorkspace: [entry: ConversationEntry]
+  archiveEntry: [entry: ConversationEntry]
+  stopEntry: [entry: ConversationEntry]
 }>()
 
 const { formatDateListStamp } = useDate()
-const pendingMessage = computed(() => props.pendingMessage?.trim() || 'Working on your draft...')
+const pendingMessage = computed(() => props.pendingMessage?.trim() || 'Working on your content...')
 
 const activeTab = ref(0)
 
@@ -36,7 +41,7 @@ const SWIPE_THRESHOLD = 50
 const SWIPE_VERTICAL_THRESHOLD = 30
 
 const tabs = [
-  { label: 'Content', value: 0 },
+  { label: 'Conversations', value: 0 },
   { label: 'Archived', value: 1 }
 ]
 
@@ -58,6 +63,22 @@ const filteredEntries = computed(() => {
 const hasFilteredContent = computed(() => filteredEntries.value.length > 0)
 
 const STATUS_META: Record<string, { icon: string, label: string, badgeClass: string }> = {
+  active: {
+    icon: 'i-lucide-message-square',
+    label: 'Active',
+    badgeClass: 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
+  },
+  completed: {
+    icon: 'i-lucide-check-circle',
+    label: 'Completed',
+    badgeClass: 'bg-blue-500/20 text-blue-500 border border-blue-500/30'
+  },
+  archived: {
+    icon: 'i-lucide-archive',
+    label: 'Archived',
+    badgeClass: 'bg-rose-500/20 text-rose-500 border border-rose-500/30'
+  },
+  // Legacy content statuses for backwards compatibility
   draft: {
     icon: 'i-lucide-pen-line',
     label: 'Draft',
@@ -77,11 +98,6 @@ const STATUS_META: Record<string, { icon: string, label: string, badgeClass: str
     icon: 'i-lucide-badge-check',
     label: 'Published',
     badgeClass: 'bg-purple-500/20 text-purple-500 border border-purple-500/30'
-  },
-  archived: {
-    icon: 'i-lucide-archive',
-    label: 'Archived',
-    badgeClass: 'bg-rose-500/20 text-rose-500 border border-rose-500/30'
   }
 }
 
@@ -91,7 +107,7 @@ const normalizeStatus = (status: string) => {
 
 const getStatusMeta = (status: string) => {
   const normalized = normalizeStatus(status)
-  return STATUS_META[normalized] || STATUS_META.draft
+  return STATUS_META[normalized] || STATUS_META.active
 }
 
 const formatContentId = (id: string) => {
@@ -101,19 +117,19 @@ const formatContentId = (id: string) => {
   return id.length > 8 ? `${id.slice(0, 8)}...` : id
 }
 
-const handleOpenWorkspace = (entry: DraftEntry) => {
+const handleOpenWorkspace = (entry: ContentEntry) => {
   emit('openWorkspace', entry)
 }
 
-const handleArchiveEntry = (entry: DraftEntry) => {
+const handleArchiveEntry = (entry: ContentEntry) => {
   emit('archiveEntry', entry)
 }
 
-const handleStopEntry = (entry: DraftEntry) => {
+const handleStopEntry = (entry: ContentEntry) => {
   emit('stopEntry', entry)
 }
 
-const onTouchStart = (entry: DraftEntry, event: TouchEvent) => {
+const onTouchStart = (entry: ContentEntry, event: TouchEvent) => {
   const touch = event.touches?.[0]
   if (!touch)
     return
@@ -125,7 +141,7 @@ const onTouchStart = (entry: DraftEntry, event: TouchEvent) => {
   }
 }
 
-const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
+const onTouchEnd = (entry: ConversationEntry, event: TouchEvent) => {
   if (!swipeState.value || swipeState.value.id !== entry.id)
     return
 
@@ -197,9 +213,17 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
                 class="text-sm text-muted-500 flex flex-wrap items-center gap-1 min-w-0"
               >
                 <span class="truncate">{{ formatDateListStamp(entry.updatedAt) }}</span>
-                <span class="shrink-0">·</span>
-                <span class="capitalize truncate">
-                  {{ entry.contentType || 'content' }}
+                <span
+                  v-if="entry.artifactCount !== undefined && entry.artifactCount > 0"
+                  class="shrink-0"
+                >
+                  ·
+                </span>
+                <span
+                  v-if="entry.artifactCount !== undefined && entry.artifactCount > 0"
+                  class="capitalize truncate"
+                >
+                  {{ entry.artifactCount }} {{ entry.artifactCount === 1 ? 'artifact' : 'artifacts' }}
                 </span>
                 <span class="shrink-0">·</span>
                 <span
@@ -249,13 +273,15 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
                     {{ getStatusMeta(entry.status).label }}
                   </span>
                 </UBadge>
-                <div class="text-sm font-semibold flex items-center gap-2 tabular-nums shrink-0">
-                  <span class="text-emerald-500 dark:text-emerald-400">
-                    +{{ entry.additions ?? 0 }}
-                  </span>
-                  <span class="text-rose-500 dark:text-rose-400">
-                    -{{ entry.deletions ?? 0 }}
-                  </span>
+                <div
+                  v-if="entry.artifactCount !== undefined && entry.artifactCount > 0"
+                  class="text-sm font-semibold flex items-center gap-1 tabular-nums shrink-0 text-muted-500"
+                >
+                  <UIcon
+                    name="i-lucide-file-text"
+                    class="h-3.5 w-3.5"
+                  />
+                  <span>{{ entry.artifactCount }}</span>
                 </div>
               </div>
             </div>
@@ -273,7 +299,7 @@ const onTouchEnd = (entry: DraftEntry, event: TouchEvent) => {
             class="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 hidden sm:flex"
             :disabled="archivingDraftId === entry.id"
             :loading="archivingDraftId === entry.id"
-            aria-label="Archive draft"
+            aria-label="Archive conversation"
             @click.stop="handleArchiveEntry(entry)"
           />
         </div>

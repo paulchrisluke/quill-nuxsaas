@@ -3,7 +3,7 @@ import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 
 const { formatDateRelative } = useDate()
 
-interface DraftEntry {
+interface ContentEntry {
   id: string
   title: string
   slug: string
@@ -67,8 +67,8 @@ const { data: contentData, pending, error } = useFetch(`/api/content/${contentId
   default: () => null
 })
 
-// Transform to DraftEntry format (same as ChatContentList expects)
-const contentEntry = computed<DraftEntry | null>(() => {
+// Transform to ContentEntry format (same as ChatContentList expects)
+const contentEntry = computed<ContentEntry | null>(() => {
   if (!contentData.value)
     return null
 
@@ -89,7 +89,7 @@ const contentEntry = computed<DraftEntry | null>(() => {
 
   return {
     id: content?.id || '',
-    title: content?.title || 'Untitled draft',
+    title: content?.title || 'Untitled content',
     slug: content?.slug || '',
     status: content?.status || 'draft',
     updatedAt,

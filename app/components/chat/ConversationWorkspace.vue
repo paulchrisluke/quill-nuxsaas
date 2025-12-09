@@ -96,7 +96,7 @@ interface ContentEntity {
   metadata?: Record<string, any>
 }
 
-interface ContentChatSession {
+interface ContentConversation {
   id: string
   status?: string | null
   contentId?: string | null
@@ -104,7 +104,7 @@ interface ContentChatSession {
   metadata?: Record<string, any> | null
 }
 
-interface ContentChatMessage {
+interface ContentConversationMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -112,7 +112,7 @@ interface ContentChatMessage {
   createdAt: string | Date
 }
 
-interface ContentChatLog {
+interface ContentConversationLog {
   id: string
   type: string
   message: string
@@ -124,9 +124,9 @@ interface ContentResponse {
   content: ContentEntity
   currentVersion?: ContentVersion | null
   sourceContent?: SourceContent | null
-  chatSession?: ContentChatSession | null
-  chatMessages?: ContentChatMessage[] | null
-  chatLogs?: ContentChatLog[] | null
+  chatSession?: ContentConversation | null
+  chatMessages?: ContentConversationMessage[] | null
+  chatLogs?: ContentConversationLog[] | null
   workspaceSummary?: string | null
 }
 
@@ -175,11 +175,14 @@ const {
   sendMessage,
   isBusy: chatIsBusy,
   hydrateSession,
-  sessionContentId,
-  sessionId,
+  conversationContentId,
+  conversationId,
+  // Legacy aliases
+  sessionContentId: conversationContentId,
+  sessionId: conversationId,
   agentContext,
   prompt
-} = useChatSession()
+} = useConversation()
 const uiStatus = computed(() => chatStatus.value)
 const workspaceHeaderState = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 
@@ -217,9 +220,9 @@ async function loadHeaderData() {
   // Capture current contentId to prevent stale responses
   const currentContentId = contentId.value
 
-  // Check cache first (from drafts list)
-  const draftsListCache = useState<Map<string, any>>('drafts-list-cache', () => new Map())
-  const cached = draftsListCache.value.get(currentContentId)
+  // Check cache first (from content list)
+  const contentListCache = useState<Map<string, any>>('content-list-cache', () => new Map())
+  const cached = contentListCache.value.get(currentContentId)
 
   if (cached) {
     // Verify contentId hasn't changed before updating state
@@ -232,7 +235,7 @@ async function loadHeaderData() {
     const updatedAtLabel = formatDateRelative(updatedAt, { includeTime: true })
 
     const contentType = cached.currentVersion?.frontmatter?.contentType || cached.content?.contentType || null
-    const title = cached.content?.title || 'Untitled draft'
+    const title = cached.content?.title || 'Untitled content'
     const seoTitle = cached.currentVersion?.frontmatter?.seoTitle
     const frontmatterTitle = cached.currentVersion?.frontmatter?.title
     const displayTitle = seoTitle || frontmatterTitle || title
@@ -268,7 +271,7 @@ async function loadHeaderData() {
       additions: number
       deletions: number
       contentId: string | null
-    }>(`/api/drafts/${currentContentId}/header`)
+    }>(`/api/content/${currentContentId}/header`)
 
     // Verify contentId hasn't changed before updating state
     if (contentId.value === currentContentId) {
@@ -289,8 +292,8 @@ async function loadHeaderData() {
   }
 }
 
-const fetchWorkspaceChat = async (workspaceContentId: string | null, sessionId: string | null) => {
-  if (!workspaceContentId || !sessionId) {
+const fetchWorkspaceChat = async (workspaceContentId: string | null, conversationId: string | null) => {
+  if (!workspaceContentId || !conversationId) {
     return
   }
   if (pendingChatFetches.has(workspaceContentId)) {
@@ -300,9 +303,17 @@ const fetchWorkspaceChat = async (workspaceContentId: string | null, sessionId: 
   pendingChatFetches.add(workspaceContentId)
   chatLoading.value = true
   try {
+    // Get conversation for this content, then fetch messages/logs
+    const workspaceResponse = await $fetch<{ workspace: ContentResponse | null }>(`/api/content/${workspaceContentId}`)
+    const conversationId = workspaceResponse.workspace?.chatSession?.id
+
+    if (!conversationId) {
+      return
+    }
+
     const [messagesResponse, logsResponse] = await Promise.all([
-      $fetch<{ messages: ContentChatMessage[] }>(`/api/drafts/${workspaceContentId}/messages`),
-      $fetch<{ logs: ContentChatLog[] }>(`/api/drafts/${workspaceContentId}/logs`)
+      $fetch<{ messages: ContentConversationMessage[] }>(`/api/conversations/${conversationId}/messages`),
+      $fetch<{ logs: ContentConversationLog[] }>(`/api/conversations/${conversationId}/logs`)
     ])
 
     if (!content.value || content.value.content.id !== workspaceContentId) {
@@ -315,7 +326,7 @@ const fetchWorkspaceChat = async (workspaceContentId: string | null, sessionId: 
       chatLogs: logsResponse.logs
     }
   } catch (error) {
-    console.error('[DraftWorkspace] Unable to fetch chat data', error)
+    console.error('[ConversationWorkspace] Unable to fetch conversation data', error)
   } finally {
     pendingChatFetches.delete(workspaceContentId)
     chatLoading.value = false
@@ -324,14 +335,14 @@ const fetchWorkspaceChat = async (workspaceContentId: string | null, sessionId: 
 
 const maybeFetchChatData = (payload: ContentResponse | null) => {
   const workspaceContentId = payload?.content?.id || null
-  const sessionId = payload?.chatSession?.id || null
-  if (!workspaceContentId || !sessionId) {
+  const conversationId = payload?.chatSession?.id || null
+  if (!workspaceContentId || !conversationId) {
     return
   }
   if (Array.isArray(payload?.chatMessages) && Array.isArray(payload?.chatLogs)) {
     return
   }
-  void fetchWorkspaceChat(workspaceContentId, sessionId)
+  void fetchWorkspaceChat(workspaceContentId, conversationId)
 }
 
 async function loadWorkspacePayload() {
@@ -342,7 +353,7 @@ async function loadWorkspacePayload() {
   pending.value = true
   error.value = null
   try {
-    const response = await $fetch<{ workspace: ContentResponse | null }>(`/api/drafts/${contentId.value}`)
+    const response = await $fetch<{ workspace: ContentResponse | null }>(`/api/content/${contentId.value}`)
     content.value = response.workspace ?? null
     emitReady()
     maybeFetchChatData(content.value)
@@ -407,7 +418,7 @@ function _toDate(value: string | Date): Date | null {
   if (Number.isFinite(parsed.getTime())) {
     return parsed
   }
-  console.warn('[DraftWorkspace] Failed to parse date value:', value)
+  console.warn('[ConversationWorkspace] Failed to parse date value:', value)
   return null
 }
 
@@ -417,8 +428,8 @@ watch(content, (value) => {
   }
 
   // Update cache with full workspace data when it loads
-  const draftsListCache = useState<Map<string, any>>('drafts-list-cache', () => new Map())
-  draftsListCache.value.set(value.content.id, {
+  const contentListCache = useState<Map<string, any>>('content-list-cache', () => new Map())
+  contentListCache.value.set(value.content.id, {
     content: value.content,
     currentVersion: value.currentVersion,
     sourceContent: value.sourceContent,
@@ -434,8 +445,8 @@ watch(content, (value) => {
   })
 
   hydrateSession({
-    sessionId: value.chatSession?.id ?? sessionId.value,
-    sessionContentId: value.chatSession?.contentId ?? value.content.id,
+    conversationId: value.chatSession?.id ?? conversationId.value,
+    conversationContentId: value.chatSession?.contentId ?? value.content.id,
     messages: value.chatMessages ?? undefined,
     logs: value.chatLogs ?? undefined
   })
@@ -555,7 +566,7 @@ function _buildFrontmatterBlock(frontmatter: Record<string, any> | null | undefi
   return ['---', ...lines, '---'].join('\n')
 }
 
-const title = computed(() => contentRecord.value?.title || 'Untitled draft')
+const title = computed(() => contentRecord.value?.title || 'Untitled content')
 const frontmatter = computed(() => currentVersion.value?.frontmatter || null)
 const generatedContent = computed(() => currentVersion.value?.bodyMdx || currentVersion.value?.bodyHtml || null)
 const hasGeneratedContent = computed(() => !!generatedContent.value)
@@ -948,7 +959,7 @@ async function handlePublishDraft() {
       }
     } else {
       // Handle case where content.value is null (shouldn't happen if canPublish passed)
-      console.warn('[DraftWorkspace] Publishing without existing content state')
+      console.warn('[ConversationWorkspace] Publishing without existing content state')
       content.value = {
         content: {
           id: response.content.id,
@@ -993,7 +1004,7 @@ async function handlePublishDraft() {
       color: 'primary'
     })
   } catch (error: any) {
-    console.error('[DraftWorkspace] Failed to publish draft', error)
+    console.error('[ConversationWorkspace] Failed to publish content', error)
     const description = error?.data?.message || error?.message || 'An unexpected error occurred while publishing.'
     toast.add({
       title: 'Publish failed',
@@ -1059,7 +1070,7 @@ async function _handleSubmit() {
   try {
     await sendMessage(trimmed, {
       displayContent: trimmed,
-      contentId: contentId.value || sessionContentId.value
+      contentId: contentId.value || conversationContentId.value
     })
     prompt.value = ''
     await loadWorkspacePayload()

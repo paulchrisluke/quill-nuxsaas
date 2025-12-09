@@ -18,7 +18,9 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const { organizationId, seats, endTrial, newInterval } = body
 
-  console.log('[update-seats] Request:', { organizationId, seats, endTrial, newInterval })
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[update-seats] Request:', { organizationId, seats, endTrial, newInterval })
+  }
 
   if (!organizationId || !seats) {
     throw createError({
@@ -128,11 +130,13 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  console.log('[update-seats] Stripe Updated Raw:', {
-    id: updatedSubscription.id,
-    current_period_end: updatedSubscription.current_period_end,
-    status: updatedSubscription.status
-  })
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[update-seats] Stripe Updated Raw:', {
+      id: updatedSubscription.id,
+      current_period_end: updatedSubscription.current_period_end,
+      status: updatedSubscription.status
+    })
+  }
 
   // Update local database immediately
   const periodEnd = updatedSubscription.current_period_end
@@ -145,13 +149,17 @@ export default defineEventHandler(async (event) => {
   }
 
   if (endTrial || updatedSubscription.status === 'active') {
-    console.log('[update-seats] Forcing Active Status in DB')
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[update-seats] Forcing Active Status in DB')
+    }
     updateData.status = 'active'
 
     // If trial was ended, capture the actual trial_end timestamp from Stripe
     if (endTrial && updatedSubscription.trial_end) {
       updateData.trialEnd = new Date(updatedSubscription.trial_end * 1000)
-      console.log('[update-seats] Trial ended at:', updateData.trialEnd)
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[update-seats] Trial ended at:', updateData.trialEnd)
+      }
     }
 
     // Also update any other stale trialing subscriptions for this org to avoid UI confusion
@@ -169,7 +177,9 @@ export default defineEventHandler(async (event) => {
       ))
   }
 
-  console.log('[update-seats] DB Update Data:', updateData)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[update-seats] DB Update Data:', updateData)
+  }
 
   await db.update(subscriptionTable)
     .set(updateData)

@@ -7,64 +7,56 @@ import { getDB } from '~~/server/utils/db'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { validateUUID } from '~~/server/utils/validation'
 
+/**
+ * Archive/delete a conversation
+ */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event, user.id)
   const db = getDB()
 
   const { id } = getRouterParams(event)
-  const contentId = validateUUID(id, 'id')
+  const conversationId = validateUUID(id, 'id')
 
-  const [content] = await db
-    .select({
-      id: schema.content.id,
-      status: schema.content.status
-    })
-    .from(schema.content)
+  const [conversation] = await db
+    .select()
+    .from(schema.conversation)
     .where(and(
-      eq(schema.content.id, contentId),
-      eq(schema.content.organizationId, organizationId)
+      eq(schema.conversation.id, conversationId),
+      eq(schema.conversation.organizationId, organizationId)
     ))
     .limit(1)
 
-  if (!content) {
+  if (!conversation) {
     throw createError({
       statusCode: 404,
-      statusMessage: 'Draft not found'
+      statusMessage: 'Conversation not found'
     })
   }
 
-  if (content.status === 'archived') {
+  if (conversation.status === 'archived') {
     return { success: true, status: 'archived' }
-  }
-
-  if (content.status !== 'draft') {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Only draft content can be archived'
-    })
   }
 
   const now = new Date()
 
   await db
-    .update(schema.content)
+    .update(schema.conversation)
     .set({
       status: 'archived',
-      archivedAt: now,
       updatedAt: now
     })
     .where(and(
-      eq(schema.content.id, contentId),
-      eq(schema.content.organizationId, organizationId)
+      eq(schema.conversation.id, conversationId),
+      eq(schema.conversation.organizationId, organizationId)
     ))
 
   await logAuditEvent({
     userId: user.id,
-    category: 'content',
+    category: 'conversation',
     action: 'archive',
-    targetType: 'content',
-    targetId: contentId,
+    targetType: 'conversation',
+    targetId: conversationId,
     details: JSON.stringify({ organizationId })
   })
 

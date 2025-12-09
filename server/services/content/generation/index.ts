@@ -116,14 +116,16 @@ export const generateContentDraftFromSource = async (
     resolvedIngestMethod = resolveIngestMethodFromSourceContent(sourceContent)
 
     // Log for debugging
-    console.log('[generateContentDraftFromSource] Source content found:', {
-      id: sourceContent.id,
-      ingestStatus: sourceContent.ingestStatus,
-      sourceTextLength: resolvedSourceText?.length || 0,
-      hasSourceText: !!resolvedSourceText,
-      sourceType: sourceContent.sourceType,
-      externalId: sourceContent.externalId
-    })
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[generateContentDraftFromSource] Source content found:', {
+        id: sourceContent.id,
+        ingestStatus: sourceContent.ingestStatus,
+        sourceTextLength: resolvedSourceText?.length || 0,
+        hasSourceText: !!resolvedSourceText,
+        sourceType: sourceContent.sourceType,
+        externalId: sourceContent.externalId
+      })
+    }
   }
 
   let existingContent: typeof schema.content.$inferSelect | null = null

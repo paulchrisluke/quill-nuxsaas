@@ -26,7 +26,7 @@
           },
           "editing": {
             "title": "Content Editor",
-            "description": "Full-featured content editor with section-by-section editing, markdown support, and version control for your blog drafts."
+            "description": "Full-featured content editor with section-by-section editing, markdown support, and version control for your blog content."
           },
           "search": {
             "title": "Semantic Search",

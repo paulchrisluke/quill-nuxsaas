@@ -3,12 +3,13 @@ import type {
   ChatCompletionToolDefinition
 } from '~~/server/utils/aiGateway'
 
-export type ChatToolName = 'generate_content' | 'patch_section' | 'ingest_youtube' | 'save_transcript' | 'update_metadata' | 're_enrich_content'
+export type ToolKind = 'read' | 'write' | 'ingest'
+
+export type ChatToolName = 'write_content' | 'edit_section' | 'fetch_youtube' | 'save_source' | 'edit_metadata' | 'enrich_content'
 
 export type ChatToolArguments<TName extends ChatToolName> =
-  TName extends 'generate_content'
+  TName extends 'write_content'
     ? {
-        contentId?: string | null
         sourceContentId?: string | null
         sourceText?: string | null
         transcript?: string | null
@@ -21,7 +22,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
         systemPrompt?: string | null
         temperature?: number | null
       }
-    : TName extends 'patch_section'
+    : TName extends 'edit_section'
       ? {
           contentId: string
           sectionId?: string | null
@@ -29,17 +30,17 @@ export type ChatToolArguments<TName extends ChatToolName> =
           instructions?: string | null
           temperature?: number | null
         }
-      : TName extends 'ingest_youtube'
+      : TName extends 'fetch_youtube'
         ? {
             youtubeUrl: string
             titleHint?: string | null
           }
-        : TName extends 'save_transcript'
+        : TName extends 'save_source'
           ? {
               transcript: string
               title?: string | null
             }
-          : TName extends 'update_metadata'
+          : TName extends 'edit_metadata'
             ? {
                 contentId: string
                 title?: string | null
@@ -49,7 +50,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
                 targetLocale?: string | null
                 contentType?: string | null
               }
-            : TName extends 're_enrich_content'
+            : TName extends 'enrich_content'
               ? {
                   contentId: string
                   baseUrl?: string | null
@@ -63,68 +64,87 @@ export interface ChatToolInvocation<TName extends ChatToolName = ChatToolName> {
 
 type ParameterSchema = Record<string, any>
 
-const chatToolDefinitions: Record<ChatToolName, ChatCompletionToolDefinition> = {
-  generate_content: {
-    type: 'function',
-    function: {
-      name: 'generate_content',
-      description: 'Create or update a long-form draft in the workspace using a prepared source such as a transcript or YouTube video.',
-      parameters: buildGenerateContentParameters()
+interface ToolDefinition {
+  kind: ToolKind
+  definition: ChatCompletionToolDefinition
+}
+
+const chatToolDefinitions: Record<ChatToolName, ToolDefinition> = {
+  write_content: {
+    kind: 'write',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'write_content',
+        description: 'Create a new content item (blog post, article, etc.) from source content (transcript, YouTube video, etc.). This tool only creates new content - use edit_metadata for metadata edits or edit_section for content edits on existing items.',
+        parameters: buildWriteContentParameters()
+      }
     }
   },
-  patch_section: {
-    type: 'function',
-    function: {
-      name: 'patch_section',
-      description: 'Revise a specific section of an existing draft using the user\'s instructions.',
-      parameters: buildPatchSectionParameters()
+  edit_section: {
+    kind: 'write',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'edit_section',
+        description: 'Edit a specific section of an existing content item using the user\'s instructions.',
+        parameters: buildEditSectionParameters()
+      }
     }
   },
-  ingest_youtube: {
-    type: 'function',
-    function: {
-      name: 'ingest_youtube',
-      description: 'Fetch captions from a YouTube video and create source content for drafting.',
-      parameters: buildIngestYouTubeParameters()
+  fetch_youtube: {
+    kind: 'ingest',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'fetch_youtube',
+        description: 'Fetch captions from a YouTube video and create source content for content generation.',
+        parameters: buildFetchYouTubeParameters()
+      }
     }
   },
-  save_transcript: {
-    type: 'function',
-    function: {
-      name: 'save_transcript',
-      description: 'Save a pasted transcript as source content for later use in drafting.',
-      parameters: buildSaveTranscriptParameters()
+  save_source: {
+    kind: 'ingest',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'save_source',
+        description: 'Save a pasted transcript as source content for later use in content generation.',
+        parameters: buildSaveSourceParameters()
+      }
     }
   },
-  update_metadata: {
-    type: 'function',
-    function: {
-      name: 'update_metadata',
-      description: 'Update metadata fields (title, slug, status, primaryKeyword, targetLocale, contentType) for an existing draft.',
-      parameters: buildUpdateMetadataParameters()
+  edit_metadata: {
+    kind: 'write',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'edit_metadata',
+        description: 'Update metadata fields (title, slug, status, primaryKeyword, targetLocale, contentType) for an existing content item. Use this for simple edits like "make the title shorter", "change the status", or "update the slug". This tool patches the existing content without creating a new version.',
+        parameters: buildEditMetadataParameters()
+      }
     }
   },
-  re_enrich_content: {
-    type: 'function',
-    function: {
-      name: 're_enrich_content',
-      description: 'Re-enrich existing content with frontmatter and JSON-LD structured data. Useful for updating old content or refreshing SEO metadata.',
-      parameters: buildReEnrichContentParameters()
+  enrich_content: {
+    kind: 'write',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'enrich_content',
+        description: 'Re-enrich existing content with frontmatter and JSON-LD structured data. Useful for updating old content or refreshing SEO metadata.',
+        parameters: buildEnrichContentParameters()
+      }
     }
   }
 }
 
-function buildGenerateContentParameters(): ParameterSchema {
+function buildWriteContentParameters(): ParameterSchema {
   return {
     type: 'object',
     properties: {
-      contentId: {
-        type: ['string', 'null'],
-        description: 'Existing content ID to update. Use null to create a new draft.'
-      },
       sourceContentId: {
         type: ['string', 'null'],
-        description: 'Source content ID to draft from (transcript, YouTube ingest, etc.).'
+        description: 'Source content ID to generate from (transcript, YouTube ingest, etc.).'
       },
       sourceText: {
         type: ['string', 'null'],
@@ -136,7 +156,7 @@ function buildGenerateContentParameters(): ParameterSchema {
       },
       title: {
         type: ['string', 'null'],
-        description: 'Optional working title for the draft.'
+        description: 'Optional working title for the content item.'
       },
       slug: {
         type: ['string', 'null']
@@ -169,7 +189,7 @@ function buildGenerateContentParameters(): ParameterSchema {
   }
 }
 
-function buildPatchSectionParameters(): ParameterSchema {
+function buildEditSectionParameters(): ParameterSchema {
   return {
     type: 'object',
     properties: {
@@ -199,7 +219,7 @@ function buildPatchSectionParameters(): ParameterSchema {
   }
 }
 
-function buildIngestYouTubeParameters(): ParameterSchema {
+function buildFetchYouTubeParameters(): ParameterSchema {
   return {
     type: 'object',
     properties: {
@@ -216,7 +236,7 @@ function buildIngestYouTubeParameters(): ParameterSchema {
   }
 }
 
-function buildSaveTranscriptParameters(): ParameterSchema {
+function buildSaveSourceParameters(): ParameterSchema {
   return {
     type: 'object',
     properties: {
@@ -233,21 +253,21 @@ function buildSaveTranscriptParameters(): ParameterSchema {
   }
 }
 
-function buildUpdateMetadataParameters(): ParameterSchema {
+function buildEditMetadataParameters(): ParameterSchema {
   return {
     type: 'object',
     properties: {
       contentId: {
         type: 'string',
-        description: 'Content ID of the draft to update.'
+        description: 'Content ID of the content item to update.'
       },
       title: {
         type: ['string', 'null'],
-        description: 'New title for the draft.'
+        description: 'New title for the content item.'
       },
       slug: {
         type: ['string', 'null'],
-        description: 'New slug for the draft (will be auto-slugified).'
+        description: 'New slug for the content item (will be auto-slugified).'
       },
       status: {
         type: ['string', 'null'],
@@ -270,13 +290,13 @@ function buildUpdateMetadataParameters(): ParameterSchema {
   }
 }
 
-function buildReEnrichContentParameters(): ParameterSchema {
+function buildEnrichContentParameters(): ParameterSchema {
   return {
     type: 'object',
     properties: {
       contentId: {
         type: 'string',
-        description: 'Content ID of the draft to re-enrich with frontmatter and JSON-LD structured data.'
+        description: 'Content ID of the content item to re-enrich with frontmatter and JSON-LD structured data.'
       },
       baseUrl: {
         type: ['string', 'null'],
@@ -297,7 +317,17 @@ function safeParseArguments(input: string): Record<string, any> | null {
 }
 
 export function getChatToolDefinitions(): ChatCompletionToolDefinition[] {
-  return Object.values(chatToolDefinitions)
+  return Object.values(chatToolDefinitions).map(tool => tool.definition)
+}
+
+export function getToolKind(toolName: ChatToolName): ToolKind {
+  return chatToolDefinitions[toolName]?.kind ?? 'write'
+}
+
+export function getToolsByKind(kind: ToolKind): ChatCompletionToolDefinition[] {
+  return Object.entries(chatToolDefinitions)
+    .filter(([_, tool]) => tool.kind === kind)
+    .map(([_, tool]) => tool.definition)
 }
 
 export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInvocation | null {
@@ -306,51 +336,51 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
     return null
   }
 
-  if (toolCall.function.name === 'generate_content') {
+  if (toolCall.function.name === 'write_content') {
     const { type: _omit, ...rest } = args
     return {
-      name: 'generate_content',
-      arguments: rest as ChatToolInvocation<'generate_content'>['arguments']
+      name: 'write_content',
+      arguments: rest as ChatToolInvocation<'write_content'>['arguments']
     }
   }
 
-  if (toolCall.function.name === 'patch_section') {
+  if (toolCall.function.name === 'edit_section') {
     const { type: _omit, ...rest } = args
     return {
-      name: 'patch_section',
-      arguments: rest as ChatToolInvocation<'patch_section'>['arguments']
+      name: 'edit_section',
+      arguments: rest as ChatToolInvocation<'edit_section'>['arguments']
     }
   }
 
-  if (toolCall.function.name === 'ingest_youtube') {
+  if (toolCall.function.name === 'fetch_youtube') {
     const { type: _omit, ...rest } = args
     return {
-      name: 'ingest_youtube',
-      arguments: rest as ChatToolInvocation<'ingest_youtube'>['arguments']
+      name: 'fetch_youtube',
+      arguments: rest as ChatToolInvocation<'fetch_youtube'>['arguments']
     }
   }
 
-  if (toolCall.function.name === 'save_transcript') {
+  if (toolCall.function.name === 'save_source') {
     const { type: _omit, ...rest } = args
     return {
-      name: 'save_transcript',
-      arguments: rest as ChatToolInvocation<'save_transcript'>['arguments']
+      name: 'save_source',
+      arguments: rest as ChatToolInvocation<'save_source'>['arguments']
     }
   }
 
-  if (toolCall.function.name === 'update_metadata') {
+  if (toolCall.function.name === 'edit_metadata') {
     const { type: _omit, ...rest } = args
     return {
-      name: 'update_metadata',
-      arguments: rest as ChatToolInvocation<'update_metadata'>['arguments']
+      name: 'edit_metadata',
+      arguments: rest as ChatToolInvocation<'edit_metadata'>['arguments']
     }
   }
 
-  if (toolCall.function.name === 're_enrich_content') {
+  if (toolCall.function.name === 'enrich_content') {
     const { type: _omit, ...rest } = args
     return {
-      name: 're_enrich_content',
-      arguments: rest as ChatToolInvocation<'re_enrich_content'>['arguments']
+      name: 'enrich_content',
+      arguments: rest as ChatToolInvocation<'enrich_content'>['arguments']
     }
   }
 

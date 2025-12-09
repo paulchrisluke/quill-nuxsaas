@@ -5,9 +5,9 @@ import { organization, user } from './auth'
 import { content } from './content'
 import { sourceContent } from './sourceContent'
 
-export const chatSessionStatusEnum = pgEnum('chat_session_status', ['active', 'archived', 'completed'])
+export const conversationStatusEnum = pgEnum('conversation_status', ['active', 'archived', 'completed'])
 
-export const contentChatSession = pgTable('content_chat_session', {
+export const conversation = pgTable('conversation', {
   id: uuid('id').primaryKey().$default(() => uuidv7()),
   organizationId: text('organization_id')
     .notNull()
@@ -18,7 +18,7 @@ export const contentChatSession = pgTable('content_chat_session', {
     .references(() => sourceContent.id, { onDelete: 'set null' }),
   createdByUserId: text('created_by_user_id')
     .references(() => user.id, { onDelete: 'set null' }),
-  status: chatSessionStatusEnum('status').default('active').notNull(),
+  status: conversationStatusEnum('status').default('active').notNull(),
   metadata: jsonb('metadata').$type<Record<string, any> | null>().default(null),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at')
@@ -26,16 +26,16 @@ export const contentChatSession = pgTable('content_chat_session', {
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull()
 }, table => ({
-  organizationIdx: index('content_chat_session_org_idx').on(table.organizationId),
-  contentIdx: index('content_chat_session_content_idx').on(table.contentId),
-  sourceIdx: index('content_chat_session_source_idx').on(table.sourceContentId)
+  organizationIdx: index('conversation_org_idx').on(table.organizationId),
+  contentIdx: index('conversation_content_idx').on(table.contentId),
+  sourceIdx: index('conversation_source_idx').on(table.sourceContentId)
 }))
 
-export const contentChatMessage = pgTable('content_chat_message', {
+export const conversationMessage = pgTable('conversation_message', {
   id: uuid('id').primaryKey().$default(() => uuidv7()),
-  sessionId: uuid('session_id')
+  conversationId: uuid('conversation_id')
     .notNull()
-    .references(() => contentChatSession.id, { onDelete: 'cascade' }),
+    .references(() => conversation.id, { onDelete: 'cascade' }),
   organizationId: text('organization_id')
     .notNull()
     .references(() => organization.id, { onDelete: 'cascade' }),
@@ -44,16 +44,16 @@ export const contentChatMessage = pgTable('content_chat_message', {
   payload: jsonb('payload').$type<Record<string, any> | null>().default(null),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, table => ({
-  sessionIdx: index('content_chat_message_session_idx').on(table.sessionId),
-  organizationIdx: index('content_chat_message_org_idx').on(table.organizationId),
-  createdIdx: index('content_chat_message_created_idx').on(table.createdAt)
+  conversationIdx: index('conversation_message_conversation_idx').on(table.conversationId),
+  organizationIdx: index('conversation_message_org_idx').on(table.organizationId),
+  createdIdx: index('conversation_message_created_idx').on(table.createdAt)
 }))
 
-export const contentChatLog = pgTable('content_chat_log', {
+export const conversationLog = pgTable('conversation_log', {
   id: uuid('id').primaryKey().$default(() => uuidv7()),
-  sessionId: uuid('session_id')
+  conversationId: uuid('conversation_id')
     .notNull()
-    .references(() => contentChatSession.id, { onDelete: 'cascade' }),
+    .references(() => conversation.id, { onDelete: 'cascade' }),
   organizationId: text('organization_id')
     .notNull()
     .references(() => organization.id, { onDelete: 'cascade' }),
@@ -62,50 +62,48 @@ export const contentChatLog = pgTable('content_chat_log', {
   payload: jsonb('payload').$type<Record<string, any> | null>().default(null),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, table => ({
-  sessionIdx: index('content_chat_log_session_idx').on(table.sessionId),
-  organizationIdx: index('content_chat_log_org_idx').on(table.organizationId),
-  typeIdx: index('content_chat_log_type_idx').on(table.type)
+  conversationIdx: index('conversation_log_conversation_idx').on(table.conversationId),
+  organizationIdx: index('conversation_log_org_idx').on(table.organizationId),
+  typeIdx: index('conversation_log_type_idx').on(table.type)
 }))
 
-export const contentChatSessionRelations = relations(contentChatSession, ({ one, many }) => ({
+// Relations will be updated after content schema is loaded to avoid circular dependency
+export const conversationRelations = relations(conversation, ({ one, many }) => ({
   organization: one(organization, {
-    fields: [contentChatSession.organizationId],
+    fields: [conversation.organizationId],
     references: [organization.id]
   }),
-  content: one(content, {
-    fields: [contentChatSession.contentId],
-    references: [content.id]
-  }),
+  // content relation will be added in content.ts to avoid circular dependency
   sourceContent: one(sourceContent, {
-    fields: [contentChatSession.sourceContentId],
+    fields: [conversation.sourceContentId],
     references: [sourceContent.id]
   }),
   creator: one(user, {
-    fields: [contentChatSession.createdByUserId],
+    fields: [conversation.createdByUserId],
     references: [user.id]
   }),
-  messages: many(contentChatMessage),
-  logs: many(contentChatLog)
+  messages: many(conversationMessage),
+  logs: many(conversationLog)
 }))
 
-export const contentChatMessageRelations = relations(contentChatMessage, ({ one }) => ({
-  session: one(contentChatSession, {
-    fields: [contentChatMessage.sessionId],
-    references: [contentChatSession.id]
+export const conversationMessageRelations = relations(conversationMessage, ({ one }) => ({
+  conversation: one(conversation, {
+    fields: [conversationMessage.conversationId],
+    references: [conversation.id]
   }),
   organization: one(organization, {
-    fields: [contentChatMessage.organizationId],
+    fields: [conversationMessage.organizationId],
     references: [organization.id]
   })
 }))
 
-export const contentChatLogRelations = relations(contentChatLog, ({ one }) => ({
-  session: one(contentChatSession, {
-    fields: [contentChatLog.sessionId],
-    references: [contentChatSession.id]
+export const conversationLogRelations = relations(conversationLog, ({ one }) => ({
+  conversation: one(conversation, {
+    fields: [conversationLog.conversationId],
+    references: [conversation.id]
   }),
   organization: one(organization, {
-    fields: [contentChatLog.organizationId],
+    fields: [conversationLog.organizationId],
     references: [organization.id]
   })
 }))
