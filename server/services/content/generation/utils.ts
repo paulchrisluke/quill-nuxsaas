@@ -113,10 +113,10 @@ export const countWords = (value: string) => {
 
 /**
  * Estimates token count for text using GPT model approximation
- * 
+ *
  * Approximation: ~4 characters per token for English text
  * This is a standard approximation for GPT models (GPT-3.5, GPT-4)
- * 
+ *
  * @param text - Text to count tokens for
  * @returns Estimated token count
  */
@@ -131,7 +131,7 @@ export const estimateTokenCount = (text: string): number => {
 
 /**
  * Converts token count to approximate character count
- * 
+ *
  * @param tokens - Number of tokens
  * @returns Approximate character count
  */
@@ -141,7 +141,7 @@ export const tokensToChars = (tokens: number): number => {
 
 /**
  * Converts character count to approximate token count
- * 
+ *
  * @param chars - Number of characters
  * @returns Approximate token count
  */

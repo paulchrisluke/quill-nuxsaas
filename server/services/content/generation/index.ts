@@ -25,14 +25,13 @@ import {
   extractMarkdownFromEnrichedMdx
 } from './assembly'
 import {
-  determineGenerationMode,
-  generateSyntheticContext,
-  type GenerationMode
-} from './context'
-import {
   ensureSourceContentChunksExist,
   findRelevantChunksForSection
 } from './chunking'
+import {
+  determineGenerationMode,
+  generateSyntheticContext
+} from './context'
 import {
   createFrontmatterFromOutline,
   enrichFrontmatterWithMetadata,
@@ -266,7 +265,7 @@ export const generateContentDraftFromSource = async (
     chunks: chunks || [], // Ensure chunks is always an array
     sourceText: resolvedSourceText, // Pass inline sourceText if available
     sourceTitle: sourceContent?.title ?? existingContent?.title ?? null,
-    conversationContext: conversationContext
+    conversationContext
   })
   pipelineStages.push('plan')
 
@@ -295,8 +294,8 @@ export const generateContentDraftFromSource = async (
     temperature,
     organizationId,
     sourceContentId: frontmatter.sourceContentId ?? sourceContent?.id ?? null,
-    generationMode: generationMode,
-    conversationContext: conversationContext
+    generationMode,
+    conversationContext
   })
   pipelineStages.push('sections')
 

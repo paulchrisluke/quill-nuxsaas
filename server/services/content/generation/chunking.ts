@@ -28,7 +28,7 @@ export const DEFAULT_CHUNK_OVERLAP_TOKENS = 75 // ~300 characters
 
 /**
  * Finds the nearest paragraph boundary before or at the target position
- * 
+ *
  * @param text - Text to search in
  * @param targetPos - Target character position
  * @param maxLookback - Maximum characters to look back for a boundary
@@ -37,31 +37,31 @@ export const DEFAULT_CHUNK_OVERLAP_TOKENS = 75 // ~300 characters
 function findParagraphBoundary(text: string, targetPos: number, maxLookback: number): number {
   const lookbackStart = Math.max(0, targetPos - maxLookback)
   const searchText = text.slice(lookbackStart, targetPos + 1)
-  
+
   // Look for double newlines (paragraph breaks) first
   const lastDoubleNewline = searchText.lastIndexOf('\n\n')
   if (lastDoubleNewline >= 0) {
     return lookbackStart + lastDoubleNewline + 2
   }
-  
+
   // Look for single newlines
   const lastNewline = searchText.lastIndexOf('\n')
   if (lastNewline >= 0) {
     return lookbackStart + lastNewline + 1
   }
-  
+
   // Look for sentence endings (period, exclamation, question mark followed by space)
   const sentenceEnd = searchText.search(/[.!?]\s/)
   if (sentenceEnd >= 0) {
     return lookbackStart + sentenceEnd + 2
   }
-  
+
   return targetPos
 }
 
 /**
  * Creates text chunks using token-based chunking with semantic boundary support
- * 
+ *
  * @param text - Text to chunk
  * @param chunkSizeTokens - Target chunk size in tokens (default: 600)
  * @param overlapTokens - Overlap between chunks in tokens (default: 75)
@@ -84,7 +84,7 @@ export const createTextChunks = (
   const normalizedOverlap = Number.isFinite(overlapChars) ? Math.floor(overlapChars) : 0
   const effectiveOverlap = Math.min(Math.max(normalizedOverlap, 0), effectiveChunkSize - 1)
   const step = Math.max(1, effectiveChunkSize - effectiveOverlap)
-  
+
   // Normalize text (collapse whitespace but preserve paragraph breaks)
   const normalized = text.replace(/[ \t]+/g, ' ').replace(/\r\n/g, '\n').trim()
   const segments: ContentChunk[] = []
@@ -93,18 +93,18 @@ export const createTextChunks = (
 
   while (start < normalized.length) {
     let end = Math.min(start + effectiveChunkSize, normalized.length)
-    
+
     // Try to find semantic boundary (paragraph or sentence break)
     if (end < normalized.length) {
       const maxLookback = Math.floor(effectiveChunkSize * 0.2) // Look back up to 20% of chunk size
       const boundaryPos = findParagraphBoundary(normalized, end, maxLookback)
-      
+
       // Use boundary if it's within reasonable range (not too far back)
       if (boundaryPos >= start + (effectiveChunkSize * 0.7)) {
         end = boundaryPos
       }
     }
-    
+
     const slice = normalized.slice(start, end).trim()
     if (slice) {
       // Verify token count is approximately correct
@@ -130,7 +130,7 @@ export const createTextChunks = (
           }
         }
       }
-      
+
       segments.push({
         chunkIndex: index,
         text: slice,

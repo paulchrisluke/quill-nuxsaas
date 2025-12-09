@@ -39,56 +39,56 @@ export type ChatToolArguments<TName extends ChatToolName> =
             title?: string | null
           }
         : TName extends 'edit_metadata'
+          ? {
+              contentId: string
+              title?: string | null
+              slug?: string | null
+              status?: string | null
+              primaryKeyword?: string | null
+              targetLocale?: string | null
+              contentType?: string | null
+            }
+          : TName extends 'enrich_content'
             ? {
                 contentId: string
-                title?: string | null
-                slug?: string | null
-                status?: string | null
-                primaryKeyword?: string | null
-                targetLocale?: string | null
-                contentType?: string | null
+                baseUrl?: string | null
               }
-            : TName extends 'enrich_content'
+            : TName extends 'read_content'
               ? {
                   contentId: string
-                  baseUrl?: string | null
                 }
-              : TName extends 'read_content'
+              : TName extends 'read_section'
                 ? {
                     contentId: string
+                    sectionId: string
                   }
-                : TName extends 'read_section'
+                : TName extends 'read_source'
                   ? {
-                      contentId: string
-                      sectionId: string
+                      sourceContentId: string
                     }
-                  : TName extends 'read_source'
+                  : TName extends 'read_content_list'
                     ? {
-                        sourceContentId: string
+                        status?: string | null
+                        contentType?: string | null
+                        limit?: number | null
+                        offset?: number | null
+                        orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
+                        orderDirection?: 'asc' | 'desc' | null
                       }
-                    : TName extends 'read_content_list'
+                    : TName extends 'read_source_list'
                       ? {
-                          status?: string | null
-                          contentType?: string | null
+                          sourceType?: string | null
+                          ingestStatus?: string | null
                           limit?: number | null
                           offset?: number | null
                           orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
                           orderDirection?: 'asc' | 'desc' | null
                         }
-                      : TName extends 'read_source_list'
+                      : TName extends 'read_workspace_summary'
                         ? {
-                            sourceType?: string | null
-                            ingestStatus?: string | null
-                            limit?: number | null
-                            offset?: number | null
-                            orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
-                            orderDirection?: 'asc' | 'desc' | null
+                            contentId: string
                           }
-                        : TName extends 'read_workspace_summary'
-                          ? {
-                              contentId: string
-                            }
-                          : never
+                        : never
 
 export interface ChatToolInvocation<TName extends ChatToolName = ChatToolName> {
   name: TName

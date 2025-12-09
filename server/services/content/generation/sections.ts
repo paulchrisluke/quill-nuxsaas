@@ -1,5 +1,5 @@
-import type { ContentChunk, ContentFrontmatter, ContentOutlineSection, ContentSection } from './types'
 import type { GenerationMode } from './context'
+import type { ContentChunk, ContentFrontmatter, ContentOutlineSection, ContentSection } from './types'
 import { createError } from 'h3'
 import { callChatCompletions } from '~~/server/utils/aiGateway'
 import { slugifyTitle } from '~~/server/utils/content'

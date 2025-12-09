@@ -32,25 +32,25 @@ const MAX_CHUNK_SIZE_TOKENS = 2000 // ~8000 characters
 function findParagraphBoundary(text: string, targetPos: number, maxLookback: number): number {
   const lookbackStart = Math.max(0, targetPos - maxLookback)
   const searchText = text.slice(lookbackStart, targetPos + 1)
-  
+
   // Look for double newlines (paragraph breaks) first
   const lastDoubleNewline = searchText.lastIndexOf('\n\n')
   if (lastDoubleNewline >= 0) {
     return lookbackStart + lastDoubleNewline + 2
   }
-  
+
   // Look for single newlines
   const lastNewline = searchText.lastIndexOf('\n')
   if (lastNewline >= 0) {
     return lookbackStart + lastNewline + 1
   }
-  
+
   // Look for sentence endings (period, exclamation, question mark followed by space)
   const sentenceEnd = searchText.search(/[.!?]\s/)
   if (sentenceEnd >= 0) {
     return lookbackStart + sentenceEnd + 2
   }
-  
+
   return targetPos
 }
 
@@ -128,18 +128,18 @@ export async function createChunksFromSourceContentText({
 
   while (start < text.length) {
     let end = Math.min(start + effectiveSize, text.length)
-    
+
     // Try to find semantic boundary (paragraph or sentence break)
     if (end < text.length) {
       const maxLookback = Math.floor(effectiveSize * 0.2) // Look back up to 20% of chunk size
       const boundaryPos = findParagraphBoundary(text, end, maxLookback)
-      
+
       // Use boundary if it's within reasonable range (not too far back)
       if (boundaryPos >= start + (effectiveSize * 0.7)) {
         end = boundaryPos
       }
     }
-    
+
     const segment = text.slice(start, end).trim()
 
     if (segment) {
@@ -171,7 +171,7 @@ export async function createChunksFromSourceContentText({
           }
         }
       }
-      
+
       segments.push({
         id: undefined,
         organizationId: sourceContent.organizationId,
