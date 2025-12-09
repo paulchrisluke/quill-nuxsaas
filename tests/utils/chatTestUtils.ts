@@ -90,7 +90,8 @@ export class ChatTestRunner {
 
             case 'message:complete':
               if (data.message) {
-                assistantMessage = data.message
+                // Only use complete message if no chunks were accumulated
+                assistantMessage = assistantMessage || data.message
               }
               break
 

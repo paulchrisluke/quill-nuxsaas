@@ -10,32 +10,10 @@ import { computed } from 'vue'
 
 type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
-interface AgentContext {
-  readySources?: Array<{
-    id: string
-    title: string | null
-    sourceType: string | null
-    ingestStatus: string
-    createdAt: Date | string
-    updatedAt: Date | string
-  }>
-  ingestFailures?: Array<{
-    content: string
-    payload?: Record<string, any> | null
-  }>
-  lastAction?: string | null
-  toolHistory?: Array<{
-    toolName: string
-    timestamp: Date | string
-    status: string
-  }>
-}
-
 interface ChatResponse {
   assistantMessage?: string
   conversationId?: string | null
   conversationContentId?: string | null
-  agentContext?: AgentContext
   messages?: Array<{
     id: string
     role: 'user' | 'assistant' | 'system'
@@ -115,7 +93,6 @@ export function useConversation() {
   const logs = useState<ChatLogEntry[]>('chat/logs', () => [])
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
-  const agentContext = useState<AgentContext | null>('chat/agent-context', () => null)
   const prompt = useState<string>('chat/prompt', () => '')
   const mode = useState<'chat' | 'agent'>('chat/mode', () => 'chat')
   const currentActivity = useState<'llm_thinking' | 'tool_executing' | 'streaming_message' | null>('chat/current-activity', () => null)
@@ -340,23 +317,6 @@ export function useConversation() {
                     break
                   }
 
-                  case 'agentContext:update': {
-                    agentContext.value = {
-                      readySources: eventData.readySources?.map((source: any) => ({
-                        ...source,
-                        createdAt: toDate(source.createdAt),
-                        updatedAt: toDate(source.updatedAt)
-                      })) || [],
-                      ingestFailures: eventData.ingestFailures || [],
-                      lastAction: eventData.lastAction || null,
-                      toolHistory: eventData.toolHistory?.map((tool: any) => ({
-                        ...tool,
-                        timestamp: toDate(tool.timestamp)
-                      })) || []
-                    }
-                    break
-                  }
-
                   case 'messages:complete': {
                     // AUTHORITATIVE message list from database (single source of truth)
                     // Client MUST replace its messages array with this snapshot and clear all temporary streaming state
@@ -554,7 +514,6 @@ export function useConversation() {
     conversationContentId.value = null
     logs.value = []
     requestStartedAt.value = null
-    agentContext.value = null
     prompt.value = ''
     currentActivity.value = null
     currentToolName.value = null
@@ -572,7 +531,6 @@ export function useConversation() {
     stopResponse,
     logs,
     requestStartedAt,
-    agentContext,
     hydrateConversation,
     loadConversationForContent,
     resetConversation,

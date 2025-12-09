@@ -1,9 +1,9 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
+import { getConversationTitle } from '~~/server/services/conversation/title'
 import { getConversationQuotaUsage, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
-import { getConversationTitle } from '~~/server/services/conversation/title'
 import { requireActiveOrganization } from '~~/server/utils/organization'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 

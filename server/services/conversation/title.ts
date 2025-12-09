@@ -1,6 +1,17 @@
 import { callChatCompletions } from '~~/server/utils/aiGateway'
 
 /**
+ * Generate a fallback title from the first few words of a message
+ *
+ * @param message - The message to extract a title from
+ * @returns A title extracted from the first 6 words (truncated if > 60 chars)
+ */
+function getFallbackTitle(message: string): string {
+  const words = message.trim().split(/\s+/).slice(0, 6).join(' ')
+  return words.length > 60 ? `${words.slice(0, 57)}...` : words
+}
+
+/**
  * Generate a concise title for a conversation based on the first user message
  *
  * Similar to ChatGPT's approach: analyzes the first message and creates a 3-6 word title
@@ -10,6 +21,10 @@ import { callChatCompletions } from '~~/server/utils/aiGateway'
  * @returns A concise title (typically 3-6 words)
  */
 export async function generateConversationTitle(firstMessage: string): Promise<string> {
+  // Validate input
+  if (!firstMessage || !firstMessage.trim()) {
+    return 'Untitled conversation'
+  }
   const systemPrompt = `You are a helpful assistant that generates concise, descriptive titles for conversations.
 
 Rules:
@@ -50,17 +65,13 @@ Title:`
 
     // Fallback if title is too long or empty
     if (!cleaned || cleaned.length > 60) {
-      // Fallback: use first few words of the message
-      const words = firstMessage.trim().split(/\s+/).slice(0, 6).join(' ')
-      return words.length > 60 ? `${words.slice(0, 57)}...` : words
+      return getFallbackTitle(firstMessage)
     }
 
     return cleaned
   } catch (error) {
     console.error('[generateConversationTitle] Failed to generate title:', error)
-    // Fallback: use first few words of the message
-    const words = firstMessage.trim().split(/\s+/).slice(0, 6).join(' ')
-    return words.length > 60 ? `${words.slice(0, 57)}...` : words
+    return getFallbackTitle(firstMessage)
   }
 }
 
