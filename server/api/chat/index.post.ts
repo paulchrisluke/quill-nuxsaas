@@ -1422,7 +1422,7 @@ export default defineEventHandler(async (event) => {
   // Client should update agentContext state with this data
   writeSSE('agentContext:update', agentContext)
 
-  // Event: session:final - Final session state after all processing
+  // Event: conversation:final - Final conversation state after all processing
   // Client should update conversationId and conversationContentId with final values
   writeSSE('conversation:final', {
     conversationId: activeConversation.id,
