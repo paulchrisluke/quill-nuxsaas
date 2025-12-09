@@ -10,32 +10,10 @@ import { computed } from 'vue'
 
 type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
-interface AgentContext {
-  readySources?: Array<{
-    id: string
-    title: string | null
-    sourceType: string | null
-    ingestStatus: string
-    createdAt: Date | string
-    updatedAt: Date | string
-  }>
-  ingestFailures?: Array<{
-    content: string
-    payload?: Record<string, any> | null
-  }>
-  lastAction?: string | null
-  toolHistory?: Array<{
-    toolName: string
-    timestamp: Date | string
-    status: string
-  }>
-}
-
 interface ChatResponse {
   assistantMessage?: string
   conversationId?: string | null
   conversationContentId?: string | null
-  agentContext?: AgentContext
   messages?: Array<{
     id: string
     role: 'user' | 'assistant' | 'system'
@@ -115,8 +93,8 @@ export function useConversation() {
   const logs = useState<ChatLogEntry[]>('chat/logs', () => [])
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
-  const agentContext = useState<AgentContext | null>('chat/agent-context', () => null)
   const prompt = useState<string>('chat/prompt', () => '')
+  const mode = useState<'chat' | 'agent'>('chat/mode', () => 'chat')
   const currentActivity = useState<'llm_thinking' | 'tool_executing' | 'streaming_message' | null>('chat/current-activity', () => null)
   const currentToolName = useState<string | null>('chat/current-tool-name', () => null)
 
@@ -339,23 +317,6 @@ export function useConversation() {
                     break
                   }
 
-                  case 'agentContext:update': {
-                    agentContext.value = {
-                      readySources: eventData.readySources?.map((source: any) => ({
-                        ...source,
-                        createdAt: toDate(source.createdAt),
-                        updatedAt: toDate(source.updatedAt)
-                      })) || [],
-                      ingestFailures: eventData.ingestFailures || [],
-                      lastAction: eventData.lastAction || null,
-                      toolHistory: eventData.toolHistory?.map((tool: any) => ({
-                        ...tool,
-                        timestamp: toDate(tool.timestamp)
-                      })) || []
-                    }
-                    break
-                  }
-
                   case 'messages:complete': {
                     // AUTHORITATIVE message list from database (single source of truth)
                     // Client MUST replace its messages array with this snapshot and clear all temporary streaming state
@@ -476,13 +437,14 @@ export function useConversation() {
     // Final authoritative message list (including user message) comes in messages:complete
     return await callChatEndpoint({
       message: trimmed,
+      mode: mode.value,
       contentId: options?.contentId !== undefined
         ? options.contentId
         : (conversationContentId.value || undefined)
     })
   }
 
-  function hydrateSession(payload: {
+  function hydrateConversation(payload: {
     messages?: ChatResponse['messages']
     logs?: ChatResponse['logs']
     conversationId?: string | null
@@ -505,7 +467,7 @@ export function useConversation() {
     }
   }
 
-  async function loadSessionForContent(contentId: string) {
+  async function loadConversationForContent(contentId: string) {
     const response = await $fetch<{ workspace: Record<string, any> | null }>(`/api/content/${contentId}`)
 
     const workspace = response?.workspace
@@ -525,7 +487,7 @@ export function useConversation() {
         }
       }
 
-      hydrateSession({
+      hydrateConversation({
         conversationId: workspace.chatSession?.id ?? null,
         conversationContentId: workspace.chatSession?.contentId ?? workspace.content.id,
         messages: workspace.chatMessages,
@@ -544,7 +506,7 @@ export function useConversation() {
     return false
   }
 
-  function resetSession() {
+  function resetConversation() {
     messages.value = []
     status.value = 'ready'
     errorMessage.value = null
@@ -552,7 +514,6 @@ export function useConversation() {
     conversationContentId.value = null
     logs.value = []
     requestStartedAt.value = null
-    agentContext.value = null
     prompt.value = ''
     currentActivity.value = null
     currentToolName.value = null
@@ -567,17 +528,14 @@ export function useConversation() {
     sendMessage,
     conversationId,
     conversationContentId,
-    // Legacy aliases for backwards compatibility during transition
-    sessionId: conversationId,
-    sessionContentId: conversationContentId,
     stopResponse,
     logs,
     requestStartedAt,
-    agentContext,
-    hydrateSession,
-    loadSessionForContent,
-    resetSession,
+    hydrateConversation,
+    loadConversationForContent,
+    resetConversation,
     prompt,
+    mode,
     currentActivity,
     currentToolName
   }

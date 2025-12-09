@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
+import type { PublishContentResponse } from '~~/server/types/content'
+import type { WorkspaceHeaderState } from './workspaceHeader'
 import { useClipboard, useDebounceFn } from '@vueuse/core'
-import { shallowRef } from 'vue'
+import { computed, onBeforeUnmount, shallowRef, watch } from 'vue'
 
 import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
 import { useDraftAction } from '~/composables/useDraftAction'
@@ -10,13 +12,110 @@ import ChatMessageContent from './ChatMessageContent.vue'
 import PromptComposer from './PromptComposer.vue'
 import QuotaLimitModal from './QuotaLimitModal.vue'
 
-const props = withDefaults(defineProps<{
-  initialDraftId?: string | null // Legacy prop name, maps to contentId
-  routeSync?: boolean
-}>(), {
-  initialDraftId: null,
-  routeSync: true
-})
+// Workspace types and interfaces
+type ContentStatus = 'draft' | 'published' | 'archived' | 'generating' | 'error' | 'loading'
+
+interface ContentVersionSection {
+  id: string
+  title: string
+  body?: string
+  body_mdx?: string
+  wordCount?: number
+  index?: number
+  type?: string
+  meta?: Record<string, any>
+  level?: number
+  anchor?: string
+  summary?: string | null
+}
+
+interface ContentVersion {
+  id: string
+  bodyMdx?: string
+  bodyHtml?: string
+  frontmatter?: Record<string, any>
+  version?: number
+  updatedAt?: string
+  createdByUserId?: string
+  diffStats?: {
+    additions?: number
+    deletions?: number
+  }
+  assets?: {
+    generator?: {
+      engine?: string
+      generatedAt?: string
+      stages?: string[]
+    }
+    source?: {
+      id?: string
+      type?: string
+      externalId?: string
+      originalUrl?: string
+      [key: string]: any
+    }
+  }
+  sections?: ContentVersionSection[]
+  seoSnapshot?: Record<string, any>
+}
+
+interface SourceContent {
+  id: string
+  sourceType: string
+  externalId?: string
+  sourceText?: string
+  sourceUrl?: string
+  ingestStatus?: 'pending' | 'processing' | 'ingested' | 'failed'
+  metadata?: {
+    duration?: number
+    [key: string]: any
+  }
+  createdAt: string | Date
+}
+
+interface ContentEntity {
+  id: string
+  title?: string
+  status?: ContentStatus
+  sourceContent?: SourceContent | null
+  updatedAt?: string
+  createdByUserId?: string
+  metadata?: Record<string, any>
+}
+
+interface ContentConversation {
+  id: string
+  status?: string | null
+  contentId?: string | null
+  sourceContentId?: string | null
+  metadata?: Record<string, any> | null
+}
+
+interface ContentConversationMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  payload?: Record<string, any> | null
+  createdAt: string | Date
+}
+
+interface ContentConversationLog {
+  id: string
+  type: string
+  message: string
+  payload?: Record<string, any> | null
+  createdAt: string | Date
+}
+
+interface ContentResponse {
+  content: ContentEntity
+  currentVersion?: ContentVersion | null
+  sourceContent?: SourceContent | null
+  chatSession?: ContentConversation | null
+  chatMessages?: ContentConversationMessage[] | null
+  chatLogs?: ContentConversationLog[] | null
+  workspaceSummary?: string | null
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -30,25 +129,23 @@ const {
   errorMessage,
   sendMessage,
   isBusy,
-  sessionContentId,
+  conversationContentId,
   conversationId,
-  resetSession,
+  resetConversation,
   selectedContentType,
   stopResponse,
   logs,
   requestStartedAt,
-  agentContext,
   prompt,
+  mode,
   currentActivity,
-  currentToolName
+  currentToolName,
+  hydrateConversation
 } = useConversation()
 const promptSubmitting = ref(false)
 const showQuotaModal = ref(false)
 const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
 const showUpgradeModal = ref(false)
-// Placeholder for chat/agent mode selector (not wired up yet)
-const chatMode = ref<'chat' | 'agent'>('agent')
-const MAX_USER_MESSAGE_LENGTH = 500
 const LONG_PRESS_DELAY_MS = 500
 const LONG_PRESS_MOVE_THRESHOLD_PX = 10
 
@@ -212,6 +309,17 @@ const updateLocalConversationStatus = (conversationId: string, status: string) =
 }
 const isWorkspaceActive = computed(() => Boolean(activeWorkspaceId.value))
 
+// Workspace-specific state (merged from ConversationWorkspace)
+// Use instance-scoped ref instead of global useState to avoid wiping state for other widget instances
+const workspaceHeaderState = ref<WorkspaceHeaderState | null>(null)
+const workspaceContent = ref<ContentResponse | null>(null)
+const workspacePending = ref(false)
+const workspaceError = ref<any>(null)
+const workspaceChatLoading = ref(false)
+const pendingWorkspaceChatFetches = new Set<string>()
+const selectedSectionId = ref<string | null>(null)
+const isPublishing = ref(false)
+
 const conversationQuotaUsage = computed<ConversationQuotaUsagePayload | null>(() =>
   conversationsPayload.value?.conversationQuota ?? null
 )
@@ -242,7 +350,7 @@ const fetchedConversationEntries = computed(() => {
 
     return {
       id: conv.id,
-      title: conv._computed?.firstArtifactTitle || 'Untitled conversation',
+      title: conv._computed?.title || conv._computed?.firstArtifactTitle || 'Untitled conversation',
       status: conv.status,
       updatedAt,
       artifactCount: conv._computed?.artifactCount ?? 0,
@@ -340,7 +448,7 @@ const displayMessages = computed<ChatMessage[]>(() => {
 useDraftAction({
   isBusy,
   status,
-  sessionContentId,
+  conversationContentId,
   selectedContentType,
   pendingDrafts,
   sendMessage,
@@ -355,44 +463,15 @@ useDraftAction({
 const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
   const fallback = conversationQuotaUsage.value
 
-  // Preserve unlimited plan semantics when there is no explicit override
-  if (!payload && fallback?.unlimited) {
-    quotaModalData.value = {
-      limit: null,
-      used: fallback.used ?? null,
-      remaining: fallback.remaining ?? null,
-      planLabel: fallback.label ?? quotaPlanLabel.value ?? null
-    }
-    showQuotaModal.value = true
-    return
-  }
-
-  const baseLimit = typeof payload?.limit === 'number'
-    ? payload.limit
-    : (typeof fallback?.limit === 'number' ? fallback.limit : null)
-  const normalizedLimit = baseLimit ?? (loggedIn.value ? verifiedConversationLimit.value : guestConversationLimit.value)
-
-  // Derive usedValue from payload, fallback, or remaining if provided, otherwise default to 0
-  let usedValue: number | null = null
-  if (typeof payload?.used === 'number') {
-    usedValue = payload.used
-  } else if (typeof fallback?.used === 'number') {
-    usedValue = fallback.used
-  } else if (typeof payload?.remaining === 'number' && baseLimit !== null) {
-    usedValue = Math.max(0, baseLimit - payload.remaining)
-  } else if (typeof fallback?.remaining === 'number' && baseLimit !== null) {
-    usedValue = Math.max(0, baseLimit - fallback.remaining)
-  }
-
-  const finalUsed = usedValue ?? 0
-  const finalLimit = baseLimit ?? normalizedLimit
-
-  // Calculate remaining: prefer explicit remaining, otherwise compute from limit and used
-  const remainingValue = payload?.remaining ?? fallback?.remaining ?? (finalLimit !== null ? Math.max(0, finalLimit - finalUsed) : null)
+  // Simplified: guest vs logged-in only
+  const isGuest = !loggedIn.value
+  const baseLimit = payload?.limit ?? fallback?.limit ?? (isGuest ? guestConversationLimit.value : verifiedConversationLimit.value)
+  const usedValue = payload?.used ?? fallback?.used ?? 0
+  const remainingValue = payload?.remaining ?? fallback?.remaining ?? (baseLimit !== null ? Math.max(0, baseLimit - usedValue) : null)
 
   quotaModalData.value = {
-    limit: finalLimit,
-    used: finalUsed,
+    limit: baseLimit,
+    used: usedValue,
     remaining: remainingValue,
     planLabel: payload?.label ?? fallback?.label ?? quotaPlanLabel.value ?? null
   }
@@ -585,8 +664,7 @@ const resetWorkspaceState = () => {
   workspaceLoading.value = false
 }
 
-const routeContentId = computed(() => normalizeContentId(route.query.content || route.query.draft)) // Support both 'content' and legacy 'draft' query param
-const standaloneContentId = computed(() => props.initialDraftId ?? routeContentId.value ?? null)
+const routeContentId = computed(() => normalizeContentId(route.query.content))
 
 const syncWorkspace = async (conversationId: string | null) => {
   if (!conversationId) {
@@ -608,11 +686,8 @@ const updateContentRoute = async (contentId: string | null) => {
   const nextQuery = { ...route.query }
   if (contentId) {
     nextQuery.content = contentId
-    // Remove legacy 'draft' param if it exists
-    delete nextQuery.draft
   } else {
     delete nextQuery.content
-    delete nextQuery.draft
   }
   try {
     await router.replace({ query: nextQuery })
@@ -621,26 +696,17 @@ const updateContentRoute = async (contentId: string | null) => {
   }
 }
 
-const initialContentId = computed(() => (props.routeSync ? routeContentId.value : standaloneContentId.value) ?? null)
+const initialContentId = computed(() => routeContentId.value ?? null)
 
 await syncWorkspace(initialContentId.value)
 
 const activateWorkspace = async (conversationId: string | null) => {
-  if (props.routeSync) {
-    await updateContentRoute(conversationId)
-  } else {
-    await syncWorkspace(conversationId)
-  }
+  await updateContentRoute(conversationId)
 }
 
 const openConversation = async (entry: { id: string }) => {
   // Open conversation by conversationId (not contentId)
   await activateWorkspace(entry.id)
-}
-
-const resetConversation = () => {
-  prompt.value = ''
-  resetSession()
 }
 
 const archiveConversation = async (entry: { id: string, title?: string | null }) => {
@@ -683,7 +749,7 @@ const archiveConversation = async (entry: { id: string, title?: string | null })
 }
 
 const stopWorkingContent = (entry: { id: string }) => {
-  if (!entry?.id || entry.id !== sessionContentId.value) {
+  if (!entry?.id || entry.id !== conversationContentId.value) {
     return
   }
 
@@ -705,54 +771,501 @@ const closeWorkspace = async () => {
   await activateWorkspace(null)
   resetConversation()
   prefetchWorkspacePayload(previousWorkspaceId)
+  // Clean up workspace state
+  workspaceContent.value = null
+  workspaceHeaderState.value = null
+  selectedSectionId.value = null
 }
 
-if (props.routeSync) {
-  watch(routeContentId, (contentId) => {
-    scheduleSyncWorkspace(contentId ?? null)
-  })
-} else {
-  watch(standaloneContentId, (contentId) => {
-    if (!import.meta.client) {
+// Workspace content management functions (from ConversationWorkspace)
+const { formatDateRelative } = useDate()
+
+const workspaceContentId = computed(() => {
+  if (workspaceDetail.value?.content?.id) {
+    return workspaceDetail.value.content.id
+  }
+  return null
+})
+
+function handleBackNavigation() {
+  if (activeWorkspaceId.value) {
+    closeWorkspace()
+  } else {
+    router.push('/')
+  }
+}
+
+const fetchWorkspaceChat = async (workspaceContentId: string | null, existingConversationId: string | null) => {
+  if (!workspaceContentId) {
+    return
+  }
+  if (pendingWorkspaceChatFetches.has(workspaceContentId)) {
+    return
+  }
+
+  pendingWorkspaceChatFetches.add(workspaceContentId)
+  workspaceChatLoading.value = true
+  try {
+    let conversationId = existingConversationId
+    if (!conversationId) {
+      const workspaceResponse = await $fetch<{ workspace: ContentResponse | null }>(`/api/content/${workspaceContentId}`)
+      conversationId = workspaceResponse.workspace?.chatSession?.id ?? null
+    }
+
+    if (!conversationId) {
       return
     }
-    scheduleSyncWorkspace(contentId ?? null)
-  })
+
+    const [messagesResponse, logsResponse] = await Promise.all([
+      $fetch<{ messages: ContentConversationMessage[] }>(`/api/conversations/${conversationId}/messages`),
+      $fetch<{ logs: ContentConversationLog[] }>(`/api/conversations/${conversationId}/logs`)
+    ])
+
+    if (!workspaceContent.value || workspaceContent.value?.content?.id !== workspaceContentId) {
+      return
+    }
+
+    workspaceContent.value = {
+      ...workspaceContent.value,
+      chatMessages: messagesResponse.messages,
+      chatLogs: logsResponse.logs
+    }
+  } catch (error) {
+    console.error('Unable to fetch conversation data', error)
+  } finally {
+    pendingWorkspaceChatFetches.delete(workspaceContentId)
+    workspaceChatLoading.value = false
+  }
 }
+
+const maybeFetchChatData = (payload: ContentResponse | null) => {
+  const workspaceContentId = payload?.content?.id || null
+  const conversationId = payload?.chatSession?.id || null
+  if (!workspaceContentId || !conversationId) {
+    return
+  }
+  if (Array.isArray(payload?.chatMessages) && Array.isArray(payload?.chatLogs)) {
+    return
+  }
+  void fetchWorkspaceChat(workspaceContentId, conversationId)
+}
+
+async function loadWorkspacePayload() {
+  const contentId = workspaceContentId.value
+  if (!contentId) {
+    workspaceContent.value = null
+    return
+  }
+  workspacePending.value = true
+  workspaceError.value = null
+  try {
+    const response = await $fetch<{ workspace: ContentResponse | null }>(`/api/content/${contentId}`)
+    workspaceContent.value = response.workspace ?? null
+    maybeFetchChatData(workspaceContent.value)
+  } catch (err: any) {
+    workspaceError.value = err
+  } finally {
+    workspacePending.value = false
+  }
+}
+
+// Type guard to verify if an object is a valid ContentResponse
+function isContentResponse(obj: any): obj is ContentResponse {
+  // Must be an object (not null/undefined)
+  if (!obj || typeof obj !== 'object') {
+    return false
+  }
+  // Must have content with a valid id
+  if (!obj.content || typeof obj.content !== 'object' || !obj.content.id || typeof obj.content.id !== 'string') {
+    return false
+  }
+  // Must have currentVersion that is not null and has required fields
+  if (!obj.currentVersion || typeof obj.currentVersion !== 'object') {
+    return false
+  }
+  // currentVersion must have at least an id or version number
+  if (!obj.currentVersion.id && (obj.currentVersion.version === undefined || obj.currentVersion.version === null)) {
+    return false
+  }
+  return true
+}
+
+// Initialize workspace when workspaceDetail changes
+watch(() => workspaceDetail.value, async (detail) => {
+  if (detail?.content?.id) {
+    // If detail is already a valid ContentResponse, use it directly
+    if (isContentResponse(detail)) {
+      workspaceContent.value = detail
+      maybeFetchChatData(workspaceContent.value)
+    } else {
+      // Otherwise load it
+      await loadWorkspacePayload()
+    }
+  } else if (detail?.conversation) {
+    // Conversation without content yet - just clear workspace content
+    workspaceContent.value = null
+  } else {
+    // No workspace detail
+    workspaceContent.value = null
+  }
+}, { immediate: true })
+
+// Workspace computed properties
+const workspaceContentRecord = computed(() => workspaceContent.value?.content ?? null)
+const workspaceCurrentVersion = computed(() => workspaceContent.value?.currentVersion ?? null)
+const workspaceGeneratedContent = computed(() => workspaceCurrentVersion.value?.bodyMdx || workspaceCurrentVersion.value?.bodyHtml || null)
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+const workspaceSections = computed(() => {
+  const sectionsData = workspaceCurrentVersion.value?.sections
+  if (!Array.isArray(sectionsData)) {
+    return []
+  }
+
+  return sectionsData.map((section: Record<string, any>, idx: number) => {
+    const body = typeof section.body_mdx === 'string'
+      ? section.body_mdx
+      : typeof section.body === 'string'
+        ? section.body
+        : ''
+
+    return {
+      ...section,
+      id: section.id || section.section_id || `section-${idx}`,
+      index: Number.isFinite(section.index) ? section.index : idx,
+      title: section.title || `Section ${idx + 1}`,
+      type: section.type || section.meta?.planType || 'body',
+      level: section.level || 2,
+      anchor: section.anchor || slugify(section.title || `section-${idx}`),
+      wordCount: Number.isFinite(section.wordCount)
+        ? section.wordCount
+        : body.split(/\s+/).filter(Boolean).length,
+      summary: section.summary || section.meta?.summary || null,
+      body
+    }
+  }).sort((a, b) => a.index - b.index)
+})
+
+watch(workspaceSections, (list) => {
+  if (!list.length) {
+    selectedSectionId.value = null
+    return
+  }
+
+  if (!selectedSectionId.value || !list.some(section => section.id === selectedSectionId.value)) {
+    selectedSectionId.value = list[0]?.id ?? null
+  }
+}, { immediate: true })
+
+function setActiveSection(sectionId: string | null) {
+  if (!sectionId) {
+    return
+  }
+  selectedSectionId.value = sectionId
+}
+
+// Workspace MDX helpers - simplified for copy button only
+const workspaceFullMdx = computed(() => {
+  const body = typeof workspaceGeneratedContent.value === 'string' ? workspaceGeneratedContent.value.trim() : ''
+  // If body already has frontmatter, return as-is
+  const isEnriched = /^---\n[\s\S]*?\n---\n/m.test(body)
+  if (isEnriched) {
+    return body
+  }
+  // If no frontmatter in body, just return the body without adding frontmatter
+  // The server handles proper MDX enrichment when needed
+  return body
+})
+
+const workspaceHasFullMdx = computed(() => workspaceFullMdx.value.trim().length > 0)
+const workspaceCanPublish = computed(() => {
+  return workspaceHasFullMdx.value && Boolean(workspaceContentRecord.value?.id && workspaceCurrentVersion.value?.id)
+})
+const workspacePublishActionLabel = computed(() => isPublishing.value ? 'Publishing…' : 'Publish draft')
+
+// Workspace header state
+const workspaceHeaderPayload = computed<WorkspaceHeaderState | null>(() => {
+  if (!isWorkspaceActive.value || !workspaceContentId.value) {
+    return null
+  }
+
+  const content = workspaceContent.value?.content
+  const version = workspaceContent.value?.currentVersion
+  const frontmatter = version?.frontmatter
+
+  if (!content) {
+    return null
+  }
+
+  const title = frontmatter?.seoTitle || frontmatter?.title || content.title || 'Untitled content'
+  const updatedAtLabel = formatDateRelative(content.updatedAt, { includeTime: true })
+  const additions = version?.diffStats?.additions || frontmatter?.diffStats?.additions || 0
+  const deletions = version?.diffStats?.deletions || frontmatter?.diffStats?.deletions || 0
+
+  return {
+    title,
+    status: content.status || 'draft',
+    contentType: frontmatter?.contentType || 'content',
+    updatedAtLabel,
+    versionId: version?.id || null,
+    additions,
+    deletions,
+    tabs: null,
+    contentId: content.id || workspaceContentId.value || null,
+    showBackButton: true,
+    onBack: handleBackNavigation,
+    onArchive: null,
+    onShare: workspaceHasFullMdx.value ? handleCopyFullMdx : null,
+    onPrimaryAction: workspaceCanPublish.value ? handlePublishDraft : null,
+    primaryActionLabel: workspacePublishActionLabel.value,
+    primaryActionColor: 'primary',
+    primaryActionDisabled: !workspaceCanPublish.value || isPublishing.value
+  }
+})
+
+watch(workspaceHeaderPayload, (value) => {
+  workspaceHeaderState.value = value
+}, { immediate: true })
+
+// Update cache when workspace content loads
+watch(workspaceContent, (value) => {
+  if (!value?.content?.id) {
+    return
+  }
+
+  const contentListCache = useState<Map<string, any>>('content-list-cache', () => new Map())
+  contentListCache.value.set(value.content.id, {
+    content: value.content,
+    currentVersion: value.currentVersion,
+    sourceContent: value.sourceContent,
+    _computed: {
+      wordCount: value.currentVersion?.sections?.reduce((sum: number, section: any) => {
+        const wc = typeof section.wordCount === 'number' ? section.wordCount : 0
+        return sum + wc
+      }, 0) || 0,
+      sectionsCount: Array.isArray(value.currentVersion?.sections) ? value.currentVersion.sections.length : 0,
+      additions: value.currentVersion?.diffStats?.additions || value.currentVersion?.frontmatter?.diffStats?.additions || 0,
+      deletions: value.currentVersion?.diffStats?.deletions || value.currentVersion?.frontmatter?.diffStats?.deletions || 0
+    }
+  })
+
+  hydrateConversation({
+    conversationId: value.chatSession?.id ?? conversationId.value,
+    conversationContentId: value.chatSession?.contentId ?? value.content.id,
+    messages: value.chatMessages ?? undefined,
+    logs: value.chatLogs ?? undefined
+  })
+}, { immediate: true })
+
+watch(routeContentId, (contentId) => {
+  scheduleSyncWorkspace(contentId ?? null)
+})
 
 onBeforeUnmount(() => {
   clearMessageLongPress()
+  workspaceHeaderState.value = null
 })
-
-const handleRegenerate = async (message: ChatMessage) => {
-  if (isBusy.value) {
-    return
-  }
-  const text = message.parts[0]?.text || ''
-  prompt.value = text
-  await handlePromptSubmit(text)
-}
 
 function getMessageText(message: ChatMessage) {
   return message.parts[0]?.text || ''
 }
 
 function getDisplayMessageText(message: ChatMessage) {
-  const text = getMessageText(message)
-  if (message.role === 'user' && text.length > MAX_USER_MESSAGE_LENGTH) {
-    return `${text.slice(0, MAX_USER_MESSAGE_LENGTH)}...`
-  }
-  return text
+  return getMessageText(message)
 }
 
-function handleCopy(message: ChatMessage) {
-  const text = getMessageText(message)
-  copy(text)
-  toast.add({
-    title: 'Copied to clipboard',
-    description: 'Message copied successfully.',
-    color: 'primary'
-  })
+async function handleCopy(message: ChatMessage) {
+  const rawText = getMessageText(message)
+  const hasContent = rawText.trim().length > 0
+
+  if (!hasContent) {
+    toast.add({
+      title: 'Nothing to copy',
+      description: 'This message has no text content.',
+      color: 'error'
+    })
+    return
+  }
+
+  try {
+    await copy(rawText)
+    toast.add({
+      title: 'Copied to clipboard',
+      description: 'Message copied successfully.',
+      color: 'primary'
+    })
+  } catch (error) {
+    console.error('Failed to copy message', error)
+    toast.add({
+      title: 'Copy failed',
+      description: 'Could not copy message to clipboard.',
+      color: 'error'
+    })
+  }
+}
+
+// Workspace handlers
+async function handleCopyFullMdx() {
+  if (!workspaceHasFullMdx.value) {
+    toast.add({
+      title: 'No MDX available',
+      description: 'Generate content before copying the draft.',
+      color: 'error'
+    })
+    return
+  }
+
+  try {
+    await copy(workspaceFullMdx.value)
+    toast.add({
+      title: 'Draft copied',
+      description: 'Content copied to clipboard.',
+      color: 'primary'
+    })
+  } catch (error) {
+    console.error('Failed to copy MDX', error)
+    toast.add({
+      title: 'Copy failed',
+      description: 'Could not copy the MDX draft.',
+      color: 'error'
+    })
+  }
+}
+
+async function handlePublishDraft() {
+  if (!workspaceCanPublish.value || !workspaceContentRecord.value?.id || !workspaceCurrentVersion.value?.id) {
+    toast.add({
+      title: 'Cannot publish yet',
+      description: 'Generate content before publishing.',
+      color: 'error'
+    })
+    return
+  }
+  if (isPublishing.value) {
+    return
+  }
+  try {
+    isPublishing.value = true
+    const response = await $fetch<PublishContentResponse>(`/api/content/${workspaceContentRecord.value.id}/publish`, {
+      method: 'POST',
+      body: {
+        versionId: workspaceCurrentVersion.value.id
+      }
+    })
+
+    // Reload workspace payload to get complete data including sections, diffStats, seoSnapshot, etc.
+    // This ensures we preserve all metadata after publishing instead of only mapping a subset of fields
+    await loadWorkspacePayload()
+
+    toast.add({
+      title: 'Draft published',
+      description: response.file.url
+        ? `Available at ${response.file.url}`
+        : 'The latest version has been saved to your content storage.',
+      color: 'primary'
+    })
+  } catch (error: any) {
+    console.error('Failed to publish content', error)
+    const description = error?.data?.message || error?.message || 'An unexpected error occurred while publishing.'
+    toast.add({
+      title: 'Publish failed',
+      description,
+      color: 'error'
+    })
+  } finally {
+    isPublishing.value = false
+  }
+}
+
+// Workspace-aware submit handler
+async function _handleWorkspaceSubmit() {
+  const trimmed = prompt.value.trim()
+  if (!trimmed) {
+    return
+  }
+
+  try {
+    await sendMessage(trimmed, {
+      displayContent: trimmed,
+      contentId: workspaceContentId.value || conversationContentId.value
+    })
+    prompt.value = ''
+    await loadWorkspacePayload()
+  } catch (error: any) {
+    errorMessage.value = error?.data?.statusMessage || error?.data?.message || error?.message || 'Unable to send that message.'
+  }
+}
+
+// Update handleRegenerate to be workspace-aware
+const handleRegenerate = async (message: ChatMessage) => {
+  if (isBusy.value) {
+    return
+  }
+  const text = message.parts[0]?.text?.trim() || ''
+
+  if (!text) {
+    toast.add({
+      title: 'Cannot regenerate',
+      description: 'This message has no text to resend.',
+      color: 'error'
+    })
+    return
+  }
+
+  // Workspace-aware: check for section selection
+  if (isWorkspaceActive.value && workspaceSections.value.length > 0) {
+    if (!selectedSectionId.value) {
+      const fallbackSectionId = workspaceSections.value[0]?.id
+      if (fallbackSectionId) {
+        setActiveSection(fallbackSectionId)
+        toast.add({
+          title: 'Section auto-selected',
+          description: `Regenerating content for "${workspaceSections.value[0]?.title || 'Untitled section'}".`,
+          color: 'info'
+        })
+      } else {
+        toast.add({
+          title: 'Select a section',
+          description: 'Pick a section before regenerating content.',
+          color: 'error'
+        })
+        return
+      }
+    }
+    prompt.value = text
+    await _handleWorkspaceSubmit()
+  } else {
+    // Non-workspace: simple regenerate
+    prompt.value = text
+    await handlePromptSubmit(text)
+  }
+}
+
+async function handleSendAgain(message: ChatMessage) {
+  const text = message.parts?.[0]?.text || ''
+  if (text) {
+    prompt.value = text
+    try {
+      if (isWorkspaceActive.value) {
+        await _handleWorkspaceSubmit()
+      } else {
+        await handlePromptSubmit(text)
+      }
+    } catch (error) {
+      console.error('Failed to send message again', error)
+      toast.add({
+        title: 'Send failed',
+        description: 'Could not resend the message.',
+        color: 'error'
+      })
+    }
+  }
 }
 
 async function handleShare(message: ChatMessage) {
@@ -910,17 +1423,82 @@ if (import.meta.client) {
           class="space-y-6 w-full"
         >
           <ClientOnly>
-            <ChatConversationWorkspace
-              v-if="workspaceDetail?.content?.id"
-              :content-id="workspaceDetail.content.id"
-              :organization-slug="workspaceDetail.content.slug || activeOrgState?.value?.data?.slug || null"
-              :initial-payload="workspaceDetail"
-              :show-back-button="true"
-              :back-to="null"
-              @close="closeWorkspace"
-            />
             <div
-              v-else-if="workspaceDetail?.conversation"
+              v-if="workspaceDetail?.content?.id"
+              class="space-y-6"
+            >
+              <section class="space-y-4 pt-2">
+                <div class="space-y-6">
+                  <UAlert
+                    v-if="errorMessage"
+                    color="error"
+                    variant="soft"
+                    icon="i-lucide-alert-triangle"
+                    :description="errorMessage"
+                  />
+
+                  <div class="flex-1 flex flex-col gap-4">
+                    <UChatMessages
+                      :messages="messages"
+                      :status="uiStatus"
+                      should-auto-scroll
+                      :assistant="{
+                        actions: [
+                          {
+                            label: 'Copy',
+                            icon: 'i-lucide-copy',
+                            onClick: (e, message) => handleCopy(message as ChatMessage)
+                          },
+                          {
+                            label: 'Regenerate',
+                            icon: 'i-lucide-rotate-ccw',
+                            onClick: (e, message) => handleRegenerate(message as ChatMessage)
+                          }
+                        ]
+                      }"
+                      :user="{
+                        actions: [
+                          {
+                            label: 'Copy',
+                            icon: 'i-lucide-copy',
+                            onClick: (e, message) => handleCopy(message as ChatMessage)
+                          },
+                          {
+                            label: 'Send again',
+                            icon: 'i-lucide-send',
+                            onClick: (e, message) => handleSendAgain(message as ChatMessage)
+                          }
+                        ]
+                      }"
+                    >
+                      <template #content="{ message }">
+                        <ChatMessageContent
+                          :message="message"
+                          body-class="text-[15px] leading-6 text-muted-800 dark:text-muted-100"
+                        />
+                      </template>
+                    </UChatMessages>
+
+                    <div class="space-y-2">
+                      <PromptComposer
+                        v-model="prompt"
+                        placeholder="Describe the change you want..."
+                        :disabled="
+                          isBusy
+                            || status === 'submitted'
+                            || status === 'streaming'
+                            || !selectedSectionId
+                        "
+                        :status="uiStatus"
+                        @submit="_handleWorkspaceSubmit"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <div
+              v-else
               class="space-y-6 w-full"
             >
               <div class="text-center text-muted-500">
@@ -968,12 +1546,7 @@ if (import.meta.client) {
                     {
                       label: 'Send again',
                       icon: 'i-lucide-send',
-                      onClick: (e, message) => {
-                        const text = (message as ChatMessage).parts[0]?.text || ''
-                        if (text) {
-                          handlePromptSubmit(text)
-                        }
-                      }
+                      onClick: (e, message) => handleSendAgain(message as ChatMessage)
                     }
                   ]
                 }"
@@ -999,58 +1572,6 @@ if (import.meta.client) {
                 </template>
               </UChatMessages>
             </div>
-
-            <!-- Agent Context Display -->
-            <div
-              v-if="agentContext && (agentContext.readySources?.length || agentContext.ingestFailures?.length)"
-              class="w-full space-y-4"
-            >
-              <!-- Ready Sources -->
-              <UAlert
-                v-if="agentContext.readySources && agentContext.readySources.length > 0"
-                color="primary"
-                variant="soft"
-                icon="i-lucide-check-circle"
-                title="Ready Sources"
-              >
-                <template #description>
-                  <div class="space-y-2">
-                    <div
-                      v-for="(source, index) in agentContext.readySources"
-                      :key="source.id || source.title || `source-${index}`"
-                      class="text-sm"
-                    >
-                      <strong>{{ source.title || 'Untitled source' }}</strong>
-                      <span
-                        v-if="source.sourceType"
-                        class="text-surface-500"
-                      > ({{ source.sourceType.replace('_', ' ') }})</span>
-                    </div>
-                  </div>
-                </template>
-              </UAlert>
-
-              <!-- Ingestion Failures -->
-              <UAlert
-                v-if="agentContext.ingestFailures && agentContext.ingestFailures.length > 0"
-                color="error"
-                variant="soft"
-                icon="i-lucide-alert-triangle"
-                title="Ingestion Issues"
-              >
-                <template #description>
-                  <div class="space-y-1">
-                    <div
-                      v-for="(failure, index) in agentContext.ingestFailures"
-                      :key="index"
-                      class="text-sm"
-                    >
-                      {{ failure?.content || 'Unknown error' }}
-                    </div>
-                  </div>
-                </template>
-              </UAlert>
-            </div>
           </div>
 
           <div class="w-full space-y-6 mt-8">
@@ -1067,34 +1588,25 @@ if (import.meta.client) {
                   @submit="handlePromptSubmit"
                 >
                   <template #footer>
-                    <!-- Placeholder: Chat/Agent mode selector (not wired up yet) -->
                     <USelectMenu
-                      v-model="chatMode"
+                      v-model="mode"
                       :items="[
-                        { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' },
-                        { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' }
+                        { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
+                        { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' }
                       ]"
                       value-key="value"
                       option-attribute="label"
                       variant="ghost"
                       size="sm"
+                      :searchable="false"
                     >
                       <template #leading>
                         <UIcon
-                          :name="chatMode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
+                          :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
                           class="w-4 h-4"
                         />
                       </template>
                     </USelectMenu>
-                  </template>
-                  <template #submit>
-                    <UChatPromptSubmit
-                      :status="promptSubmitting ? 'submitted' : uiStatus"
-                      submitted-color="primary"
-                      submitted-variant="solid"
-                      streaming-color="primary"
-                      streaming-variant="solid"
-                    />
                   </template>
                 </PromptComposer>
               </div>

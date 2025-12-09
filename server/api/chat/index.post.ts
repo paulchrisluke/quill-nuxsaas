@@ -16,6 +16,7 @@ import {
   getConversationMessages,
   getOrCreateConversationForContent
 } from '~~/server/services/conversation'
+import { generateConversationTitle } from '~~/server/services/conversation/title'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromTranscript } from '~~/server/services/sourceContent/manualTranscript'
 import { ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
@@ -161,6 +162,7 @@ async function logToolEvent(
 async function executeChatTool(
   toolInvocation: ChatToolInvocation,
   context: {
+    mode: 'chat' | 'agent'
     db: Awaited<ReturnType<typeof useDB>>
     organizationId: string
     userId: string
@@ -168,7 +170,19 @@ async function executeChatTool(
     event: any
   }
 ): Promise<ToolExecutionResult> {
-  const { db, organizationId, userId, conversationId } = context
+  const { mode, db, organizationId, userId, conversationId } = context
+
+  // Import getToolKind for mode enforcement
+  const { getToolKind } = await import('~~/server/services/chat/tools')
+  const toolKind = getToolKind(toolInvocation.name)
+
+  // Enforce read-only in chat mode
+  if (mode === 'chat' && (toolKind === 'write' || toolKind === 'ingest')) {
+    return {
+      success: false,
+      error: `Tool "${toolInvocation.name}" is not available in chat mode (it can modify content or ingest new data). Switch to agent mode.`
+    }
+  }
 
   if (toolInvocation.name === 'fetch_youtube') {
     // TypeScript now knows this is fetch_youtube
@@ -205,6 +219,7 @@ async function executeChatTool(
         sourceType: 'youtube',
         externalId: videoId,
         title: titleHint ?? undefined,
+        mode: context.mode,
         metadata: {
           originalUrl: youtubeUrl,
           youtube: {
@@ -269,6 +284,7 @@ async function executeChatTool(
         userId,
         transcript,
         title: title ?? null,
+        mode: context.mode,
         metadata: { createdVia: 'chat_save_source_tool' },
         onProgress: async (progressMessage) => {
           await addMessageToConversation(db, {
@@ -440,6 +456,7 @@ async function executeChatTool(
           organizationId,
           userId,
           transcript: resolvedSourceText,
+          mode: context.mode,
           metadata: { createdVia: 'chat_write_content_tool' },
           onProgress: async (progressMessage) => {
             await addMessageToConversation(db, {
@@ -486,6 +503,7 @@ async function executeChatTool(
         sourceText: resolvedSourceText,
         contentId: null, // write_content only creates new content, never updates existing ones
         event: context.event,
+        mode: context.mode,
         overrides: {
           title: args.title ? validateRequiredString(args.title, 'title') : null,
           slug: args.slug ? validateRequiredString(args.slug, 'slug') : null,
@@ -605,7 +623,8 @@ async function executeChatTool(
         contentId: args.contentId,
         sectionId: resolvedSectionId,
         instructions: args.instructions,
-        temperature: sanitizedTemperature
+        temperature: sanitizedTemperature,
+        mode: context.mode
       })
 
       return {
@@ -663,6 +682,199 @@ async function executeChatTool(
     }
   }
 
+  if (toolInvocation.name === 'read_content') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'read_content'>['arguments']
+    const contentId = validateUUID(args.contentId, 'contentId')
+
+    try {
+      const rows = await db
+        .select({
+          content: schema.content,
+          sourceContent: schema.sourceContent,
+          currentVersion: schema.contentVersion
+        })
+        .from(schema.content)
+        .leftJoin(schema.sourceContent, eq(schema.sourceContent.id, schema.content.sourceContentId))
+        .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
+        .where(and(
+          eq(schema.content.organizationId, organizationId),
+          eq(schema.content.id, contentId)
+        ))
+        .limit(1)
+
+      const record = rows[0]
+
+      if (!record || !record.content) {
+        return {
+          success: false,
+          error: 'Content not found'
+        }
+      }
+
+      return {
+        success: true,
+        result: {
+          content: {
+            id: record.content.id,
+            title: record.content.title,
+            status: record.content.status,
+            contentType: record.content.contentType,
+            slug: record.content.slug,
+            primaryKeyword: record.content.primaryKeyword,
+            targetLocale: record.content.targetLocale,
+            createdAt: record.content.createdAt,
+            updatedAt: record.content.updatedAt
+          },
+          version: record.currentVersion
+            ? {
+                id: record.currentVersion.id,
+                version: record.currentVersion.version,
+                frontmatter: record.currentVersion.frontmatter,
+                sections: record.currentVersion.sections,
+                createdAt: record.currentVersion.createdAt
+              }
+            : null,
+          sourceContent: record.sourceContent
+            ? {
+                id: record.sourceContent.id,
+                title: record.sourceContent.title,
+                sourceType: record.sourceContent.sourceType,
+                ingestStatus: record.sourceContent.ingestStatus
+              }
+            : null
+        }
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read content'
+      }
+    }
+  }
+
+  if (toolInvocation.name === 'read_section') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'read_section'>['arguments']
+    const contentId = validateUUID(args.contentId, 'contentId')
+    const sectionId = validateRequiredString(args.sectionId, 'sectionId')
+
+    try {
+      const rows = await db
+        .select({
+          content: schema.content,
+          currentVersion: schema.contentVersion
+        })
+        .from(schema.content)
+        .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
+        .where(and(
+          eq(schema.content.organizationId, organizationId),
+          eq(schema.content.id, contentId)
+        ))
+        .limit(1)
+
+      const record = rows[0]
+
+      if (!record || !record.content) {
+        return {
+          success: false,
+          error: 'Content not found'
+        }
+      }
+
+      if (!record.currentVersion) {
+        return {
+          success: false,
+          error: 'Content has no version'
+        }
+      }
+
+      const sections = record.currentVersion.sections as Array<{
+        id?: string
+        title?: string
+        body?: string
+        [key: string]: any
+      }> | null
+
+      if (!sections || !Array.isArray(sections)) {
+        return {
+          success: false,
+          error: 'Content has no sections'
+        }
+      }
+
+      const section = sections.find(s => s.id === sectionId || (s as any).section_id === sectionId)
+
+      if (!section) {
+        return {
+          success: false,
+          error: `Section with id "${sectionId}" not found`
+        }
+      }
+
+      return {
+        success: true,
+        result: {
+          contentId: record.content.id,
+          sectionId: section.id,
+          section: {
+            ...section,
+            id: section.id,
+            title: section.title,
+            body: section.body
+          }
+        }
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read section'
+      }
+    }
+  }
+
+  if (toolInvocation.name === 'read_source') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'read_source'>['arguments']
+    const sourceContentId = validateUUID(args.sourceContentId, 'sourceContentId')
+
+    try {
+      const [sourceContent] = await db
+        .select()
+        .from(schema.sourceContent)
+        .where(and(
+          eq(schema.sourceContent.organizationId, organizationId),
+          eq(schema.sourceContent.id, sourceContentId)
+        ))
+        .limit(1)
+
+      if (!sourceContent) {
+        return {
+          success: false,
+          error: 'Source content not found'
+        }
+      }
+
+      return {
+        success: true,
+        result: {
+          sourceContent: {
+            id: sourceContent.id,
+            title: sourceContent.title,
+            sourceType: sourceContent.sourceType,
+            ingestStatus: sourceContent.ingestStatus,
+            sourceText: sourceContent.sourceText,
+            metadata: sourceContent.metadata,
+            createdAt: sourceContent.createdAt,
+            updatedAt: sourceContent.updatedAt
+          }
+        }
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to read source content'
+      }
+    }
+  }
+
   return {
     success: false,
     error: `Unknown tool: ${toolInvocation.name}`
@@ -677,19 +889,28 @@ async function executeChatTool(
  * which tools to execute. The agent can call multiple tools in sequence (multi-pass orchestration)
  * and will continue until it responds with text or reaches max iterations.
  *
+ * **Terminology Note:**
+ * This endpoint uses "conversation" (not "session") to refer to chat conversations.
+ * "Session" is reserved for Better Auth authentication sessions to maintain clear
+ * separation of concerns. This avoids confusion between auth state and chat state.
+ *
  * **Key Features:**
  * - Natural language input - no need to construct action payloads
  * - Multi-pass orchestration - agent can chain multiple tool calls
  * - Automatic tool selection - agent chooses the right tool based on context
+ * - Mode-based access control - chat mode (read-only) vs agent mode (read+write)
  * - Structured logging - tool_started, tool_succeeded, tool_failed logs for observability
  * - Error handling - automatic retries with configurable limits
  *
+ * **Modes:**
+ * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`) to inspect content
+ *   but cannot modify content or ingest new data. Write/ingest tools are filtered out.
+ * - `agent` (read+write): Full toolset available including write and ingest operations.
+ *
  * **Available Tools:**
- * - `fetch_youtube` - Fetch captions from YouTube videos
- * - `save_source` - Save pasted transcripts as source content
- * - `write_content` - Create new content items from sources
- * - `edit_section` - Update specific sections of existing content
- * - `edit_metadata` - Update content metadata (title, slug, status, etc.)
+ * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`
+ * - Write tools (agent mode only): `write_content`, `edit_section`, `edit_metadata`, `enrich_content`
+ * - Ingest tools (agent mode only): `fetch_youtube`, `save_source`
  *
  * @contract
  * **Input:**
@@ -697,7 +918,8 @@ async function executeChatTool(
  * {
  *   message: string (required) - Natural language user message
  *   conversationId?: string - Existing conversation ID to continue conversation
- *   contentId?: string - Content ID to link the session to (provides workspace context)
+ *   contentId?: string - Content ID to link the conversation to (provides workspace context)
+ *   mode: 'chat' | 'agent' - Mode selector (required)
  * }
  * ```
  *
@@ -767,17 +989,14 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // If not in session or organization doesn't exist, try to get from database via requireActiveOrganization
   if (!organizationId) {
     try {
       const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous ?? false })
       organizationId = orgResult.organizationId
     } catch (error: any) {
-      // If user is anonymous and doesn't have an org yet, throw a helpful error
       if (user.isAnonymous) {
         throw createValidationError('Please create an account to use the chat feature. Anonymous users need an organization to continue.')
       }
-      // For authenticated users, re-throw the error
       throw error
     }
   }
@@ -790,14 +1009,14 @@ export default defineEventHandler(async (event) => {
 
   validateRequestBody(body)
 
+  const VALID_MODES = ['chat', 'agent'] as const
+  const mode = validateEnum(body.mode, VALID_MODES, 'mode')
+
   const message = typeof body.message === 'string' ? body.message : ''
   const trimmedMessage = message.trim()
-  // Support both conversationId (new) and sessionId (legacy) for backwards compatibility
   const requestConversationId = body.conversationId
     ? validateOptionalUUID(body.conversationId, 'conversationId')
-    : body.sessionId
-      ? validateOptionalUUID(body.sessionId, 'sessionId')
-      : null
+    : null
 
   if (!trimmedMessage) {
     throw createValidationError('Message is required')
@@ -835,7 +1054,6 @@ export default defineEventHandler(async (event) => {
     ? validateOptionalUUID((body as any).contentId, 'contentId')
     : null
 
-  // Determine session contentId from request
   const _initialSessionContentId = requestContentId
 
   // Declare multiPassResult variable for use later
@@ -884,14 +1102,14 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  if (!session) {
+  if (!conversation) {
     throw createError({
       statusCode: 500,
-      statusMessage: 'Failed to create chat session'
+      statusMessage: 'Failed to create chat conversation'
     })
   }
 
-  // From this point on, session is guaranteed to be non-null
+  // From this point on, conversation is guaranteed to be non-null
   // Use activeConversation variable to avoid null checks
   let activeConversation = conversation
 
@@ -1003,7 +1221,7 @@ export default defineEventHandler(async (event) => {
       contextBlocks.push(`Ready sources for content generation:\n${sourceDetails}`)
     }
 
-    // Add recent tool outcomes from session logs
+    // Add recent tool outcomes from conversation logs
     try {
       const recentLogs = await getConversationLogs(db, activeConversation.id, organizationId)
       const toolLogs = recentLogs
@@ -1047,6 +1265,7 @@ export default defineEventHandler(async (event) => {
       })
 
       multiPassResult = await runChatAgentWithMultiPassStream({
+        mode,
         conversationHistory,
         userMessage: trimmedMessage,
         contextBlocks,
@@ -1111,6 +1330,7 @@ export default defineEventHandler(async (event) => {
         },
         executeTool: async (toolInvocation: ChatToolInvocation) => {
           return await executeChatTool(toolInvocation, {
+            mode,
             db,
             organizationId,
             userId: user.id,
@@ -1295,6 +1515,11 @@ export default defineEventHandler(async (event) => {
   }
 
   if (trimmedMessage) {
+    // Check if this is the first message before adding it (for title generation)
+    const existingTitle = activeConversation.metadata?.title
+    const messagesBeforeAdd = await getConversationMessages(db, activeConversation.id, organizationId)
+    const isFirstMessage = messagesBeforeAdd.length === 0 && !existingTitle
+
     await addMessageToConversation(db, {
       conversationId: activeConversation.id,
       organizationId,
@@ -1307,6 +1532,38 @@ export default defineEventHandler(async (event) => {
       type: 'user_message',
       message: 'User sent a chat prompt'
     })
+
+    // Generate conversation title if this is the first message
+    if (isFirstMessage) {
+      // Generate title asynchronously (don't block the response)
+      const conversationId = activeConversation.id
+      generateConversationTitle(trimmedMessage)
+        .then(async (title) => {
+          try {
+            // Re-fetch the latest conversation to avoid stale metadata
+            const latestConversation = await getConversationById(db, conversationId, organizationId)
+            if (!latestConversation) {
+              console.error('[chat] Conversation not found when updating title')
+              return
+            }
+            await db
+              .update(schema.conversation)
+              .set({
+                metadata: {
+                  ...(latestConversation.metadata as Record<string, any> || {}),
+                  title
+                },
+                updatedAt: new Date()
+              })
+              .where(eq(schema.conversation.id, conversationId))
+          } catch (error) {
+            console.error('[chat] Failed to save conversation title:', error)
+          }
+        })
+        .catch((error) => {
+          console.error('[chat] Failed to generate conversation title:', error)
+        })
+    }
   }
 
   // Save agent's reply if available (use the same message ID from streaming to avoid duplicates)
@@ -1366,7 +1623,7 @@ export default defineEventHandler(async (event) => {
     })
     .slice(-10) // Last 10 tool executions
 
-  // Get last action from session metadata
+  // Get last action from conversation metadata
   const lastAction = (activeConversation.metadata as Record<string, any> | null)?.lastAction || null
 
   // Build agentContext

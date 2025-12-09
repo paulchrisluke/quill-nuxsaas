@@ -1,58 +1,145 @@
-import { $fetch } from '@nuxt/test-utils/runtime'
+import { $fetch } from 'ofetch'
 
-export interface ChatTestSession {
-  sessionId: string | null
+export interface ChatTestConversation {
+  conversationId: string | null
   messages: Array<{
     role: 'user' | 'assistant'
     content: string
     timestamp: Date
   }>
-  contentId: string | null
+  conversationContentId: string | null
 }
 
 export class ChatTestRunner {
-  private session: ChatTestSession = {
-    sessionId: null,
+  private conversation: ChatTestConversation = {
+    conversationId: null,
     messages: [],
-    contentId: null
+    conversationContentId: null
   }
 
   /**
-   * Send a message to the chat API and update session state
+   * Send a message to the chat API and update conversation state
    * Uses natural language - the LLM agent will determine which tools to use
    */
-  async sendMessage(message: string): Promise<any> {
+  async sendMessage(message: string, mode: 'chat' | 'agent' = 'agent'): Promise<any> {
     const payload: any = {
       message,
-      ...(this.session.sessionId && { sessionId: this.session.sessionId })
+      mode,
+      ...(this.conversation.conversationId && { conversationId: this.conversation.conversationId })
     }
 
-    const response = await $fetch('/api/chat', {
+    const responseText = await $fetch('/api/chat?stream=true', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
       body: payload
-    })
+    }) as string
 
-    // Update session state
-    this.session.sessionId = response.sessionId
-    this.session.messages.push({
+    // Parse SSE stream
+    const parsedResponse: {
+      conversationId: string | null
+      conversationContentId: string | null
+      messages: any[]
+      logs: any[]
+      agentContext: any
+    } = {
+      conversationId: null,
+      conversationContentId: null,
+      messages: [],
+      logs: [],
+      agentContext: null
+    }
+    let assistantMessage = ''
+
+    const lines = responseText.split('\n')
+    let currentEventType: string | null = null
+
+    for (const line of lines) {
+      const trimmedLine = line.trim()
+      if (!trimmedLine) {
+        continue
+      }
+
+      if (trimmedLine.startsWith('event: ')) {
+        currentEventType = trimmedLine.slice(7)
+        continue
+      }
+
+      if (trimmedLine.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(trimmedLine.slice(6))
+
+          switch (currentEventType) {
+            case 'conversation:update':
+            case 'conversation:final':
+              if (data.conversationId) {
+                parsedResponse.conversationId = data.conversationId
+                this.conversation.conversationId = data.conversationId
+              }
+              if (data.conversationContentId !== undefined) {
+                parsedResponse.conversationContentId = data.conversationContentId
+                this.conversation.conversationContentId = data.conversationContentId
+              }
+              break
+
+            case 'message:chunk':
+              assistantMessage += data.chunk || ''
+              break
+
+            case 'message:complete':
+              if (data.message) {
+                // Only use complete message if no chunks were accumulated
+                assistantMessage = assistantMessage || data.message
+              }
+              break
+
+            case 'messages:complete':
+              if (data.messages) {
+                parsedResponse.messages = data.messages
+              }
+              break
+
+            case 'logs:complete':
+              if (data.logs) {
+                parsedResponse.logs = data.logs
+              }
+              break
+
+            case 'agentContext:update':
+              parsedResponse.agentContext = data
+              break
+          }
+        } catch {
+          // Skip malformed JSON lines
+        }
+        currentEventType = null
+      }
+    }
+
+    // Add user message
+    this.conversation.messages.push({
       role: 'user',
       content: message,
       timestamp: new Date()
     })
 
-    if (response.assistantMessage) {
-      this.session.messages.push({
+    // Add assistant message if we captured one
+    if (assistantMessage) {
+      this.conversation.messages.push({
         role: 'assistant',
-        content: response.assistantMessage,
+        content: assistantMessage,
         timestamp: new Date()
       })
     }
 
-    if (response.sessionContentId) {
-      this.session.contentId = response.sessionContentId
+    return {
+      ...parsedResponse,
+      conversationId: parsedResponse.conversationId || this.conversation.conversationId,
+      conversationContentId: parsedResponse.conversationContentId || this.conversation.conversationContentId,
+      assistantMessage
     }
-
-    return response
   }
 
   /**
@@ -67,7 +154,7 @@ export class ChatTestRunner {
 
     return {
       response,
-      contentId: this.session.contentId
+      contentId: this.conversation.conversationContentId
     }
   }
 
@@ -94,11 +181,11 @@ export class ChatTestRunner {
   /**
    * Simulate a conversation with multiple back-and-forth messages
    */
-  async conversationFlow(messages: string[]) {
-    const responses = []
+  async conversationFlow(messages: string[]): Promise<any[]> {
+    const responses: any[] = []
 
     for (const message of messages) {
-      const response = await this.sendMessage(message)
+      const response: any = await this.sendMessage(message)
       responses.push(response)
     }
 
@@ -123,20 +210,20 @@ export class ChatTestRunner {
   }
 
   /**
-   * Get current session state
+   * Get current conversation state
    */
-  getSession(): ChatTestSession {
-    return { ...this.session }
+  getConversation(): ChatTestConversation {
+    return { ...this.conversation }
   }
 
   /**
-   * Reset session for new test
+   * Reset conversation for new test
    */
   reset() {
-    this.session = {
-      sessionId: null,
+    this.conversation = {
+      conversationId: null,
       messages: [],
-      contentId: null
+      conversationContentId: null
     }
   }
 
@@ -144,7 +231,7 @@ export class ChatTestRunner {
    * Get conversation transcript
    */
   getTranscript(): string {
-    return this.session.messages
+    return this.conversation.messages
       .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
       .join('\n\n')
   }
@@ -170,7 +257,7 @@ export const chatTestScenarios = {
     return {
       success: !!result.contentId,
       contentId: result.contentId,
-      hasContent: !!result.response?.sessionContentId,
+      hasContent: !!result.response?.conversationContentId,
       transcript: runner.getTranscript()
     }
   },
@@ -208,7 +295,7 @@ export const chatTestScenarios = {
 
     return {
       messageCount: responses.length,
-      sessionMaintained: responses.every(r => r.sessionId === responses[0].sessionId),
+      conversationMaintained: responses.length > 0 && responses.every((r: any) => r.conversationId === (responses[0] as any).conversationId),
       transcript: runner.getTranscript()
     }
   },
