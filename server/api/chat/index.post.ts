@@ -816,10 +816,10 @@ async function executeChatTool(
           contentId: record.content.id,
           sectionId: section.id,
           section: {
+            ...section,
             id: section.id,
             title: section.title,
-            body: section.body,
-            ...section
+            body: section.body
           }
         }
       }
@@ -1536,19 +1536,26 @@ export default defineEventHandler(async (event) => {
     // Generate conversation title if this is the first message
     if (isFirstMessage) {
       // Generate title asynchronously (don't block the response)
+      const conversationId = activeConversation.id
       generateConversationTitle(trimmedMessage)
         .then(async (title) => {
           try {
+            // Re-fetch the latest conversation to avoid stale metadata
+            const latestConversation = await getConversationById(db, conversationId, organizationId)
+            if (!latestConversation) {
+              console.error('[chat] Conversation not found when updating title')
+              return
+            }
             await db
               .update(schema.conversation)
               .set({
                 metadata: {
-                  ...(activeConversation.metadata as Record<string, any> || {}),
+                  ...(latestConversation.metadata as Record<string, any> || {}),
                   title
                 },
                 updatedAt: new Date()
               })
-              .where(eq(schema.conversation.id, activeConversation.id))
+              .where(eq(schema.conversation.id, conversationId))
           } catch (error) {
             console.error('[chat] Failed to save conversation title:', error)
           }
