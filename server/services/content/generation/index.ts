@@ -5,7 +5,7 @@ import type {
   SectionUpdateInput,
   SectionUpdateResult
 } from './types'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/database/schema'
@@ -50,6 +50,23 @@ import {
   parseAIResponseAsJSON
 } from './utils'
 
+/**
+ * Gets Cloudflare Workers waitUntil if available
+ * Uses dynamic import to avoid module load errors in Node.js/dev
+ * Falls back to fire-and-forget in non-Workers environments
+ */
+async function getWaitUntil(): Promise<((promise: Promise<any>) => void) | undefined> {
+  // Try to import waitUntil from cloudflare:workers (only available in Workers runtime)
+  try {
+    // @ts-expect-error - cloudflare:workers is only available in Workers runtime
+    const { waitUntil } = await import('cloudflare:workers')
+    return waitUntil
+  } catch {
+    // Not in Cloudflare Workers runtime - will use fire-and-forget instead
+    return undefined
+  }
+}
+
 // Re-export types for backward compatibility
 export type {
   ContentGenerationInput as GenerateContentInput,
@@ -61,6 +78,39 @@ const SECTION_PATCH_SYSTEM_PROMPT = CONTENT_SECTION_UPDATE_SYSTEM_PROMPT
 
 // Re-export for external use (used by workspaceFiles.ts)
 export const enrichMdxWithMetadata = enrichMarkdownWithMetadata
+
+/**
+ * Updates chunking status in sourceContent metadata
+ */
+async function updateChunkingStatus(
+  db: NodePgDatabase<typeof schema>,
+  sourceContentId: string,
+  status: 'processing' | 'completed' | 'failed',
+  error?: string
+) {
+  const currentMetadata = await db
+    .select({ metadata: schema.sourceContent.metadata })
+    .from(schema.sourceContent)
+    .where(eq(schema.sourceContent.id, sourceContentId))
+    .limit(1)
+
+  const existingMetadata = (currentMetadata[0]?.metadata as Record<string, any>) || {}
+  const updatedMetadata = {
+    ...existingMetadata,
+    chunkingStatus: status,
+    ...(status === 'failed' && error ? { chunkingError: error } : {}),
+    ...(status === 'processing' ? { chunkingStartedAt: new Date().toISOString() } : {}),
+    ...(status === 'completed' ? { chunkingCompletedAt: new Date().toISOString() } : {})
+  }
+
+  await db
+    .update(schema.sourceContent)
+    .set({
+      metadata: updatedMetadata,
+      updatedAt: new Date()
+    })
+    .where(eq(schema.sourceContent.id, sourceContentId))
+}
 
 /**
  * Generates a content draft from a source content (context, YouTube video, etc.)
@@ -213,14 +263,46 @@ export const generateContentDraftFromSource = async (
       ingestStatus: 'ingested',
       metadata: {
         isEphemeral: true, // Mark as ephemeral for potential cleanup job
+        chunkingStatus: 'pending', // Will be updated to 'processing' when chunking starts
         createdAt: new Date().toISOString()
       }
     }).returning()
 
     if (newSource) {
       sourceContent = newSource
-      // Generate chunks for this new source so vector search works immediately
-      chunks = await ensureSourceContentChunksExist(db, newSource, newSource.sourceText)
+      // Start async chunking in background (non-blocking for better performance)
+      // Update status to 'processing' immediately
+      const statusUpdatePromise = updateChunkingStatus(db, newSource.id, 'processing').catch(err =>
+        console.error('[Content Generation] Failed to update chunking status to processing:', err)
+      )
+
+      // Chunk and embed in background using Cloudflare waitUntil or fire-and-forget
+      const chunkingPromise = ensureSourceContentChunksExist(db, newSource, newSource.sourceText)
+        .then(() => updateChunkingStatus(db, newSource.id, 'completed'))
+        .catch(async (err) => {
+          console.error('[Content Generation] Background chunking failed:', err)
+          await updateChunkingStatus(db, newSource.id, 'failed', err?.message || 'Unknown error')
+        })
+
+      // Use Cloudflare waitUntil if available (extends request lifetime), otherwise fire-and-forget
+      getWaitUntil().then((waitUntilFn) => {
+        if (waitUntilFn) {
+          waitUntilFn(statusUpdatePromise)
+          waitUntilFn(chunkingPromise)
+        } else {
+          // Fallback for Node.js/dev: fire-and-forget (tasks may not complete if server shuts down)
+          statusUpdatePromise.catch(() => {})
+          chunkingPromise.catch(() => {})
+        }
+      }).catch(() => {
+        // If getWaitUntil fails, use fire-and-forget
+        statusUpdatePromise.catch(() => {})
+        chunkingPromise.catch(() => {})
+      })
+
+      // Don't wait for chunks - proceed with content generation
+      // edit_section will check status and inform user if chunks aren't ready yet
+      chunks = null
     }
   } else if (resolvedSourceText) {
     // For inline sourceText (not conversation), we typically skip chunking
@@ -639,6 +721,36 @@ export const updateContentSectionWithAI = async (
     content: recordContent,
     version: currentVersion
   })
+
+  // Check if any recently created conversation context sources are still being chunked
+  // Only check sources created in the last 5 minutes to avoid blocking on stale stuck sources
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+  const recentConversationSources = await db
+    .select({
+      id: schema.sourceContent.id,
+      metadata: schema.sourceContent.metadata
+    })
+    .from(schema.sourceContent)
+    .where(
+      and(
+        eq(schema.sourceContent.organizationId, organizationId),
+        eq(schema.sourceContent.sourceType, 'conversation'),
+        sql`${schema.sourceContent.createdAt} > ${fiveMinutesAgo}`
+      )
+    )
+    .limit(10) // Check up to 10 recent conversation sources
+
+  // Check if any are still processing
+  for (const source of recentConversationSources) {
+    const metadata = (source.metadata as Record<string, any>) || {}
+    const chunkingStatus = metadata.chunkingStatus
+    if (chunkingStatus === 'processing' || chunkingStatus === 'pending') {
+      throw createError({
+        statusCode: 503,
+        statusMessage: 'Context is still being processed for semantic search. Please wait a moment and try again.'
+      })
+    }
+  }
 
   // RAG: Search global context instead of partial source
   const relevantChunks = await findGlobalRelevantChunks({

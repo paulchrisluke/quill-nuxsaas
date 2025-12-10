@@ -94,13 +94,13 @@ const { data: contentData, pending, error, refresh } = useFetch(() => `/api/cont
   default: () => null
 })
 
-// Local markdown state for editor
-const markdown = ref('')
-const originalMarkdown = ref('')
+// Local editor content state (using HTML string for TipTap)
+const editorContent = ref('')
+const originalContent = ref('')
 const isSaving = ref(false)
 
 // Computed dirty state
-const isDirty = computed(() => markdown.value !== originalMarkdown.value)
+const isDirty = computed(() => editorContent.value !== originalContent.value)
 
 // Remote content change detection
 const showConflictModal = ref(false)
@@ -262,71 +262,79 @@ const handleSave = async () => {
 </script>
 
 <template>
-  <div>
-    <USkeleton
-      v-if="pending"
-      class="rounded-2xl border border-muted-200/70 p-4"
-    >
-      <div class="h-4 rounded bg-muted/70" />
-      <div class="mt-2 space-y-2">
-        <div class="h-3 rounded bg-muted/60" />
-        <div class="h-3 rounded bg-muted/50" />
-      </div>
-    </USkeleton>
-
-    <UAlert
-      v-else-if="error"
-      color="error"
-      variant="soft"
-      icon="i-lucide-alert-triangle"
-      :description="error.message || 'Failed to load content'"
-    />
-
-    <template v-else-if="contentEntry">
-      <!-- Editor Toolbar -->
-      <div class="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-800">
-        <div class="flex items-center gap-3">
-          <UButton
-            v-if="contentEntry.conversationId"
-            :to="`/conversations/${contentEntry.conversationId}`"
-            variant="ghost"
-            color="gray"
-            size="sm"
-            icon="i-lucide-message-circle"
-          >
-            View Conversation
-          </UButton>
+  <div class="w-full h-full flex flex-col py-4 px-4 sm:px-6">
+    <div class="w-full">
+      <div class="space-y-8">
+        <!-- Loading skeleton -->
+        <div
+          v-if="pending"
+          class="space-y-4"
+        >
+          <USkeleton class="h-20 w-full rounded-lg" />
+          <USkeleton class="h-32 w-3/4 rounded-lg" />
+          <USkeleton class="h-24 w-full rounded-lg" />
         </div>
-        <div class="flex items-center gap-2">
-          <UButton
-            :icon="showChat ? 'i-lucide-panel-right-close' : 'i-lucide-message-circle'"
-            variant="ghost"
-            color="gray"
-            size="sm"
-            @click="showChat = !showChat"
-          >
-            {{ showChat ? 'Hide Chat' : 'Show Chat' }}
-          </UButton>
-          <UButton
-            icon="i-lucide-save"
-            color="primary"
-            size="sm"
-            :loading="isSaving"
-            @click="handleSave"
-          >
-            Save
-          </UButton>
-        </div>
-      </div>
 
-      <!-- MDX Editor -->
-      <UTextarea
-        v-model="markdown"
-        :rows="30"
-        placeholder="Start writing your content..."
-        autoresize
-      />
-    </template>
+        <!-- Error banner -->
+        <UAlert
+          v-else-if="error"
+          color="error"
+          variant="soft"
+          icon="i-lucide-alert-triangle"
+          :description="error.message || 'Failed to load content'"
+          class="w-full"
+        />
+
+        <!-- Content Editor -->
+        <template v-else-if="contentEntry">
+          <!-- Editor Toolbar -->
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <UButton
+                v-if="contentEntry.conversationId"
+                :to="`/conversations/${contentEntry.conversationId}`"
+                variant="ghost"
+                color="gray"
+                size="sm"
+                icon="i-lucide-message-circle"
+              >
+                View Conversation
+              </UButton>
+            </div>
+            <div class="flex items-center gap-2">
+              <UButton
+                :icon="showChat ? 'i-lucide-panel-right-close' : 'i-lucide-message-circle'"
+                variant="ghost"
+                color="gray"
+                size="sm"
+                @click="showChat = !showChat"
+              >
+                {{ showChat ? 'Hide Chat' : 'Show Chat' }}
+              </UButton>
+              <UButton
+                icon="i-lucide-save"
+                color="primary"
+                size="sm"
+                :loading="isSaving"
+                @click="handleSave"
+              >
+                Save
+              </UButton>
+            </div>
+          </div>
+
+          <!-- MDX Editor -->
+          <div class="w-full">
+            <UTextarea
+              v-model="markdown"
+              placeholder="Start writing your content..."
+              autoresize
+              class="w-full"
+            />
+          </div>
+        </template>
+      </div>
+    </div>
 
     <!-- Conflict Resolution Modal -->
     <UModal
