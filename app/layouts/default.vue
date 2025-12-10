@@ -108,11 +108,11 @@ const primaryActionColor = computed(() => {
             class="flex flex-col items-center gap-2 py-4"
           >
             <UIcon
-              name="i-lucide-message-circle"
+              name="i-lucide-file-text"
               class="w-5 h-5 text-muted-500"
             />
             <UIcon
-              name="i-lucide-file-text"
+              name="i-lucide-message-circle"
               class="w-5 h-5 text-muted-500"
             />
           </div>

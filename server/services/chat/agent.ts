@@ -123,12 +123,27 @@ export async function runChatAgentWithMultiPassStream({
     let responseId = ''
     let responseModel = ''
 
+    let tools
+
     try {
       // Select tools based on mode: chat mode only gets read tools, agent mode gets all tools
       const allTools = getChatToolDefinitions()
-      const tools = mode === 'chat'
+      tools = mode === 'chat'
         ? getToolsByKind('read') // only read tools in chat mode
         : allTools // full toolset in agent mode
+
+      // Log agent context before calling AI Gateway
+      console.log('[Agent] Calling AI Gateway with context:', {
+        mode,
+        iteration,
+        messageCount: messages.length,
+        systemPromptLength: messages.find(m => m.role === 'system')?.content?.length || 0,
+        toolCount: tools.length,
+        toolNames: tools.map(t => t.function?.name).filter(Boolean),
+        contextBlocksCount: contextBlocks.length,
+        userMessageLength: userMessage.length,
+        conversationHistoryLength: conversationHistory.length
+      })
 
       for await (const chunk of callChatCompletionsStream({
         messages,
@@ -183,7 +198,54 @@ export async function runChatAgentWithMultiPassStream({
         }
       }
     } catch (error: any) {
-      console.error('Streaming error:', error)
+      // Extract detailed error information
+      const errorMessage = error?.message || error?.data?.message || error?.statusMessage || 'Unknown error'
+      const errorStatus = error?.statusCode || error?.status || 'N/A'
+      const errorData = error?.data || {}
+      
+      // Log comprehensive error details with full context
+      // Note: tools may not be defined if error occurred before tool selection
+      let toolCount = 0
+      let toolNames: string[] = []
+      try {
+        // Try to get tools if they were defined
+        if (typeof tools !== 'undefined') {
+          toolCount = tools.length
+          toolNames = tools.map(t => t.function?.name).filter(Boolean)
+        } else {
+          // Tools not defined - this indicates error occurred during tool selection phase
+          console.error('[Agent] ERROR: tools variable is not defined in catch block - this is a code bug!')
+          console.error('[Agent] Error occurred before tools could be selected. Mode:', mode)
+        }
+      } catch (toolError) {
+        console.error('[Agent] Failed to access tools in error handler:', toolError)
+      }
+      
+      const agentErrorContext = {
+        mode,
+        iteration,
+        message: errorMessage,
+        status: errorStatus,
+        error: error,
+        stack: error instanceof Error ? error.stack : undefined,
+        data: errorData,
+        response: error?.response || error?.data?.response || undefined,
+        // Context about what was being attempted
+        messageCount: messages.length,
+        systemPromptLength: messages.find(m => m.role === 'system')?.content?.length || 0,
+        toolCount,
+        toolNames,
+        toolsDefined: typeof tools !== 'undefined',
+        contextBlocksCount: contextBlocks.length,
+        userMessageLength: userMessage.length,
+        conversationHistoryLength: conversationHistory.length,
+        accumulatedContentLength: accumulatedContent.length,
+        accumulatedToolCallsCount: accumulatedToolCalls.length,
+        errorLocation: 'runChatAgentWithMultiPassStream - tools variable scope issue detected'
+      }
+      
+      console.error('[Agent] Streaming error with full context:', agentErrorContext)
+      
       // Return graceful error result instead of re-throwing
       // Add any accumulated content to history for consistency
       if (accumulatedContent || accumulatedToolCalls.length > 0) {
@@ -203,15 +265,15 @@ export async function runChatAgentWithMultiPassStream({
       }
       // Include error details in development mode for debugging
       const isDev = process.env.NODE_ENV === 'development'
-      const errorDetails = error?.message || error?.data?.message || String(error)
-      const errorMessage = isDev && errorDetails
+      const errorDetails = errorMessage
+      const userErrorMessage = isDev && errorDetails
         ? `I encountered an error while processing your request: ${errorDetails}`
         : 'I encountered an error while processing your request. Please try again.'
       if (onFinalMessage) {
-        onFinalMessage(errorMessage)
+        onFinalMessage(userErrorMessage)
       }
       return {
-        finalMessage: errorMessage,
+        finalMessage: userErrorMessage,
         toolHistory,
         conversationHistory: currentHistory
       }

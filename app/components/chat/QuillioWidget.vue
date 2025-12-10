@@ -4,7 +4,6 @@ import { useClipboard, useDebounceFn } from '@vueuse/core'
 import { computed, nextTick, onBeforeUnmount, watch } from 'vue'
 
 import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
-import { resolveAiThinkingIndicator } from '~/utils/aiThinkingIndicators'
 import ChatMessageContent from './ChatMessageContent.vue'
 import FilesChanged from './FilesChanged.vue'
 import PromptComposer from './PromptComposer.vue'
@@ -18,6 +17,19 @@ interface ContentConversationMessage {
   createdAt: string | Date
 }
 
+// Props for embedding the widget
+interface Props {
+  contentId?: string | null          // Link chat to specific content
+  conversationId?: string | null     // Resume existing conversation
+  initialMode?: 'chat' | 'agent'     // Default chat mode
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  contentId: null,
+  conversationId: null,
+  initialMode: 'chat'
+})
+
 const router = useRouter()
 const route = useRoute()
 const auth = useAuth()
@@ -30,7 +42,7 @@ const {
   errorMessage,
   sendMessage,
   isBusy,
-  conversationId,
+  conversationId: activeConversationId,
   resetConversation,
   requestStartedAt,
   prompt,
@@ -39,6 +51,12 @@ const {
   currentToolName,
   hydrateConversation
 } = useConversation()
+
+// Set initial mode from props
+if (props.initialMode) {
+  mode.value = props.initialMode
+}
+
 const promptSubmitting = ref(false)
 const showQuotaModal = ref(false)
 const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
@@ -124,6 +142,7 @@ const {
   data: conversationsPayload,
   refresh: refreshConversations
 } = await useFetch<ConversationListResponse>('/api/conversations', {
+  lazy: true, // Don't block page load
   default: () => ({
     conversations: []
   })
@@ -222,33 +241,9 @@ watch(conversationMenuItems, (items) => {
 
 const isStreaming = computed(() => ['submitted', 'streaming'].includes(status.value))
 const uiStatus = computed(() => status.value)
-const THINKING_MESSAGE_ID = 'quillio-thinking-placeholder'
-const aiThinkingIndicator = computed(() => resolveAiThinkingIndicator({
-  status: status.value,
-  activeSince: requestStartedAt.value,
-  fallbackMessage: 'Working on your content...',
-  currentActivity: currentActivity.value,
-  currentToolName: currentToolName.value
-}))
-const displayMessages = computed<ChatMessage[]>(() => {
-  const baseMessages = messages.value.slice()
 
-  if (isStreaming.value) {
-    if (!baseMessages.some(message => message.id === THINKING_MESSAGE_ID)) {
-      baseMessages.push({
-        id: THINKING_MESSAGE_ID,
-        role: 'assistant',
-        parts: [{ type: 'text' as const, text: aiThinkingIndicator.value.message }],
-        createdAt: new Date(),
-        payload: { placeholder: true }
-      })
-    }
-
-    return baseMessages
-  }
-
-  return baseMessages.filter(message => message.id !== THINKING_MESSAGE_ID)
-})
+// Tool progress is now shown inline as message parts, no need for placeholder
+const displayMessages = computed<ChatMessage[]>(() => messages.value)
 const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
   const fallback = conversationQuotaUsage.value
 
@@ -413,8 +408,28 @@ const routeConversationId = computed(() => {
   return id || null
 })
 
+// Effective conversation ID: prioritize prop, then route, then active conversation
+const conversationId = computed(() => {
+  return props.conversationId || routeConversationId.value || activeConversationId.value
+})
+
+// Simple UUID validation (matches server-side validation)
+const isValidUUID = (id: string | null): boolean => {
+  if (!id) {
+    return false
+  }
+  // UUID v7 format: 8-4-4-4-12 hex digits
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return uuidRegex.test(id)
+}
+
 const loadConversationMessages = async (conversationId: string) => {
   if (!conversationId) {
+    return
+  }
+
+  // Skip loading if conversationId is "new" or not a valid UUID
+  if (conversationId === 'new' || !isValidUUID(conversationId)) {
     return
   }
 
@@ -446,25 +461,29 @@ const loadConversationMessages = async (conversationId: string) => {
   }
 }
 
-// Load conversation from route param when component mounts or route changes
-watch(routeConversationId, async (newId) => {
-  if (newId && newId !== activeConversationId.value) {
-    activeConversationId.value = newId
-    await loadConversationMessages(newId)
-  } else if (!newId && activeConversationId.value) {
-    // Route changed to a non-conversation route, reset
+// Load conversation from prop or route param when component mounts or changes
+watch([() => props.conversationId, routeConversationId], async ([propId, routeId]) => {
+  const targetId = propId || routeId
+  
+  if (targetId && targetId !== activeConversationId.value) {
+    if (isValidUUID(targetId)) {
+      activeConversationId.value = targetId
+      await loadConversationMessages(targetId)
+    }
+  } else if (!targetId && activeConversationId.value) {
+    // No conversation specified, reset
     activeConversationId.value = null
     resetConversation()
   }
 }, { immediate: true })
 
 // Watch composable conversationId - when chat creates/updates conversation, navigate to it
-watch(conversationId, (value, previous) => {
+watch(activeConversationId, (value, previous) => {
   if (!value || value === previous)
     return
 
-  // Navigate to conversation route when a new conversation is created
-  if (value !== routeConversationId.value) {
+  // Only navigate if not embedded (no contentId prop) and route doesn't match
+  if (!props.contentId && value !== routeConversationId.value) {
     router.push(`/conversations/${value}`)
   }
 

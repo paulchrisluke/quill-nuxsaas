@@ -204,6 +204,10 @@ export async function* callChatCompletionsStream({
   tools,
   toolChoice
 }: CallChatCompletionsRawOptions): AsyncGenerator<ChatCompletionChunk, void, unknown> {
+  // Declare url outside try block so it's available in catch block for error logging
+  const modelName = model.startsWith('openai/') ? model : `openai/${model}`
+  const url = `${gatewayBase}/chat/completions`
+  
   try {
     if (!OPENAI_API_KEY) {
       throw createError({
@@ -225,9 +229,6 @@ export async function* callChatCompletionsStream({
       })
     }
 
-    const modelName = model.startsWith('openai/') ? model : `openai/${model}`
-    const url = `${gatewayBase}/chat/completions`
-
     const systemMessageIndex = messages.findIndex(message => message.role === 'system')
     const orderedMessages = systemMessageIndex > 0
       ? [messages[systemMessageIndex], ...messages.slice(0, systemMessageIndex), ...messages.slice(systemMessageIndex + 1)]
@@ -248,6 +249,24 @@ export async function* callChatCompletionsStream({
       }
     }
 
+    // Log request details for debugging (sanitize sensitive data)
+    console.log('[AI Gateway] Preparing streaming request:', {
+      url,
+      model: modelName,
+      messageCount: messages.length,
+      hasSystemMessage: systemMessageIndex >= 0,
+      toolCount: tools?.length || 0,
+      toolNames: tools?.map(t => t.function?.name).filter(Boolean) || [],
+      toolChoice: toolChoice || 'auto',
+      temperature,
+      maxTokens,
+      hasApiKey: !!OPENAI_API_KEY,
+      hasGatewayToken: !!CF_AI_GATEWAY_TOKEN,
+      gatewayBase,
+      bodyKeys: Object.keys(body),
+      messageRoles: messages.map(m => m.role)
+    })
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -260,11 +279,26 @@ export async function* callChatCompletionsStream({
 
     if (!response.ok) {
       const errorText = await response.text()
+      const errorDetails = {
+        status: response.status,
+        statusText: response.statusText,
+        url,
+        model: modelName,
+        messageCount: messages.length,
+        toolCount: tools?.length || 0,
+        hasApiKey: !!OPENAI_API_KEY,
+        hasGatewayToken: !!CF_AI_GATEWAY_TOKEN,
+        errorResponse: errorText
+      }
+      
+      console.error('[AI Gateway] Request failed with non-OK status:', errorDetails)
+      
       throw createError({
         statusCode: response.status,
         statusMessage: 'AI Gateway request failed',
         data: {
-          message: errorText || 'Unknown AI Gateway error'
+          message: errorText || 'Unknown AI Gateway error',
+          details: errorDetails
         }
       })
     }
@@ -330,23 +364,63 @@ export async function* callChatCompletionsStream({
       reader.releaseLock()
     }
   } catch (error: any) {
-    console.error('AI Gateway streaming request failed', {
+    // Extract detailed error information
+    const errorMessage = error?.message || error?.data?.message || 'Unknown AI Gateway error'
+    const errorStatus = error?.statusCode || error?.status || 502
+    const errorResponse = error?.response || error?.data?.response || error?.data
+    const errorStack = error instanceof Error ? error.stack : undefined
+    
+    // Log comprehensive error details
+    const errorContext = {
       model,
       temperature,
       maxTokens,
-      error: error?.message || error
-    })
+      error: errorMessage,
+      status: errorStatus,
+      statusCode: error?.statusCode,
+      statusText: error?.statusText,
+      response: errorResponse,
+      responseData: error?.data,
+      responseBody: error?.response?.data || error?.response?._data,
+      headers: error?.response?.headers,
+      url: error?.config?.url || error?.request?.url || url,
+      stack: errorStack,
+      fullError: error,
+      // Additional context for debugging
+      messageCount: messages?.length || 0,
+      toolCount: tools?.length || 0,
+      toolNames: tools?.map(t => t.function?.name).filter(Boolean) || [],
+      toolChoice: toolChoice || 'auto',
+      hasApiKey: !!OPENAI_API_KEY,
+      hasGatewayToken: !!CF_AI_GATEWAY_TOKEN,
+      gatewayBase,
+      requestBody: {
+        model: modelName,
+        messageCount: messages?.length || 0,
+        hasTools: !!(tools?.length),
+        toolChoice: toolChoice || 'auto',
+        stream: true
+      }
+    }
+    
+    console.error('[AI Gateway] Streaming request failed with detailed context:', errorContext)
 
     // Preserve original error status code if it exists, otherwise default to 502
-    const statusCode = error?.statusCode || error?.status || 502
+    const statusCode = errorStatus
     const statusMessage = error?.statusMessage || 'Failed to reach AI Gateway'
-    const errorMessage = error?.message || error?.data?.message || 'Unknown AI Gateway error'
+    const finalErrorMessage = errorMessage
 
     throw createError({
       statusCode,
       statusMessage,
       data: {
-        message: errorMessage
+        message: finalErrorMessage,
+        originalStatus: error?.status,
+        originalStatusText: error?.statusText,
+        ...(process.env.NODE_ENV === 'development' ? {
+          response: errorResponse,
+          stack: errorStack
+        } : {})
       }
     })
   }

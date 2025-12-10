@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  MessagePart,
   NonEmptyArray
 } from '#shared/utils/types'
 import { useState } from '#app'
@@ -129,6 +130,7 @@ export function useConversation() {
       let currentAssistantMessageId: string | null = null
       let currentAssistantMessageText = ''
       let pendingEventType: string | null = null
+      let activeToolCalls = new Map<string, number>() // toolName -> part index
 
       try {
         while (true) {
@@ -188,7 +190,7 @@ export function useConversation() {
                       messages.value.push({
                         id: eventData.messageId, // Use server-provided ID
                         role: 'assistant' as const,
-                        parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<{ type: 'text', text: string }>,
+                        parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
                         createdAt: new Date()
                       })
                     }
@@ -196,8 +198,16 @@ export function useConversation() {
                     currentAssistantMessageText += eventData.chunk || ''
                     if (currentAssistantMessageId) {
                       const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
-                      if (messageIndex >= 0 && messages.value[messageIndex]?.parts?.[0]) {
-                        messages.value[messageIndex].parts[0].text = currentAssistantMessageText
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                      if (message) {
+                        // Find or create text part (should be first non-tool part)
+                        const textPartIndex = message.parts.findIndex(p => p.type === 'text')
+                        if (textPartIndex >= 0 && message.parts[textPartIndex].type === 'text') {
+                          message.parts[textPartIndex].text = currentAssistantMessageText
+                        } else {
+                          // Add text part if it doesn't exist
+                          message.parts.push({ type: 'text', text: currentAssistantMessageText })
+                        }
                       }
                     }
                     break
@@ -209,8 +219,12 @@ export function useConversation() {
                     if (eventData.messageId && eventData.message) {
                       const messageIndex = messages.value.findIndex(m => m.id === eventData.messageId)
                       const message = messageIndex >= 0 ? messages.value[messageIndex] : null
-                      if (message?.parts?.[0]) {
-                        message.parts[0].text = eventData.message
+                      if (message) {
+                        const textPartIndex = message.parts.findIndex(p => p.type === 'text')
+                        const textPart = textPartIndex >= 0 ? message.parts[textPartIndex] : null
+                        if (textPart && textPart.type === 'text') {
+                          textPart.text = eventData.message
+                        }
                       }
                     }
                     // Clear streaming state (tools may still be executing)
@@ -223,16 +237,58 @@ export function useConversation() {
                   }
 
                   case 'tool:start': {
-                    // Tool execution started
+                    // Tool execution started - add tool_call part to current assistant message
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
+
+                    // Ensure we have an assistant message to add the tool call to
+                    if (!currentAssistantMessageId) {
+                      currentAssistantMessageId = createId()
+                      messages.value.push({
+                        id: currentAssistantMessageId,
+                        role: 'assistant' as const,
+                        parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
+                        createdAt: new Date()
+                      })
+                    }
+
+                    const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
+                    const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                    if (message && eventData.toolName) {
+                      // Add tool_call part
+                      const toolPart: MessagePart = {
+                        type: 'tool_call',
+                        toolName: eventData.toolName,
+                        status: 'running',
+                        args: eventData.args,
+                        timestamp: new Date().toISOString()
+                      }
+                      message.parts.push(toolPart)
+                      // Track which part index this tool is at
+                      activeToolCalls.set(eventData.toolName, message.parts.length - 1)
+                    }
                     break
                   }
 
                   case 'tool:complete': {
-                    // Tool execution completed - may have more tools or LLM response coming
-                    // Don't clear activity yet, wait for next event (message:chunk or done)
+                    // Tool execution completed - update the tool_call part status
                     currentToolName.value = null
+
+                    if (currentAssistantMessageId && eventData.toolName) {
+                      const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                      const toolPartIndex = activeToolCalls.get(eventData.toolName)
+
+                      if (message && toolPartIndex !== undefined) {
+                        const toolPart = message.parts[toolPartIndex]
+                        if (toolPart && toolPart.type === 'tool_call') {
+                          toolPart.status = eventData.success ? 'success' : 'error'
+                          toolPart.result = eventData.result
+                          toolPart.error = eventData.error
+                        }
+                        activeToolCalls.delete(eventData.toolName)
+                      }
+                    }
                     break
                   }
 
@@ -318,6 +374,7 @@ export function useConversation() {
         // If stream was aborted or failed, temporary messages remain until next successful turn
         currentAssistantMessageId = null
         currentAssistantMessageText = ''
+        activeToolCalls.clear()
       }
 
       // Stream completed successfully

@@ -48,66 +48,117 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Get conversations with artifact counts
+  // Fetch base conversations
   const conversations = await db
     .select({
-      conversation: {
-        id: schema.conversation.id,
-        organizationId: schema.conversation.organizationId,
-        sourceContentId: schema.conversation.sourceContentId,
-        createdByUserId: schema.conversation.createdByUserId,
-        status: schema.conversation.status,
-        metadata: schema.conversation.metadata,
-        createdAt: schema.conversation.createdAt,
-        updatedAt: schema.conversation.updatedAt
-      },
-      // Count artifacts (content items) for this conversation
-      artifactCount: sql<number>`COALESCE((
-        SELECT COUNT(*)
-        FROM ${schema.content}
-        WHERE ${schema.content.conversationId} = ${schema.conversation.id}
-      ), 0)`,
-      // Get first artifact title for preview
-      firstArtifactTitle: sql<string | null>`(
-        SELECT ${schema.content.title}
-        FROM ${schema.content}
-        WHERE ${schema.content.conversationId} = ${schema.conversation.id}
-        ORDER BY ${schema.content.updatedAt} DESC
-        LIMIT 1
-      )`,
-      // Get last message content for preview (most recent message)
-      lastMessage: sql<string | null>`(
-        SELECT ${schema.conversationMessage.content}
-        FROM ${schema.conversationMessage}
-        WHERE ${schema.conversationMessage.conversationId} = ${schema.conversation.id}
-        ORDER BY ${schema.conversationMessage.createdAt} DESC
-        LIMIT 1
-      )`
+      id: schema.conversation.id,
+      organizationId: schema.conversation.organizationId,
+      sourceContentId: schema.conversation.sourceContentId,
+      createdByUserId: schema.conversation.createdByUserId,
+      status: schema.conversation.status,
+      metadata: schema.conversation.metadata,
+      createdAt: schema.conversation.createdAt,
+      updatedAt: schema.conversation.updatedAt
     })
     .from(schema.conversation)
     .where(eq(schema.conversation.organizationId, organizationId))
     .orderBy(desc(schema.conversation.updatedAt))
     .limit(100)
 
+  // Early return if no conversations
+  if (conversations.length === 0) {
+    const conversationQuota = await getConversationQuotaUsage(db, organizationId, user, event)
+    return {
+      conversations: [],
+      conversationQuota
+    }
+  }
+
+  const conversationIds = conversations.map(c => c.id)
+
+  // Fetch artifact counts (1 query with GROUP BY)
+  const artifactCountsRaw = await db
+    .select({
+      conversationId: schema.content.conversationId,
+      count: sql<number>`COUNT(*)`.as('count')
+    })
+    .from(schema.content)
+    .where(sql`${schema.content.conversationId} IN ${conversationIds}`)
+    .groupBy(schema.content.conversationId)
+
+  const artifactCounts = new Map(
+    artifactCountsRaw.map(row => [row.conversationId, Number(row.count)])
+  )
+
+  // Fetch first artifact titles using window function (1 query)
+  const firstArtifactsRaw = await db.execute<{
+    conversation_id: string
+    title: string
+    row_num: number
+  }>(sql`
+    SELECT 
+      conversation_id,
+      title,
+      ROW_NUMBER() OVER (
+        PARTITION BY conversation_id 
+        ORDER BY updated_at DESC
+      ) as row_num
+    FROM ${schema.content}
+    WHERE conversation_id IN ${conversationIds}
+  `)
+
+  const firstArtifacts = new Map(
+    firstArtifactsRaw.rows
+      .filter(row => row.row_num === 1)
+      .map(row => [row.conversation_id, row.title])
+  )
+
+  // Fetch last messages using window function (1 query)
+  const lastMessagesRaw = await db.execute<{
+    conversation_id: string
+    content: string
+    row_num: number
+  }>(sql`
+    SELECT 
+      conversation_id,
+      content,
+      ROW_NUMBER() OVER (
+        PARTITION BY conversation_id 
+        ORDER BY created_at DESC
+      ) as row_num
+    FROM ${schema.conversationMessage}
+    WHERE conversation_id IN ${conversationIds}
+  `)
+
+  const lastMessages = new Map(
+    lastMessagesRaw.rows
+      .filter(row => row.row_num === 1)
+      .map(row => [row.conversation_id, row.content])
+  )
+
   const conversationQuota = await getConversationQuotaUsage(db, organizationId, user, event)
 
   return {
-    conversations: conversations.map((row) => {
-      const title = getConversationTitle(row.conversation, row.firstArtifactTitle)
+    conversations: conversations.map((conv) => {
+      const artifactCount = artifactCounts.get(conv.id) || 0
+      const firstArtifactTitle = firstArtifacts.get(conv.id) || null
+      const lastMessage = lastMessages.get(conv.id) || null
+      const title = getConversationTitle(conv, firstArtifactTitle)
+
       return {
-        id: row.conversation.id,
-        organizationId: row.conversation.organizationId,
-        sourceContentId: row.conversation.sourceContentId,
-        createdByUserId: row.conversation.createdByUserId,
-        status: row.conversation.status,
-        metadata: row.conversation.metadata,
-        createdAt: row.conversation.createdAt,
-        updatedAt: row.conversation.updatedAt,
+        id: conv.id,
+        organizationId: conv.organizationId,
+        sourceContentId: conv.sourceContentId,
+        createdByUserId: conv.createdByUserId,
+        status: conv.status,
+        metadata: conv.metadata,
+        createdAt: conv.createdAt,
+        updatedAt: conv.updatedAt,
         _computed: {
-          artifactCount: Number(row.artifactCount) || 0,
-          firstArtifactTitle: row.firstArtifactTitle || null,
-          title, // Include computed title
-          lastMessage: row.lastMessage || null
+          artifactCount,
+          firstArtifactTitle,
+          title,
+          lastMessage
         }
       }
     }),

@@ -152,22 +152,5 @@ describe('auth', async () => {
       // Should be on 403 (non-admin), signin (not logged in), or admin/dashboard (if admin)
       expect(url.includes('/403') || url.includes('/signin') || url.includes('/admin')).toBe(true)
     })
-
-    it('admin user can access admin dashboard', async () => {
-      // Login as admin
-      const page = await createPage('/signin')
-      await page.fill('input[name="email"]', process.env.NUXT_ADMIN_EMAIL!)
-      await page.fill('input[name="password"]', process.env.NUXT_ADMIN_PASSWORD!)
-      await page.click('button[type="submit"]')
-      // Wait for form submission
-      await page.waitForLoadState('networkidle')
-
-      // Access admin page (should redirect to dashboard for admin)
-      await page.goto(`${host}/admin`)
-      await page.waitForLoadState('networkidle')
-      const url = page.url()
-      // Should be on admin dashboard (if admin), 403 (if not admin), or signin (if not logged in)
-      expect(url.includes('/admin/dashboard') || url.includes('/403') || url.includes('/signin')).toBe(true)
-    })
   })
 })

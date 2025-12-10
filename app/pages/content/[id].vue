@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 
 const { formatDateRelative } = useDate()
 
@@ -13,6 +14,7 @@ interface ContentEntry {
   additions?: number
   deletions?: number
   conversationId?: string | null
+  bodyMdx?: string
 }
 
 interface ContentApiResponse {
@@ -27,6 +29,7 @@ interface ContentApiResponse {
       conversationId?: string | null
     }
     currentVersion?: {
+      bodyMdx?: string
       diffStats?: {
         additions?: number
         deletions?: number
@@ -52,6 +55,9 @@ const contentId = computed(() => {
   const param = route.params.id
   return Array.isArray(param) ? param[0] : param || ''
 })
+
+// Chat widget visibility
+const showChat = ref(false)
 
 // Set workspace header state
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
@@ -82,13 +88,17 @@ const setShellHeader = () => {
 
 setShellHeader()
 
-// Fetch content data - API uses active organization from session, no slug needed
-const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
+// Fetch content data
+const { data: contentData, pending, error, refresh } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),
   lazy: true,
   server: true,
   default: () => null
 })
+
+// Local markdown state for editor
+const markdown = ref('')
+const isSaving = ref(false)
 
 // Transform to ContentEntry format
 const contentEntry = computed<ContentEntry | null>(() => {
@@ -123,9 +133,17 @@ const contentEntry = computed<ContentEntry | null>(() => {
     contentType: currentVersion?.frontmatter?.contentType || content?.contentType || 'content',
     additions,
     deletions,
-    conversationId: content?.conversationId || null
+    conversationId: content?.conversationId || null,
+    bodyMdx: currentVersion?.bodyMdx || ''
   }
 })
+
+// Sync markdown with content
+watch(contentEntry, (entry) => {
+  if (entry && entry.bodyMdx) {
+    markdown.value = entry.bodyMdx
+  }
+}, { immediate: true })
 
 // Update workspace header when content loads
 watch(contentEntry, (entry) => {
@@ -162,10 +180,30 @@ watchEffect(() => {
     workspaceHeaderLoading.value = pending.value
   }
 })
+
+// Save handler
+const handleSave = async () => {
+  if (!contentId.value || isSaving.value) return
+
+  try {
+    isSaving.value = true
+    await $fetch(`/api/content/${contentId.value}`, {
+      method: 'PATCH',
+      body: {
+        bodyMdx: markdown.value
+      }
+    })
+    await refresh()
+  } catch (err) {
+    console.error('Failed to save content:', err)
+  } finally {
+    isSaving.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="w-full py-8">
+  <div class="w-full h-full relative">
     <USkeleton
       v-if="pending"
       class="rounded-2xl border border-muted-200/70 p-4"
@@ -188,54 +226,77 @@ watchEffect(() => {
 
     <div
       v-else-if="contentEntry"
-      class="w-full"
+      class="w-full h-full flex flex-col"
     >
-      <div class="w-full text-left py-4 px-1 space-y-2">
-        <div class="flex items-center justify-between gap-3">
-          <p class="font-medium leading-tight truncate">
-            {{ contentEntry.title }}
-          </p>
-          <UBadge
-            color="neutral"
-            variant="soft"
-            class="capitalize"
-          >
-            {{ contentEntry.status || 'draft' }}
-          </UBadge>
-        </div>
-        <div class="text-xs text-muted-500 flex flex-wrap items-center gap-1">
-          <span>{{ formatDateRelative(contentEntry.updatedAt) }}</span>
-          <span>·</span>
-          <span class="capitalize">
-            {{ contentEntry.contentType || 'content' }}
-          </span>
-          <span>·</span>
-          <span class="font-mono text-[11px] text-muted-600 truncate">
-            {{ contentEntry.id }}
-          </span>
-          <span>·</span>
-          <span class="text-emerald-500 dark:text-emerald-400">
-            +{{ contentEntry.additions ?? 0 }}
-          </span>
-          <span class="text-rose-500 dark:text-rose-400">
-            -{{ contentEntry.deletions ?? 0 }}
-          </span>
-        </div>
-        <div
-          v-if="contentEntry.conversationId"
-          class="mt-4"
-        >
+      <!-- Editor Toolbar -->
+      <div class="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-800">
+        <div class="flex items-center gap-3">
           <UButton
+            v-if="contentEntry.conversationId"
             :to="`/conversations/${contentEntry.conversationId}`"
-            variant="outline"
-            color="primary"
+            variant="ghost"
+            color="gray"
             size="sm"
             icon="i-lucide-message-circle"
           >
             View Conversation
           </UButton>
         </div>
+        <div class="flex items-center gap-2">
+          <UButton
+            :icon="showChat ? 'i-lucide-panel-right-close' : 'i-lucide-message-circle'"
+            variant="ghost"
+            color="gray"
+            size="sm"
+            @click="showChat = !showChat"
+          >
+            {{ showChat ? 'Hide Chat' : 'Show Chat' }}
+          </UButton>
+          <UButton
+            icon="i-lucide-save"
+            color="primary"
+            size="sm"
+            :loading="isSaving"
+            @click="handleSave"
+          >
+            Save
+          </UButton>
+        </div>
+      </div>
+
+      <!-- MDX Editor -->
+      <div class="flex-1 overflow-auto">
+        <UTextarea
+          v-model="markdown"
+          :rows="30"
+          placeholder="Start writing your content..."
+          class="font-mono text-sm"
+          autoresize
+        />
       </div>
     </div>
+
+    <!-- Floating Chat Widget -->
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="translate-x-full opacity-0"
+      enter-to-class="translate-x-0 opacity-100"
+      leave-active-class="transition-all duration-300 ease-in"
+      leave-from-class="translate-x-0 opacity-100"
+      leave-to-class="translate-x-full opacity-0"
+    >
+      <div
+        v-if="showChat && contentEntry"
+        class="fixed top-0 right-0 h-screen w-[480px] bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-2xl z-50 overflow-hidden"
+      >
+        <QuillioWidget
+          :content-id="contentEntry.id"
+          :conversation-id="contentEntry.conversationId"
+          :initial-mode="'agent'"
+          class="h-full"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
+

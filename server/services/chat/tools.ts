@@ -282,24 +282,7 @@ function buildContentWriteParameters(): ParameterSchema {
       }
     },
     required: ['action'],
-    oneOf: [
-      {
-        properties: {
-          action: { const: 'create' }
-        },
-        anyOf: [
-          { required: ['sourceContentId'] },
-          { required: ['sourceText'] },
-          { required: ['context'] }
-        ]
-      },
-      {
-        properties: {
-          action: { const: 'enrich' }
-        },
-        required: ['contentId']
-      }
-    ]
+
   }
 }
 
@@ -360,20 +343,7 @@ function buildSourceIngestParameters(): ParameterSchema {
       }
     },
     required: ['sourceType'],
-    oneOf: [
-      {
-        properties: {
-          sourceType: { const: 'youtube' }
-        },
-        required: ['youtubeUrl']
-      },
-      {
-        properties: {
-          sourceType: { const: 'context' }
-        },
-        required: ['context']
-      }
-    ]
+
   }
 }
 
