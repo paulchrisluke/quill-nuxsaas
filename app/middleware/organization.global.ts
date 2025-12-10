@@ -14,14 +14,17 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // New routes (/conversations, /content) don't use slugs, so this middleware won't run for them
 
   // Check if we need to switch organization
-  const activeOrgId = (session.value as any)?.activeOrganizationId
+  interface SessionWithOrg {
+    activeOrganizationId?: string | null
+  }
+  const activeOrgId = (session.value as unknown as SessionWithOrg)?.activeOrganizationId
 
   // Use shared composable with proper caching enabled
   const { data: orgs, pending } = useUserOrganizations()
 
   // Wait for organizations to load
-  if (pending.value) {
-    return
+  while (pending.value) {
+    await new Promise(resolve => setTimeout(resolve, 50))
   }
 
   if (!orgs.value || orgs.value.length === 0)

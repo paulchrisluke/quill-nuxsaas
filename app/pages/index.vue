@@ -1,6 +1,10 @@
 <script setup lang="ts">
-const localePath = useLocalePath()
-await navigateTo(localePath('/conversations'))
+definePageMeta({
+  middleware: defineNuxtRouteMiddleware((_to) => {
+    const localePath = useLocalePath()
+    return navigateTo(localePath('/conversations'))
+  })
+})
 </script>
 
 <template>

@@ -3,6 +3,12 @@ definePageMeta({
   auth: false // Allow anonymous users
 })
 
+const route = useRoute()
+const conversationId = computed(() => {
+  const id = route.params.id
+  return Array.isArray(id) ? id[0] : id
+})
+
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
 setHeaderTitle?.(null) // Will be set by QuillioWidget based on conversation
 
@@ -17,7 +23,7 @@ useHead({
 <template>
   <div class="w-full">
     <ClientOnly>
-      <QuillioWidget />
+      <QuillioWidget :conversation-id="conversationId" />
     </ClientOnly>
   </div>
 </template>

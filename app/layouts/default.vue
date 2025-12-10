@@ -167,7 +167,7 @@ const primaryActionColor = computed(() => {
                       icon="i-lucide-arrow-left"
                       variant="ghost"
                       size="sm"
-                      aria-label="Go back"
+                      :aria-label="t('global.back')"
                       class="h-10 w-10 rounded-full p-0 flex items-center justify-center"
                       @click="workspaceHeader.onBack?.()"
                     />
@@ -221,7 +221,7 @@ const primaryActionColor = computed(() => {
                       variant="ghost"
                       @click="workspaceHeader.onShare?.()"
                     >
-                      Copy MDX
+                      {{ t('content.copyMdx') }}
                     </UButton>
                     <UButton
                       v-if="workspaceHeader.onArchive"
@@ -231,7 +231,7 @@ const primaryActionColor = computed(() => {
                       variant="ghost"
                       @click="workspaceHeader.onArchive?.()"
                     >
-                      Archive
+                      {{ t('content.archive') }}
                     </UButton>
                     <UButton
                       v-if="workspaceHeader.onPrimaryAction"
@@ -241,7 +241,7 @@ const primaryActionColor = computed(() => {
                       :disabled="workspaceHeader.primaryActionDisabled"
                       @click="workspaceHeader.onPrimaryAction?.()"
                     >
-                      {{ workspaceHeader.primaryActionLabel || 'Continue' }}
+                      {{ workspaceHeader.primaryActionLabel || t('global.continue') }}
                     </UButton>
                   </div>
                 </div>

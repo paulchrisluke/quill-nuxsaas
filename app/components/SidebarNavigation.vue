@@ -5,11 +5,18 @@ const { loggedIn } = useAuth()
 const conversationMenuItems = useState<any[][]>('conversation-menu-items', () => [])
 
 // Fetch content list (only for logged in users)
-const { data: contentData } = useFetch('/api/content', {
+const { data: contentData, execute: fetchContent } = useFetch('/api/content', {
   default: () => [],
   lazy: true,
-  server: false
+  server: false,
+  immediate: false
 })
+
+watch(loggedIn, (isLoggedIn) => {
+  if (isLoggedIn) {
+    fetchContent()
+  }
+}, { immediate: true })
 
 // Transform content to menu items format
 const contentMenuItems = computed(() => {

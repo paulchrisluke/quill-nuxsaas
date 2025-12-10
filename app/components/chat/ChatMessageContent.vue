@@ -136,7 +136,7 @@ function toSummaryBullets(summary: string | null | undefined) {
       <p class="font-semibold text-red-400 mb-1">
         Error Details:
       </p>
-      <p class="text-red-300/80 font-mono text-xs break-all">
+      <p class="text-red-300/80 font-mono text-xs break-words">
         {{ errorDetails }}
       </p>
     </div>

@@ -437,6 +437,12 @@ const loadConversationMessages = async (conversationId: string) => {
     })
   } catch (error) {
     console.error('Unable to load conversation messages', error)
+    toast.add({
+      title: 'Failed to load messages',
+      description: 'Unable to load conversation history. Please try refreshing.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
   }
 }
 

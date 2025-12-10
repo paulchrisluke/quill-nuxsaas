@@ -38,7 +38,7 @@ const hasFiles = computed(() => artifacts.value.length > 0)
 
 <template>
   <div
-    v-if="hasFiles || pending"
+    v-if="hasFiles || pending || error"
     class="space-y-2"
   >
     <div class="flex items-center gap-2 text-sm font-medium text-muted-600 dark:text-muted-400">
@@ -48,7 +48,7 @@ const hasFiles = computed(() => artifacts.value.length > 0)
       />
       <span>Files Changed</span>
       <span
-        v-if="!pending"
+        v-if="!pending && artifacts"
         class="text-xs text-muted-500"
       >
         ({{ artifacts.length }})
@@ -88,7 +88,7 @@ const hasFiles = computed(() => artifacts.value.length > 0)
             {{ artifact.data.title || 'Untitled' }}
           </p>
           <p class="text-xs text-muted-500 truncate">
-            {{ artifact.data.slug }}.mdx
+            {{ artifact.data.slug }}.{{ artifact.data.contentType ? artifact.data.contentType.split('/')[1] || 'mdx' : 'mdx' }}
           </p>
         </div>
         <UBadge

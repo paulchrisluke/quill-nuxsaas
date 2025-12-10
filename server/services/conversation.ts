@@ -56,6 +56,7 @@ export async function createConversation(
       status,
       metadata: input.metadata ?? null
     })
+    .onConflictDoNothing()
     .returning()
 
   const conv = (Array.isArray(result) ? result[0] : null) as typeof schema.conversation.$inferSelect | null
@@ -68,13 +69,6 @@ export async function createConversation(
 
   return conv
 }
-
-/**
- * @deprecated This function now always creates a new conversation.
- * The get-or-create behavior has been removed.
- * Update your code to use createConversation() and handle conversation lookup separately.
- */
-export const getOrCreateConversationForContent = createConversation
 
 export interface AddConversationMessageInput {
   conversationId: string

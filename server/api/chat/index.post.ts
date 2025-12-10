@@ -11,10 +11,10 @@ import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSumma
 import {
   addLogEntryToConversation,
   addMessageToConversation,
+  createConversation,
   getConversationById,
   getConversationLogs,
-  getConversationMessages,
-  getOrCreateConversationForContent
+  getConversationMessages
 } from '~~/server/services/conversation'
 import { generateConversationTitle } from '~~/server/services/conversation/title'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
@@ -1372,7 +1372,7 @@ export default defineEventHandler(async (event) => {
     await ensureConversationCapacity(db, organizationId, user, event)
 
     const lastAction = trimmedMessage ? 'message' : null
-    conversation = await getOrCreateConversationForContent(db, {
+    conversation = await createConversation(db, {
       organizationId,
       sourceContentId: null, // Tools will set this when sources are created
       createdByUserId: user.id,
@@ -1750,11 +1750,14 @@ export default defineEventHandler(async (event) => {
       }
     } catch (error) {
       console.error('Agent turn failed', error)
-      const errorDetails = error instanceof Error ? error.message : String(error)
       const isDev = process.env.NODE_ENV === 'development'
+      // Log full error details for debugging (server-side only)
+      if (isDev) {
+        console.error('Full error details:', error)
+      }
       const errorMessage = isDev
-        ? `The assistant encountered an error processing your request: ${errorDetails}`
-        : 'The assistant encountered an error processing your request. Please try again.'
+        ? `I encountered an error while processing your request. Check server logs for details.`
+        : 'I encountered an error while processing your request. Please try again.'
       ingestionErrors.push({
         content: errorMessage,
         payload: {
