@@ -1,6 +1,7 @@
 <script setup lang="ts">
 definePageMeta({
-  auth: false // Allow anonymous users
+  auth: false, // Allow anonymous users
+  ssr: false // Client-side only for instant navigation
 })
 
 const route = useRoute()
@@ -23,7 +24,11 @@ useHead({
 <template>
   <div class="w-full">
     <ClientOnly>
-      <QuillioWidget :conversation-id="conversationId" />
+      <!-- KeepAlive prevents component remount on navigation (saves 250ms) -->
+      <!-- QuillioWidget watches :conversation-id prop and handles changes reactively -->
+      <KeepAlive>
+        <QuillioWidget :conversation-id="conversationId" />
+      </KeepAlive>
     </ClientOnly>
   </div>
 </template>

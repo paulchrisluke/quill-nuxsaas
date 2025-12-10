@@ -79,7 +79,9 @@ export async function runChatAgentWithMultiPassStream({
   userMessage,
   contextBlocks = [],
   onLLMChunk,
+  onToolPreparing,
   onToolStart,
+  onToolProgress,
   onToolComplete,
   onFinalMessage,
   onRetry,
@@ -87,10 +89,12 @@ export async function runChatAgentWithMultiPassStream({
 }: ChatAgentInput & {
   mode: 'chat' | 'agent'
   onLLMChunk?: (chunk: string) => void
+  onToolPreparing?: (toolCallId: string, toolName: string) => void
   onToolStart?: (toolCallId: string, toolName: string) => void
+  onToolProgress?: (toolCallId: string, message: string) => void
   onToolComplete?: (toolCallId: string, toolName: string, result: ToolExecutionResult) => void
   onFinalMessage?: (message: string) => void
-  executeTool: (invocation: ChatToolInvocation) => Promise<ToolExecutionResult>
+  executeTool: (invocation: ChatToolInvocation, toolCallId: string, onProgress?: (message: string) => void) => Promise<ToolExecutionResult>
 }): Promise<MultiPassAgentResult> {
   const currentHistory: ChatCompletionMessage[] = [...conversationHistory]
   const toolHistory: MultiPassAgentResult['toolHistory'] = []
@@ -175,23 +179,22 @@ export async function runChatAgentWithMultiPassStream({
             const index = toolCallDelta.index ?? 0
             if (!accumulatedToolCalls[index]) {
               accumulatedToolCalls[index] = {
-                id: toolCallDelta.id || '',
+                id: toolCallDelta.id!,
                 type: 'function',
                 function: {
-                  name: toolCallDelta.function?.name || '',
+                  name: toolCallDelta.function!.name!,
                   arguments: toolCallDelta.function?.arguments || ''
                 }
               }
-            } else {
-              // Append to existing tool call
-              if (toolCallDelta.function?.name) {
-                accumulatedToolCalls[index].function.name = toolCallDelta.function.name
+
+              // Emit preparing event immediately (LLM always provides both id and name in first chunk)
+              if (onToolPreparing) {
+                onToolPreparing(toolCallDelta.id!, toolCallDelta.function!.name!)
               }
+            } else {
+              // Append to existing tool call (subsequent chunks only contain arguments)
               if (toolCallDelta.function?.arguments) {
                 accumulatedToolCalls[index].function.arguments += toolCallDelta.function.arguments
-              }
-              if (toolCallDelta.id) {
-                accumulatedToolCalls[index].id = toolCallDelta.id
               }
             }
           }
@@ -336,31 +339,56 @@ export async function runChatAgentWithMultiPassStream({
         await onRetry(toolInvocation, retryCount)
       }
 
-      // Generate unique ID for this tool call (for tracking concurrent executions)
-      const toolCallId = toolCall.id || `tool_${Date.now()}_${Math.random().toString(36).slice(2)}`
-
-      // Emit tool start event with unique ID
+      // Emit tool start event (LLM always provides id per API spec)
       if (onToolStart) {
-        onToolStart(toolCallId, toolInvocation.name)
+        onToolStart(toolCall.id, toolInvocation.name)
       }
 
-      // Execute tool with error handling
+      // Execute tool with timeout and error handling
       let toolResult: ToolExecutionResult
       const timestamp = new Date()
+
+      // Set timeout based on tool type (in milliseconds)
+      // ChatGPT approach: long timeouts for complex operations, no timeout on LLM streaming
+      let toolTimeout: number
+      if (toolInvocation.name === 'content_write') {
+        toolTimeout = 300000 // 5 minutes - LLM generation can be slow for long content
+      } else if (toolInvocation.name === 'source_ingest') {
+        toolTimeout = 180000 // 3 minutes - YouTube transcript download + processing
+      } else {
+        toolTimeout = 120000 // 2 minutes - default for other tools
+      }
+
       try {
-        toolResult = await executeTool(toolInvocation)
+        // Wrap tool execution with timeout
+        // Pass toolCallId and onProgress callback to allow tools to emit progress events
+        // during long-running operations (e.g., content_write, source_ingest)
+        toolResult = await Promise.race([
+          executeTool(
+            toolInvocation,
+            toolCall.id,
+            onToolProgress ? (message: string) => onToolProgress(toolCall.id, message) : undefined
+          ),
+          new Promise<ToolExecutionResult>((_, reject) =>
+            setTimeout(() => reject(new Error(`Tool execution timed out after ${toolTimeout / 1000}s`)), toolTimeout)
+          )
+        ])
       } catch (err: any) {
-        console.error(`Tool execution failed for ${toolInvocation.name}:`, err)
+        const isTimeout = err?.message?.includes('timed out')
+        console.error(`Tool execution ${isTimeout ? 'timed out' : 'failed'} for ${toolInvocation.name}:`, err)
+
         toolResult = {
           success: false,
           result: null,
-          error: err?.message || 'Tool execution failed'
+          error: isTimeout
+            ? `This operation is taking longer than expected. Please try again or contact support if the issue persists.`
+            : err?.message || 'Tool execution failed'
         }
       }
 
-      // Emit tool complete event with unique ID
+      // Emit tool complete event with ID from LLM
       if (onToolComplete) {
-        onToolComplete(toolCallId, toolInvocation.name, toolResult)
+        onToolComplete(toolCall.id, toolInvocation.name, toolResult)
       }
 
       // Add tool result to history for debugging/state tracking
@@ -420,11 +448,12 @@ export async function runChatAgentWithMultiPassStream({
       })
 
       // Emit tool start and complete events for consistency
+      // Use the original toolCall.id to match the conversation history entry
       if (onToolStart) {
-        onToolStart(toolInvocation.name)
+        onToolStart(toolCall.id, toolInvocation.name)
       }
       if (onToolComplete) {
-        onToolComplete(toolInvocation.name, placeholderResult)
+        onToolComplete(toolCall.id, toolInvocation.name, placeholderResult)
       }
 
       // Add tool result as tool message (tool response) to conversation history

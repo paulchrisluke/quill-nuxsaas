@@ -13,10 +13,11 @@ export type MessagePart =
     type: 'tool_call'
     toolCallId: string // Unique identifier for this specific tool invocation
     toolName: string
-    status: 'running' | 'success' | 'error'
+    status: 'preparing' | 'running' | 'success' | 'error'
     args?: Record<string, any>
     result?: any
     error?: string
+    progressMessage?: string // Real-time progress updates (e.g., "Fetching YouTube transcript...")
     timestamp?: string
   }
 

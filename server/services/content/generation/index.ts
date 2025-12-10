@@ -5,7 +5,7 @@ import type {
   SectionUpdateInput,
   SectionUpdateResult
 } from './types'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/database/schema'
@@ -26,7 +26,7 @@ import {
 } from './assembly'
 import {
   ensureSourceContentChunksExist,
-  findRelevantChunksForSection
+  findGlobalRelevantChunks
 } from './chunking'
 import {
   determineGenerationMode,
@@ -50,6 +50,25 @@ import {
   parseAIResponseAsJSON
 } from './utils'
 
+/**
+ * Gets Cloudflare Workers waitUntil if available
+ * Uses dynamic import to avoid module load errors in Node.js/dev
+ * Falls back to fire-and-forget in non-Workers environments
+ */
+async function getWaitUntil(): Promise<((promise: Promise<any>) => void) | undefined> {
+  // Try to import waitUntil from cloudflare:workers (only available in Workers runtime)
+  try {
+    // @ts-expect-error - cloudflare:workers is only available in Workers runtime
+    // Use variable to bypass static analysis/bundler resolution errors in Node
+    const pkg = 'cloudflare:workers'
+    const { waitUntil } = await import(pkg)
+    return waitUntil
+  } catch {
+    // Not in Cloudflare Workers runtime - will use fire-and-forget instead
+    return undefined
+  }
+}
+
 // Re-export types for backward compatibility
 export type {
   ContentGenerationInput as GenerateContentInput,
@@ -61,6 +80,42 @@ const SECTION_PATCH_SYSTEM_PROMPT = CONTENT_SECTION_UPDATE_SYSTEM_PROMPT
 
 // Re-export for external use (used by workspaceFiles.ts)
 export const enrichMdxWithMetadata = enrichMarkdownWithMetadata
+
+/**
+ * Updates chunking status in sourceContent metadata
+ */
+async function updateChunkingStatus(
+  db: NodePgDatabase<typeof schema>,
+  sourceContentId: string,
+  status: 'processing' | 'completed' | 'failed',
+  error?: string
+) {
+  // Use atomic JSONB update to avoid race conditions
+  // jsonb_set can patch individual fields, but for multiple fields or deeply nested merges, || operator is better in PG
+  // Here we use jsonb_build_object to construct the patch and || to merge logic
+
+  const now = new Date().toISOString()
+
+  let patch = sql`jsonb_build_object('chunkingStatus', ${status}::text)`
+
+  if (status === 'failed' && error) {
+    patch = sql`${patch} || jsonb_build_object('chunkingError', ${error}::text)`
+  }
+  if (status === 'processing') {
+    patch = sql`${patch} || jsonb_build_object('chunkingStartedAt', ${now}::text)`
+  }
+  if (status === 'completed') {
+    patch = sql`${patch} || jsonb_build_object('chunkingCompletedAt', ${now}::text)`
+  }
+
+  await db
+    .update(schema.sourceContent)
+    .set({
+      metadata: sql`COALESCE(${schema.sourceContent.metadata}, '{}'::jsonb) || ${patch}`,
+      updatedAt: new Date()
+    })
+    .where(eq(schema.sourceContent.id, sourceContentId))
+}
 
 /**
  * Generates a content draft from a source content (context, YouTube video, etc.)
@@ -193,14 +248,72 @@ export const generateContentDraftFromSource = async (
     })
   }
 
-  // If we have sourceContent, use its chunks; otherwise create temporary chunks for inline text
+  // If we have sourceContent, use its chunks
   let chunks: Awaited<ReturnType<typeof ensureSourceContentChunksExist>> | null = null
+  const _resolvedSourceId = sourceContent?.id ?? null // Not currently used
+
   if (sourceContent) {
     chunks = await ensureSourceContentChunksExist(db, sourceContent, resolvedSourceText!)
+  } else if (resolvedSourceText && resolvedIngestMethod === 'conversation_context') {
+    // Persist conversation context as a SourceContent record
+    // This allows the context to be chunked and embedded for RAG search
+    // (edit_section uses findGlobalRelevantChunks which searches the entire org's vector index)
+    // Marked as ephemeral - can be cleaned up by a periodic job for old records
+    const [newSource] = await db.insert(schema.sourceContent).values({
+      organizationId,
+      createdByUserId: userId,
+      sourceType: 'conversation', // Valid text value (not an enum)
+      title: `Conversation Context - ${new Date().toLocaleString()}`,
+      sourceText: resolvedSourceText,
+      ingestStatus: 'pending', // Set to pending initially to match chunkingStatus
+      metadata: {
+        isEphemeral: true, // Mark as ephemeral for potential cleanup job
+        chunkingStatus: 'pending', // Will be updated to 'processing' when chunking starts
+        createdAt: new Date().toISOString()
+      }
+    }).returning()
+
+    if (newSource) {
+      sourceContent = newSource
+
+      // Fail fast if status update fails
+      try {
+        await updateChunkingStatus(db, newSource.id, 'processing')
+      } catch (err) {
+        console.error('[Content Generation] Failed to update chunking status to processing:', err)
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Failed to initialize chunking status'
+        })
+      }
+
+      // Chunk and embed in background using Cloudflare waitUntil or fire-and-forget
+      const chunkingPromise = ensureSourceContentChunksExist(db, newSource, newSource.sourceText)
+        .then(() => updateChunkingStatus(db, newSource.id, 'completed'))
+        .catch(async (err) => {
+          console.error('[Content Generation] Background chunking failed:', err)
+          await updateChunkingStatus(db, newSource.id, 'failed', err?.message || 'Unknown error')
+        })
+
+      // Use Cloudflare waitUntil if available (extends request lifetime), otherwise fire-and-forget
+      // Await getting the function to ensure we don't race against response end
+      const waitUntilFn = await getWaitUntil()
+      if (waitUntilFn) {
+        waitUntilFn(chunkingPromise)
+      } else {
+        // Fallback for Node.js/dev: fire-and-forget (tasks may not complete if server shuts down)
+        chunkingPromise.catch((err) => {
+          console.error('[Content Generation] Fire-and-forget chunking failed:', err)
+        })
+      }
+
+      // Don't wait for chunks - proceed with content generation
+      // edit_section will check status and inform user if chunks aren't ready yet
+      chunks = null
+    }
   } else if (resolvedSourceText) {
-    // For inline sourceText without sourceContent, we'll need to create chunks on the fly
-    // For now, we'll skip chunking for inline text (the generation will work without chunks)
-    // In the future, we could create temporary chunks here
+    // For inline sourceText (not conversation), we typically skip chunking
+    // unless we want to persist that too. For now, keeping original behavior for non-conversation inline text.
     chunks = null
   }
 
@@ -616,28 +729,46 @@ export const updateContentSectionWithAI = async (
     version: currentVersion
   })
 
-  const chunks = await ensureSourceContentChunksExist(
-    db,
-    record.sourceContent ?? null,
-    record.sourceContent?.sourceText ?? null
-  )
+  // Check status of the specific source content linked to this record
+  if (record.sourceContent?.id) {
+    const sourceMeta = (record.sourceContent.metadata as Record<string, any>) || {}
+    const chunkingStatus = sourceMeta.chunkingStatus
 
-  const relevantChunks = await findRelevantChunksForSection({
-    chunks,
-    outline: {
-      id: targetSection.id,
-      index: targetSection.index,
-      title: targetSection.title,
-      type: targetSection.type,
-      notes: trimmedInstructions
-    },
+    if (chunkingStatus === 'processing' || chunkingStatus === 'pending') {
+      // Check for timeout/stale job
+      const startedAtStr = sourceMeta.chunkingStartedAt || sourceMeta.createdAt
+      const startedAt = startedAtStr ? new Date(startedAtStr).getTime() : Date.now()
+      const elapsedMinutes = (Date.now() - startedAt) / (1000 * 60)
+
+      if (elapsedMinutes > 10) {
+        // Job is stale/stuck (>10 mins). Mark as failed and proceed (on a best-effort basis)
+        console.warn(`[Content Update] Found stale chunking job for source ${record.sourceContent.id}, marking failed.`)
+        await updateChunkingStatus(db, record.sourceContent.id, 'failed', 'Chunking timeout - auto-failed')
+        // Proceed without throwing 503
+      } else {
+        // Job is still fresh, ask user to wait
+        throw createError({
+          statusCode: 503,
+          statusMessage: 'Context is still being processed for semantic search. Please wait a moment and try again.'
+        })
+      }
+    }
+  }
+
+  // RAG: Search global context instead of partial source
+  const relevantChunks = await findGlobalRelevantChunks({
+    db,
     organizationId,
-    sourceContentId: record.sourceContent?.id ?? frontmatter.sourceContentId ?? null
+    queryText: `${targetSection.title} ${trimmedInstructions}`
   })
 
-  const contextBlock = relevantChunks.length
-    ? relevantChunks.map(chunk => `Chunk ${chunk.chunkIndex}: ${chunk.text.slice(0, 600)}`).join('\n\n')
-    : 'No context available.'
+  // Format context for the AI
+  let contextBlock = 'No external context available.'
+  if (relevantChunks.length) {
+    contextBlock = relevantChunks
+      .map(chunk => `[Source: ${chunk.sourceContentId?.slice(0, 8) ?? 'Unknown'}] ${chunk.text.slice(0, 600)}`)
+      .join('\n\n')
+  }
 
   const prompt = [
     `You are editing a single section of a ${frontmatter.contentType}.`,
@@ -968,7 +1099,7 @@ export {
   buildChunkPreviewText,
   createTextChunks,
   ensureSourceContentChunksExist,
-  findRelevantChunksForSection
+  findGlobalRelevantChunks
 } from './chunking'
 
 export {

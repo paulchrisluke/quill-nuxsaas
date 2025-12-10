@@ -47,6 +47,7 @@ interface ContentApiResponse {
 
 definePageMeta({
   // Uses default layout which adapts based on workspace header state
+  ssr: false // Client-side only to prevent hydration mismatches
 })
 
 const route = useRoute()
@@ -55,9 +56,6 @@ const contentId = computed(() => {
   const param = route.params.id
   return Array.isArray(param) ? param[0] : param || ''
 })
-
-// Chat widget visibility
-const showChat = ref(false)
 
 // Set workspace header state
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
@@ -74,9 +72,7 @@ const setShellHeader = () => {
     deletions: 0,
     contentId: contentId.value || undefined,
     showBackButton: true,
-    onBack: () => {
-      router.push('/content')
-    },
+    onBack: null, // Set to function in onMounted to avoid hydration mismatch
     onArchive: null,
     onShare: null,
     onPrimaryAction: null,
@@ -88,21 +84,21 @@ const setShellHeader = () => {
 
 setShellHeader()
 
-// Fetch content data
+// Fetch content data (client-side only for instant navigation)
 const { data: contentData, pending, error, refresh } = useFetch(() => `/api/content/${contentId.value}`, {
-  key: () => `content-${contentId.value}`,
+  key: computed(() => `content-${contentId.value}`),
   lazy: true,
-  server: true,
+  server: false, // Client-side only - instant skeleton, no SSR blocking
   default: () => null
 })
 
-// Local markdown state for editor
-const markdown = ref('')
-const originalMarkdown = ref('')
+// Local editor content state (using HTML string for TipTap)
+const editorContent = ref('')
+const originalContent = ref('')
 const isSaving = ref(false)
 
 // Computed dirty state
-const isDirty = computed(() => markdown.value !== originalMarkdown.value)
+const isDirty = computed(() => editorContent.value !== originalContent.value)
 
 // Remote content change detection
 const showConflictModal = ref(false)
@@ -146,16 +142,21 @@ const contentEntry = computed<ContentEntry | null>(() => {
   }
 })
 
-// Sync markdown with content - with dirty check to prevent overwriting edits
+// Sync editor content with content - with dirty check to prevent overwriting edits
 watch(contentEntry, (entry) => {
   if (entry && typeof entry.bodyMdx === 'string') {
-    // If no local changes, or remote content matches what we started with, safe to update
-    if (!isDirty.value || entry.bodyMdx === originalMarkdown.value) {
-      markdown.value = entry.bodyMdx
-      originalMarkdown.value = entry.bodyMdx
+    // Use MDX content directly in textarea (UTextarea handles plain text/MDX)
+    const htmlContent = entry.bodyMdx
+
+    if (!isDirty.value) {
+      // No local changes - safe to update both editor and baseline
+      editorContent.value = htmlContent
+      originalContent.value = htmlContent
+    } else if (htmlContent === originalContent.value) {
+      // Local edits exist but remote hasn't changed - preserve local edits
+      // Do nothing
     } else {
-      // Remote content changed while we have unsaved local edits
-      // Store pending remote content and show conflict modal
+      // Remote content changed while we have unsaved local edits - conflict
       pendingRemoteContent.value = entry.bodyMdx
       showConflictModal.value = true
     }
@@ -165,8 +166,8 @@ watch(contentEntry, (entry) => {
 // Handle conflict resolution
 const acceptRemoteChanges = () => {
   if (pendingRemoteContent.value !== null) {
-    markdown.value = pendingRemoteContent.value
-    originalMarkdown.value = pendingRemoteContent.value
+    editorContent.value = pendingRemoteContent.value
+    originalContent.value = pendingRemoteContent.value
     pendingRemoteContent.value = null
   }
   showConflictModal.value = false
@@ -176,11 +177,29 @@ const keepLocalChanges = () => {
   // Update baseline to remote so we don't re-trigger conflict on same content
   // User still has unsaved changes (isDirty remains true), but we acknowledge this remote version
   if (pendingRemoteContent.value !== null) {
-    originalMarkdown.value = pendingRemoteContent.value
+    originalContent.value = pendingRemoteContent.value
   }
   pendingRemoteContent.value = null
   showConflictModal.value = false
 }
+
+// Helper to set onBack callback (used after mount to avoid hydration mismatch)
+const setOnBackCallback = () => {
+  if (workspaceHeader.value) {
+    workspaceHeader.value.onBack = () => {
+      router.push('/content')
+    }
+  }
+}
+
+// Track if component is mounted (client-side only)
+const isMounted = ref(false)
+
+// Set onBack callback after mount to avoid hydration mismatch
+onMounted(() => {
+  isMounted.value = true
+  setOnBackCallback()
+})
 
 // Update workspace header when content loads
 watch(contentEntry, (entry) => {
@@ -197,15 +216,18 @@ watch(contentEntry, (entry) => {
       deletions: entry.deletions ?? 0,
       contentId: entry.id,
       showBackButton: true,
-      onBack: () => {
-        router.push('/content')
-      },
+      onBack: null, // Set to function after mount to avoid hydration mismatch
       onArchive: null,
       onShare: null,
       onPrimaryAction: null,
       primaryActionLabel: '',
       primaryActionColor: '',
       primaryActionDisabled: false
+    }
+
+    // Update onBack callback if already mounted (in case this watch runs after mount)
+    if (isMounted.value) {
+      setOnBackCallback()
     }
 
     workspaceHeaderLoading.value = false
@@ -228,11 +250,11 @@ const handleSave = async () => {
     await $fetch(`/api/content/${contentId.value}`, {
       method: 'PATCH',
       body: {
-        bodyMdx: markdown.value
+        bodyMdx: editorContent.value
       }
     })
-    // Update original markdown to match saved content
-    originalMarkdown.value = markdown.value
+    // Update original content to match saved content
+    originalContent.value = editorContent.value
     await refresh()
   } catch (err) {
     console.error('Failed to save content:', err)
@@ -243,75 +265,75 @@ const handleSave = async () => {
 </script>
 
 <template>
-  <div class="w-full h-full relative">
-    <USkeleton
-      v-if="pending"
-      class="rounded-2xl border border-muted-200/70 p-4"
-    >
-      <div class="h-4 rounded bg-muted/70" />
-      <div class="mt-2 space-y-2">
-        <div class="h-3 rounded bg-muted/60" />
-        <div class="h-3 rounded bg-muted/50" />
-      </div>
-    </USkeleton>
-
-    <UAlert
-      v-else-if="error"
-      color="error"
-      variant="soft"
-      icon="i-lucide-alert-triangle"
-      :description="error.message || 'Failed to load content'"
-      class="w-full"
-    />
-
-    <div
-      v-else-if="contentEntry"
-      class="w-full h-full flex flex-col"
-    >
-      <!-- Editor Toolbar -->
-      <div class="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-800">
-        <div class="flex items-center gap-3">
-          <UButton
-            v-if="contentEntry.conversationId"
-            :to="`/conversations/${contentEntry.conversationId}`"
-            variant="ghost"
-            color="gray"
-            size="sm"
-            icon="i-lucide-message-circle"
-          >
-            View Conversation
-          </UButton>
+  <div class="w-full h-full flex flex-col py-4 px-4 sm:px-6">
+    <div class="w-full">
+      <div class="space-y-8">
+        <!-- Loading skeleton -->
+        <div
+          v-if="pending"
+          class="space-y-4"
+        >
+          <USkeleton class="h-20 w-full rounded-lg" />
+          <USkeleton class="h-32 w-3/4 rounded-lg" />
+          <USkeleton class="h-24 w-full rounded-lg" />
         </div>
-        <div class="flex items-center gap-2">
-          <UButton
-            :icon="showChat ? 'i-lucide-panel-right-close' : 'i-lucide-message-circle'"
-            variant="ghost"
-            color="gray"
-            size="sm"
-            @click="showChat = !showChat"
-          >
-            {{ showChat ? 'Hide Chat' : 'Show Chat' }}
-          </UButton>
-          <UButton
-            icon="i-lucide-save"
-            color="primary"
-            size="sm"
-            :loading="isSaving"
-            @click="handleSave"
-          >
-            Save
-          </UButton>
-        </div>
-      </div>
 
-      <!-- MDX Editor -->
-      <div class="flex-1 overflow-auto">
-        <UTextarea
-          v-model="markdown"
-          :rows="30"
-          placeholder="Start writing your content..."
-          class="font-mono text-sm"
-          autoresize
+        <!-- Error banner -->
+        <UAlert
+          v-else-if="error"
+          color="error"
+          variant="soft"
+          icon="i-lucide-alert-triangle"
+          :description="error.message || 'Failed to load content'"
+          class="w-full"
+        />
+
+        <!-- Content Editor -->
+        <template v-else-if="contentEntry">
+          <!-- Editor -->
+          <div class="w-full">
+            <UTextarea
+              v-model="editorContent"
+              placeholder="Start writing your content..."
+              autoresize
+              class="w-full min-h-96"
+            />
+          </div>
+
+          <!-- Save Button -->
+          <div class="flex justify-end">
+            <UButton
+              icon="i-lucide-save"
+              color="primary"
+              size="sm"
+              :loading="isSaving"
+              @click="handleSave"
+            >
+              Save
+            </UButton>
+          </div>
+
+          <!-- Chat Widget Below Editor -->
+          <ClientOnly>
+            <div class="w-full">
+              <QuillioWidget
+                :content-id="contentEntry.id"
+                :conversation-id="contentEntry.conversationId"
+                initial-mode="agent"
+              />
+            </div>
+          </ClientOnly>
+        </template>
+
+        <!-- Empty state -->
+        <UAlert
+          v-else
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-file-text"
+          title="No content available"
+          description="This content item could not be found or loaded."
+          class="w-full"
         />
       </div>
     </div>
@@ -362,27 +384,5 @@ const handleSave = async () => {
         </template>
       </UCard>
     </UModal>
-
-    <!-- Floating Chat Widget -->
-    <Transition
-      enter-active-class="transition-all duration-300 ease-out"
-      enter-from-class="translate-x-full opacity-0"
-      enter-to-class="translate-x-0 opacity-100"
-      leave-active-class="transition-all duration-300 ease-in"
-      leave-from-class="translate-x-0 opacity-100"
-      leave-to-class="translate-x-full opacity-0"
-    >
-      <div
-        v-if="showChat && contentEntry"
-        class="fixed top-0 right-0 h-screen w-[480px] bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-2xl z-50 overflow-hidden"
-      >
-        <QuillioWidget
-          :content-id="contentEntry.id"
-          :conversation-id="contentEntry.conversationId"
-          initial-mode="agent"
-          class="h-full"
-        />
-      </div>
-    </Transition>
   </div>
 </template>

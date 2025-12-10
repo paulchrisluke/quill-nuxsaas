@@ -83,6 +83,11 @@ export function useConversation() {
   // Maps toolCallId -> { messageId, partIndex }
   const activeToolCalls = useState<Map<string, { messageId: string, partIndex: number }>>('chat/active-tool-calls', () => new Map())
 
+  // Client-side message cache for instant navigation
+  // Maps conversationId -> { messages, timestamp }
+  const messageCache = useState<Map<string, { messages: ChatMessage[], timestamp: number }>>('chat/message-cache', () => new Map())
+  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
 
   const resetConversation = () => {
@@ -96,7 +101,7 @@ export function useConversation() {
     activeToolCalls.value.clear()
   }
 
-  const hydrateConversation = ({ conversationId: id, messages: msgs }: { conversationId: string, messages: ChatMessage[] }) => {
+  const hydrateConversation = ({ conversationId: id, messages: msgs }: { conversationId: string, messages: ChatMessage[] }, options?: { skipCache?: boolean }) => {
     conversationId.value = id
     messages.value = msgs
     status.value = 'ready'
@@ -105,6 +110,30 @@ export function useConversation() {
     currentActivity.value = null
     currentToolName.value = null
     activeToolCalls.value.clear()
+
+    // Cache messages for instant future navigation (unless explicitly skipped)
+    if (!options?.skipCache) {
+      messageCache.value.set(id, {
+        messages: structuredClone(msgs),
+        timestamp: Date.now()
+      })
+    }
+  }
+
+  // Get cached messages if available and fresh
+  const getCachedMessages = (id: string): ChatMessage[] | null => {
+    const cached = messageCache.value.get(id)
+    if (!cached)
+      return null
+
+    const age = Date.now() - cached.timestamp
+    if (age > CACHE_TTL_MS) {
+      // Cache expired, remove it
+      messageCache.value.delete(id)
+      return null
+    }
+
+    return structuredClone(cached.messages)
   }
 
   async function callChatEndpoint(body: Record<string, any>) {
@@ -264,15 +293,9 @@ export function useConversation() {
                     break
                   }
 
-                  case 'tool:start': {
+                  case 'tool:preparing': {
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
-
-                    // Server MUST provide toolCallId for unique tracking
-                    if (!eventData.toolCallId) {
-                      console.error('tool:start missing toolCallId, cannot track concurrent tools')
-                      break
-                    }
 
                     // Ensure we have an assistant message
                     if (!currentAssistantMessageId) {
@@ -296,34 +319,102 @@ export function useConversation() {
                     const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                     const message = messageIndex >= 0 ? messages.value[messageIndex] : null
                     if (message && eventData.toolName) {
-                      // Add tool_call part with unique ID
+                      // Check if tool part already exists (upgrade from preparing to running)
+                      const existingToolPartIndex = message.parts.findIndex(
+                        p => p.type === 'tool_call' && p.toolCallId === eventData.toolCallId
+                      )
+
+                      if (existingToolPartIndex >= 0) {
+                        // Already exists, skip (will be upgraded to 'running' by tool:start)
+                        break
+                      }
+
+                      // Add tool_call part with 'preparing' status
                       const toolPart: MessagePart = {
                         type: 'tool_call',
                         toolCallId: eventData.toolCallId,
                         toolName: eventData.toolName,
-                        status: 'running',
-                        args: eventData.args,
+                        status: 'preparing',
                         timestamp: new Date().toISOString()
                       }
                       message.parts.push(toolPart)
 
                       // Track by toolCallId (not toolName!)
                       activeToolCalls.value.set(eventData.toolCallId, {
-                        messageId: currentAssistantMessageId,
+                        messageId: message.id,
                         partIndex: message.parts.length - 1
                       })
                     }
                     break
                   }
 
+                  case 'tool:start': {
+                    currentActivity.value = 'thinking'
+                    currentToolName.value = eventData.toolName || null
+
+                    // Ensure we have an assistant message
+                    if (!currentAssistantMessageId) {
+                      const messageId = eventData.messageId || createId()
+                      currentAssistantMessageId = messageId
+                      messages.value.push({
+                        id: messageId,
+                        role: 'assistant' as const,
+                        parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
+                        createdAt: new Date()
+                      })
+                    } else if (eventData.messageId && currentAssistantMessageId !== eventData.messageId) {
+                      const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                      if (message) {
+                        message.id = eventData.messageId
+                        currentAssistantMessageId = eventData.messageId
+                      }
+                    }
+
+                    const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
+                    const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                    if (message && eventData.toolName) {
+                      // Check if tool part already exists (from tool:preparing)
+                      const existingToolPartIndex = message.parts.findIndex(
+                        p => p.type === 'tool_call' && p.toolCallId === eventData.toolCallId
+                      )
+
+                      if (existingToolPartIndex >= 0) {
+                        // Upgrade from 'preparing' to 'running'
+                        const toolPart = message.parts[existingToolPartIndex]
+                        if (toolPart.type === 'tool_call') {
+                          toolPart.status = 'running'
+                          toolPart.args = eventData.args
+                        }
+                        // Update tracking
+                        activeToolCalls.value.set(eventData.toolCallId, {
+                          messageId: message.id,
+                          partIndex: existingToolPartIndex
+                        })
+                      } else {
+                        // Add new tool_call part with 'running' status
+                        const toolPart: MessagePart = {
+                          type: 'tool_call',
+                          toolCallId: eventData.toolCallId,
+                          toolName: eventData.toolName,
+                          status: 'running',
+                          args: eventData.args,
+                          timestamp: new Date().toISOString()
+                        }
+                        message.parts.push(toolPart)
+
+                        // Track by toolCallId (not toolName!)
+                        activeToolCalls.value.set(eventData.toolCallId, {
+                          messageId: message.id,
+                          partIndex: message.parts.length - 1
+                        })
+                      }
+                    }
+                    break
+                  }
+
                   case 'tool:complete': {
                     currentToolName.value = null
-
-                    // Server MUST provide toolCallId to identify which call completed
-                    if (!eventData.toolCallId) {
-                      console.error('tool:complete missing toolCallId, cannot update correct tool')
-                      break
-                    }
 
                     const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
                     if (toolCallInfo) {
@@ -341,6 +432,25 @@ export function useConversation() {
 
                       // Remove from active tracking
                       activeToolCalls.value.delete(eventData.toolCallId)
+                    }
+                    break
+                  }
+
+                  case 'tool:progress': {
+                    // Update progress message for long-running tools
+
+                    const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
+                    if (toolCallInfo) {
+                      const messageIndex = messages.value.findIndex(m => m.id === toolCallInfo.messageId)
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+
+                      if (message) {
+                        const toolPart = message.parts[toolCallInfo.partIndex]
+                        if (toolPart && toolPart.type === 'tool_call') {
+                          // Add progress message to tool part
+                          toolPart.progressMessage = eventData.message
+                        }
+                      }
                     }
                     break
                   }
@@ -475,6 +585,7 @@ export function useConversation() {
     requestStartedAt,
     hydrateConversation,
     resetConversation,
+    getCachedMessages,
     prompt,
     mode,
     currentActivity,
