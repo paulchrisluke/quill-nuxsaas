@@ -79,8 +79,9 @@ export async function runChatAgentWithMultiPassStream({
   userMessage,
   contextBlocks = [],
   onLLMChunk,
+  onToolPreparing,
   onToolStart,
-  onToolProgress: _onToolProgress,
+  onToolProgress,
   onToolComplete,
   onFinalMessage,
   onRetry,
@@ -90,13 +91,6 @@ export async function runChatAgentWithMultiPassStream({
   onLLMChunk?: (chunk: string) => void
   onToolPreparing?: (toolCallId: string, toolName: string) => void
   onToolStart?: (toolCallId: string, toolName: string) => void
-  // TODO: onToolProgress is currently unused. To implement:
-  // 1. Update executeTool signature to accept onToolProgress: (toolCallId: string, message: string) => void
-  // 2. Pass onToolProgress through to executeTool so tools can emit progress events
-  // 3. Tools that support progress (e.g., content_write, source_ingest) should call this callback
-  //    during long-running operations to provide real-time updates to the client
-  // Example usage location: around line 366-371 where executeTool is called, pass onToolProgress
-  //   so tools can emit progress like: onToolProgress?.(toolCallId, "Processing step 1 of 3...")
   onToolProgress?: (toolCallId: string, message: string) => void
   onToolComplete?: (toolCallId: string, toolName: string, result: ToolExecutionResult) => void
   onFinalMessage?: (message: string) => void

@@ -312,10 +312,7 @@ const handleSave = async () => {
 
           <!-- Chat Widget Below Editor -->
           <ClientOnly>
-            <div
-              v-if="contentEntry"
-              class="w-full"
-            >
+            <div class="w-full">
               <QuillioWidget
                 :content-id="contentEntry.id"
                 :conversation-id="contentEntry.conversationId"
@@ -324,6 +321,17 @@ const handleSave = async () => {
             </div>
           </ClientOnly>
         </template>
+
+        <!-- Empty state -->
+        <UAlert
+          v-else
+          color="neutral"
+          variant="soft"
+          icon="i-lucide-file-text"
+          title="No content available"
+          description="This content item could not be found or loaded."
+          class="w-full"
+        />
       </div>
     </div>
 
