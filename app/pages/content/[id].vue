@@ -145,7 +145,7 @@ const contentEntry = computed<ContentEntry | null>(() => {
 // Sync editor content with content - with dirty check to prevent overwriting edits
 watch(contentEntry, (entry) => {
   if (entry && typeof entry.bodyMdx === 'string') {
-    // Convert MDX to HTML for editor (simple conversion - MDX is mostly markdown)
+    // Use MDX content directly in textarea (UTextarea handles plain text/MDX)
     const htmlContent = entry.bodyMdx
     // If no local changes, or remote content matches what we started with, safe to update
     if (!isDirty.value || htmlContent === originalContent.value) {

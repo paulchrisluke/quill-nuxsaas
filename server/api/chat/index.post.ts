@@ -1759,10 +1759,7 @@ export default defineEventHandler(async (event) => {
                 writeSSE
               )
             },
-            executeTool: async (toolInvocation: ChatToolInvocation) => {
-              // Generate toolCallId for progress tracking
-              const currentToolCallId = `tool_${Date.now()}_${Math.random().toString(36).slice(2)}`
-
+            executeTool: async (toolInvocation: ChatToolInvocation, toolCallId: string, onProgress?: (message: string) => void) => {
               return await executeChatTool(toolInvocation, {
                 mode,
                 db,
@@ -1770,14 +1767,19 @@ export default defineEventHandler(async (event) => {
                 userId: user.id,
                 conversationId: activeConversation.id,
                 event,
-                toolCallId: currentToolCallId,
+                toolCallId,
                 onToolProgress: (toolCallId: string, message: string) => {
-                  // Forward progress to SSE stream
-                  writeSSE('tool:progress', {
-                    toolCallId,
-                    message,
-                    timestamp: new Date().toISOString()
-                  })
+                  // Forward progress to SSE stream using the callback if provided
+                  if (onProgress) {
+                    onProgress(message)
+                  } else {
+                    // Fallback to direct SSE write if no callback provided
+                    writeSSE('tool:progress', {
+                      toolCallId,
+                      message,
+                      timestamp: new Date().toISOString()
+                    })
+                  }
                 }
               })
             }

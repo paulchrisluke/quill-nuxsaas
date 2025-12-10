@@ -100,7 +100,7 @@ export async function runChatAgentWithMultiPassStream({
   onToolProgress?: (toolCallId: string, message: string) => void
   onToolComplete?: (toolCallId: string, toolName: string, result: ToolExecutionResult) => void
   onFinalMessage?: (message: string) => void
-  executeTool: (invocation: ChatToolInvocation) => Promise<ToolExecutionResult>
+  executeTool: (invocation: ChatToolInvocation, toolCallId: string, onProgress?: (message: string) => void) => Promise<ToolExecutionResult>
 }): Promise<MultiPassAgentResult> {
   const currentHistory: ChatCompletionMessage[] = [...conversationHistory]
   const toolHistory: MultiPassAgentResult['toolHistory'] = []
@@ -367,11 +367,14 @@ export async function runChatAgentWithMultiPassStream({
 
       try {
         // Wrap tool execution with timeout
-        // TODO: When executeTool signature is updated to accept onToolProgress, pass it here:
-        //   executeTool(toolInvocation, { onToolProgress: (message) => onToolProgress?.(toolCallId, message) })
-        // This will allow tools to emit progress events during long-running operations (e.g., content_write, source_ingest)
+        // Pass toolCallId and onProgress callback to allow tools to emit progress events
+        // during long-running operations (e.g., content_write, source_ingest)
         toolResult = await Promise.race([
-          executeTool(toolInvocation),
+          executeTool(
+            toolInvocation,
+            toolCall.id,
+            onToolProgress ? (message: string) => onToolProgress(toolCall.id, message) : undefined
+          ),
           new Promise<ToolExecutionResult>((_, reject) =>
             setTimeout(() => reject(new Error(`Tool execution timed out after ${toolTimeout / 1000}s`)), toolTimeout)
           )
@@ -451,12 +454,12 @@ export async function runChatAgentWithMultiPassStream({
       })
 
       // Emit tool start and complete events for consistency
-      const failedToolCallId = `failed_${toolInvocation.name}_${Date.now()}`
+      // Use the original toolCall.id to match the conversation history entry
       if (onToolStart) {
-        onToolStart(failedToolCallId, toolInvocation.name)
+        onToolStart(toolCall.id, toolInvocation.name)
       }
       if (onToolComplete) {
-        onToolComplete(failedToolCallId, toolInvocation.name, placeholderResult)
+        onToolComplete(toolCall.id, toolInvocation.name, placeholderResult)
       }
 
       // Add tool result as tool message (tool response) to conversation history
