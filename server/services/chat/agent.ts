@@ -363,7 +363,7 @@ export async function runChatAgentWithMultiPassStream({
         onToolComplete(toolCallId, toolInvocation.name, toolResult)
       }
 
-      // Add tool result to history
+      // Add tool result to history for debugging/state tracking
       toolHistory.push({
         toolName: toolInvocation.name,
         invocation: toolInvocation,
@@ -371,11 +371,9 @@ export async function runChatAgentWithMultiPassStream({
         timestamp
       })
 
-      currentHistory.push({
-        role: 'tool',
-        content: JSON.stringify(toolResult),
-        tool_call_id: toolCall.id
-      })
+      // Note: Tool result message is added to currentHistory later (lines ~398-402)
+      // after formatting, so we don't add it here to avoid duplicates
+
       if (!toolResult.success) {
         toolRetryCounts.set(toolKey, retryCount + 1)
       } else {
