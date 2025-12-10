@@ -9,7 +9,7 @@ interface ConversationQuotaUsagePayload {
 
 const localePath = useLocalePath()
 const { t } = useI18n()
-const { loggedIn, signOut, user, activeStripeSubscription, organization, session } = useAuth()
+const { loggedIn, signOut, user, activeStripeSubscription, session } = useAuth()
 const sharedQuotaUsage = useState<ConversationQuotaUsagePayload | null>('conversation-quota-usage', () => null)
 
 const userInitials = computed(() => {
@@ -34,15 +34,8 @@ const userAvatar = computed(() => {
   return data?.image || data?.avatar || data?.avatarUrl || data?.picture || null
 })
 
-// Fetch organizations list to get active org slug
-const { data: organizations } = await useLazyAsyncData('user-organizations-nav', async () => {
-  if (!loggedIn.value)
-    return null
-  const { data } = await organization.list()
-  return data
-}, {
-  getCachedData: () => undefined
-})
+// Use shared composable with proper caching
+const { data: organizations } = useUserOrganizations({ lazy: true })
 
 // Get active organization slug from session's activeOrganizationId
 // This works on all pages since better-auth maintains the active org in session

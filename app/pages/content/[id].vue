@@ -12,6 +12,34 @@ interface ContentEntry {
   contentType: string
   additions?: number
   deletions?: number
+  conversationId?: string | null
+}
+
+interface ContentApiResponse {
+  workspace?: {
+    content?: {
+      id?: string
+      title?: string
+      slug?: string
+      status?: string
+      updatedAt?: string
+      contentType?: string
+      conversationId?: string | null
+    }
+    currentVersion?: {
+      diffStats?: {
+        additions?: number
+        deletions?: number
+      }
+      frontmatter?: {
+        contentType?: string
+        diffStats?: {
+          additions?: number
+          deletions?: number
+        }
+      }
+    }
+  }
 }
 
 definePageMeta({
@@ -25,18 +53,13 @@ const contentId = computed(() => {
   return Array.isArray(param) ? param[0] : param || ''
 })
 
-const routeSlug = computed(() => {
-  const param = route.params.slug
-  return Array.isArray(param) ? param[0] : param || ''
-})
-
 // Set workspace header state
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => true)
 
 const setShellHeader = () => {
   workspaceHeader.value = {
-    title: routeSlug.value || 'Loading content…',
+    title: 'Loading content…',
     status: null,
     contentType: null,
     updatedAtLabel: null,
@@ -46,7 +69,7 @@ const setShellHeader = () => {
     contentId: contentId.value || undefined,
     showBackButton: true,
     onBack: () => {
-      router.push(`/${routeSlug.value}`)
+      router.push('/content')
     },
     onArchive: null,
     onShare: null,
@@ -59,22 +82,26 @@ const setShellHeader = () => {
 
 setShellHeader()
 
-// Fetch content data
-const { data: contentData, pending, error } = useFetch(`/api/content/${contentId.value}`, {
-  key: `content-${contentId.value}`,
+// Fetch content data - API uses active organization from session, no slug needed
+const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
+  key: computed(() => `content-${contentId.value}`),
   lazy: true,
   server: true,
   default: () => null
 })
 
-// Transform to ContentEntry format (same as ChatContentList expects)
+// Transform to ContentEntry format
 const contentEntry = computed<ContentEntry | null>(() => {
   if (!contentData.value)
     return null
 
-  const entry = contentData.value as any
-  const content = entry.content
-  const currentVersion = entry.currentVersion
+  const entry = contentData.value as ContentApiResponse
+  const workspace = entry.workspace
+  const content = workspace?.content
+  const currentVersion = workspace?.currentVersion
+
+  if (!content)
+    return null
 
   let updatedAt: Date | null = null
   if (content?.updatedAt) {
@@ -95,7 +122,8 @@ const contentEntry = computed<ContentEntry | null>(() => {
     updatedAt,
     contentType: currentVersion?.frontmatter?.contentType || content?.contentType || 'content',
     additions,
-    deletions
+    deletions,
+    conversationId: content?.conversationId || null
   }
 })
 
@@ -115,7 +143,7 @@ watch(contentEntry, (entry) => {
       contentId: entry.id,
       showBackButton: true,
       onBack: () => {
-        router.push(`/${routeSlug.value}`)
+        router.push('/content')
       },
       onArchive: null,
       onShare: null,
@@ -192,6 +220,20 @@ watchEffect(() => {
           <span class="text-rose-500 dark:text-rose-400">
             -{{ contentEntry.deletions ?? 0 }}
           </span>
+        </div>
+        <div
+          v-if="contentEntry.conversationId"
+          class="mt-4"
+        >
+          <UButton
+            :to="`/conversations/${contentEntry.conversationId}`"
+            variant="outline"
+            color="primary"
+            size="sm"
+            icon="i-lucide-message-circle"
+          >
+            View Conversation
+          </UButton>
         </div>
       </div>
     </div>

@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{
   bodyClass: ''
 })
 
+const { t } = useI18n()
+
 const ALLOWED_EMBED_DOMAINS = [
   'youtube.com',
   'www.youtube.com',
@@ -22,6 +24,8 @@ const ALLOWED_EMBED_DOMAINS = [
 const payload = computed(() => (props.message.payload as Record<string, any> | null) ?? null)
 const resolvedText = computed(() => props.displayText ?? props.message.parts?.[0]?.text ?? '')
 const preview = computed(() => payload.value?.preview ?? null)
+const isError = computed(() => payload.value?.type === 'agent_failure' || payload.value?.type === 'error')
+const errorDetails = computed(() => payload.value?.error || null)
 
 const safeEmbedUrl = computed(() => {
   const embedUrl = preview.value?.embedUrl
@@ -126,6 +130,17 @@ function toSummaryBullets(summary: string | null | undefined) {
           {{ preview.title || 'View source' }}
         </div>
       </NuxtLink>
+    </div>
+    <div
+      v-if="isError && errorDetails"
+      class="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm"
+    >
+      <p class="font-medium mb-1">
+        {{ t('chat.errorDetails') }}
+      </p>
+      <p class="font-mono text-xs whitespace-pre-wrap break-words opacity-90">
+        {{ t('chat.genericError') }}
+      </p>
     </div>
     <p class="whitespace-pre-line">
       {{ resolvedText }}
