@@ -69,6 +69,11 @@ const shouldShowSidebar = computed(() => {
   return isRouteMatch('/conversations') || isRouteMatch('/content')
 })
 
+// Determine if we should use full-width layout (conversations and content pages)
+const shouldUseFullWidth = computed(() => {
+  return isRouteMatch('/conversations') || isRouteMatch('/content')
+})
+
 const primaryActionColor = computed(() => {
   return (workspaceHeader.value?.primaryActionColor ?? 'primary') as 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
 })
@@ -277,7 +282,7 @@ const primaryActionColor = computed(() => {
         <div class="flex-1 overflow-y-auto min-h-0">
           <div
             class="w-full mx-auto"
-            :class="shouldShowChat ? 'h-full' : 'max-w-3xl px-4 py-6'"
+            :class="shouldUseFullWidth ? 'h-full' : 'max-w-3xl px-4 py-6'"
           >
             <!-- Chat interface - only on conversation routes -->
             <ClientOnly>

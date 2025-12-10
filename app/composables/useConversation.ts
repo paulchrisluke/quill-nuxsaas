@@ -297,12 +297,6 @@ export function useConversation() {
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
 
-                    // Server MUST provide toolCallId for unique tracking
-                    if (!eventData.toolCallId) {
-                      console.error('tool:preparing missing toolCallId, cannot track concurrent tools')
-                      break
-                    }
-
                     // Ensure we have an assistant message
                     if (!currentAssistantMessageId) {
                       const messageId = eventData.messageId || createId()
@@ -357,12 +351,6 @@ export function useConversation() {
                   case 'tool:start': {
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
-
-                    // Server MUST provide toolCallId for unique tracking
-                    if (!eventData.toolCallId) {
-                      console.error('tool:start missing toolCallId, cannot track concurrent tools')
-                      break
-                    }
 
                     // Ensure we have an assistant message
                     if (!currentAssistantMessageId) {
@@ -428,12 +416,6 @@ export function useConversation() {
                   case 'tool:complete': {
                     currentToolName.value = null
 
-                    // Server MUST provide toolCallId to identify which call completed
-                    if (!eventData.toolCallId) {
-                      console.error('tool:complete missing toolCallId, cannot update correct tool')
-                      break
-                    }
-
                     const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
                     if (toolCallInfo) {
                       const messageIndex = messages.value.findIndex(m => m.id === toolCallInfo.messageId)
@@ -456,10 +438,6 @@ export function useConversation() {
 
                   case 'tool:progress': {
                     // Update progress message for long-running tools
-                    if (!eventData.toolCallId) {
-                      console.error('tool:progress missing toolCallId')
-                      break
-                    }
 
                     const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
                     if (toolCallInfo) {

@@ -185,26 +185,20 @@ export async function runChatAgentWithMultiPassStream({
             const index = toolCallDelta.index ?? 0
             if (!accumulatedToolCalls[index]) {
               accumulatedToolCalls[index] = {
-                id: toolCallDelta.id || '',
+                id: toolCallDelta.id!,
                 type: 'function',
                 function: {
-                  name: toolCallDelta.function?.name || '',
+                  name: toolCallDelta.function!.name!,
                   arguments: toolCallDelta.function?.arguments || ''
                 }
               }
 
-              // Emit preparing event when we have both name and id (LLM should provide both)
-              if (toolCallDelta.function?.name && toolCallDelta.id && onToolPreparing) {
-                onToolPreparing(toolCallDelta.id, toolCallDelta.function.name)
+              // Emit preparing event immediately (LLM always provides both id and name in first chunk)
+              if (onToolPreparing) {
+                onToolPreparing(toolCallDelta.id!, toolCallDelta.function!.name!)
               }
             } else {
-              // Append to existing tool call
-              if (toolCallDelta.function?.name) {
-                accumulatedToolCalls[index].function.name = toolCallDelta.function.name
-              }
-              if (toolCallDelta.id) {
-                accumulatedToolCalls[index].id = toolCallDelta.id
-              }
+              // Append to existing tool call (subsequent chunks only contain arguments)
               if (toolCallDelta.function?.arguments) {
                 accumulatedToolCalls[index].function.arguments += toolCallDelta.function.arguments
               }
@@ -351,13 +345,7 @@ export async function runChatAgentWithMultiPassStream({
         await onRetry(toolInvocation, retryCount)
       }
 
-      // Tool call ID should always be present from LLM (per OpenAI API spec)
-      if (!toolCall.id) {
-        console.warn(`[Agent] Tool call missing ID for ${toolInvocation.name}, skipping`)
-        continue
-      }
-
-      // Emit tool start event with ID from LLM
+      // Emit tool start event (LLM always provides id per API spec)
       if (onToolStart) {
         onToolStart(toolCall.id, toolInvocation.name)
       }

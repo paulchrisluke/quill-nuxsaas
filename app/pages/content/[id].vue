@@ -262,7 +262,7 @@ const handleSave = async () => {
 </script>
 
 <template>
-  <div class="w-full h-full relative">
+  <div>
     <USkeleton
       v-if="pending"
       class="rounded-2xl border border-muted-200/70 p-4"
@@ -280,13 +280,9 @@ const handleSave = async () => {
       variant="soft"
       icon="i-lucide-alert-triangle"
       :description="error.message || 'Failed to load content'"
-      class="w-full"
     />
 
-    <div
-      v-else-if="contentEntry"
-      class="w-full h-full flex flex-col"
-    >
+    <template v-else-if="contentEntry">
       <!-- Editor Toolbar -->
       <div class="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-800">
         <div class="flex items-center gap-3">
@@ -324,16 +320,13 @@ const handleSave = async () => {
       </div>
 
       <!-- MDX Editor -->
-      <div class="flex-1 overflow-auto">
-        <UTextarea
-          v-model="markdown"
-          :rows="30"
-          placeholder="Start writing your content..."
-          class="font-mono text-sm"
-          autoresize
-        />
-      </div>
-    </div>
+      <UTextarea
+        v-model="markdown"
+        :rows="30"
+        placeholder="Start writing your content..."
+        autoresize
+      />
+    </template>
 
     <!-- Conflict Resolution Modal -->
     <UModal
