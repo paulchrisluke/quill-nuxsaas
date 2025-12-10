@@ -199,3 +199,34 @@ export async function getConversationLogs(
     ))
     .orderBy(schema.conversationLog.createdAt)
 }
+
+/**
+ * Gets an existing conversation for content or creates a new one
+ *
+ * @param db - Database instance
+ * @param input - Input parameters for conversation
+ * @returns Existing or newly created conversation
+ */
+export async function getOrCreateConversationForContent(
+  db: NodePgDatabase<typeof schema>,
+  input: EnsureConversationInput
+) {
+  // If sourceContentId is provided, try to find existing conversation
+  if (input.sourceContentId) {
+    const [existing] = await db
+      .select()
+      .from(schema.conversation)
+      .where(and(
+        eq(schema.conversation.sourceContentId, input.sourceContentId),
+        eq(schema.conversation.organizationId, input.organizationId)
+      ))
+      .limit(1)
+
+    if (existing) {
+      return existing
+    }
+  }
+
+  // No existing conversation found, create a new one
+  return await createConversation(db, input)
+}
