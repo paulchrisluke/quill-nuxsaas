@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as schema from '../server/database/schema'
 import * as chunking from '../server/services/content/generation/chunking'
 import * as contentGeneration from '../server/services/content/generation/index'
@@ -7,17 +7,7 @@ import * as contentGeneration from '../server/services/content/generation/index'
 vi.mock('../server/services/vectorize', () => ({
   isVectorizeConfigured: true,
   embedText: vi.fn().mockResolvedValue(new Array(768).fill(0)),
-  queryVectorMatches: vi.fn().mockImplementation(async ({ filter }) => {
-    // Return a mock match that points to our test source
-    if (filter?.organizationId) {
-      return [{
-        id: `${(globalThis as any).testSourceContentId}:0`,
-        score: 0.9,
-        metadata: { sourceContentId: (globalThis as any).testSourceContentId, chunkIndex: 0 }
-      }]
-    }
-    return []
-  }),
+  queryVectorMatches: vi.fn().mockResolvedValue([]),
   buildVectorId: (id: string, idx: number) => `${id}:${idx}`
 }))
 
@@ -63,6 +53,20 @@ vi.mock('../server/services/content/generation/planning', () => ({
   })
 }))
 
+vi.mock('../server/services/content/generation/frontmatter', () => ({
+  createFrontmatterFromOutline: vi.fn().mockReturnValue({ title: 'Test', status: 'draft', contentType: 'blog_post' }),
+  enrichFrontmatterWithMetadata: vi.fn().mockReturnValue({ title: 'Test', status: 'draft', contentType: 'blog_post' }),
+  extractFrontmatterFromVersion: vi.fn().mockReturnValue({
+    title: 'Test',
+    description: 'Test Desc',
+    tags: [],
+    contentType: 'blog_post',
+    schemaTypes: [],
+    primaryKeyword: 'test',
+    targetLocale: 'en'
+  })
+}))
+
 vi.mock('../server/services/content/generation/sections', () => ({
   generateContentSectionsFromOutline: vi.fn().mockResolvedValue([]),
   normalizeContentSections: vi.fn().mockReturnValue([]),
@@ -93,10 +97,6 @@ describe('rag integration & chat context', () => {
     mockDb.set.mockReturnThis()
   })
 
-  afterEach(() => {
-    delete (globalThis as any).testSourceContentId
-  })
-
   it('should persist chat context as SourceContent when generating draft', async () => {
     const conversationContext = 'Synthesized user intent from conversation.'
 
@@ -111,46 +111,44 @@ describe('rag integration & chat context', () => {
     // Mock ensureSourceContentChunksExist to return empty chunks (simulating success)
     vi.spyOn(chunking, 'ensureSourceContentChunksExist').mockResolvedValue([])
 
-    // Mock content creation flow (simplified)
+    // Mock content creation flow
     mockDb.returning
-      .mockResolvedValueOnce([{ id: 'new-source-id' }]) // source content return (redundant if using mockResolvedValueOnce above but purely for sequence)
-      .mockResolvedValueOnce([{ id: 'content-id', slug: 'cookies' }]) // content insert
-      .mockResolvedValueOnce([{ id: 'version-id' }]) // version insert
-      .mockResolvedValueOnce([{ id: 'content-id' }]) // content update
+      .mockResolvedValueOnce([{ id: 'new-source-id' }]) // returned from insert source
+      .mockResolvedValueOnce([{ id: 'content-id', slug: 'cookies' }]) // insert content
+      .mockResolvedValueOnce([{ id: 'version-id' }]) // insert version
+      .mockResolvedValueOnce([{ id: 'content-id' }]) // update content timestamp
 
-    // Mock DB selects to return found users/members so we don't 404
+    // Mock DB selects
     mockDb.limit.mockResolvedValue([{ id: userId, organizationId }])
 
-    try {
-      await contentGeneration.generateContentFromSource(mockDb, {
-        organizationId,
-        userId,
-        // No sourceContentId provided!
-        sourceText: '', // Empty source text
-        // Provide history to trigger conversation mode
-        conversationHistory: [{ role: 'user', content: 'I want cookies' }],
-        mode: 'agent',
-        overrides: { contentType: 'blog_post' }
-      })
-    } catch {
-      // console.error(e)
-      // We expect some errors due to incomplete mocks deep in assembly/metadata,
-      // but we only care if the INSERT happened early on.
-    }
+    await contentGeneration.generateContentFromSource(mockDb, {
+      organizationId,
+      userId,
+      sourceText: '', // Empty source text
+      // Provide history to trigger conversation mode
+      conversationHistory: [{ role: 'user', content: 'I want cookies' }],
+      mode: 'agent',
+      overrides: { contentType: 'blog_post' }
+    })
 
     // Verify we tried to insert a source_content record
     expect(mockDb.insert).toHaveBeenCalledWith(schema.sourceContent)
 
     // Check if values was called with correct context
-    // usage of expect.anything() for values we don't control strictly
     const calledValues = mockDb.values.mock.calls.find((call: any) => call[0].sourceType === 'conversation')
     expect(calledValues).toBeDefined()
-    expect(calledValues[0].sourceText).toBe(conversationContext)
+    expect(calledValues![0].sourceText).toBe(conversationContext)
   })
 
   it('should use findGlobalRelevantChunks during section update', async () => {
-    // Setup global ID for the mock to return
-    (globalThis as any).testSourceContentId = 'source-123'
+    const { queryVectorMatches } = await import('../server/services/vectorize')
+
+    // Override the mock for this specific test
+    vi.mocked(queryVectorMatches).mockResolvedValueOnce([{
+      id: 'source-123:0',
+      score: 0.9,
+      metadata: { sourceContentId: 'source-123', chunkIndex: 0 }
+    }])
 
     // Mock fetching the chunk text from DB
     mockDb.limit.mockResolvedValueOnce([{

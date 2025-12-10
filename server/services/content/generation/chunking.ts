@@ -325,34 +325,8 @@ export const findGlobalRelevantChunks = async (params: {
     return []
   }
 
-  // 4. Fetch actual chunk text from DB
-  // Note: conditions variable is prepared but not used - using Promise.all approach instead
-  const _conditions = chunkIdentifiers.map(item =>
-    and(
-      eq(schema.chunk.sourceContentId, item.sourceContentId),
-      eq(schema.chunk.chunkIndex, item.chunkIndex)
-    )
-  )
-
-  // Use 'or' to combine conditions - need to import 'or' from drizzle-orm
-  // efficient lookup for specific chunks
-  // Since 'or' with many conditions can be slow/limit, we'll fetch by sourceContentIds and memory filter if list is small
-  // For RAG top-K (usually small < 10), specific lookup is fine.
-
-  // Actually, let's just fetch all chunks for these source IDs and filter in memory?
-  // No, that's inefficient if sources are huge.
-  // Best way with Drizzle ORM for composite key lookup is somewhat verbose.
-  // Let's rely on the fact that we have the IDs.
-
-  // Alternative: We can fetch by just matching the sourceContentIds and then filtering.
-  // But wait, the `chunk` table usually has a primary key `id`?
-  // Checking schema... `chunk.id` is PK uuid.
-  // But we don't have the UUID in the vector ID (we used sourceId:index).
-  // So we must query by (sourceId, index).
-
-  // We will loop parallel queries or build a composite OR clause.
-  // Given limit is small (3-5), Promise.all is acceptable.
-
+  // 4. Fetch chunks from DB using parallel queries
+  // For small top-K values (typically 3-5), this approach is acceptable
   const chunkResults = await Promise.all(
     chunkIdentifiers.map(async (ident) => {
       const rows = await db

@@ -59,7 +59,9 @@ async function getWaitUntil(): Promise<((promise: Promise<any>) => void) | undef
   // Try to import waitUntil from cloudflare:workers (only available in Workers runtime)
   try {
     // @ts-expect-error - cloudflare:workers is only available in Workers runtime
-    const { waitUntil } = await import('cloudflare:workers')
+    // Use variable to bypass static analysis/bundler resolution errors in Node
+    const pkg = 'cloudflare:workers'
+    const { waitUntil } = await import(pkg)
     return waitUntil
   } catch {
     // Not in Cloudflare Workers runtime - will use fire-and-forget instead

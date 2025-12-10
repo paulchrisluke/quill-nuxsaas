@@ -86,7 +86,7 @@ setShellHeader()
 
 // Fetch content data (client-side only for instant navigation)
 const { data: contentData, pending, error, refresh } = useFetch(() => `/api/content/${contentId.value}`, {
-  key: () => `content-${contentId.value}`,
+  key: computed(() => `content-${contentId.value}`),
   lazy: true,
   server: false, // Client-side only - instant skeleton, no SSR blocking
   default: () => null

@@ -114,7 +114,7 @@ export function useConversation() {
     // Cache messages for instant future navigation (unless explicitly skipped)
     if (!options?.skipCache) {
       messageCache.value.set(id, {
-        messages: msgs,
+        messages: structuredClone(msgs),
         timestamp: Date.now()
       })
     }
@@ -133,7 +133,7 @@ export function useConversation() {
       return null
     }
 
-    return cached.messages
+    return structuredClone(cached.messages)
   }
 
   async function callChatEndpoint(body: Record<string, any>) {
