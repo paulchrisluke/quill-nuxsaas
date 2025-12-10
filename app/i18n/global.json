@@ -26,7 +26,15 @@
         "status": "Status",
         "createdAt": "Created At",
         "all": "All"
+      },
+      "chat": {
+        "errorDetails": "Error Details:",
+        "genericError": "An unexpected error occurred. Please try again or contact support."
       }
+    },
+    "chat": {
+      "errorDetails": "Error Details:",
+      "genericError": "An unexpected error occurred. Please try again or contact support."
     }
   },
   "zh-CN": {
@@ -56,6 +64,10 @@
         "createdAt": "创建时间",
         "all": "全部"
       }
+    },
+    "chat": {
+      "errorDetails": "错误详情：",
+      "genericError": "发生意外错误。请重试或联系支持。"
     }
   },
   "ja": {
@@ -85,6 +97,10 @@
         "createdAt": "作成日時",
         "all": "すべて"
       }
+    },
+    "chat": {
+      "errorDetails": "エラー詳細：",
+      "genericError": "予期しないエラーが発生しました。もう一度お試しいただくか、サポートにお問い合わせください。"
     }
   },
   "fr": {
@@ -114,6 +130,10 @@
         "createdAt": "Créé le",
         "all": "Tout"
       }
+    },
+    "chat": {
+      "errorDetails": "Détails de l'erreur :",
+      "genericError": "Une erreur inattendue s'est produite. Veuillez réessayer ou contacter le support."
     }
   }
 }

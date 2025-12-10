@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{
   bodyClass: ''
 })
 
+const { t } = useI18n()
+
 const ALLOWED_EMBED_DOMAINS = [
   'youtube.com',
   'www.youtube.com',
@@ -134,10 +136,10 @@ function toSummaryBullets(summary: string | null | undefined) {
       class="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm"
     >
       <p class="font-medium mb-1">
-        {{ t('chat.errorDetails') || 'Error Details:' }}
+        {{ t('chat.errorDetails') }}
       </p>
       <p class="font-mono text-xs whitespace-pre-wrap break-words opacity-90">
-        {{ t('chat.genericError') || 'An unexpected error occurred. Please try again or contact support.' }}
+        {{ t('chat.genericError') }}
       </p>
     </div>
     <p class="whitespace-pre-line">
