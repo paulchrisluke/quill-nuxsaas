@@ -56,7 +56,6 @@ export async function createConversation(
       status,
       metadata: input.metadata ?? null
     })
-    .onConflictDoNothing()
     .returning()
 
   const conv = (Array.isArray(result) ? result[0] : null) as typeof schema.conversation.$inferSelect | null

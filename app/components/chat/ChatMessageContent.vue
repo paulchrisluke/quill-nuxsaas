@@ -133,11 +133,11 @@ function toSummaryBullets(summary: string | null | undefined) {
       v-if="isError && errorDetails"
       class="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm"
     >
-      <p class="font-semibold text-red-400 mb-1">
-        Error Details:
+      <p class="font-medium mb-1">
+        {{ t('chat.errorDetails') || 'Error Details:' }}
       </p>
-      <p class="text-red-300/80 font-mono text-xs break-words">
-        {{ errorDetails }}
+      <p class="font-mono text-xs whitespace-pre-wrap break-words opacity-90">
+        {{ t('chat.genericError') || 'An unexpected error occurred. Please try again or contact support.' }}
       </p>
     </div>
     <p class="whitespace-pre-line">
