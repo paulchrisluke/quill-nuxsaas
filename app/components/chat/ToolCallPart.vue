@@ -54,6 +54,12 @@ const statusIcon = computed(() => {
       </UBadge>
     </div>
     <div
+      v-if="part.progressMessage && part.status === 'running'"
+      class="mt-1 text-xs text-muted-600 dark:text-muted-400 italic"
+    >
+      {{ part.progressMessage }}
+    </div>
+    <div
       v-if="part.status === 'error' && part.error"
       class="mt-2 text-xs text-red-600 dark:text-red-400"
     >

@@ -345,6 +345,29 @@ export function useConversation() {
                     break
                   }
 
+                  case 'tool:progress': {
+                    // Update progress message for long-running tools
+                    if (!eventData.toolCallId) {
+                      console.error('tool:progress missing toolCallId')
+                      break
+                    }
+
+                    const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
+                    if (toolCallInfo) {
+                      const messageIndex = messages.value.findIndex(m => m.id === toolCallInfo.messageId)
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+
+                      if (message) {
+                        const toolPart = message.parts[toolCallInfo.partIndex]
+                        if (toolPart && toolPart.type === 'tool_call') {
+                          // Add progress message to tool part
+                          toolPart.progressMessage = eventData.message
+                        }
+                      }
+                    }
+                    break
+                  }
+
                   case 'conversation:update': {
                     if (eventData.conversationId) {
                       conversationId.value = eventData.conversationId ?? conversationId.value

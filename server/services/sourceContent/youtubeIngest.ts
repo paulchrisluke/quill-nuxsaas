@@ -39,6 +39,7 @@ interface IngestYouTubeOptions {
   organizationId: string
   userId: string
   videoId: string
+  onProgress?: (message: string) => void
 }
 
 interface YoutubeOEmbedResponse {
@@ -549,7 +550,7 @@ export async function findYouTubeAccount(db: NodePgDatabase<typeof schema>, orga
  * @returns Updated source content record with transcript
  */
 export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOptions) {
-  const { db, sourceContentId, organizationId: _organizationId, userId: _userId, videoId } = options
+  const { db, sourceContentId, organizationId: _organizationId, userId: _userId, videoId, onProgress } = options
 
   const [source] = await db
     .select()
@@ -571,6 +572,9 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
   let youtubeMetadata = { ...existingYoutubeMetadata }
   let transcriptResult: Awaited<ReturnType<typeof fetchTranscriptViaOfficialAPI>> | null = null
   const previewMetadata = await fetchYoutubePreview(videoId)
+
+  // Emit progress: Starting transcript fetch
+  onProgress?.('Fetching YouTube transcript...')
 
   try {
     transcriptResult = await fetchTranscriptViaOfficialAPI(db, options.organizationId, options.userId, videoId)
@@ -597,6 +601,9 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
     // Re-throw the error (it's already a createTranscriptError if from our function)
     throw error
   }
+
+  // Emit progress: Processing transcript
+  onProgress?.('Processing transcript text...')
 
   transcriptText = transcriptResult.text
   const providerMethod = transcriptResult.metadata?.method || 'youtube_api_v3'
@@ -655,11 +662,17 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
     })
   }
 
+  // Emit progress: Creating chunks
+  onProgress?.('Creating searchable chunks...')
+
   try {
     await createChunksFromSourceContentText({
       db,
       sourceContent: processing
     })
+
+    // Emit progress: Saving to database
+    onProgress?.('Saving to database...')
 
     const [updated] = await db
       .update(schema.sourceContent)
@@ -676,6 +689,9 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
         statusMessage: 'Failed to update source content after ingestion'
       })
     }
+
+    // Emit progress: Complete
+    onProgress?.('Ingestion complete!')
 
     return updated
   } catch (error) {

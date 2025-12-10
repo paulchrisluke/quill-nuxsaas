@@ -74,9 +74,9 @@ const setShellHeader = () => {
     deletions: 0,
     contentId: contentId.value || undefined,
     showBackButton: true,
-    onBack: () => {
+    onBack: import.meta.client ? () => {
       router.push('/content')
-    },
+    } : null,
     onArchive: null,
     onShare: null,
     onPrimaryAction: null,
@@ -197,9 +197,9 @@ watch(contentEntry, (entry) => {
       deletions: entry.deletions ?? 0,
       contentId: entry.id,
       showBackButton: true,
-      onBack: () => {
+      onBack: import.meta.client ? () => {
         router.push('/content')
-      },
+      } : null,
       onArchive: null,
       onShare: null,
       onPrimaryAction: null,

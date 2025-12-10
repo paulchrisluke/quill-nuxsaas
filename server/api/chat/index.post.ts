@@ -29,6 +29,7 @@ import { requireActiveOrganization } from '~~/server/utils/organization'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { validateEnum, validateNumber, validateOptionalString, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
+import { createSSEStream } from '~~/server/utils/streaming'
 
 function toSummaryBullets(text: string | null | undefined) {
   if (!text) {
@@ -46,16 +47,7 @@ function toSummaryBullets(text: string | null | undefined) {
   return sentences.length ? sentences : [normalized]
 }
 
-function writeSSEEvent(event: any, eventType: string, data: any) {
-  let eventData: string
-  try {
-    eventData = JSON.stringify(data)
-  } catch (error) {
-    console.error('Failed to serialize SSE data:', error)
-    eventData = JSON.stringify({ error: 'Serialization failed' })
-  }
-  return `event: ${eventType}\ndata: ${eventData}\n\n`
-}
+
 
 async function composeWorkspaceCompletionMessages(
   db: Awaited<ReturnType<typeof useDB>>,
@@ -161,9 +153,11 @@ async function executeChatTool(
     userId: string
     conversationId: string
     event: any
+    onToolProgress?: (toolCallId: string, message: string) => void
+    toolCallId?: string
   }
 ): Promise<ToolExecutionResult> {
-  const { mode, db, organizationId, userId, conversationId } = context
+  const { mode, db, organizationId, userId, conversationId, onToolProgress, toolCallId } = context
 
   // Import mode enforcement functions
   const { isToolAllowedInMode, getModeEnforcementError } = await import('~~/server/services/chat/tools')
@@ -234,7 +228,13 @@ async function executeChatTool(
           sourceContentId: upserted.id,
           organizationId,
           userId,
-          videoId
+          videoId,
+          onProgress: (message) => {
+            // Forward progress updates to tool progress callback
+            if (onToolProgress && toolCallId) {
+              onToolProgress(toolCallId, message)
+            }
+          }
         })
 
         if (!ingested) {
@@ -277,13 +277,11 @@ async function executeChatTool(
           title: title ?? null,
           mode: context.mode,
           metadata: { createdVia: 'chat_source_ingest_tool' },
-          onProgress: async (progressMessage) => {
-            await addMessageToConversation(db, {
-              conversationId,
-              organizationId,
-              role: 'assistant',
-              content: progressMessage
-            })
+          onProgress: (progressMessage) => {
+            // Forward progress updates to tool progress callback (streams via SSE)
+            if (onToolProgress && toolCallId) {
+              onToolProgress(toolCallId, progressMessage)
+            }
           }
         })
 
@@ -458,13 +456,11 @@ async function executeChatTool(
             context: resolvedSourceText,
             mode: context.mode,
             metadata: { createdVia: 'chat_content_write_tool' },
-            onProgress: async (progressMessage) => {
-              await addMessageToConversation(db, {
-                conversationId,
-                organizationId,
-                role: 'assistant',
-                content: progressMessage
-              })
+            onProgress: (progressMessage) => {
+              // Forward progress updates to tool progress callback (streams via SSE)
+              if (onToolProgress && toolCallId) {
+                onToolProgress(toolCallId, progressMessage)
+              }
             }
           })
 
@@ -1252,6 +1248,20 @@ async function executeChatTool(
  * - Client replaces its messages with that snapshot
  */
 export default defineEventHandler(async (event) => {
+  // ============================================================================
+  // Web Streams API Implementation for Cloudflare Workers
+  // Create stream immediately and return it - all processing happens async
+  // ============================================================================
+  const { stream, writer: sseWriter } = createSSEStream()
+
+  // Helper to write SSE events
+  const writeSSE = (eventType: string, data: any) => {
+    sseWriter.write(eventType, data)
+  }
+
+  // Start async processing (don't await - let it run in background)
+  ;(async () => {
+    try {
   const user = await requireAuth(event, { allowAnonymous: true })
   const db = await useDB(event)
 
@@ -1315,12 +1325,7 @@ export default defineEventHandler(async (event) => {
     throw createValidationError('Message is required')
   }
 
-  // Set SSE headers for streaming response
-  setResponseStatus(event, 200)
-  setHeader(event, 'Content-Type', 'text/event-stream')
-  setHeader(event, 'Cache-Control', 'no-cache')
-  setHeader(event, 'Connection', 'keep-alive')
-  setHeader(event, 'X-Accel-Buffering', 'no') // Disable nginx buffering
+
 
   const ingestionErrors: Array<{ content: string, payload?: Record<string, any> | null }> = []
   const readySources: typeof schema.sourceContent.$inferSelect[] = []
@@ -1405,16 +1410,6 @@ export default defineEventHandler(async (event) => {
   // Use activeConversation variable to avoid null checks
   let activeConversation = conversation
 
-  // Helper to write SSE event to response stream
-  const writeSSE = (eventType: string, data: any) => {
-    try {
-      const sseData = writeSSEEvent(event, eventType, data)
-      event.node.res.write(sseData)
-    } catch (error) {
-      console.error('Failed to write SSE event:', error)
-    }
-  }
-
   // Track message ID for current streaming assistant message
   // Server generates UUID on first chunk, uses same ID for all chunks and DB save
   // This ensures the client-side message ID matches the server-side message ID
@@ -1436,166 +1431,229 @@ export default defineEventHandler(async (event) => {
   }
 
   if (trimmedMessage) {
-    const previousMessages = await getConversationMessages(db, activeConversation.id, organizationId)
-    const conversationHistory: ChatCompletionMessage[] = previousMessages.map(message => ({
-      role: message.role === 'assistant'
-        ? 'assistant'
-        : message.role === 'system'
-          ? 'system'
-          : 'user',
-      content: message.content
-    }))
-
-    const contextBlocks: string[] = []
-
-    // Build workspace summary if content exists
-    const linkedContentId = (activeConversation.metadata as Record<string, any>)?.linkedContentId
-    if (linkedContentId) {
-      try {
-        const [contentRecord] = await db
-          .select()
-          .from(schema.content)
-          .where(and(
-            eq(schema.content.id, linkedContentId),
-            eq(schema.content.organizationId, organizationId)
-          ))
-          .limit(1)
-
-        if (contentRecord) {
-          const [versionRecord] = contentRecord.currentVersionId
-            ? await db
-                .select()
-                .from(schema.contentVersion)
-                .where(eq(schema.contentVersion.id, contentRecord.currentVersionId))
-                .limit(1)
-            : [null]
-
-          if (versionRecord) {
-            const [sourceRecord] = contentRecord.sourceContentId
-              ? await db
-                  .select()
-                  .from(schema.sourceContent)
-                  .where(and(
-                    eq(schema.sourceContent.id, contentRecord.sourceContentId),
-                    eq(schema.sourceContent.organizationId, organizationId)
-                  ))
-                  .limit(1)
-              : [null]
-
-            const workspaceSummary = buildWorkspaceSummary({
-              content: contentRecord,
-              currentVersion: versionRecord,
-              sourceContent: sourceRecord ?? null
-            })
-
-            if (workspaceSummary) {
-              contextBlocks.push(`Workspace Summary:\n${workspaceSummary}`)
-            } else {
-              contextBlocks.push(`Current content: "${contentRecord.title}" (${contentRecord.status})`)
-            }
-          } else {
-            contextBlocks.push(`Current content ID: ${linkedContentId}`)
-          }
-        } else {
-          console.warn(`Content ${linkedContentId} not found`)
-        }
-      } catch (error) {
-        console.error('Failed to build workspace summary for context', error)
-        contextBlocks.push(`Current content ID: ${linkedContentId}`)
-      }
-    }
-
-    // Add ready sources with details
-    if (readySources.length > 0) {
-      const sourceDetails = readySources.map((source) => {
-        const title = source.title || 'Untitled source'
-        const typeLabel = source.sourceType?.replace('_', ' ') || 'source'
-        const status = source.ingestStatus === 'ingested' ? 'ready' : source.ingestStatus
-        return `- ${title} (${typeLabel}, ${status})`
-      }).join('\n')
-      contextBlocks.push(`Ready sources for content generation:\n${sourceDetails}`)
-    }
-
-    // Add recent tool outcomes from conversation logs
-    try {
-      const recentLogs = await getConversationLogs(db, activeConversation.id, organizationId)
-      const toolLogs = recentLogs
-        .filter(log => log.type && log.type.startsWith('tool_'))
-        .slice(-5) // Last 5 tool logs
-        .reverse()
-
-      if (toolLogs.length > 0) {
-        const toolSummary = toolLogs.map((log) => {
-          const payload = log.payload as Record<string, any> | null
-          const toolName = payload?.toolName || 'unknown'
-          const status = log.type === 'tool_succeeded' ? 'succeeded' : log.type === 'tool_failed' ? 'failed' : 'started'
-          return `- ${toolName}: ${status}`
-        }).join('\n')
-        contextBlocks.push(`Recent tool executions:\n${toolSummary}`)
-      }
-    } catch (error) {
-      console.error('Failed to load recent tool logs for context', error)
-    }
-
-    // Add ingestion failures if any
-    if (ingestionErrors.length > 0) {
-      const failureSummary = ingestionErrors.map(err => `- ${err.content}`).join('\n')
-      contextBlocks.push(`Ingestion failures:\n${failureSummary}`)
-    }
-
     // Import crypto for UUID generation for streaming message IDs
     const { randomUUID } = await import('crypto')
 
-    if (trimmedMessage) {
-      // Check if this is the first message before adding it (for title generation)
-      const existingTitle = activeConversation.metadata?.title
-      const messagesBeforeAdd = await getConversationMessages(db, activeConversation.id, organizationId)
-      const isFirstMessage = messagesBeforeAdd.length === 0 && !existingTitle
+    // ============================================================================
+    // OPTIMIZATION: Send conversation:update IMMEDIATELY (before any DB operations)
+    // This allows the client to update the URL instantly
+    // ============================================================================
+    writeSSE('conversation:update', {
+      conversationId: activeConversation.id
+    })
 
-      await addMessageToConversation(db, {
-        conversationId: activeConversation.id,
-        organizationId,
-        role: 'user',
-        content: trimmedMessage
-      })
-      await addLogEntryToConversation(db, {
-        conversationId: activeConversation.id,
-        organizationId,
-        type: 'user_message',
-        message: 'User sent a chat prompt'
-      })
+    // ============================================================================
+    // OPTIMIZATION: Load conversation history ONCE and share between operations
+    // This eliminates the double query and enables true parallel execution
+    // ============================================================================
+    const loadMessagesPromise = getConversationMessages(db, activeConversation.id, organizationId)
 
-      // Generate conversation title if this is the first message
-      if (isFirstMessage) {
-        // Generate title asynchronously (don't block the response)
-        const conversationId = activeConversation.id
-        generateConversationTitle(trimmedMessage)
-          .then(async (title) => {
-            try {
-              // Re-fetch the latest conversation to avoid stale metadata
-              const latestConversation = await getConversationById(db, conversationId, organizationId)
-              if (!latestConversation) {
-                console.error('[chat] Conversation not found when updating title')
-                return
+    // ============================================================================
+    // OPTIMIZATION: Build context in parallel with message save
+    // Both operations share the same message history to avoid double query
+    // ============================================================================
+    const loadContextPromise = (async () => {
+      const previousMessages = await loadMessagesPromise
+      const conversationHistory: ChatCompletionMessage[] = previousMessages.map(message => ({
+        role: message.role === 'assistant'
+          ? 'assistant'
+          : message.role === 'system'
+            ? 'system'
+            : 'user',
+        content: message.content
+      }))
+
+      const contextBlocks: string[] = []
+
+      // Build workspace summary if content exists
+      const linkedContentId = (activeConversation.metadata as Record<string, any>)?.linkedContentId
+      if (linkedContentId) {
+        try {
+          const [contentRecord] = await db
+            .select()
+            .from(schema.content)
+            .where(and(
+              eq(schema.content.id, linkedContentId),
+              eq(schema.content.organizationId, organizationId)
+            ))
+            .limit(1)
+
+          if (contentRecord) {
+            const [versionRecord] = contentRecord.currentVersionId
+              ? await db
+                  .select()
+                  .from(schema.contentVersion)
+                  .where(eq(schema.contentVersion.id, contentRecord.currentVersionId))
+                  .limit(1)
+              : [null]
+
+            if (versionRecord) {
+              const [sourceRecord] = contentRecord.sourceContentId
+                ? await db
+                    .select()
+                    .from(schema.sourceContent)
+                    .where(and(
+                      eq(schema.sourceContent.id, contentRecord.sourceContentId),
+                      eq(schema.sourceContent.organizationId, organizationId)
+                    ))
+                    .limit(1)
+                : [null]
+
+              const workspaceSummary = buildWorkspaceSummary({
+                content: contentRecord,
+                currentVersion: versionRecord,
+                sourceContent: sourceRecord ?? null
+              })
+
+              if (workspaceSummary) {
+                contextBlocks.push(`Workspace Summary:\n${workspaceSummary}`)
+              } else {
+                contextBlocks.push(`Current content: "${contentRecord.title}" (${contentRecord.status})`)
               }
-              await db
-                .update(schema.conversation)
-                .set({
-                  metadata: {
-                    ...(latestConversation.metadata as Record<string, any> || {}),
-                    title
-                  },
-                  updatedAt: new Date()
-                })
-                .where(eq(schema.conversation.id, conversationId))
-            } catch (error) {
-              console.error('[chat] Failed to save conversation title:', error)
+            } else {
+              contextBlocks.push(`Current content ID: ${linkedContentId}`)
             }
-          })
-          .catch((error) => {
-            console.error('[chat] Failed to generate conversation title:', error)
-          })
+          } else {
+            console.warn(`Content ${linkedContentId} not found`)
+          }
+        } catch (error) {
+          console.error('Failed to build workspace summary for context', error)
+          contextBlocks.push(`Current content ID: ${linkedContentId}`)
+        }
       }
+
+      // Add ready sources with details
+      if (readySources.length > 0) {
+        const sourceDetails = readySources.map((source) => {
+          const title = source.title || 'Untitled source'
+          const typeLabel = source.sourceType?.replace('_', ' ') || 'source'
+          const status = source.ingestStatus === 'ingested' ? 'ready' : source.ingestStatus
+          return `- ${title} (${typeLabel}, ${status})`
+        }).join('\n')
+        contextBlocks.push(`Ready sources for content generation:\n${sourceDetails}`)
+      }
+
+      // OPTIMIZATION: Removed conversation logs loading - unnecessary overhead
+      // Logs are only needed for debugging, not for LLM context
+
+      // Add ingestion failures if any
+      if (ingestionErrors.length > 0) {
+        const failureSummary = ingestionErrors.map(err => `- ${err.content}`).join('\n')
+        contextBlocks.push(`Ingestion failures:\n${failureSummary}`)
+      }
+
+      return { conversationHistory, contextBlocks }
+    })()
+
+    // ============================================================================
+    // OPTIMIZATION: Save user message in TRUE PARALLEL (no circular dependency)
+    // Both save and context operations share the same loadMessagesPromise
+    // ============================================================================
+    const saveUserMessagePromise = (async () => {
+      try {
+        const previousMessages = await loadMessagesPromise
+        
+        // OPTIMIZATION: Reuse previousMessages instead of querying again
+        const existingTitle = activeConversation.metadata?.title
+        const isFirstMessage = previousMessages.length === 0 && !existingTitle
+
+        await addMessageToConversation(db, {
+          conversationId: activeConversation.id,
+          organizationId,
+          role: 'user',
+          content: trimmedMessage
+        })
+        await addLogEntryToConversation(db, {
+          conversationId: activeConversation.id,
+          organizationId,
+          type: 'user_message',
+          message: 'User sent a chat prompt'
+        })
+
+        // Generate conversation title if this is the first message
+        if (isFirstMessage) {
+          const conversationId = activeConversation.id
+          
+          // OPTIMIZATION: Add fallback title in case generation fails
+          const fallbackTitle = trimmedMessage.slice(0, 50) + (trimmedMessage.length > 50 ? '...' : '')
+          
+          generateConversationTitle(trimmedMessage)
+            .then(async (title) => {
+              try {
+                const latestConversation = await getConversationById(db, conversationId, organizationId)
+                if (!latestConversation) {
+                  console.error('[chat] Conversation not found when updating title')
+                  return
+                }
+                await db
+                  .update(schema.conversation)
+                  .set({
+                    metadata: {
+                      ...(latestConversation.metadata as Record<string, any> || {}),
+                      title: title || fallbackTitle // Use fallback if generation returns empty
+                    },
+                    updatedAt: new Date()
+                  })
+                  .where(eq(schema.conversation.id, conversationId))
+              } catch (error) {
+                console.error('[chat] Failed to save conversation title:', error)
+              }
+            })
+            .catch(async (error) => {
+              console.error('[chat] Failed to generate conversation title, using fallback:', error)
+              // Use fallback title if generation fails
+              try {
+                const latestConversation = await getConversationById(db, conversationId, organizationId)
+                if (latestConversation) {
+                  await db
+                    .update(schema.conversation)
+                    .set({
+                      metadata: {
+                        ...(latestConversation.metadata as Record<string, any> || {}),
+                        title: fallbackTitle
+                      },
+                      updatedAt: new Date()
+                    })
+                    .where(eq(schema.conversation.id, conversationId))
+                }
+              } catch (fallbackError) {
+                console.error('[chat] Failed to save fallback title:', fallbackError)
+              }
+            })
+        }
+
+        return { success: true }
+      } catch (error) {
+        console.error('[chat] Failed to save user message:', error)
+        return { success: false, error }
+      }
+    })()
+
+    // ============================================================================
+    // OPTIMIZATION: Use Promise.allSettled for graceful degradation
+    // Both operations run in TRUE PARALLEL (no circular dependency)
+    // Continue streaming even if save fails (can retry in background)
+    // ============================================================================
+    const [saveResult, contextResult] = await Promise.allSettled([
+      saveUserMessagePromise,
+      loadContextPromise
+    ])
+
+    // Check if context loading succeeded (required for streaming)
+    if (contextResult.status === 'rejected') {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Failed to load conversation context',
+        message: contextResult.reason?.message || 'Unknown error'
+      })
+    }
+
+    const { conversationHistory, contextBlocks } = contextResult.value
+
+    // Log warning if save failed, but continue streaming
+    if (saveResult.status === 'rejected') {
+      console.error('[chat] User message save failed, but continuing with stream:', saveResult.reason)
+      // TODO: Implement retry logic here
     }
 
     try {
@@ -1614,13 +1672,6 @@ export default defineEventHandler(async (event) => {
         contextBlocksCount: contextBlocks.length,
         readySourcesCount: readySources.length,
         ingestionErrorsCount: ingestionErrors.length
-      })
-
-      // Send initial conversation update
-      // Event: conversation:update - Emitted when conversation state changes
-      // Client should update conversationId state
-      writeSSE('conversation:update', {
-        conversationId: activeConversation.id
       })
 
       multiPassResult = await runChatAgentWithMultiPassStream({
@@ -1660,6 +1711,14 @@ export default defineEventHandler(async (event) => {
             timestamp: new Date().toISOString()
           })
         },
+        onToolProgress: (toolCallId: string, message: string) => {
+          // Emit progress update for long-running operations
+          writeSSE('tool:progress', {
+            toolCallId,
+            message,
+            timestamp: new Date().toISOString()
+          })
+        },
         onToolComplete: async (toolCallId: string, toolName: string, result: any) => {
           // Event: tool:complete - Tool execution finished for current turn
           // Client should update UI to reflect tool completion status
@@ -1695,13 +1754,25 @@ export default defineEventHandler(async (event) => {
           )
         },
         executeTool: async (toolInvocation: ChatToolInvocation) => {
+          // Generate toolCallId for progress tracking
+          const currentToolCallId = `tool_${Date.now()}_${Math.random().toString(36).slice(2)}`
+          
           return await executeChatTool(toolInvocation, {
             mode,
             db,
             organizationId,
             userId: user.id,
             conversationId: activeConversation.id,
-            event
+            event,
+            toolCallId: currentToolCallId,
+            onToolProgress: (toolCallId: string, message: string) => {
+              // Forward progress to SSE stream
+              writeSSE('tool:progress', {
+                toolCallId,
+                message,
+                timestamp: new Date().toISOString()
+              })
+            }
           })
         }
       })
@@ -2043,6 +2114,7 @@ export default defineEventHandler(async (event) => {
   // Client should update agentContext state with this data
   writeSSE('agentContext:update', agentContext)
 
+
   // Event: conversation:final - Final conversation state after all processing
   // Client should update conversationId with final value
   writeSSE('conversation:final', {
@@ -2052,8 +2124,30 @@ export default defineEventHandler(async (event) => {
   // Event: done - Stream completion signal
   // Client should treat stream as complete. If messages:complete was not received, treat as error.
   writeSSE('done', {})
-  event.node.res.end()
+  
+  // Close the stream
+  sseWriter.close()
+    } catch (error: any) {
+      console.error('[Chat API] Error during streaming:', error)
+      // Try to send error event before closing
+      try {
+        writeSSE('error', {
+          message: error.message || 'An error occurred during streaming'
+        })
+      } catch {
+        // Silent fail if we can't send error
+      }
+      sseWriter.close()
+    }
+  })() // Execute async IIFE immediately
 
-  // Return null (response already sent via SSE stream)
-  return null
+  // Return the stream as a Response with SSE headers
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    }
+  })
 })

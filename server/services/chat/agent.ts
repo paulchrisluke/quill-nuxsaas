@@ -80,6 +80,7 @@ export async function runChatAgentWithMultiPassStream({
   contextBlocks = [],
   onLLMChunk,
   onToolStart,
+  onToolProgress,
   onToolComplete,
   onFinalMessage,
   onRetry,
@@ -88,6 +89,7 @@ export async function runChatAgentWithMultiPassStream({
   mode: 'chat' | 'agent'
   onLLMChunk?: (chunk: string) => void
   onToolStart?: (toolCallId: string, toolName: string) => void
+  onToolProgress?: (toolCallId: string, message: string) => void
   onToolComplete?: (toolCallId: string, toolName: string, result: ToolExecutionResult) => void
   onFinalMessage?: (message: string) => void
   executeTool: (invocation: ChatToolInvocation) => Promise<ToolExecutionResult>
@@ -344,17 +346,39 @@ export async function runChatAgentWithMultiPassStream({
         onToolStart(toolCallId, toolInvocation.name)
       }
 
-      // Execute tool with error handling
+      // Execute tool with timeout and error handling
       let toolResult: ToolExecutionResult
       const timestamp = new Date()
+      
+      // Set timeout based on tool type (in milliseconds)
+      // ChatGPT approach: long timeouts for complex operations, no timeout on LLM streaming
+      let toolTimeout: number
+      if (toolInvocation.name === 'content_write') {
+        toolTimeout = 300000 // 5 minutes - LLM generation can be slow for long content
+      } else if (toolInvocation.name === 'source_ingest') {
+        toolTimeout = 180000 // 3 minutes - YouTube transcript download + processing
+      } else {
+        toolTimeout = 120000 // 2 minutes - default for other tools
+      }
+      
       try {
-        toolResult = await executeTool(toolInvocation)
+        // Wrap tool execution with timeout
+        toolResult = await Promise.race([
+          executeTool(toolInvocation),
+          new Promise<ToolExecutionResult>((_, reject) =>
+            setTimeout(() => reject(new Error(`Tool execution timed out after ${toolTimeout / 1000}s`)), toolTimeout)
+          )
+        ])
       } catch (err: any) {
-        console.error(`Tool execution failed for ${toolInvocation.name}:`, err)
+        const isTimeout = err?.message?.includes('timed out')
+        console.error(`Tool execution ${isTimeout ? 'timed out' : 'failed'} for ${toolInvocation.name}:`, err)
+        
         toolResult = {
           success: false,
           result: null,
-          error: err?.message || 'Tool execution failed'
+          error: isTimeout
+            ? `This operation is taking longer than expected. Please try again or contact support if the issue persists.`
+            : err?.message || 'Tool execution failed'
         }
       }
 
@@ -420,11 +444,12 @@ export async function runChatAgentWithMultiPassStream({
       })
 
       // Emit tool start and complete events for consistency
+      const failedToolCallId = `failed_${toolInvocation.name}_${Date.now()}`
       if (onToolStart) {
-        onToolStart(toolInvocation.name)
+        onToolStart(failedToolCallId, toolInvocation.name)
       }
       if (onToolComplete) {
-        onToolComplete(toolInvocation.name, placeholderResult)
+        onToolComplete(failedToolCallId, toolInvocation.name, placeholderResult)
       }
 
       // Add tool result as tool message (tool response) to conversation history

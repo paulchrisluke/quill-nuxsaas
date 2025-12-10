@@ -17,6 +17,7 @@ export type MessagePart =
     args?: Record<string, any>
     result?: any
     error?: string
+    progressMessage?: string // Real-time progress updates (e.g., "Fetching YouTube transcript...")
     timestamp?: string
   }
 
