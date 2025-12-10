@@ -210,7 +210,9 @@ export const createBetterAuth = () => betterAuth({
                   .where(eq(schema.user.id, user.id))
               })
             } catch (error) {
-              console.error('[Auth] Failed to create anonymous organization:', error)
+              console.error('[Auth] Failed to create anonymous organization - aborting user creation:', error)
+              // Rethrow to prevent user from being created without a valid organization
+              throw new Error('Failed to provision anonymous workspace', { cause: error })
             }
           }
         }

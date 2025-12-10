@@ -35,7 +35,7 @@ const statusIcon = computed(() => {
 </script>
 
 <template>
-  <div class="tool-call-part">
+  <div class="rounded-lg border border-muted-200 dark:border-muted-800 bg-muted/30 dark:bg-muted-800/50 px-3 py-2 my-2">
     <div class="flex items-center gap-2 text-sm">
       <UIcon
         :name="statusIcon"
@@ -61,9 +61,3 @@ const statusIcon = computed(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.tool-call-part {
-  @apply rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2 my-2;
-}
-</style>

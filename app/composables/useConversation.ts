@@ -76,18 +76,43 @@ export function useConversation() {
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
   const prompt = useState<string>('chat/prompt', () => '')
   const mode = useState<'chat' | 'agent'>('chat/mode', () => 'chat')
-  // Simplified activity tracking - just track if we're thinking (tools running) or streaming (LLM generating)
   const currentActivity = useState<'thinking' | 'streaming' | null>('chat/current-activity', () => null)
   const currentToolName = useState<string | null>('chat/current-tool-name', () => null)
+  
+  // Track active tool calls by unique toolCallId (supports concurrent calls to same tool)
+  // Maps toolCallId -> { messageId, partIndex }
+  const activeToolCalls = useState<Map<string, { messageId: string, partIndex: number }>>('chat/active-tool-calls', () => new Map())
 
   const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming')
+
+  const resetConversation = () => {
+    messages.value = []
+    conversationId.value = null
+    status.value = 'ready'
+    errorMessage.value = null
+    requestStartedAt.value = null
+    currentActivity.value = null
+    currentToolName.value = null
+    activeToolCalls.value.clear()
+  }
+
+  const hydrateConversation = ({ conversationId: id, messages: msgs }: { conversationId: string, messages: ChatMessage[] }) => {
+    conversationId.value = id
+    messages.value = msgs
+    status.value = 'ready'
+    errorMessage.value = null
+    requestStartedAt.value = null
+    currentActivity.value = null
+    currentToolName.value = null
+    activeToolCalls.value.clear()
+  }
 
   async function callChatEndpoint(body: Record<string, any>) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
     requestStartedAt.value = new Date()
     status.value = 'submitted'
     errorMessage.value = null
-    currentActivity.value = 'thinking' // Initial state - LLM is thinking about the request
+    currentActivity.value = 'thinking'
     currentToolName.value = null
 
     if (activeController.value) {
@@ -102,7 +127,6 @@ export function useConversation() {
         payload.conversationId = conversationId.value
       }
 
-      // Chat API is streaming-only (SSE)
       const url = '/api/chat?stream=true'
       const response = await fetch(url, {
         method: 'POST',
@@ -130,7 +154,6 @@ export function useConversation() {
       let currentAssistantMessageId: string | null = null
       let currentAssistantMessageText = ''
       let pendingEventType: string | null = null
-      const activeToolCalls = new Map<string, number>() // toolName -> part index
 
       try {
         while (true) {
@@ -147,7 +170,6 @@ export function useConversation() {
           for (const line of lines) {
             const trimmedLine = line.trim()
             if (!trimmedLine) {
-              // Empty line indicates end of event, reset pending event type
               pendingEventType = null
               continue
             }
@@ -172,11 +194,9 @@ export function useConversation() {
 
                 switch (eventType) {
                   case 'message:chunk': {
-                    // LLM is generating text - server sends chunks for live display
                     currentActivity.value = 'streaming'
                     currentToolName.value = null
 
-                    // Server-provided messageId is required (server generates UUID on first chunk)
                     if (!eventData.messageId) {
                       console.warn('message:chunk missing messageId, skipping')
                       break
@@ -184,43 +204,39 @@ export function useConversation() {
 
                     const serverMessageId = eventData.messageId
 
-                    // Reconcile temp ID with server ID if we have a temp message
+                    // Reconcile temp ID with server ID
                     if (currentAssistantMessageId && currentAssistantMessageId !== serverMessageId) {
-                      // Check if we have an existing message with the temp ID
                       const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                       const message = messageIndex >= 0 ? messages.value[messageIndex] : null
                       if (message) {
-                        // Update the existing message's ID to the server ID and preserve all parts
                         message.id = serverMessageId
                         currentAssistantMessageId = serverMessageId
                       }
                     }
 
-                    // Create TEMPORARY assistant message on first chunk using SERVER-GENERATED messageId
-                    // This is optimistic UI for live streaming; the authoritative message list comes in messages:complete
+                    // Create assistant message on first chunk
                     if (!currentAssistantMessageId && serverMessageId) {
                       currentAssistantMessageId = serverMessageId
                       currentAssistantMessageText = ''
                       messages.value.push({
-                        id: serverMessageId, // Use server-provided ID
+                        id: serverMessageId,
                         role: 'assistant' as const,
                         parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
                         createdAt: new Date()
                       })
                     }
-                    // Accumulate chunks and update temporary message for live display
+
+                    // Update text content
                     currentAssistantMessageText += eventData.chunk || ''
                     if (currentAssistantMessageId) {
                       const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                       const message = messageIndex >= 0 ? messages.value[messageIndex] : null
                       if (message) {
-                        // Find or create text part (should be first non-tool part)
                         const textPartIndex = message.parts.findIndex(p => p.type === 'text')
                         const textPart = textPartIndex >= 0 ? message.parts[textPartIndex] : null
                         if (textPart && textPart.type === 'text') {
                           textPart.text = currentAssistantMessageText
                         } else {
-                          // Add text part if it doesn't exist
                           message.parts.push({ type: 'text', text: currentAssistantMessageText })
                         }
                       }
@@ -229,8 +245,6 @@ export function useConversation() {
                   }
 
                   case 'message:complete': {
-                    // LLM text generation finished for current turn (intermediate signal before DB snapshot)
-                    // Update final text, but authoritative message list comes in messages:complete
                     if (eventData.messageId && eventData.message) {
                       const messageIndex = messages.value.findIndex(m => m.id === eventData.messageId)
                       const message = messageIndex >= 0 ? messages.value[messageIndex] : null
@@ -242,7 +256,6 @@ export function useConversation() {
                         }
                       }
                     }
-                    // Clear streaming state (tools may still be executing)
                     currentAssistantMessageId = null
                     currentAssistantMessageText = ''
                     if (currentActivity.value === 'streaming') {
@@ -252,35 +265,26 @@ export function useConversation() {
                   }
 
                   case 'tool:start': {
-                    // Tool execution started - add tool_call part to current assistant message
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
 
-                    // Ensure we have an assistant message to add the tool call to
+                    // Server MUST provide toolCallId for unique tracking
+                    if (!eventData.toolCallId) {
+                      console.error('tool:start missing toolCallId, cannot track concurrent tools')
+                      break
+                    }
+
+                    // Ensure we have an assistant message
                     if (!currentAssistantMessageId) {
-                      // If server provided a messageId, use it; otherwise create a temp ID
-                      if (eventData.messageId) {
-                        currentAssistantMessageId = eventData.messageId
-                        messages.value.push({
-                          id: eventData.messageId,
-                          role: 'assistant' as const,
-                          parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
-                          createdAt: new Date()
-                        })
-                      } else {
-                        // Create temp ID - will be reconciled when message:chunk arrives with server messageId
-                        const tempId = createId()
-                        currentAssistantMessageId = tempId
-                        messages.value.push({
-                          id: tempId,
-                          role: 'assistant' as const,
-                          parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
-                          createdAt: new Date()
-                        })
-                      }
+                      const messageId = eventData.messageId || createId()
+                      currentAssistantMessageId = messageId
+                      messages.value.push({
+                        id: messageId,
+                        role: 'assistant' as const,
+                        parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
+                        createdAt: new Date()
+                      })
                     } else if (eventData.messageId && currentAssistantMessageId !== eventData.messageId) {
-                      // We already have a message (possibly with temp ID), but server provided a different messageId
-                      // Update the message ID to the server ID and preserve all parts
                       const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                       const message = messageIndex >= 0 ? messages.value[messageIndex] : null
                       if (message) {
@@ -292,39 +296,51 @@ export function useConversation() {
                     const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                     const message = messageIndex >= 0 ? messages.value[messageIndex] : null
                     if (message && eventData.toolName) {
-                      // Add tool_call part
+                      // Add tool_call part with unique ID
                       const toolPart: MessagePart = {
                         type: 'tool_call',
+                        toolCallId: eventData.toolCallId,
                         toolName: eventData.toolName,
                         status: 'running',
                         args: eventData.args,
                         timestamp: new Date().toISOString()
                       }
                       message.parts.push(toolPart)
-                      // Track which part index this tool is at
-                      activeToolCalls.set(eventData.toolName, message.parts.length - 1)
+                      
+                      // Track by toolCallId (not toolName!)
+                      activeToolCalls.value.set(eventData.toolCallId, {
+                        messageId: currentAssistantMessageId,
+                        partIndex: message.parts.length - 1
+                      })
                     }
                     break
                   }
 
                   case 'tool:complete': {
-                    // Tool execution completed - update the tool_call part status
                     currentToolName.value = null
 
-                    if (currentAssistantMessageId && eventData.toolName) {
-                      const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
-                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
-                      const toolPartIndex = activeToolCalls.get(eventData.toolName)
+                    // Server MUST provide toolCallId to identify which call completed
+                    if (!eventData.toolCallId) {
+                      console.error('tool:complete missing toolCallId, cannot update correct tool')
+                      break
+                    }
 
-                      if (message && toolPartIndex !== undefined) {
-                        const toolPart = message.parts[toolPartIndex]
+                    const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
+                    if (toolCallInfo) {
+                      const messageIndex = messages.value.findIndex(m => m.id === toolCallInfo.messageId)
+                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
+                      
+                      if (message) {
+                        const toolPart = message.parts[toolCallInfo.partIndex]
                         if (toolPart && toolPart.type === 'tool_call') {
                           toolPart.status = eventData.success ? 'success' : 'error'
                           toolPart.result = eventData.result
                           toolPart.error = eventData.error
                         }
-                        activeToolCalls.delete(eventData.toolName)
                       }
+                      
+                      // Remove from active tracking
+                      activeToolCalls.value.delete(eventData.toolCallId)
                     }
                     break
                   }
@@ -337,21 +353,15 @@ export function useConversation() {
                   }
 
                   case 'log:entry': {
-                    // Logs are for server-side observability only, not used in UI
-                    // Activity state is managed by tool:start/tool:complete and message:chunk events
                     break
                   }
 
                   case 'messages:complete': {
-                    // AUTHORITATIVE message list from database (single source of truth)
-                    // Client MUST replace its messages array with this snapshot and clear all temporary streaming state
                     if (Array.isArray(eventData.messages)) {
                       const normalizedMessages = normalizeMessages(eventData.messages)
-                      // Replace all messages with server's authoritative list (sorted by createdAt)
                       messages.value = normalizedMessages.sort((a, b) =>
                         a.createdAt.getTime() - b.createdAt.getTime()
                       )
-                      // Clear all temporary streaming state
                       currentAssistantMessageId = null
                       currentAssistantMessageText = ''
                     }
@@ -359,12 +369,10 @@ export function useConversation() {
                   }
 
                   case 'logs:complete': {
-                    // Logs are for server-side observability only, not used in UI
                     break
                   }
 
                   case 'agentContext:update': {
-                    // Agent context is for server-side observability only, not used in UI
                     break
                   }
 
@@ -376,22 +384,16 @@ export function useConversation() {
                   }
 
                   case 'done': {
-                    // Stream completion signal from server
-                    // If messages:complete was not received before this, treat as error/incomplete
-                    // The finally block will clear streaming state
                     break
                   }
 
                   case 'error': {
-                    // Server-side error during processing
-                    // Error messages are also added to database and included in messages:complete
                     const errorMsg = eventData.message || eventData.error || 'An error occurred'
                     errorMessage.value = errorMsg
                     break
                   }
 
                   default: {
-                    // Unknown event type, log for debugging
                     if (eventType) {
                       console.warn('Unknown SSE event type:', eventType, eventData)
                     }
@@ -406,40 +408,30 @@ export function useConversation() {
         }
       } finally {
         reader.releaseLock()
-        // Always clear streaming state when stream ends (success or failure)
-        // If messages:complete was received, messages are already replaced with authoritative list
-        // If stream was aborted or failed, temporary messages remain until next successful turn
         currentAssistantMessageId = null
         currentAssistantMessageText = ''
-        activeToolCalls.clear()
+        activeToolCalls.value.clear()
       }
 
-      // Stream completed successfully
-      // If messages:complete was received, messages array was replaced with authoritative snapshot
       status.value = 'ready'
       requestStartedAt.value = null
       currentActivity.value = null
       currentToolName.value = null
-      return null // Streaming doesn't return a response object
+      return null
     } catch (error: any) {
-      // Handle stream errors and aborts
       if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
-        // User aborted the request - clear state gracefully
         status.value = 'ready'
         requestStartedAt.value = null
         currentActivity.value = null
         currentToolName.value = null
         return null
       }
-      // Stream failed (network error, server error, etc.)
       status.value = 'error'
       requestStartedAt.value = null
       currentActivity.value = null
       currentToolName.value = null
       const errorMsg = error?.message || error?.data?.statusMessage || error?.data?.message || 'Something went wrong.'
       errorMessage.value = errorMsg
-      // Note: If server committed any messages before error, they will be in messages:complete
-      // If stream failed before messages:complete, temporary messages may remain until next turn
       return null
     } finally {
       if (activeController.value === controller) {
@@ -457,27 +449,11 @@ export function useConversation() {
       return null
     }
 
-    // User messages are created on the server after processing (not optimistically)
-    // Assistant messages are created optimistically on first message:chunk with server-generated ID
-    // Final authoritative message list (including user message) comes in messages:complete
     return await callChatEndpoint({
       message: trimmed,
       mode: mode.value,
       contentId: options?.contentId
     })
-  }
-
-  function hydrateConversation(payload: {
-    messages?: ChatResponse['messages']
-    conversationId?: string | null
-  }) {
-    if (payload.conversationId !== undefined) {
-      conversationId.value = payload.conversationId
-    }
-
-    if (payload.messages) {
-      messages.value = normalizeMessages(payload.messages)
-    }
   }
 
   function stopResponse() {
@@ -486,17 +462,6 @@ export function useConversation() {
       return true
     }
     return false
-  }
-
-  function resetConversation() {
-    messages.value = []
-    status.value = 'ready'
-    errorMessage.value = null
-    conversationId.value = null
-    requestStartedAt.value = null
-    prompt.value = ''
-    currentActivity.value = null
-    currentToolName.value = null
   }
 
   return {

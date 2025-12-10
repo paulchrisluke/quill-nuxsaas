@@ -1,4 +1,4 @@
-import { desc, eq, sql } from 'drizzle-orm'
+import { desc, eq, inArray, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/database/schema'
 import { getConversationTitle } from '~~/server/services/conversation/title'
@@ -83,15 +83,15 @@ export default defineEventHandler(async (event) => {
       count: sql<number>`COUNT(*)`.as('count')
     })
     .from(schema.content)
-    .where(sql`${schema.content.conversationId} IN ${conversationIds}`)
+    .where(inArray(schema.content.conversationId, conversationIds))
     .groupBy(schema.content.conversationId)
 
   const artifactCounts = new Map(
     artifactCountsRaw.map(row => [row.conversationId, Number(row.count)])
   )
 
-  // Fetch first artifact titles using window function (1 query)
-  const firstArtifactsRaw = await db.execute<{
+  // Fetch most recent artifact titles using window function (1 query)
+  const recentArtifactsRaw = await db.execute<{
     conversation_id: string
     title: string
     row_num: number
@@ -104,11 +104,11 @@ export default defineEventHandler(async (event) => {
         ORDER BY updated_at DESC
       ) as row_num
     FROM ${schema.content}
-    WHERE conversation_id IN ${conversationIds}
+    WHERE ${inArray(schema.content.conversationId, conversationIds)}
   `)
 
-  const firstArtifacts = new Map(
-    firstArtifactsRaw.rows
+  const recentArtifacts = new Map(
+    recentArtifactsRaw.rows
       .filter(row => row.row_num === 1)
       .map(row => [row.conversation_id, row.title])
   )
@@ -127,7 +127,7 @@ export default defineEventHandler(async (event) => {
         ORDER BY created_at DESC
       ) as row_num
     FROM ${schema.conversationMessage}
-    WHERE conversation_id IN ${conversationIds}
+    WHERE ${inArray(schema.conversationMessage.conversationId, conversationIds)}
   `)
 
   const lastMessages = new Map(
@@ -141,9 +141,9 @@ export default defineEventHandler(async (event) => {
   return {
     conversations: conversations.map((conv) => {
       const artifactCount = artifactCounts.get(conv.id) || 0
-      const firstArtifactTitle = firstArtifacts.get(conv.id) || null
+      const recentArtifactTitle = recentArtifacts.get(conv.id) || null
       const lastMessage = lastMessages.get(conv.id) || null
-      const title = getConversationTitle(conv, firstArtifactTitle)
+      const title = getConversationTitle(conv, recentArtifactTitle)
 
       return {
         id: conv.id,
@@ -156,7 +156,7 @@ export default defineEventHandler(async (event) => {
         updatedAt: conv.updatedAt,
         _computed: {
           artifactCount,
-          firstArtifactTitle,
+          firstArtifactTitle: recentArtifactTitle,
           title,
           lastMessage
         }

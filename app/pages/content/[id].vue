@@ -98,7 +98,15 @@ const { data: contentData, pending, error, refresh } = useFetch(() => `/api/cont
 
 // Local markdown state for editor
 const markdown = ref('')
+const originalMarkdown = ref('')
 const isSaving = ref(false)
+
+// Computed dirty state
+const isDirty = computed(() => markdown.value !== originalMarkdown.value)
+
+// Remote content change detection
+const showConflictModal = ref(false)
+const pendingRemoteContent = ref<string | null>(null)
 
 // Transform to ContentEntry format
 const contentEntry = computed<ContentEntry | null>(() => {
@@ -138,12 +146,36 @@ const contentEntry = computed<ContentEntry | null>(() => {
   }
 })
 
-// Sync markdown with content
+// Sync markdown with content - with dirty check to prevent overwriting edits
 watch(contentEntry, (entry) => {
   if (entry && typeof entry.bodyMdx === 'string') {
-    markdown.value = entry.bodyMdx
+    // If no local changes, or remote content matches what we started with, safe to update
+    if (!isDirty.value || entry.bodyMdx === originalMarkdown.value) {
+      markdown.value = entry.bodyMdx
+      originalMarkdown.value = entry.bodyMdx
+    } else {
+      // Remote content changed while we have unsaved local edits
+      // Store pending remote content and show conflict modal
+      pendingRemoteContent.value = entry.bodyMdx
+      showConflictModal.value = true
+    }
   }
 }, { immediate: true })
+
+// Handle conflict resolution
+const acceptRemoteChanges = () => {
+  if (pendingRemoteContent.value !== null) {
+    markdown.value = pendingRemoteContent.value
+    originalMarkdown.value = pendingRemoteContent.value
+    pendingRemoteContent.value = null
+  }
+  showConflictModal.value = false
+}
+
+const keepLocalChanges = () => {
+  pendingRemoteContent.value = null
+  showConflictModal.value = false
+}
 
 // Update workspace header when content loads
 watch(contentEntry, (entry) => {
@@ -194,6 +226,8 @@ const handleSave = async () => {
         bodyMdx: markdown.value
       }
     })
+    // Update original markdown to match saved content
+    originalMarkdown.value = markdown.value
     await refresh()
   } catch (err) {
     console.error('Failed to save content:', err)
@@ -277,6 +311,45 @@ const handleSave = async () => {
       </div>
     </div>
 
+    <!-- Conflict Resolution Modal -->
+    <UModal v-model="showConflictModal" :prevent-close="true">
+      <UCard>
+        <template #header>
+          <div class="flex items-center gap-2">
+            <UIcon name="i-lucide-alert-triangle" class="h-5 w-5 text-amber-500" />
+            <h3 class="text-lg font-semibold">Content Conflict Detected</h3>
+          </div>
+        </template>
+
+        <div class="space-y-4">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            The remote content has been updated while you have unsaved local changes.
+          </p>
+          <p class="text-sm font-medium">
+            What would you like to do?
+          </p>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton
+              color="gray"
+              variant="ghost"
+              @click="keepLocalChanges"
+            >
+              Keep My Changes
+            </UButton>
+            <UButton
+              color="primary"
+              @click="acceptRemoteChanges"
+            >
+              Accept Remote Changes
+            </UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
+
     <!-- Floating Chat Widget -->
     <Transition
       enter-active-class="transition-all duration-300 ease-out"
@@ -293,7 +366,7 @@ const handleSave = async () => {
         <QuillioWidget
           :content-id="contentEntry.id"
           :conversation-id="contentEntry.conversationId"
-          initial-mode="agent"
+          :initial-mode="'agent'"
           class="h-full"
         />
       </div>

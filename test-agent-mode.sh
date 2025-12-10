@@ -23,7 +23,7 @@ if [ "$COOKIE_VALUE" = "YOUR_COOKIE_VALUE_HERE" ]; then
 fi
 
 echo "Testing agent mode chat API..."
-echo "Cookie: $COOKIE_VALUE"
+echo "Cookie: ${COOKIE_VALUE:0:4}...${COOKIE_VALUE: -4}"
 echo ""
 
 curl -v -X POST "http://localhost:3000/api/chat?stream=true" \
