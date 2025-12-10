@@ -25,9 +25,13 @@ export function useUserOrganizations(options?: { lazy?: boolean }) {
         console.warn('[useUserOrganizations] Unexpected response shape', data)
         throw new Error('Organization list response is not an array')
       }
-      const sanitized = data.filter((org: any): org is UserOrganization => typeof org?.id === 'string' && typeof org?.slug === 'string')
+      const sanitized = data.filter((org: any): org is UserOrganization =>
+        typeof org?.id === 'string' &&
+        typeof org?.slug === 'string' &&
+        !org.slug.startsWith('anonymous-')
+      )
       if (sanitized.length !== data.length) {
-        console.warn('[useUserOrganizations] Filtered organizations due to missing id/slug', { total: data.length, sanitized: sanitized.length })
+        console.warn('Filtered organizations due to missing id/slug or anonymous slug', { total: data.length, sanitized: sanitized.length })
       }
       return sanitized
     } catch (error) {

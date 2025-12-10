@@ -7,10 +7,23 @@ export type ChatRole = 'user' | 'assistant'
 
 export type NonEmptyArray<T> = [T, ...T[]]
 
+export type MessagePart =
+  | { type: 'text', text: string }
+  | {
+    type: 'tool_call'
+    toolCallId: string // Unique identifier for this specific tool invocation
+    toolName: string
+    status: 'running' | 'success' | 'error'
+    args?: Record<string, any>
+    result?: any
+    error?: string
+    timestamp?: string
+  }
+
 export interface ChatMessage {
   id: string
   role: ChatRole
-  parts: NonEmptyArray<{ type: 'text', text: string }>
+  parts: NonEmptyArray<MessagePart>
   createdAt: Date
   payload?: Record<string, any> | null
 }

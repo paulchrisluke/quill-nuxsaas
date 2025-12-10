@@ -45,16 +45,6 @@ const contentMenuItems = computed(() => {
 const navigationMenuItems = computed(() => {
   const items: any[][] = []
 
-  // Conversations section
-  const conversationsHeader = {
-    label: 'Conversations',
-    icon: 'i-lucide-message-circle',
-    to: '/conversations',
-    disabled: false
-  }
-  const conversationsList = conversationMenuItems.value[0] || []
-  items.push([conversationsHeader, ...conversationsList])
-
   // Content section (only for logged in users)
   if (loggedIn.value) {
     const contentHeader = {
@@ -66,6 +56,16 @@ const navigationMenuItems = computed(() => {
     const contentList = contentMenuItems.value[0] || []
     items.push([contentHeader, ...contentList])
   }
+
+  // Conversations section
+  const conversationsHeader = {
+    label: 'Conversations',
+    icon: 'i-lucide-message-circle',
+    to: '/conversations',
+    disabled: false
+  }
+  const conversationsList = conversationMenuItems.value[0] || []
+  items.push([conversationsHeader, ...conversationsList])
 
   return items
 })

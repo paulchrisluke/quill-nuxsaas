@@ -149,13 +149,6 @@ async function logToolEvent(
     })
   }
 
-  if (type === 'tool_started' && writeSSE) {
-    writeSSE('tool:start', {
-      toolName,
-      timestamp: new Date().toISOString()
-    })
-  }
-
   return logEntry
 }
 
@@ -1456,13 +1449,14 @@ export default defineEventHandler(async (event) => {
     const contextBlocks: string[] = []
 
     // Build workspace summary if content exists
-    if (activeConversation.contentId) {
+    const linkedContentId = (activeConversation.metadata as Record<string, any>)?.linkedContentId
+    if (linkedContentId) {
       try {
         const [contentRecord] = await db
           .select()
           .from(schema.content)
           .where(and(
-            eq(schema.content.id, activeConversation.contentId),
+            eq(schema.content.id, linkedContentId),
             eq(schema.content.organizationId, organizationId)
           ))
           .limit(1)
@@ -1500,12 +1494,14 @@ export default defineEventHandler(async (event) => {
               contextBlocks.push(`Current content: "${contentRecord.title}" (${contentRecord.status})`)
             }
           } else {
-            contextBlocks.push(`Current content ID: ${activeConversation.contentId}`)
+            contextBlocks.push(`Current content ID: ${linkedContentId}`)
           }
+        } else {
+          console.warn(`Content ${linkedContentId} not found`)
         }
       } catch (error) {
         console.error('Failed to build workspace summary for context', error)
-        contextBlocks.push(`Current content ID: ${activeConversation.contentId}`)
+        contextBlocks.push(`Current content ID: ${linkedContentId}`)
       }
     }
 
@@ -1550,10 +1546,75 @@ export default defineEventHandler(async (event) => {
     // Import crypto for UUID generation for streaming message IDs
     const { randomUUID } = await import('crypto')
 
+    if (trimmedMessage) {
+      // Check if this is the first message before adding it (for title generation)
+      const existingTitle = activeConversation.metadata?.title
+      const messagesBeforeAdd = await getConversationMessages(db, activeConversation.id, organizationId)
+      const isFirstMessage = messagesBeforeAdd.length === 0 && !existingTitle
+
+      await addMessageToConversation(db, {
+        conversationId: activeConversation.id,
+        organizationId,
+        role: 'user',
+        content: trimmedMessage
+      })
+      await addLogEntryToConversation(db, {
+        conversationId: activeConversation.id,
+        organizationId,
+        type: 'user_message',
+        message: 'User sent a chat prompt'
+      })
+
+      // Generate conversation title if this is the first message
+      if (isFirstMessage) {
+        // Generate title asynchronously (don't block the response)
+        const conversationId = activeConversation.id
+        generateConversationTitle(trimmedMessage)
+          .then(async (title) => {
+            try {
+              // Re-fetch the latest conversation to avoid stale metadata
+              const latestConversation = await getConversationById(db, conversationId, organizationId)
+              if (!latestConversation) {
+                console.error('[chat] Conversation not found when updating title')
+                return
+              }
+              await db
+                .update(schema.conversation)
+                .set({
+                  metadata: {
+                    ...(latestConversation.metadata as Record<string, any> || {}),
+                    title
+                  },
+                  updatedAt: new Date()
+                })
+                .where(eq(schema.conversation.id, conversationId))
+            } catch (error) {
+              console.error('[chat] Failed to save conversation title:', error)
+            }
+          })
+          .catch((error) => {
+            console.error('[chat] Failed to generate conversation title:', error)
+          })
+      }
+    }
+
     try {
       // Streaming multi-pass orchestration - handles all tools directly
       // Track assistant message for potential future use (used in callbacks)
       let _currentAssistantMessage = ''
+
+      // Log request context before calling agent
+      console.log('[Chat API] Calling agent with context:', {
+        mode,
+        conversationId: activeConversation.id,
+        organizationId,
+        userId: user.id,
+        userMessageLength: trimmedMessage.length,
+        conversationHistoryLength: conversationHistory.length,
+        contextBlocksCount: contextBlocks.length,
+        readySourcesCount: readySources.length,
+        ingestionErrorsCount: ingestionErrors.length
+      })
 
       // Send initial conversation update
       // Event: conversation:update - Emitted when conversation state changes
@@ -1580,7 +1641,7 @@ export default defineEventHandler(async (event) => {
             chunk
           })
         },
-        onToolStart: async (toolName: string) => {
+        onToolStart: async (toolCallId: string, toolName: string) => {
           // Log tool start to database
           await logToolEvent(
             db,
@@ -1592,11 +1653,18 @@ export default defineEventHandler(async (event) => {
             undefined,
             writeSSE
           )
+          // Emit SSE with toolCallId for client tracking
+          writeSSE('tool:start', {
+            toolCallId,
+            toolName,
+            timestamp: new Date().toISOString()
+          })
         },
-        onToolComplete: async (toolName: string, result: any) => {
+        onToolComplete: async (toolCallId: string, toolName: string, result: any) => {
           // Event: tool:complete - Tool execution finished for current turn
           // Client should update UI to reflect tool completion status
           writeSSE('tool:complete', {
+            toolCallId,
             toolName,
             success: result.success,
             result: result.result,
@@ -1674,11 +1742,12 @@ export default defineEventHandler(async (event) => {
           // Update conversation with new content if content_write or edit_section succeeded
           if (toolExec.result.success && toolExec.result.contentId) {
             const newContentId = toolExec.result.contentId
-            if (activeConversation.contentId !== newContentId) {
+            const currentLinkedId = (activeConversation.metadata as Record<string, any>)?.linkedContentId
+            if (currentLinkedId !== newContentId) {
               const [updatedConversation] = await db
                 .update(schema.conversation)
                 .set({
-                  contentId: newContentId,
+                  // contentId removed from schema, stored in metadata only
                   metadata: {
                     ...(activeConversation.metadata as Record<string, any> || {}),
                     linkedContentId: newContentId,
@@ -1748,22 +1817,62 @@ export default defineEventHandler(async (event) => {
       if (multiPassResult.finalMessage) {
         agentAssistantReply = multiPassResult.finalMessage
       }
-    } catch (error) {
-      console.error('Agent turn failed', error)
+    } catch (error: any) {
       const isDev = process.env.NODE_ENV === 'development'
-      // Log full error details for debugging (server-side only)
-      if (isDev) {
-        console.error('Full error details:', error)
+
+      // Extract detailed error information
+      const errorMessage = error?.message || error?.data?.message || error?.statusMessage || 'Unknown error'
+      const errorStatus = error?.statusCode || error?.status || 'N/A'
+      const errorData = error?.data || {}
+
+      // Log comprehensive error details with full request context
+      const chatApiErrorContext = {
+        mode,
+        conversationId: activeConversation.id,
+        organizationId,
+        userId: user.id,
+        userMessageLength: trimmedMessage.length,
+        userMessagePreview: isDev ? trimmedMessage.slice(0, 100) + (trimmedMessage.length > 100 ? '...' : '') : undefined,
+        conversationHistoryLength: conversationHistory.length,
+        contextBlocksCount: contextBlocks.length,
+        readySourcesCount: readySources.length,
+        ingestionErrorsCount: ingestionErrors.length,
+        message: errorMessage,
+        status: errorStatus,
+        stack: isDev && error instanceof Error ? error.stack : undefined
       }
-      const errorMessage = isDev
-        ? `I encountered an error while processing your request. Check server logs for details.`
+
+      console.error('[Chat API] Agent turn failed with full context:', chatApiErrorContext)
+
+      // Include actual error details in dev mode, generic message in prod
+      // Add helpful context about what failed
+      let userErrorMessage = isDev
+        ? `I encountered an error while processing your request: ${errorMessage}`
         : 'I encountered an error while processing your request. Please try again.'
+
+      // Add mode-specific context to error message
+      if (isDev && mode === 'agent') {
+        userErrorMessage += `\n\n[Debug Info] Mode: ${mode}, Error Status: ${errorStatus}`
+        if (errorData?.details) {
+          userErrorMessage += `\n[Debug Info] Gateway Response: ${JSON.stringify(errorData.details, null, 2)}`
+        }
+      }
+
       ingestionErrors.push({
-        content: errorMessage,
+        content: userErrorMessage,
         payload: {
-          error: errorDetails,
+          error: errorMessage,
+          status: errorStatus,
           type: 'agent_failure',
-          ...(isDev && error instanceof Error && error.stack ? { stack: error.stack } : {})
+          ...(isDev && error instanceof Error && error.stack
+            ? { stack: error.stack }
+            : {}),
+          ...(isDev && error instanceof Error
+            ? {
+                errorName: error.name,
+                errorCause: error.cause ? String(error.cause) : undefined
+              }
+            : {})
         }
       })
     }
@@ -1819,57 +1928,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  if (trimmedMessage) {
-    // Check if this is the first message before adding it (for title generation)
-    const existingTitle = activeConversation.metadata?.title
-    const messagesBeforeAdd = await getConversationMessages(db, activeConversation.id, organizationId)
-    const isFirstMessage = messagesBeforeAdd.length === 0 && !existingTitle
-
-    await addMessageToConversation(db, {
-      conversationId: activeConversation.id,
-      organizationId,
-      role: 'user',
-      content: trimmedMessage
-    })
-    await addLogEntryToConversation(db, {
-      conversationId: activeConversation.id,
-      organizationId,
-      type: 'user_message',
-      message: 'User sent a chat prompt'
-    })
-
-    // Generate conversation title if this is the first message
-    if (isFirstMessage) {
-      // Generate title asynchronously (don't block the response)
-      const conversationId = activeConversation.id
-      generateConversationTitle(trimmedMessage)
-        .then(async (title) => {
-          try {
-            // Re-fetch the latest conversation to avoid stale metadata
-            const latestConversation = await getConversationById(db, conversationId, organizationId)
-            if (!latestConversation) {
-              console.error('[chat] Conversation not found when updating title')
-              return
-            }
-            await db
-              .update(schema.conversation)
-              .set({
-                metadata: {
-                  ...(latestConversation.metadata as Record<string, any> || {}),
-                  title
-                },
-                updatedAt: new Date()
-              })
-              .where(eq(schema.conversation.id, conversationId))
-          } catch (error) {
-            console.error('[chat] Failed to save conversation title:', error)
-          }
-        })
-        .catch((error) => {
-          console.error('[chat] Failed to generate conversation title:', error)
-        })
-    }
-  }
+  // User message is now saved before agent execution to ensure persistence
 
   // Save agent's reply if available (use the same message ID from streaming to avoid duplicates)
   if (agentAssistantReply) {

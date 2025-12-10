@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
+import ToolCallPart from './ToolCallPart.vue'
 import WorkspaceFilesAccordion from './WorkspaceFilesAccordion.vue'
 
 const props = withDefaults(defineProps<{
@@ -22,7 +23,6 @@ const ALLOWED_EMBED_DOMAINS = [
 ]
 
 const payload = computed(() => (props.message.payload as Record<string, any> | null) ?? null)
-const resolvedText = computed(() => props.displayText ?? props.message.parts?.[0]?.text ?? '')
 const preview = computed(() => payload.value?.preview ?? null)
 const isError = computed(() => payload.value?.type === 'agent_failure' || payload.value?.type === 'error')
 const errorDetails = computed(() => payload.value?.error || null)
@@ -142,8 +142,22 @@ function toSummaryBullets(summary: string | null | undefined) {
         {{ t('chat.genericError') }}
       </p>
     </div>
-    <p class="whitespace-pre-line">
-      {{ resolvedText }}
-    </p>
+
+    <!-- Render all message parts in sequence -->
+    <template
+      v-for="(part, index) in message.parts"
+      :key="index"
+    >
+      <ToolCallPart
+        v-if="part.type === 'tool_call'"
+        :part="part"
+      />
+      <p
+        v-else-if="part.type === 'text' && part.text.trim()"
+        class="whitespace-pre-line"
+      >
+        {{ part.text }}
+      </p>
+    </template>
   </div>
 </template>

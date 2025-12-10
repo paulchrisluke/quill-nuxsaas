@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 
 const { formatDateRelative } = useDate()
 
@@ -13,6 +14,7 @@ interface ContentEntry {
   additions?: number
   deletions?: number
   conversationId?: string | null
+  bodyMdx?: string
 }
 
 interface ContentApiResponse {
@@ -27,6 +29,7 @@ interface ContentApiResponse {
       conversationId?: string | null
     }
     currentVersion?: {
+      bodyMdx?: string
       diffStats?: {
         additions?: number
         deletions?: number
@@ -52,6 +55,9 @@ const contentId = computed(() => {
   const param = route.params.id
   return Array.isArray(param) ? param[0] : param || ''
 })
+
+// Chat widget visibility
+const showChat = ref(false)
 
 // Set workspace header state
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
@@ -82,13 +88,25 @@ const setShellHeader = () => {
 
 setShellHeader()
 
-// Fetch content data - API uses active organization from session, no slug needed
-const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
-  key: computed(() => `content-${contentId.value}`),
+// Fetch content data
+const { data: contentData, pending, error, refresh } = useFetch(() => `/api/content/${contentId.value}`, {
+  key: () => `content-${contentId.value}`,
   lazy: true,
   server: true,
   default: () => null
 })
+
+// Local markdown state for editor
+const markdown = ref('')
+const originalMarkdown = ref('')
+const isSaving = ref(false)
+
+// Computed dirty state
+const isDirty = computed(() => markdown.value !== originalMarkdown.value)
+
+// Remote content change detection
+const showConflictModal = ref(false)
+const pendingRemoteContent = ref<string | null>(null)
 
 // Transform to ContentEntry format
 const contentEntry = computed<ContentEntry | null>(() => {
@@ -123,9 +141,46 @@ const contentEntry = computed<ContentEntry | null>(() => {
     contentType: currentVersion?.frontmatter?.contentType || content?.contentType || 'content',
     additions,
     deletions,
-    conversationId: content?.conversationId || null
+    conversationId: content?.conversationId || null,
+    bodyMdx: currentVersion?.bodyMdx || ''
   }
 })
+
+// Sync markdown with content - with dirty check to prevent overwriting edits
+watch(contentEntry, (entry) => {
+  if (entry && typeof entry.bodyMdx === 'string') {
+    // If no local changes, or remote content matches what we started with, safe to update
+    if (!isDirty.value || entry.bodyMdx === originalMarkdown.value) {
+      markdown.value = entry.bodyMdx
+      originalMarkdown.value = entry.bodyMdx
+    } else {
+      // Remote content changed while we have unsaved local edits
+      // Store pending remote content and show conflict modal
+      pendingRemoteContent.value = entry.bodyMdx
+      showConflictModal.value = true
+    }
+  }
+}, { immediate: true })
+
+// Handle conflict resolution
+const acceptRemoteChanges = () => {
+  if (pendingRemoteContent.value !== null) {
+    markdown.value = pendingRemoteContent.value
+    originalMarkdown.value = pendingRemoteContent.value
+    pendingRemoteContent.value = null
+  }
+  showConflictModal.value = false
+}
+
+const keepLocalChanges = () => {
+  // Update baseline to remote so we don't re-trigger conflict on same content
+  // User still has unsaved changes (isDirty remains true), but we acknowledge this remote version
+  if (pendingRemoteContent.value !== null) {
+    originalMarkdown.value = pendingRemoteContent.value
+  }
+  pendingRemoteContent.value = null
+  showConflictModal.value = false
+}
 
 // Update workspace header when content loads
 watch(contentEntry, (entry) => {
@@ -162,10 +217,33 @@ watchEffect(() => {
     workspaceHeaderLoading.value = pending.value
   }
 })
+
+// Save handler
+const handleSave = async () => {
+  if (!contentId.value || isSaving.value)
+    return
+
+  try {
+    isSaving.value = true
+    await $fetch(`/api/content/${contentId.value}`, {
+      method: 'PATCH',
+      body: {
+        bodyMdx: markdown.value
+      }
+    })
+    // Update original markdown to match saved content
+    originalMarkdown.value = markdown.value
+    await refresh()
+  } catch (err) {
+    console.error('Failed to save content:', err)
+  } finally {
+    isSaving.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="w-full py-8">
+  <div class="w-full h-full relative">
     <USkeleton
       v-if="pending"
       class="rounded-2xl border border-muted-200/70 p-4"
@@ -188,54 +266,123 @@ watchEffect(() => {
 
     <div
       v-else-if="contentEntry"
-      class="w-full"
+      class="w-full h-full flex flex-col"
     >
-      <div class="w-full text-left py-4 px-1 space-y-2">
-        <div class="flex items-center justify-between gap-3">
-          <p class="font-medium leading-tight truncate">
-            {{ contentEntry.title }}
-          </p>
-          <UBadge
-            color="neutral"
-            variant="soft"
-            class="capitalize"
-          >
-            {{ contentEntry.status || 'draft' }}
-          </UBadge>
-        </div>
-        <div class="text-xs text-muted-500 flex flex-wrap items-center gap-1">
-          <span>{{ formatDateRelative(contentEntry.updatedAt) }}</span>
-          <span>·</span>
-          <span class="capitalize">
-            {{ contentEntry.contentType || 'content' }}
-          </span>
-          <span>·</span>
-          <span class="font-mono text-[11px] text-muted-600 truncate">
-            {{ contentEntry.id }}
-          </span>
-          <span>·</span>
-          <span class="text-emerald-500 dark:text-emerald-400">
-            +{{ contentEntry.additions ?? 0 }}
-          </span>
-          <span class="text-rose-500 dark:text-rose-400">
-            -{{ contentEntry.deletions ?? 0 }}
-          </span>
-        </div>
-        <div
-          v-if="contentEntry.conversationId"
-          class="mt-4"
-        >
+      <!-- Editor Toolbar -->
+      <div class="flex items-center justify-between gap-3 mb-4 pb-4 border-b border-gray-200 dark:border-gray-800">
+        <div class="flex items-center gap-3">
           <UButton
+            v-if="contentEntry.conversationId"
             :to="`/conversations/${contentEntry.conversationId}`"
-            variant="outline"
-            color="primary"
+            variant="ghost"
+            color="gray"
             size="sm"
             icon="i-lucide-message-circle"
           >
             View Conversation
           </UButton>
         </div>
+        <div class="flex items-center gap-2">
+          <UButton
+            :icon="showChat ? 'i-lucide-panel-right-close' : 'i-lucide-message-circle'"
+            variant="ghost"
+            color="gray"
+            size="sm"
+            @click="showChat = !showChat"
+          >
+            {{ showChat ? 'Hide Chat' : 'Show Chat' }}
+          </UButton>
+          <UButton
+            icon="i-lucide-save"
+            color="primary"
+            size="sm"
+            :loading="isSaving"
+            @click="handleSave"
+          >
+            Save
+          </UButton>
+        </div>
+      </div>
+
+      <!-- MDX Editor -->
+      <div class="flex-1 overflow-auto">
+        <UTextarea
+          v-model="markdown"
+          :rows="30"
+          placeholder="Start writing your content..."
+          class="font-mono text-sm"
+          autoresize
+        />
       </div>
     </div>
+
+    <!-- Conflict Resolution Modal -->
+    <UModal
+      v-model="showConflictModal"
+      :prevent-close="true"
+    >
+      <UCard>
+        <template #header>
+          <div class="flex items-center gap-2">
+            <UIcon
+              name="i-lucide-alert-triangle"
+              class="h-5 w-5 text-amber-500"
+            />
+            <h3 class="text-lg font-semibold">
+              Content Conflict Detected
+            </h3>
+          </div>
+        </template>
+
+        <div class="space-y-4">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            The remote content has been updated while you have unsaved local changes.
+          </p>
+          <p class="text-sm font-medium">
+            What would you like to do?
+          </p>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton
+              color="gray"
+              variant="ghost"
+              @click="keepLocalChanges"
+            >
+              Keep My Changes
+            </UButton>
+            <UButton
+              color="primary"
+              @click="acceptRemoteChanges"
+            >
+              Accept Remote Changes
+            </UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
+
+    <!-- Floating Chat Widget -->
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="translate-x-full opacity-0"
+      enter-to-class="translate-x-0 opacity-100"
+      leave-active-class="transition-all duration-300 ease-in"
+      leave-from-class="translate-x-0 opacity-100"
+      leave-to-class="translate-x-full opacity-0"
+    >
+      <div
+        v-if="showChat && contentEntry"
+        class="fixed top-0 right-0 h-screen w-[480px] bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-2xl z-50 overflow-hidden"
+      >
+        <QuillioWidget
+          :content-id="contentEntry.id"
+          :conversation-id="contentEntry.conversationId"
+          initial-mode="agent"
+          class="h-full"
+        />
+      </div>
+    </Transition>
   </div>
 </template>
