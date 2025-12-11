@@ -16,7 +16,8 @@
       "signInSuccess": "Sign in Success",
       "errors": {
         "invalidEmail": "Invalid email address",
-        "passwordLength": "Password must be at least {min} characters"
+        "passwordLength": "Password must be at least {min} characters",
+        "generalError": "An error occurred during sign in. Please try again."
       },
       "emailNotVerified": "Email Not Verified",
       "emailNotVerifiedDesc": "Please verify your email address to continue.",
@@ -42,7 +43,8 @@
       "signInSuccess": "登录成功",
       "errors": {
         "invalidEmail": "无效的邮箱地址",
-        "passwordLength": "密码长度至少为{min}个字符"
+        "passwordLength": "密码长度至少为{min}个字符",
+        "generalError": "登录时发生错误。请重试。"
       },
       "emailNotVerified": "邮箱未验证",
       "emailNotVerifiedDesc": "请验证您的邮箱地址以继续。",
@@ -71,7 +73,8 @@
       "signInSuccess": "ログインに成功しました",
       "errors": {
         "invalidEmail": "無効なメールアドレス",
-        "passwordLength": "パスワードは{min}文字以上である必要があります"
+        "passwordLength": "パスワードは{min}文字以上である必要があります",
+        "generalError": "ログイン中にエラーが発生しました。もう一度お試しください。"
       },
       "emailNotVerified": "メールアドレス未確認",
       "emailNotVerifiedDesc": "続行するにはメールアドレスを確認してください。",
@@ -100,7 +103,8 @@
       "signInSuccess": "Connexion réussie",
       "errors": {
         "invalidEmail": "Adresse e-mail invalide",
-        "passwordLength": "Le mot de passe doit contenir au moins {min} caractères"
+        "passwordLength": "Le mot de passe doit contenir au moins {min} caractères",
+        "generalError": "Une erreur s'est produite lors de la connexion. Veuillez réessayer."
       },
       "emailNotVerified": "Email non vérifié",
       "emailNotVerifiedDesc": "Veuillez vérifier votre adresse e-mail pour continuer.",

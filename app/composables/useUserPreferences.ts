@@ -6,13 +6,21 @@ export function useUserPreferences() {
   const colorMode = useColorMode()
   const { locale, locales, setLocale } = useI18n()
 
-  const themePreference = useLocalStorage<ThemePreference>('preferences.theme', (colorMode.preference ?? 'system') as ThemePreference)
+  // Initialize with default values to prevent SSR hydration mismatch
+  // Values will be synced from localStorage on client mount
+  const themePreference = useLocalStorage<ThemePreference>('preferences.theme', (colorMode.preference ?? 'system') as ThemePreference, {
+    initOnMounted: true
+  })
   watch(themePreference, (value) => {
     colorMode.preference = value
   }, { immediate: true })
 
-  const interfaceLanguage = useLocalStorage<string>('preferences.interfaceLanguage', 'auto')
-  const spokenLanguage = useLocalStorage<string>('preferences.spokenLanguage', 'auto')
+  const interfaceLanguage = useLocalStorage<string>('preferences.interfaceLanguage', 'auto', {
+    initOnMounted: true
+  })
+  const spokenLanguage = useLocalStorage<string>('preferences.spokenLanguage', 'auto', {
+    initOnMounted: true
+  })
 
   type LocaleCode = typeof locale.value
   const defaultLocale = locale.value

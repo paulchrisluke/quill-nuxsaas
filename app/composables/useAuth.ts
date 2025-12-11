@@ -69,14 +69,17 @@ export function useAuth() {
     }
     sessionFetching.value = true
 
-    // Use useFetch for better SSR support and hydration
-    const { data: sessionData } = await useFetch<{ session?: any, user?: any }>('/api/auth/get-session', {
-      headers: import.meta.server ? useRequestHeaders() : undefined,
-      key: 'auth-session',
-      retry: 0
-    })
+    let data: { session?: any, user?: any } | null = null
+    try {
+      data = await $fetch('/api/auth/get-session', {
+        credentials: 'include',
+        headers
+      })
+    } catch (error) {
+      console.error('[useAuth] Failed to fetch session:', error)
+      data = null
+    }
 
-    const data = sessionData.value as { session?: any, user?: any } | null
     session.value = data?.session || null
 
     const userDefaults = {

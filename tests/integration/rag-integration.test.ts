@@ -1,10 +1,12 @@
+import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import * as schema from '../server/database/schema'
-import * as chunking from '../server/services/content/generation/chunking'
-import * as contentGeneration from '../server/services/content/generation/index'
+import * as schema from '~~/server/database/schema'
+import * as chunking from '~~/server/services/content/generation/chunking'
+import { buildConversationContext } from '~~/server/services/content/generation/context'
+import * as contentGeneration from '~~/server/services/content/generation/index'
 
 // Mocks
-vi.mock('../server/services/vectorize', () => ({
+vi.mock('~~/server/services/vectorize', () => ({
   isVectorizeConfigured: true,
   embedText: vi.fn().mockResolvedValue(new Array(768).fill(0)),
   queryVectorMatches: vi.fn().mockResolvedValue([]),
@@ -26,18 +28,9 @@ const mockDb = {
   transaction: vi.fn().mockImplementation(async cb => cb(mockDb))
 } as any
 
-// Mock content generation context helper
-vi.mock('../server/services/content/generation/context', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../server/services/content/generation/context')>()
-  return {
-    ...actual,
-    generateSyntheticContext: vi.fn().mockResolvedValue('Synthesized user intent from conversation.')
-  }
-})
-
 // Mock content utils to avoid complex validation/logic
-vi.mock('../server/utils/content', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../server/utils/content')>()
+vi.mock('~~/server/utils/content', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('~~/server/utils/content')>()
   return {
     ...actual,
     ensureUniqueContentSlug: vi.fn().mockResolvedValue('test-slug')
@@ -45,7 +38,7 @@ vi.mock('../server/utils/content', async (importOriginal) => {
 })
 
 // MOCK DOWNSTREAM AI SERVICES TO PREVENT TIMEOUTS
-vi.mock('../server/services/content/generation/planning', () => ({
+vi.mock('~~/server/services/content/generation/planning', () => ({
   generateContentOutline: vi.fn().mockResolvedValue({
     outline: [],
     seo: {},
@@ -53,7 +46,7 @@ vi.mock('../server/services/content/generation/planning', () => ({
   })
 }))
 
-vi.mock('../server/services/content/generation/frontmatter', () => ({
+vi.mock('~~/server/services/content/generation/frontmatter', () => ({
   createFrontmatterFromOutline: vi.fn().mockReturnValue({ title: 'Test', status: 'draft', contentType: 'blog_post' }),
   enrichFrontmatterWithMetadata: vi.fn().mockReturnValue({ title: 'Test', status: 'draft', contentType: 'blog_post' }),
   extractFrontmatterFromVersion: vi.fn().mockReturnValue({
@@ -67,13 +60,13 @@ vi.mock('../server/services/content/generation/frontmatter', () => ({
   })
 }))
 
-vi.mock('../server/services/content/generation/sections', () => ({
+vi.mock('~~/server/services/content/generation/sections', () => ({
   generateContentSectionsFromOutline: vi.fn().mockResolvedValue([]),
   normalizeContentSections: vi.fn().mockReturnValue([]),
   CONTENT_SECTION_UPDATE_SYSTEM_PROMPT: 'You are an editor.'
 }))
 
-vi.mock('../server/services/content/generation/assembly', () => ({
+vi.mock('~~/server/services/content/generation/assembly', () => ({
   assembleMarkdownFromSections: vi.fn().mockReturnValue({ markdown: '', sections: [] }),
   enrichMarkdownWithMetadata: vi.fn().mockReturnValue(''),
   extractMarkdownFromEnrichedMdx: vi.fn().mockReturnValue('')
@@ -98,22 +91,20 @@ describe('rag integration & chat context', () => {
   })
 
   it('should persist chat context as SourceContent when generating draft', async () => {
-    const conversationContext = 'Synthesized user intent from conversation.'
-
-    // Mock successful insert of source content
-    mockDb.returning.mockResolvedValueOnce([{
-      id: 'new-source-id',
-      sourceType: 'conversation',
-      sourceText: conversationContext,
-      ingestStatus: 'ingested'
-    }])
+    const conversationHistory: ChatCompletionMessage[] = [{ role: 'user', content: 'I want cookies' }]
+    const conversationContext = buildConversationContext(conversationHistory) ?? ''
 
     // Mock ensureSourceContentChunksExist to return empty chunks (simulating success)
     vi.spyOn(chunking, 'ensureSourceContentChunksExist').mockResolvedValue([])
 
     // Mock content creation flow
     mockDb.returning
-      .mockResolvedValueOnce([{ id: 'new-source-id' }]) // returned from insert source
+      .mockResolvedValueOnce([{
+        id: 'new-source-id',
+        sourceType: 'conversation',
+        sourceText: conversationContext,
+        ingestStatus: 'ingested'
+      }]) // returned from insert source
       .mockResolvedValueOnce([{ id: 'content-id', slug: 'cookies' }]) // insert content
       .mockResolvedValueOnce([{ id: 'version-id' }]) // insert version
       .mockResolvedValueOnce([{ id: 'content-id' }]) // update content timestamp
@@ -126,7 +117,7 @@ describe('rag integration & chat context', () => {
       userId,
       sourceText: '', // Empty source text
       // Provide history to trigger conversation mode
-      conversationHistory: [{ role: 'user', content: 'I want cookies' }],
+      conversationHistory,
       mode: 'agent',
       overrides: { contentType: 'blog_post' }
     })
@@ -141,7 +132,7 @@ describe('rag integration & chat context', () => {
   })
 
   it('should use findGlobalRelevantChunks during section update', async () => {
-    const { queryVectorMatches } = await import('../server/services/vectorize')
+    const { queryVectorMatches } = await import('~~/server/services/vectorize')
 
     // Override the mock for this specific test
     vi.mocked(queryVectorMatches).mockResolvedValueOnce([{
