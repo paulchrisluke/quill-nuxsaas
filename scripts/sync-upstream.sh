@@ -152,7 +152,7 @@ if [ "$NO_BACKUP" = false ]; then
   if git branch "$BACKUP_BRANCH" 2>/dev/null; then
     echo -e "${GREEN}✅ Backup created. To restore: git reset --hard $BACKUP_BRANCH${NC}"
   else
-    echo -e "${YELLOW}⚠️  Backup branch already exists, using existing branch${NC}"
+    echo -e "${YELLOW}⚠️  Backup branch already exists, attempting with a unique name${NC}"
     # Try with a more unique name
     BACKUP_BRANCH="backup-before-sync-$(date +%Y%m%d-%H%M%S)-$$"
     if git branch "$BACKUP_BRANCH" 2>/dev/null; then
