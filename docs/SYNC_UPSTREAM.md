@@ -110,7 +110,7 @@ git reset --hard backup-before-sync-YYYYMMDD-HHMMSS
 
 ## Best Practices
 
-1. **Always test after syncing** - Run your test suite and manually test critical features
+1. **Always test after syncing** - Run your test suite (`pnpm test`) and manually test critical features
 2. **Review changes** - Use `git log --oneline -10` to see what changed
 3. **Check diffs** - Use `git diff HEAD~1` to see the full diff
 4. **Sync regularly** - Don't let too many changes accumulate

@@ -198,11 +198,12 @@ if git merge "$UPSTREAM_REMOTE/$UPSTREAM_BRANCH" --no-ff -m "$MERGE_MESSAGE"; th
   echo ""
   echo "Next steps:"
   echo "  1. Review the changes: git log --oneline -10"
-  echo "  2. Test your application thoroughly"
-  echo "  3. Check for any issues: git diff HEAD~1"
-  echo "  4. Push when ready: git push origin $CURRENT_BRANCH"
+  echo "  2. Run tests: pnpm test"
+  echo "  3. Test your application manually"
+  echo "  4. Check for any issues: git diff HEAD~1"
+  echo "  5. Push when ready: git push origin $CURRENT_BRANCH"
   if [ "$NO_BACKUP" = false ]; then
-    echo "  5. If something went wrong, restore from: git reset --hard $BACKUP_BRANCH"
+    echo "  6. If something went wrong, restore from: git reset --hard $BACKUP_BRANCH"
   fi
 else
   echo -e "\n${YELLOW}⚠️  Merge completed with conflicts${NC}"
