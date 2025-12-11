@@ -49,10 +49,15 @@ echo -e "${BLUE}🔄 Syncing updates from nuxt-better-auth-saas${NC}\n"
 # Check if we're on a safe branch
 if [ "$CURRENT_BRANCH" != "main" ]; then
   echo -e "${YELLOW}⚠️  Warning: You're on branch '$CURRENT_BRANCH', not 'main'${NC}"
-  read -p "Continue anyway? (y/N) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Aborted."
+  if [ -t 0 ]; then
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  else
+    echo -e "${RED}Error: Cannot run interactively outside main branch without TTY. Use --no-confirm flag.${NC}"
     exit 1
   fi
 fi
@@ -144,8 +149,19 @@ fi
 if [ "$NO_BACKUP" = false ]; then
   BACKUP_BRANCH="backup-before-sync-$(date +%Y%m%d-%H%M%S)"
   echo -e "${BLUE}💾 Creating backup branch: $BACKUP_BRANCH${NC}"
-  git branch "$BACKUP_BRANCH"
-  echo -e "${GREEN}✅ Backup created. To restore: git reset --hard $BACKUP_BRANCH${NC}"
+  if git branch "$BACKUP_BRANCH" 2>/dev/null; then
+    echo -e "${GREEN}✅ Backup created. To restore: git reset --hard $BACKUP_BRANCH${NC}"
+  else
+    echo -e "${YELLOW}⚠️  Backup branch already exists, using existing branch${NC}"
+    # Try with a more unique name
+    BACKUP_BRANCH="backup-before-sync-$(date +%Y%m%d-%H%M%S)-$$"
+    if git branch "$BACKUP_BRANCH" 2>/dev/null; then
+      echo -e "${GREEN}✅ Backup created with unique name: $BACKUP_BRANCH${NC}"
+    else
+      echo -e "${RED}❌ Error: Could not create backup branch${NC}"
+      exit 1
+    fi
+  fi
   echo ""
 fi
 
@@ -155,11 +171,16 @@ if [ "$NO_CONFIRM" = false ]; then
   if [ -n "$CONFLICT_FILES" ]; then
     echo -e "${YELLOW}⚠️  Conflicts are likely in the files listed above${NC}"
   fi
-  read -p "Continue? (y/N) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Aborted."
-    exit 0
+  if [ -t 0 ]; then
+    read -p "Continue? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  else
+    echo -e "${RED}Error: Cannot run interactively without TTY. Use --no-confirm flag.${NC}"
+    exit 1
   fi
 fi
 
@@ -194,7 +215,7 @@ else
   echo "2. Open each conflicted file and look for conflict markers:"
   echo "   ${CYAN}<<<<<<< HEAD${NC} (your changes)"
   echo "   ${CYAN}=======${NC}"
-  echo "   ${CYAN}>>>>>>> template/main${NC} (upstream changes)"
+  echo "   ${CYAN}>>>>>>> $UPSTREAM_REMOTE/$UPSTREAM_BRANCH${NC} (upstream changes)"
   echo ""
   echo "3. Edit each file to resolve conflicts, then stage it:"
   echo "   ${CYAN}git add <resolved-file>${NC}"
