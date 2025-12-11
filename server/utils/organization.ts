@@ -1,7 +1,8 @@
 import type { H3Event } from 'h3'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '../database/schema'
+import { setUserActiveOrganization } from '../services/organization/provision'
 import { getAuthSession } from './auth'
 import { getDB } from './db'
 
@@ -46,9 +47,27 @@ export const requireActiveOrganization = async (
   const session = await getAuthSession(event) as BetterAuthSession | null
 
   // Better Auth's organization plugin sets activeOrganizationId in the session
-  const organizationId = session?.session?.activeOrganizationId
+  let organizationId = session?.session?.activeOrganizationId
     ?? session?.data?.session?.activeOrganizationId
     ?? session?.activeOrganizationId
+
+  // Anonymous users get an auto-provisioned org; fall back to it if not in session
+  if (!organizationId && options?.isAnonymousUser) {
+    const [anonymousOrg] = await db
+      .select({ id: schema.organization.id })
+      .from(schema.organization)
+      .innerJoin(schema.member, eq(schema.member.organizationId, schema.organization.id))
+      .where(and(
+        eq(schema.member.userId, userId),
+        sql`${schema.organization.slug} LIKE 'anonymous-%'`
+      ))
+      .limit(1)
+
+    if (anonymousOrg?.id) {
+      organizationId = anonymousOrg.id
+      await setUserActiveOrganization(userId, anonymousOrg.id)
+    }
+  }
 
   if (!organizationId) {
     // For anonymous users, provide a more helpful error message
