@@ -5,8 +5,8 @@
 
 import type Stripe from 'stripe'
 import { eq } from 'drizzle-orm'
+import { organization as organizationTable, user as userTable } from '~~/server/db/schema'
 import { findPlanById, findPlanByPriceId, getPlanPricing } from '~~/shared/utils/plans'
-import { organization as organizationTable, user as userTable } from '../db/schema'
 import { useDB } from './db'
 import { resendInstance } from './drivers'
 import {

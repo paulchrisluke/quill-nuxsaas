@@ -1,5 +1,5 @@
 import type { NitroRuntimeConfig } from 'nitropack/types'
-import type { FileManagerConfig, StorageProviderType } from '../services/file/types'
+import type { FileManagerConfig, StorageProviderType } from '~~/server/services/file/types'
 import { config } from 'dotenv'
 
 declare module '@nuxt/schema' {
