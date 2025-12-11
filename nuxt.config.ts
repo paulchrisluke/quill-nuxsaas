@@ -5,7 +5,7 @@ import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 import { getAppUrl } from './shared/utils/app-url'
 
 export default defineNuxtConfig({
-  compatibilityDate: '2025-07-22',
+  compatibilityDate: '2025-12-10',
   devtools: { enabled: true },
   css: ['~/assets/css/main.css'],
   modules: [
@@ -17,6 +17,15 @@ export default defineNuxtConfig({
     ...(process.env.NODE_ENV === 'test' ? ['@nuxt/test-utils/module'] : []),
     ...(process.env.NUXT_NITRO_PRESET !== 'node-server' ? ['@nuxthub/core'] : [])
   ],
+  ...(process.env.NUXT_NITRO_PRESET !== 'node-server'
+    ? {
+        hub: {
+          db: 'postgresql',
+          kv: true,
+          blob: true
+        } as any
+      }
+    : {}),
   i18n: {
     vueI18n: '~/i18n/i18n.config.ts',
     baseUrl: getAppUrl(),
@@ -121,6 +130,14 @@ export default defineNuxtConfig({
     experimental: {
       openAPI: true
     },
+    ...(process.env.NUXT_NITRO_PRESET === 'cloudflare-module'
+      ? {
+          cloudflare: {
+            deployConfig: true,
+            nodeCompat: true
+          }
+        }
+      : {}),
     rollupConfig: {
       external: process.env.NUXT_NITRO_PRESET != 'node-server' ? ['pg-native'] : undefined
     },

@@ -1,0 +1,1 @@
+ALTER TABLE "content" ADD COLUMN "ingest_method" text;
