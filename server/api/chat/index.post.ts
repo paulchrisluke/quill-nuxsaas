@@ -59,14 +59,19 @@ const isAnonymousSessionUser = (user: BasicUserShape | null | undefined) => {
     return true
   }
 
-  const emailLooksAnonymous = looksLikeAnonymousEmail(user.email)
+  const normalizedEmail = typeof user.email === 'string'
+    ? user.email.trim().toLowerCase()
+    : null
+  const emailLooksAnonymous = looksLikeAnonymousEmail(normalizedEmail)
 
   if (emailLooksAnonymous) {
     return true
   }
 
-  if (user.email?.toLowerCase().endsWith('@localhost') && user.emailVerified === false) {
-    return true
+  if (!emailLooksAnonymous && normalizedEmail && user.emailVerified === false) {
+    if (normalizedEmail.startsWith('temp-') && normalizedEmail.endsWith('@localhost')) {
+      return true
+    }
   }
 
   return false
@@ -79,6 +84,39 @@ const isUnauthorizedError = (error: any) => {
   const statusCode = (error as any).statusCode ?? (error as any).status
   const statusMessage = (error as any).statusMessage ?? (error as any).message
   return statusCode === 401 || statusMessage === 'Unauthorized'
+}
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+type ContentIdentifierField = 'id' | 'slug'
+
+interface ContentIdentifier {
+  field: ContentIdentifierField
+  value: string
+}
+
+function _resolveContentIdentifier(input: string): ContentIdentifier {
+  const normalized = validateRequiredString(input, 'contentId')
+  const looksLikeUuid = UUID_REGEX.test(normalized)
+
+  return {
+    field: looksLikeUuid ? 'id' : 'slug',
+    value: normalized
+  }
+}
+
+function _buildContentLookupWhere(
+  organizationId: string,
+  identifier: ContentIdentifier
+) {
+  const identifierClause = identifier.field === 'id'
+    ? eq(schema.content.id, identifier.value)
+    : eq(schema.content.slug, identifier.value)
+
+  return and(
+    eq(schema.content.organizationId, organizationId),
+    identifierClause
+  )
 }
 
 function toSummaryBullets(text: string | null | undefined) {
@@ -1345,13 +1383,19 @@ export default defineEventHandler(async (event) => {
   // ============================================================================
   const { stream, writer: sseWriter } = createSSEStream()
 
-  // Helper to write SSE events and ensure headers flush via early keep-alive
+  // Helper to write SSE events
   const writeSSE = (eventType: string, data: any) => {
     sseWriter.write(eventType, data)
   }
 
-  // Force stream initialization so buffered errors flush even if main logic fails instantly
-  writeSSE('ping', { ts: Date.now() })
+  let pingSent = false
+  const flushPing = () => {
+    if (pingSent) {
+      return
+    }
+    pingSent = true
+    writeSSE('ping', { ts: Date.now() })
+  }
 
   // Start async processing (don't await - let it run in background)
   ;(async () => {
@@ -1378,6 +1422,7 @@ export default defineEventHandler(async (event) => {
       }
 
       const sessionUserIsAnonymous = isAnonymousSessionUser(user)
+      flushPing()
       const db = await useDB(event)
 
       // Block agent mode for anonymous users
@@ -2305,6 +2350,7 @@ export default defineEventHandler(async (event) => {
       // Close the stream
       sseWriter.close()
     } catch (error: any) {
+      flushPing()
       console.error('[Chat API] Error during streaming:', error)
       // Try to send error event before closing
       try {

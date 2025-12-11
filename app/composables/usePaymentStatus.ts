@@ -1,27 +1,10 @@
-import { watchDebounced } from '@vueuse/core'
-
 /**
  * Composable for checking subscription payment status
  * Used across the app to detect failed payments and trial usage
  */
 export function usePaymentStatus() {
-  const { useActiveOrganization, activeOrgExtras, refreshActiveOrganizationExtras } = useAuth()
+  const { useActiveOrganization, activeOrgExtras } = useAuth()
   const activeOrg = useActiveOrganization()
-
-  if (import.meta.client) {
-    let isInitialLoad = true
-    watchDebounced(
-      () => activeOrg.value?.data?.id,
-      async (orgId) => {
-        if (!orgId || isInitialLoad) {
-          isInitialLoad = false
-          return
-        }
-        await refreshActiveOrganizationExtras(orgId)
-      },
-      { immediate: true, debounce: 300 }
-    )
-  }
 
   // Get all subscriptions for the active organization
   const subscriptions = computed(() => activeOrgExtras.value?.subscriptions || [])
