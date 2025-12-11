@@ -10,6 +10,17 @@ import {
   uniqueIndex
 } from 'drizzle-orm/pg-core'
 
+export const organization = pgTable('organization', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  logo: text('logo'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  metadata: text('metadata'),
+  stripeCustomerId: text('stripe_customer_id'),
+  referralCode: text('referral_code')
+})
+
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -74,17 +85,6 @@ export const verification = pgTable(
   },
   table => [index('verification_identifier_idx').on(table.identifier)]
 )
-
-export const organization = pgTable('organization', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  logo: text('logo'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  metadata: text('metadata'),
-  stripeCustomerId: text('stripe_customer_id'),
-  referralCode: text('referral_code')
-})
 
 export const member = pgTable(
   'member',

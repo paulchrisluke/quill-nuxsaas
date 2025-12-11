@@ -119,7 +119,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const isUpgrade =
+  const _isUpgrade =
     targetTier.order > currentTier.order ||
     (targetTier?.order === currentTier?.order && newInterval === 'year' && currentInterval === 'month')
 

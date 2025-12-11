@@ -79,8 +79,12 @@ export default defineEventHandler(async (event) => {
   const stripePlanInfo = getPlanByStripePriceId(stripePriceId)
   if (!stripePlanInfo) {
     console.warn('[preview-tier-change] Unknown Stripe price ID:', stripePriceId)
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Unable to determine current plan. Please contact support.'
+    })
   }
-  const stripeTierKey = stripePlanInfo?.tierKey || 'pro'
+  const stripeTierKey = stripePlanInfo.tierKey
 
   // Also get local sub for reference
   const localSub = await db.query.subscription.findFirst({
