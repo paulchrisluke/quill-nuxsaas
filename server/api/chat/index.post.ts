@@ -1659,8 +1659,12 @@ export default defineEventHandler(async (event) => {
 
         try {
           const previousSnapshot = getIntentSnapshotFromMetadata(activeConversation.metadata as Record<string, any> | null)
+          const historyForIntent = [
+            ...conversationHistory,
+            { role: 'user', content: trimmedMessage } satisfies ChatCompletionMessage
+          ]
           intentResult = await orchestrateConversationIntent({
-            conversationHistory,
+            conversationHistory: historyForIntent,
             previousSnapshot
           })
 
