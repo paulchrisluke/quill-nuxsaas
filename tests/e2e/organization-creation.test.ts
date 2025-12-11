@@ -92,7 +92,7 @@ describe('organization creation after sign out/in', async () => {
     console.log('Step 1: Signing out...')
     try {
       // Try to find and click sign out button
-      const userMenu = await page.$('button:has-text("Paul Luke"), button:has-text("PL")')
+      const userMenu = await page.$('[data-testid="user-menu"], [aria-label="User menu"]')
       if (userMenu) {
         await userMenu.click()
         await page.waitForTimeout(500)
@@ -119,8 +119,11 @@ describe('organization creation after sign out/in', async () => {
 
     // Step 2: Sign in with valid credentials
     console.log('Step 2: Signing in...')
-    const email = testEmail || 'test@example.com'
-    const password = testPassword || 'test-password'
+    if (!testEmail || !testPassword) {
+      throw new Error('NUXT_TEST_EMAIL and NUXT_TEST_PASSWORD must be set for this test')
+    }
+    const email = testEmail
+    const password = testPassword
 
     await page.goto(`${host}/signin`)
     await page.waitForLoadState('networkidle')
@@ -130,12 +133,8 @@ describe('organization creation after sign out/in', async () => {
     await page.fill('input[name="password"]', password)
     await page.click('button[type="submit"]')
 
-    // Wait for sign in to complete - wait for URL to change away from /signin
-    await page.waitForURL(url => !url.toString().includes('/signin'), { timeout: 10000 })
-
-    // Verify we're signed in by checking for user menu or redirect
-    const currentUrl = page.url()
-    expect(currentUrl).not.toContain('/signin')
+    // Wait for sign in to complete by waiting for the user menu to appear
+    await page.waitForSelector('[data-testid="user-menu"]', { timeout: 15000 })
 
     // Step 3: Navigate to conversations (should show onboarding if no org)
     console.log('Step 3: Checking for onboarding...')
@@ -181,7 +180,8 @@ describe('organization creation after sign out/in', async () => {
     expect(createResult.data?.name).toBe('Test Organization')
     expect(createResult.data?.slug).toBe(uniqueSlug)
 
-    const orgId = createResult.data.id
+    const orgId = createResult.data?.id
+    expect(orgId).toBeTruthy()
 
     // Step 6: Set organization as active
     console.log('Step 6: Setting organization as active...')

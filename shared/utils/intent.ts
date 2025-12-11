@@ -1,5 +1,3 @@
-import type { NonEmptyArray } from './types'
-
 export type IntentRequirementField = 'topic' | 'goal' | 'audience' | 'format'
 
 export const REQUIRED_INTENT_FIELDS: IntentRequirementField[] = ['topic', 'goal', 'audience', 'format']
@@ -59,8 +57,8 @@ export interface IntentSnapshotUpdate {
   audience?: string | null
   format?: string | null
   tone?: string | null
-  mustInclude?: NonEmptyArray<string> | string[] | null
-  constraints?: NonEmptyArray<string> | string[] | null
+  mustInclude?: string[] | null
+  constraints?: string[] | null
   clarifyingQuestions?: IntentClarifyingQuestion[]
   notes?: string | null
 }

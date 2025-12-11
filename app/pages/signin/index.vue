@@ -86,7 +86,7 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
   } catch (err: any) {
     console.error('[signin] Failed to sign in:', err)
     toast.add({
-      title: err?.message || t('signIn.errors.invalidEmail'),
+      title: err?.message || t('signIn.errors.generalError'),
       color: 'error'
     })
   } finally {

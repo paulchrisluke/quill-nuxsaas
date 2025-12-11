@@ -75,7 +75,11 @@ export const requireActiveOrganization = async (
     // Organization doesn't exist (was deleted), treat as no organization
     throw createError({
       statusCode: 400,
-      statusMessage: 'No active organization found in session'
+      statusMessage: 'Organization referenced by session not found',
+      data: {
+        organizationId,
+        message: 'The organization referenced in your session no longer exists. It may have been deleted.'
+      }
     })
   }
 

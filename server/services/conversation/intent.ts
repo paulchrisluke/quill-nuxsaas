@@ -265,14 +265,20 @@ export async function deriveIntentSnapshotFromConversation(options: {
     return previousSnapshot ?? createEmptyIntentSnapshot()
   }
 
-  const response = await callChatCompletions({
-    temperature: 0.2,
-    maxTokens: 600,
-    messages: [
-      { role: 'system', content: INTENT_EXTRACTION_SYSTEM_PROMPT },
-      { role: 'user', content: INTENT_EXTRACTION_USER_PROMPT(transcript) }
-    ]
-  })
+  let response: string
+  try {
+    response = await callChatCompletions({
+      temperature: 0.2,
+      maxTokens: 600,
+      messages: [
+        { role: 'system', content: INTENT_EXTRACTION_SYSTEM_PROMPT },
+        { role: 'user', content: INTENT_EXTRACTION_USER_PROMPT(transcript) }
+      ]
+    })
+  } catch (error) {
+    console.error('[deriveIntentSnapshotFromConversation] Failed to extract intent:', error)
+    return previousSnapshot ?? createEmptyIntentSnapshot()
+  }
 
   const parsed = extractJsonPayload(response) ?? {}
 
@@ -289,17 +295,18 @@ export async function deriveIntentSnapshotFromConversation(options: {
   }
 
   const snapshot = createBaseSnapshot(previousSnapshot)
+  const userMessageIds = collectUserMessageIds(conversationHistory)
 
-  snapshot.fields.topic = mergeStringField(snapshot.fields.topic, normalized.topic ?? null)
-  snapshot.fields.goal = mergeStringField(snapshot.fields.goal, normalized.goal ?? null)
-  snapshot.fields.audience = mergeStringField(snapshot.fields.audience, normalized.audience ?? null)
-  snapshot.fields.format = mergeStringField(snapshot.fields.format, normalized.format ?? null)
-  snapshot.fields.tone = mergeStringField(snapshot.fields.tone, normalized.tone ?? null)
-  snapshot.fields.mustInclude = mergeArrayField(snapshot.fields.mustInclude, normalized.mustInclude || [])
-  snapshot.fields.constraints = mergeArrayField(snapshot.fields.constraints, normalized.constraints || [])
+  snapshot.fields.topic = mergeStringField(snapshot.fields.topic, normalized.topic ?? null, userMessageIds)
+  snapshot.fields.goal = mergeStringField(snapshot.fields.goal, normalized.goal ?? null, userMessageIds)
+  snapshot.fields.audience = mergeStringField(snapshot.fields.audience, normalized.audience ?? null, userMessageIds)
+  snapshot.fields.format = mergeStringField(snapshot.fields.format, normalized.format ?? null, userMessageIds)
+  snapshot.fields.tone = mergeStringField(snapshot.fields.tone, normalized.tone ?? null, userMessageIds)
+  snapshot.fields.mustInclude = mergeArrayField(snapshot.fields.mustInclude, normalized.mustInclude || [], userMessageIds)
+  snapshot.fields.constraints = mergeArrayField(snapshot.fields.constraints, normalized.constraints || [], userMessageIds)
   snapshot.notes = normalized.notes ?? snapshot.notes ?? null
 
-  const readiness = computeReadiness(snapshot)
+  const readiness = computeReadiness(snapshot, previousSnapshot)
   snapshot.readiness = readiness
   snapshot.missing = fillMissingQuestions(readiness, normalized.clarifyingQuestions || [])
 

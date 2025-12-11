@@ -77,9 +77,12 @@ export function useConversation() {
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
   const prompt = useState<string>('chat/prompt', () => '')
 
-  // Persist mode selection using useLocalStorage (SSR-safe, Cloudflare-compatible)
-  // useLocalStorage automatically handles persistence and is reactive
-  const mode = useLocalStorage<'chat' | 'agent'>('chat/mode', 'chat')
+  // Persist mode selection using useLocalStorage
+  // Initialize with default value to prevent SSR hydration mismatch
+  // Value will be synced from localStorage on client mount
+  const mode = useLocalStorage<'chat' | 'agent'>('chat/mode', 'chat', {
+    initOnMounted: true
+  })
 
   const currentActivity = useState<'thinking' | 'streaming' | null>('chat/current-activity', () => null)
   const currentToolName = useState<string | null>('chat/current-tool-name', () => null)

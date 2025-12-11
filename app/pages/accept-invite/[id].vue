@@ -11,9 +11,13 @@ const error = ref('')
 
 const invitationIdFromUrl = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id || ''
 
-// Persist pending invite using useLocalStorage (SSR-safe, Cloudflare-compatible)
+// Persist pending invite using useLocalStorage
+// Initialize with default value to prevent SSR hydration mismatch
+// Value will be synced from localStorage on client mount
 // This serves as a fallback if the redirect query param is lost
-const pendingInvite = useLocalStorage<string | null>('pending_invite', null)
+const pendingInvite = useLocalStorage<string | null>('pending_invite', null, {
+  initOnMounted: true
+})
 
 // Use invitation ID from URL if available, otherwise fall back to pending invite from localStorage
 const invitationId = computed(() => invitationIdFromUrl || pendingInvite.value || '')

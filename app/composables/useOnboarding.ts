@@ -3,8 +3,6 @@ interface OnboardingModalState {
 }
 
 export function useOnboarding() {
-  const { loggedIn } = useAuth()
-
   const modalState = useState<OnboardingModalState>('onboarding-modal-state', () => ({
     isOpen: false
   }))
@@ -14,14 +12,6 @@ export function useOnboarding() {
   const organizations = computed(() => organizationsQuery.data.value ?? null)
 
   const pendingOrganizations = computed(() => organizationsQuery.pending.value)
-
-  const needsOnboarding = computed(() => {
-    if (!loggedIn.value)
-      return false
-    if (pendingOrganizations.value)
-      return false
-    return Array.isArray(organizations.value) && organizations.value.length === 0
-  })
 
   const isOpen = computed({
     get: () => modalState.value.isOpen,
@@ -46,7 +36,6 @@ export function useOnboarding() {
     isOnboardingOpen: isOpen,
     showOnboarding,
     hideOnboarding,
-    needsOnboarding,
     refreshOrganizations,
     organizations,
     pendingOrganizations
