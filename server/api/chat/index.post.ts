@@ -32,6 +32,8 @@ import { createSSEStream } from '~~/server/utils/streaming'
 import { validateEnum, validateNumber, validateOptionalString, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
 
+const ORGANIZATION_LOOKUP_WARN_THRESHOLD_MS = 2000
+
 function toSummaryBullets(text: string | null | undefined) {
   if (!text) {
     return []
@@ -1296,7 +1298,7 @@ export default defineEventHandler(async (event) => {
   // ============================================================================
   const { stream, writer: sseWriter } = createSSEStream()
 
-  // Helper to write SSE events
+  // Helper to write SSE events and ensure headers flush via early keep-alive
   const writeSSE = (eventType: string, data: any) => {
     sseWriter.write(eventType, data)
   }
@@ -1306,6 +1308,22 @@ export default defineEventHandler(async (event) => {
     try {
       const user = await requireAuth(event, { allowAnonymous: true })
       const db = await useDB(event)
+
+      const body = await readBody<ChatRequestBody>(event)
+
+      validateRequestBody(body)
+
+      const VALID_MODES = ['chat', 'agent'] as const
+      const mode = validateEnum(body.mode, VALID_MODES, 'mode')
+
+      // Block agent mode for anonymous users
+      if (mode === 'agent' && user.isAnonymous) {
+        throw createError({
+          statusCode: 403,
+          statusMessage: 'Agent mode requires authentication',
+          message: 'Please sign in to use agent mode and save content.'
+        })
+      }
 
       // Try to get organizationId from session first (faster and more reliable)
       const authSession = await getAuthSession(event)
@@ -1326,35 +1344,30 @@ export default defineEventHandler(async (event) => {
       }
 
       if (!organizationId) {
+        const lookupStartedAt = Date.now()
         try {
-          const orgResult = await requireActiveOrganization(event, user.id, { isAnonymousUser: user.isAnonymous ?? false })
+          const orgResult = await requireActiveOrganization(event, user.id, {
+            isAnonymousUser: user.isAnonymous ?? false
+          })
           organizationId = orgResult.organizationId
         } catch (error: any) {
           if (user.isAnonymous) {
             throw createValidationError('Please create an account to use the chat feature. Anonymous users need an organization to continue.')
           }
           throw error
+        } finally {
+          const duration = Date.now() - lookupStartedAt
+          if (duration > ORGANIZATION_LOOKUP_WARN_THRESHOLD_MS) {
+            console.warn('[Chat API] requireActiveOrganization took %dms (threshold=%dms)', duration, ORGANIZATION_LOOKUP_WARN_THRESHOLD_MS, {
+              isAnonymous: user.isAnonymous,
+              userId: user.id
+            })
+          }
         }
       }
 
       if (!organizationId) {
         throw createValidationError('No active organization found. Please create an account or select an organization.')
-      }
-
-      const body = await readBody<ChatRequestBody>(event)
-
-      validateRequestBody(body)
-
-      const VALID_MODES = ['chat', 'agent'] as const
-      const mode = validateEnum(body.mode, VALID_MODES, 'mode')
-
-      // Block agent mode for anonymous users
-      if (mode === 'agent' && user.isAnonymous) {
-        throw createError({
-          statusCode: 403,
-          statusMessage: 'Agent mode requires authentication',
-          message: 'Please sign in to use agent mode and save content.'
-        })
       }
 
       const message = typeof body.message === 'string' ? body.message : ''

@@ -80,7 +80,11 @@ export const requireActiveOrganization = async (
 
     if (firstOrg?.id) {
       organizationId = firstOrg.id
-      await setUserActiveOrganization(userId, firstOrg.id)
+      try {
+        await setUserActiveOrganization(userId, firstOrg.id)
+      } catch (error) {
+        console.error('[requireActiveOrganization] Failed to set active organization in session:', error)
+      }
     }
   }
 

@@ -4,7 +4,7 @@ import { requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event, { allowAnonymous: true })
+  const user = await requireAuth(event)
   const db = getDB()
 
   const ownedMemberships = await db

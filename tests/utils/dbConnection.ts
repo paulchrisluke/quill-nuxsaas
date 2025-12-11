@@ -3,11 +3,7 @@
  * Used for verifying database connectivity and connection string configuration
  */
 
-import { config } from 'dotenv'
 import pg from 'pg'
-
-// Load environment variables
-config()
 
 const { Pool } = pg
 
@@ -35,6 +31,9 @@ export interface DatabaseConnectionTestResult {
  * Simulates how the application connects to the database
  */
 export async function testDatabaseConnection(): Promise<DatabaseConnectionTestResult> {
+  const { config } = await import('dotenv')
+  config()
+
   const databaseUrl = process.env.DATABASE_URL
 
   if (!databaseUrl) {
@@ -57,39 +56,44 @@ export async function testDatabaseConnection(): Promise<DatabaseConnectionTestRe
 
   try {
     const client = await pool.connect()
+    let testResult: DatabaseConnectionTestResult | null = null
 
-    // Test a simple query
-    const result = await client.query('SELECT NOW() as current_time, version() as pg_version, current_database() as db_name')
-
-    const details = {
-      currentTime: result.rows[0].current_time,
-      pgVersion: result.rows[0].pg_version.split(',')[0],
-      dbName: result.rows[0].db_name
-    }
-
-    // Parse connection string for details
     try {
-      const url = new URL(connectionString.replace(/^postgresql:\/\//, 'http://'))
-      const params = new URLSearchParams(url.search)
-      Object.assign(details, {
-        host: url.hostname,
-        port: url.port || '5432 (default)',
-        database: url.pathname.slice(1),
-        sslMode: params.get('sslmode') || 'not specified',
-        channelBinding: params.get('channel_binding') || 'not specified'
-      })
-    } catch {
-      // Ignore parsing errors
+      // Test a simple query
+      const result = await client.query('SELECT NOW() as current_time, version() as pg_version, current_database() as db_name')
+
+      const details = {
+        currentTime: result.rows[0].current_time,
+        pgVersion: result.rows[0].pg_version?.split(',')[0] || result.rows[0].pg_version,
+        dbName: result.rows[0].db_name
+      }
+
+      // Parse connection string for details
+      try {
+        const url = new URL(connectionString.replace(/^postgres(ql)?:\/\//, 'http://'))
+        const params = new URLSearchParams(url.search)
+        Object.assign(details, {
+          host: url.hostname,
+          port: url.port || '5432 (default)',
+          database: url.pathname.slice(1),
+          sslMode: params.get('sslmode') || 'not specified',
+          channelBinding: params.get('channel_binding') || 'not specified'
+        })
+      } catch {
+        // Ignore parsing errors
+      }
+
+      testResult = {
+        success: true,
+        message: 'Database connection successful',
+        details
+      }
+    } finally {
+      client.release()
     }
 
-    client.release()
     await pool.end()
-
-    return {
-      success: true,
-      message: 'Database connection successful',
-      details
-    }
+    return testResult!
   } catch (error: any) {
     await pool.end()
     return {

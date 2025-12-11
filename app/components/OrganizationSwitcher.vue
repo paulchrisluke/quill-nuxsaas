@@ -47,7 +47,7 @@ const activeOrgName = computed(() => {
 
 // Compute active subscription from activeOrg state (populated by layout)
 const activeStripeSubscription = computed(() => {
-  const subs = activeOrgExtras.value.subscriptions
+  const subs = activeOrgExtras.value?.subscriptions
   if (!Array.isArray(subs))
     return null
   return subs.find(

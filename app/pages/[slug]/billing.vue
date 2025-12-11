@@ -33,11 +33,13 @@ const showTierChangePreview = ref(false)
 const pendingTierChange = ref<{ tierKey: Exclude<PlanKey, 'free'>, interval: PlanInterval } | null>(null)
 
 if (import.meta.client) {
+  let isInitialLoad = true
   watch(
     () => activeOrg.value?.data?.id,
     (orgId) => {
-      if (orgId)
+      if (orgId && !isInitialLoad)
         refreshActiveOrganizationExtras(orgId)
+      isInitialLoad = false
     },
     { immediate: true }
   )
@@ -45,7 +47,7 @@ if (import.meta.client) {
 
 // Show upgrade modal if showUpgrade query param is present or if upgrade is needed
 watchEffect(() => {
-  if (route.query.showUpgrade === 'true' || activeOrgExtras.value.needsUpgrade) {
+  if (route.query.showUpgrade === 'true' || activeOrgExtras.value?.needsUpgrade) {
     showUpgradeModal.value = true
   }
 })
@@ -68,7 +70,7 @@ onMounted(async () => {
       await refreshActiveOrganizationExtras(activeOrg.value?.data?.id)
 
       // Check if we have a Pro subscription now
-      const currentSubs = activeOrgExtras.value.subscriptions || []
+      const currentSubs = activeOrgExtras.value?.subscriptions || []
       const hasPro = currentSubs.some((s: any) => s.status === 'active' || s.status === 'trialing')
 
       if (hasPro) {
@@ -123,7 +125,7 @@ onMounted(async () => {
 // 2. That endpoint includes subscriptions
 // 3. We just fixed useActiveOrganization() to use global state populated by the layout
 // So we can just read the data directly!
-const _subscriptions = computed(() => activeOrgExtras.value.subscriptions || [])
+const _subscriptions = computed(() => activeOrgExtras.value?.subscriptions || [])
 
 // Refresh function for after mutations - re-fetches the whole org data
 const refresh = async () => {

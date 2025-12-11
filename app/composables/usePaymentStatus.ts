@@ -1,4 +1,4 @@
-import { watch } from 'vue'
+import { watchDebounced } from '@vueuse/core'
 
 /**
  * Composable for checking subscription payment status
@@ -9,17 +9,22 @@ export function usePaymentStatus() {
   const activeOrg = useActiveOrganization()
 
   if (import.meta.client) {
-    watch(
+    let isInitialLoad = true
+    watchDebounced(
       () => activeOrg.value?.data?.id,
-      (orgId) => {
-        refreshActiveOrganizationExtras(orgId)
+      async (orgId) => {
+        if (!orgId || isInitialLoad) {
+          isInitialLoad = false
+          return
+        }
+        await refreshActiveOrganizationExtras(orgId)
       },
-      { immediate: true }
+      { immediate: true, debounce: 300 }
     )
   }
 
   // Get all subscriptions for the active organization
-  const subscriptions = computed(() => activeOrgExtras.value.subscriptions || [])
+  const subscriptions = computed(() => activeOrgExtras.value?.subscriptions || [])
 
   // Find the active subscription (including past_due)
   // Note: 'incomplete' subscriptions are NOT valid - they occur when checkout is abandoned
@@ -39,7 +44,7 @@ export function usePaymentStatus() {
   // Check if user should NOT get a free trial
   // True if user owns multiple orgs (only first org gets trial)
   const hasUsedTrial = computed(() => {
-    if (activeOrgExtras.value.userOwnsMultipleOrgs)
+    if (activeOrgExtras.value?.userOwnsMultipleOrgs)
       return true
     // Fallback to checking current org's subscriptions
     const subs = subscriptions.value as any[]

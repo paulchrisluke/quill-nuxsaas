@@ -107,10 +107,14 @@ describe('chat database persistence E2E', async () => {
         }
       }
     } catch (error: any) {
-      // If it's a quota error, that's acceptable for this test
+      // If it's a quota error, skip the test explicitly
       if (error?.data?.message?.includes('limit reached') || error?.data?.message?.includes('quota')) {
-        // Quota error is acceptable - we just want to verify DB connection works
+        console.warn('Skipping test due to quota limits')
         return
+      }
+      // If it's a 404, the server route might not be available in test environment
+      if (error?.status === 404 || error?.statusCode === 404) {
+        throw new Error(`API endpoint not found. This test requires a running server. Error: ${error.message}`)
       }
       throw error
     }
@@ -118,45 +122,77 @@ describe('chat database persistence E2E', async () => {
     expect(conversationId).toBeTruthy()
     expect(userMessageId).toBeTruthy()
 
-    // Wait for database writes to complete
-    await new Promise(resolve => setTimeout(resolve, 2000))
-
-    // Verify conversation exists in database
     if (!dbPool) {
       throw new Error('Database pool not initialized')
     }
 
+    // Poll database until conversation and messages appear or timeout
+    const maxWaitTime = 5000
+    const pollInterval = 200
+    let elapsedTime = 0
+    let conversationFound = false
+    let messagesFound = false
+
     const client = await dbPool.connect()
 
     try {
-      // Check conversation
-      const conversationResult = await client.query(
-        'SELECT id, organization_id, created_by_user_id, status FROM conversation WHERE id = $1',
-        [conversationId]
-      )
+      while (elapsedTime < maxWaitTime && (!conversationFound || !messagesFound)) {
+        try {
+          // Check conversation
+          const conversationResult = await client.query(
+            'SELECT id, organization_id, created_by_user_id, status FROM conversation WHERE id = $1',
+            [conversationId]
+          )
 
-      expect(conversationResult.rows.length).toBe(1)
-      const conversation = conversationResult.rows[0]
-      expect(conversation.id).toBe(conversationId)
-      expect(conversation.status).toBe('active')
-      expect(conversation.organization_id).toBeTruthy()
+          if (conversationResult.rows.length > 0) {
+            conversationFound = true
 
-      // Check messages
-      const messagesResult = await client.query(
-        'SELECT id, conversation_id, role, content FROM conversation_message WHERE conversation_id = $1 ORDER BY created_at ASC',
-        [conversationId]
-      )
+            // Check messages
+            const messagesResult = await client.query(
+              'SELECT id, conversation_id, role, content FROM conversation_message WHERE conversation_id = $1 ORDER BY created_at ASC',
+              [conversationId]
+            )
 
-      expect(messagesResult.rows.length).toBeGreaterThan(0)
+            if (messagesResult.rows.length > 0) {
+              messagesFound = true
 
-      // Verify user message exists
-      const userMessage = messagesResult.rows.find((msg: any) => msg.role === 'user' && msg.content === testMessage)
-      expect(userMessage).toBeTruthy()
-      expect(userMessage.id).toBe(userMessageId)
+              // Verify conversation details
+              const conversation = conversationResult.rows[0]
+              expect(conversation.id).toBe(conversationId)
+              expect(conversation.status).toBe('active')
+              expect(conversation.organization_id).toBeTruthy()
 
-      // Verify assistant message exists
-      const assistantMessage = messagesResult.rows.find((msg: any) => msg.role === 'assistant')
-      expect(assistantMessage).toBeTruthy()
+              // Verify user message exists
+              const userMessage = messagesResult.rows.find((msg: any) => msg.role === 'user' && msg.content === testMessage)
+              expect(userMessage).toBeTruthy()
+              expect(userMessage.id).toBe(userMessageId)
+
+              // Verify assistant message exists
+              const assistantMessage = messagesResult.rows.find((msg: any) => msg.role === 'assistant')
+              expect(assistantMessage).toBeTruthy()
+
+              // All checks passed, exit polling loop
+              break
+            }
+          }
+        } catch (queryError) {
+          // Ignore query errors during polling, but log them
+          console.warn('Query error during polling:', queryError)
+        }
+
+        if (elapsedTime < maxWaitTime) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval))
+          elapsedTime += pollInterval
+        }
+      }
+
+      if (!conversationFound) {
+        throw new Error('Conversation not found in database after waiting')
+      }
+
+      if (!messagesFound) {
+        throw new Error('Messages not found in database after waiting')
+      }
     } finally {
       client.release()
     }

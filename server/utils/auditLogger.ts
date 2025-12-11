@@ -11,7 +11,6 @@ export async function logAuditEvent(data: {
   userAgent?: string
   status?: 'success' | 'failure' | 'pending'
   details?: string
-  createdAt?: Date
 }) {
   try {
     const db = getDB()
@@ -25,7 +24,7 @@ export async function logAuditEvent(data: {
       userAgent: data.userAgent,
       status: data.status || 'success',
       details: data.details,
-      createdAt: data.createdAt ?? new Date()
+      createdAt: new Date()
     })
   } catch (error) {
     console.error('Failed to log audit event:', error)

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { watchDebounced } from '@vueuse/core'
 import Logo from '~/components/Logo.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
 import OrganizationSwitcher from '~/components/OrganizationSwitcher.vue'
@@ -18,13 +19,17 @@ const slug = computed(() => {
 })
 
 if (import.meta.client) {
-  watch(
+  let isInitialLoad = true
+  watchDebounced(
     () => activeOrg.value?.data?.id,
-    (orgId) => {
-      if (orgId)
-        refreshActiveOrganizationExtras(orgId)
+    async (orgId) => {
+      if (!orgId || isInitialLoad) {
+        isInitialLoad = false
+        return
+      }
+      await refreshActiveOrganizationExtras(orgId)
     },
-    { immediate: true }
+    { immediate: true, debounce: 300 }
   )
 }
 
@@ -71,7 +76,7 @@ const currentUserRole = computed(() => {
 })
 
 // Check if upgrade is needed
-const needsUpgrade = computed(() => activeOrgExtras.value.needsUpgrade)
+const needsUpgrade = computed(() => activeOrgExtras.value?.needsUpgrade ?? false)
 
 // Get menu items for the drawer - reactive to org data changes
 const menus = computed(() => {

@@ -26,7 +26,7 @@ const loading = ref(false)
 
 // Get subscription data from activeOrg
 const subscriptionData = computed(() => {
-  const subs = activeOrgExtras.value.subscriptions
+  const subs = activeOrgExtras.value?.subscriptions
   if (!subs || !Array.isArray(subs))
     return null
   return subs.find((s: any) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due')

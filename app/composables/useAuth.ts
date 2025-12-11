@@ -1,12 +1,13 @@
+import type { Subscription } from '@better-auth/stripe'
 import type {
   ClientOptions,
   InferSessionFromClient
 } from 'better-auth/client'
 import type { RouteLocationRaw } from 'vue-router'
 import { stripeClient } from '@better-auth/stripe/client'
+import { watchDebounced } from '@vueuse/core'
 import { adminClient, anonymousClient, apiKeyClient, inferAdditionalFields, organizationClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
-import { watch } from 'vue'
 import { ac, admin, member, owner } from '~~/shared/utils/permissions'
 
 interface OwnershipInfo {
@@ -15,7 +16,7 @@ interface OwnershipInfo {
 }
 
 interface ActiveOrgExtras {
-  subscriptions: any[]
+  subscriptions: Subscription[]
   needsUpgrade: boolean
   userOwnsMultipleOrgs: boolean
 }
@@ -194,12 +195,17 @@ export function useAuth() {
   const extrasWatcherInitialized = useState<boolean>('active-org-extras:watcher-init', () => false)
   if (import.meta.client && !extrasWatcherInitialized.value) {
     extrasWatcherInitialized.value = true
-    watch(
+    let isInitialLoad = true
+    watchDebounced(
       () => activeOrganization.value?.data?.id,
-      (orgId) => {
-        refreshActiveOrganizationExtras(orgId)
+      async (orgId) => {
+        if (!orgId || isInitialLoad) {
+          isInitialLoad = false
+          return
+        }
+        await refreshActiveOrganizationExtras(orgId)
       },
-      { immediate: true }
+      { immediate: true, debounce: 300 }
     )
   }
 
@@ -213,7 +219,7 @@ export function useAuth() {
     activeOrgExtras,
     loggedIn: computed(() => Boolean(user.value && !user.value.isAnonymous)),
     activeStripeSubscription: computed(() => {
-      const subs = activeOrgExtras.value.subscriptions || []
+      const subs = activeOrgExtras.value?.subscriptions || []
       if (!Array.isArray(subs))
         return undefined
 
