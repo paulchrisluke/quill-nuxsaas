@@ -156,7 +156,10 @@ const seatDiff = computed(() => Math.abs(props.targetSeats - props.currentSeats)
       </div>
 
       <!-- Line Items Breakdown -->
-      <div class="bg-gray-50 dark:bg-gray-800 rounded-md p-3 space-y-2 mb-2">
+      <div
+        v-if="targetSeats !== currentSeats"
+        class="bg-gray-50 dark:bg-gray-800 rounded-md p-3 space-y-2 mb-2"
+      >
         <!-- Adding seats -->
         <template v-if="targetSeats > currentSeats">
           <div class="flex justify-between text-xs">
