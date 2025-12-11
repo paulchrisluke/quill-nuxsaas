@@ -5,6 +5,7 @@ import { useDB } from '~~/server/utils/db'
 import { createStripeClient } from '~~/server/utils/stripe'
 
 export default defineEventHandler(async (event) => {
+  const debugBillingLogs = process.env.DEBUG === 'true'
   const session = await getAuthSession(event)
   if (!session) {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
@@ -65,18 +66,24 @@ export default defineEventHandler(async (event) => {
         .filter((line: any) => line.amount < 0)
         .reduce((sum: number, line: any) => sum + Math.abs(line.amount), 0) / 100
 
-      console.log('[credit-balance] Upcoming invoice lines:', upcomingInvoice.lines.data.map((l: any) => ({
-        description: l.description,
-        amount: l.amount
-      })))
+      if (debugBillingLogs) {
+        console.debug('[credit-balance] Upcoming invoice lines:', upcomingInvoice.lines.data.map((l: any) => ({
+          description: l.description,
+          amount: l.amount
+        })))
+      }
     } catch (e: any) {
       // No upcoming invoice or error
-      console.log('[credit-balance] Could not fetch upcoming invoice:', e.message)
+      if (debugBillingLogs) {
+        console.debug('[credit-balance] Could not fetch upcoming invoice:', e.message)
+      }
     }
 
     const totalCredit = customerCredit + upcomingCredit
 
-    console.log('[credit-balance] Balance:', { customerCredit, upcomingCredit, totalCredit, rawBalance: balance })
+    if (debugBillingLogs) {
+      console.debug('[credit-balance] Balance:', { customerCredit, upcomingCredit, totalCredit, rawBalance: balance })
+    }
 
     return {
       creditBalance: totalCredit,

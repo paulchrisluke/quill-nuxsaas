@@ -331,6 +331,7 @@ const costBreakdown = computed(() => {
   return {
     baseCost,
     seatCost,
+    seatPrice: plan.seatPrice,
     additionalSeats,
     totalSeats: seats,
     totalCost,
@@ -890,7 +891,7 @@ async function confirmPlanChange() {
                 v-if="costBreakdown.additionalSeats > 0"
                 class="flex justify-between"
               >
-                <span class="text-muted-foreground">Additional Seats ({{ costBreakdown.additionalSeats }} × ${{ activePlan.seatPrice.toFixed(2) }})</span>
+                <span class="text-muted-foreground">Additional Seats ({{ costBreakdown.additionalSeats }} × ${{ costBreakdown.seatPrice.toFixed(2) }})</span>
                 <span class="font-medium">${{ costBreakdown.seatCost.toFixed(2) }}</span>
               </div>
               <div class="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700">

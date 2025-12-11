@@ -1,6 +1,7 @@
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import {
   boolean,
+  check,
   index,
   integer,
   pgTable,
@@ -120,35 +121,47 @@ export const invitation = pgTable(
   ]
 )
 
-export const subscription = pgTable('subscription', {
-  id: text('id').primaryKey(),
-  plan: text('plan').notNull(),
-  referenceId: text('reference_id').notNull(),
-  stripeCustomerId: text('stripe_customer_id'),
-  stripeSubscriptionId: text('stripe_subscription_id'),
-  status: text('status').default('incomplete'),
-  periodStart: timestamp('period_start'),
-  periodEnd: timestamp('period_end'),
-  trialStart: timestamp('trial_start'),
-  trialEnd: timestamp('trial_end'),
-  cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
-  seats: integer('seats')
-})
+export const subscription = pgTable(
+  'subscription',
+  {
+    id: text('id').primaryKey(),
+    plan: text('plan').notNull(),
+    referenceId: text('reference_id').notNull(),
+    stripeCustomerId: text('stripe_customer_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    status: text('status').default('incomplete'),
+    periodStart: timestamp('period_start'),
+    periodEnd: timestamp('period_end'),
+    trialStart: timestamp('trial_start'),
+    trialEnd: timestamp('trial_end'),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
+    seats: integer('seats')
+  },
+  table => [
+    index('subscription_stripe_customer_id_idx').on(table.stripeCustomerId),
+    index('subscription_stripe_subscription_id_idx').on(table.stripeSubscriptionId),
+    check('subscription_seats_check', sql`${table.seats} IS NULL OR ${table.seats} > 0`)
+  ]
+)
 
-export const session = pgTable('session', {
-  id: text('id').primaryKey(),
-  expiresAt: timestamp('expires_at').notNull(),
-  token: text('token').notNull().unique(),
-  createdAt: timestamp('created_at').notNull(),
-  updatedAt: timestamp('updated_at').notNull(),
-  ipAddress: text('ip_address'),
-  userAgent: text('user_agent'),
-  userId: text('user_id')
-    .notNull()
-    .references(() => user.id, { onDelete: 'cascade' }),
-  activeOrganizationId: text('active_organization_id'),
-  impersonatedBy: text('impersonated_by')
-})
+export const session = pgTable(
+  'session',
+  {
+    id: text('id').primaryKey(),
+    expiresAt: timestamp('expires_at').notNull(),
+    token: text('token').notNull().unique(),
+    createdAt: timestamp('created_at').notNull(),
+    updatedAt: timestamp('updated_at').notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    activeOrganizationId: text('active_organization_id'),
+    impersonatedBy: text('impersonated_by')
+  },
+  table => [index('session_user_id_idx').on(table.userId)]
+)
 
 export const apiKey = pgTable('apiKey', {
   id: text('id').primaryKey(),

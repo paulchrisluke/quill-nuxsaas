@@ -5,7 +5,7 @@ import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 import { getAppUrl } from './shared/utils/app-url'
 
 export default defineNuxtConfig({
-  compatibilityDate: '2025-12-10',
+  compatibilityDate: '2025-12-11',
   devtools: { enabled: true },
   css: ['~/assets/css/main.css'],
   modules: [
@@ -21,8 +21,14 @@ export default defineNuxtConfig({
     ? {
         hub: {
           db: 'postgresql',
+          workers: true,
           kv: true,
-          blob: true
+          blob: true,
+          bindings: {
+            hyperdrive: {
+              HYPERDRIVE: process.env.NUXT_CF_HYPERDRIVE_ID as string
+            }
+          }
         } as any
       }
     : {}),
@@ -94,20 +100,6 @@ export default defineNuxtConfig({
       })
     }
   },
-  ...(process.env.NUXT_NITRO_PRESET !== 'node-server'
-    ? {
-        hub: {
-          workers: true,
-          kv: true,
-          blob: true,
-          bindings: {
-            hyperdrive: {
-              HYPERDRIVE: process.env.NUXT_CF_HYPERDRIVE_ID as string
-            }
-          }
-        }
-      }
-    : {}),
   runtimeConfig: generateRuntimeConfig(),
   app: {
     head: {

@@ -130,21 +130,20 @@ export default defineEventHandler(async (event) => {
     // Retrieve the full subscription to get current_period_end
     const fullSubscription = await stripe.subscriptions.retrieve(subscription.id)
 
-    console.log('[preview-tier-change] Full subscription keys:', Object.keys(fullSubscription))
-    console.log('[preview-tier-change] billing_cycle_anchor:', (fullSubscription as any).billing_cycle_anchor)
-    console.log('[preview-tier-change] current_period_end:', (fullSubscription as any).current_period_end)
-    console.log('[preview-tier-change] current_period_start:', (fullSubscription as any).current_period_start)
-
     // Try billing_cycle_anchor if current_period_end doesn't exist
-    let periodEndTimestamp = (fullSubscription as any).current_period_end
+    let periodEndTimestamp = fullSubscription.current_period_end
     if (!periodEndTimestamp) {
       // Calculate next period from billing_cycle_anchor
-      const anchor = (fullSubscription as any).billing_cycle_anchor
-      const interval = (fullSubscription as any).plan?.interval || 'month'
+      const anchor = fullSubscription.billing_cycle_anchor
+      const interval = fullSubscription.plan?.interval || 'month'
       if (anchor) {
         const anchorDate = new Date(anchor * 1000)
         if (interval === 'year') {
           anchorDate.setFullYear(anchorDate.getFullYear() + 1)
+        } else if (interval === 'week') {
+          anchorDate.setDate(anchorDate.getDate() + 7)
+        } else if (interval === 'day') {
+          anchorDate.setDate(anchorDate.getDate() + 1)
         } else {
           anchorDate.setMonth(anchorDate.getMonth() + 1)
         }
@@ -156,8 +155,6 @@ export default defineEventHandler(async (event) => {
       ? new Date(periodEndTimestamp * 1000)
       : null
     const qty = subscription.items.data[0].quantity || 1
-
-    console.log('[preview-tier-change] Scheduled downgrade - periodEnd:', periodEnd?.toISOString(), 'qty:', qty)
 
     return {
       isTrialing: false,
@@ -305,8 +302,8 @@ export default defineEventHandler(async (event) => {
     console.log('[preview-tier-change] Calculated:', { creditAmount, chargeAmount, netAmount, immediateCharge, isDowngrade, isUpgrade })
 
     // Period end date
-    const periodEnd = (subscription as any).current_period_end
-      ? new Date((subscription as any).current_period_end * 1000)
+    const periodEnd = subscription.current_period_end
+      ? new Date(subscription.current_period_end * 1000)
       : null
 
     // Build message based on upgrade/downgrade
