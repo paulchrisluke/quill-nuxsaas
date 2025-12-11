@@ -139,6 +139,20 @@ const activePlan = computed(() => {
   return getTierForInterval('pro', billingInterval.value)
 })
 
+// Get the current tier key from subscription plan ID
+const currentTierKey = computed<PlanKey>(() => {
+  if (!activeSub.value?.plan)
+    return 'free'
+  return getPlanKeyFromId(activeSub.value.plan)
+})
+
+// Get current interval from subscription
+const currentBillingInterval = computed<PlanInterval>(() => {
+  if (!activeSub.value?.plan)
+    return 'month'
+  return activeSub.value.plan.includes('year') ? 'year' : 'month'
+})
+
 // Find the config for the user's actual current plan (handles legacy pricing)
 const currentSubPlanConfig = computed(() => {
   if (!activeSub.value?.plan)
@@ -162,25 +176,11 @@ const currentSubPlanConfig = computed(() => {
   }
 })
 
-// Get the current tier key from subscription plan ID
-const currentTierKey = computed<PlanKey>(() => {
-  if (!activeSub.value?.plan)
-    return 'free'
-  return getPlanKeyFromId(activeSub.value.plan)
-})
-
 const currentPlan = computed(() => {
   if (activeSub.value) {
     return currentTierKey.value === 'free' ? 'pro' : currentTierKey.value
   }
   return 'free'
-})
-
-// Get current interval from subscription
-const currentBillingInterval = computed<PlanInterval>(() => {
-  if (!activeSub.value?.plan)
-    return 'month'
-  return activeSub.value.plan.includes('year') ? 'year' : 'month'
 })
 
 // Get current plan features from PLAN_TIERS
