@@ -34,6 +34,53 @@ import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
 
 const ORGANIZATION_LOOKUP_WARN_THRESHOLD_MS = 2000
 
+interface BasicUserShape {
+  isAnonymous?: boolean | null
+  email?: string | null
+  emailVerified?: boolean | null
+}
+
+const looksLikeAnonymousEmail = (email?: string | null) => {
+  if (!email) {
+    return false
+  }
+  const normalized = email.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+  return normalized.startsWith('temp-') && normalized.endsWith('@localhost')
+}
+
+const isAnonymousSessionUser = (user: BasicUserShape | null | undefined) => {
+  if (!user) {
+    return false
+  }
+  if (user.isAnonymous) {
+    return true
+  }
+
+  const emailLooksAnonymous = looksLikeAnonymousEmail(user.email)
+
+  if (emailLooksAnonymous) {
+    return true
+  }
+
+  if (user.email?.toLowerCase().endsWith('@localhost') && user.emailVerified === false) {
+    return true
+  }
+
+  return false
+}
+
+const isUnauthorizedError = (error: any) => {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+  const statusCode = (error as any).statusCode ?? (error as any).status
+  const statusMessage = (error as any).statusMessage ?? (error as any).message
+  return statusCode === 401 || statusMessage === 'Unauthorized'
+}
+
 function toSummaryBullets(text: string | null | undefined) {
   if (!text) {
     return []
@@ -1303,12 +1350,12 @@ export default defineEventHandler(async (event) => {
     sseWriter.write(eventType, data)
   }
 
+  // Force stream initialization so buffered errors flush even if main logic fails instantly
+  writeSSE('ping', { ts: Date.now() })
+
   // Start async processing (don't await - let it run in background)
   ;(async () => {
     try {
-      const user = await requireAuth(event, { allowAnonymous: true })
-      const db = await useDB(event)
-
       const body = await readBody<ChatRequestBody>(event)
 
       validateRequestBody(body)
@@ -1316,8 +1363,25 @@ export default defineEventHandler(async (event) => {
       const VALID_MODES = ['chat', 'agent'] as const
       const mode = validateEnum(body.mode, VALID_MODES, 'mode')
 
+      let user: Awaited<ReturnType<typeof requireAuth>>
+      try {
+        user = await requireAuth(event, { allowAnonymous: true })
+      } catch (error) {
+        if (mode === 'agent' && isUnauthorizedError(error)) {
+          throw createError({
+            statusCode: 403,
+            statusMessage: 'Agent mode requires authentication',
+            message: 'Please sign in to use agent mode and save content.'
+          })
+        }
+        throw error
+      }
+
+      const sessionUserIsAnonymous = isAnonymousSessionUser(user)
+      const db = await useDB(event)
+
       // Block agent mode for anonymous users
-      if (mode === 'agent' && user.isAnonymous) {
+      if (mode === 'agent' && sessionUserIsAnonymous) {
         throw createError({
           statusCode: 403,
           statusMessage: 'Agent mode requires authentication',
@@ -1347,11 +1411,11 @@ export default defineEventHandler(async (event) => {
         const lookupStartedAt = Date.now()
         try {
           const orgResult = await requireActiveOrganization(event, user.id, {
-            isAnonymousUser: user.isAnonymous ?? false
+            isAnonymousUser: sessionUserIsAnonymous
           })
           organizationId = orgResult.organizationId
         } catch (error: any) {
-          if (user.isAnonymous) {
+          if (sessionUserIsAnonymous) {
             throw createValidationError('Please create an account to use the chat feature. Anonymous users need an organization to continue.')
           }
           throw error
@@ -1359,7 +1423,7 @@ export default defineEventHandler(async (event) => {
           const duration = Date.now() - lookupStartedAt
           if (duration > ORGANIZATION_LOOKUP_WARN_THRESHOLD_MS) {
             console.warn('[Chat API] requireActiveOrganization took %dms (threshold=%dms)', duration, ORGANIZATION_LOOKUP_WARN_THRESHOLD_MS, {
-              isAnonymous: user.isAnonymous,
+              isAnonymous: sessionUserIsAnonymous,
               userId: user.id
             })
           }

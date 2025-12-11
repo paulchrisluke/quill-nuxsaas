@@ -72,6 +72,7 @@ export function useAuth() {
     needsUpgrade: false,
     userOwnsMultipleOrgs: false
   }))
+  const latestOrgFetchId = useState<string | null>('active-org-extras:latest-fetch', () => null)
   const useActiveOrganization = client.organization.useActiveOrganization
   const activeOrganization = useActiveOrganization()
 
@@ -173,11 +174,15 @@ export function useAuth() {
       }
       return activeOrgExtras.value
     }
+    latestOrgFetchId.value = organizationId
     try {
       const [subs, ownershipInfo] = await Promise.all([
         fetchSubscriptions(organizationId),
         fetchOwnershipInfo()
       ])
+      if (latestOrgFetchId.value !== organizationId) {
+        return activeOrgExtras.value
+      }
       const needsUpgrade = computeNeedsUpgrade(organizationId, subs, ownershipInfo)
       const userOwnsMultipleOrgs = computeUserOwnsMultipleOrgs(ownershipInfo)
       activeOrgExtras.value = {
