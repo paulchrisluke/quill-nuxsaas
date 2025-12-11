@@ -36,8 +36,6 @@ const props = defineProps<{
   showDescription?: boolean
 }>()
 
-const { formatDateShort } = useDate()
-
 // Helper to calculate the recurring amount
 const recurringAmount = computed(() => {
   if (!props.planConfig)
@@ -59,32 +57,6 @@ const currentAmount = computed(() => {
 const isUpgrade = computed(() => props.targetSeats > props.currentSeats)
 const isDowngrade = computed(() => props.targetSeats < props.currentSeats)
 const seatDiff = computed(() => Math.abs(props.targetSeats - props.currentSeats))
-
-// Format card brand for display
-const cardBrandDisplay = computed(() => {
-  const brand = props.preview?.paymentMethod?.brand
-  if (!brand)
-    return ''
-  const brands: Record<string, string> = {
-    visa: 'Visa',
-    mastercard: 'Mastercard',
-    amex: 'American Express',
-    discover: 'Discover'
-  }
-  return brands[brand] || brand.charAt(0).toUpperCase() + brand.slice(1)
-})
-
-const cardIcon = computed(() => {
-  const brand = props.preview?.paymentMethod?.brand
-  if (!brand)
-    return 'i-lucide-credit-card'
-  const icons: Record<string, string> = {
-    visa: 'i-simple-icons-visa',
-    mastercard: 'i-simple-icons-mastercard',
-    amex: 'i-simple-icons-americanexpress'
-  }
-  return icons[brand] || 'i-lucide-credit-card'
-})
 </script>
 
 <template>
@@ -183,38 +155,38 @@ const cardIcon = computed(() => {
         </p>
       </div>
 
-        <!-- Line Items Breakdown -->
-        <div class="bg-gray-50 dark:bg-gray-800 rounded-md p-3 space-y-2 mb-2">
-          <!-- Adding seats -->
-          <template v-if="targetSeats > currentSeats">
-            <div class="flex justify-between text-xs">
-              <span class="text-muted-foreground">
-                {{ seatDiff }} seat{{ seatDiff === 1 ? '' : 's' }} × ${{ (planConfig?.seatPrice || 0).toFixed(2) }}/{{ planConfig?.interval }} (prorated)
-              </span>
-              <span class="font-medium">${{ (preview.amountDue / 100).toFixed(2) }}</span>
-            </div>
-          </template>
-          <!-- Removing seats (credit) -->
-          <template v-else-if="currentSeats > targetSeats">
-            <div class="flex justify-between text-xs">
-              <span class="text-muted-foreground">
-                {{ seatDiff }} seat{{ seatDiff === 1 ? '' : 's' }} removed (prorated credit)
-              </span>
-              <span class="font-medium text-amber-600">-${{ (Math.abs(preview.amountDue) / 100).toFixed(2) }}</span>
-            </div>
-          </template>
-
-          <!-- Total -->
-          <div class="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
-            <span class="font-medium text-sm">Total</span>
-            <span
-              class="font-bold text-sm"
-              :class="preview.amountDue > 0 ? 'text-primary' : 'text-amber-600'"
-            >
-              {{ preview.amountDue > 0 ? '' : '-' }}${{ (Math.abs(preview.amountDue) / 100).toFixed(2) }}
+      <!-- Line Items Breakdown -->
+      <div class="bg-gray-50 dark:bg-gray-800 rounded-md p-3 space-y-2 mb-2">
+        <!-- Adding seats -->
+        <template v-if="targetSeats > currentSeats">
+          <div class="flex justify-between text-xs">
+            <span class="text-muted-foreground">
+              {{ seatDiff }} seat{{ seatDiff === 1 ? '' : 's' }} × ${{ (planConfig?.seatPrice || 0).toFixed(2) }}/{{ planConfig?.interval }} (prorated)
             </span>
+            <span class="font-medium">${{ (preview.amountDue / 100).toFixed(2) }}</span>
           </div>
+        </template>
+        <!-- Removing seats (credit) -->
+        <template v-else-if="currentSeats > targetSeats">
+          <div class="flex justify-between text-xs">
+            <span class="text-muted-foreground">
+              {{ seatDiff }} seat{{ seatDiff === 1 ? '' : 's' }} removed (prorated credit)
+            </span>
+            <span class="font-medium text-amber-600">-${{ (Math.abs(preview.amountDue) / 100).toFixed(2) }}</span>
+          </div>
+        </template>
+
+        <!-- Total -->
+        <div class="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+          <span class="font-medium text-sm">Total</span>
+          <span
+            class="font-bold text-sm"
+            :class="preview.amountDue > 0 ? 'text-primary' : 'text-amber-600'"
+          >
+            {{ preview.amountDue > 0 ? '' : '-' }}${{ (Math.abs(preview.amountDue) / 100).toFixed(2) }}
+          </span>
         </div>
+      </div>
     </div>
 
     <!-- TRIAL CASE -->
