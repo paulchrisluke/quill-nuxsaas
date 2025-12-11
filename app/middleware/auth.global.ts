@@ -60,7 +60,22 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   // If not authenticated, redirect to home
+  const allowAnonymousRoutes = ['/', '/conversations', '/content']
+  const isAnonymousAllowedRoute = allowAnonymousRoutes.some((route) => {
+    const localized = localePath(route)
+    const candidates = [route, localized].filter(Boolean)
+    return candidates.some((candidate) => {
+      if (!candidate)
+        return false
+      const normalized = candidate.endsWith('/') && candidate !== '/' ? candidate.slice(0, -1) : candidate
+      return to.path === normalized || (normalized !== '/' && to.path.startsWith(`${normalized}/`))
+    })
+  })
+
   if (!loggedIn.value) {
+    if (isAnonymousAllowedRoute) {
+      return
+    }
     // Avoid infinite redirect
     if (to.path === localePath(redirectGuestTo)) {
       return
