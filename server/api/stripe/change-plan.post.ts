@@ -119,10 +119,6 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const _isUpgrade =
-    targetTier.order > currentTier.order ||
-    (targetTier?.order === currentTier?.order && newInterval === 'year' && currentInterval === 'month')
-
   // For downgrades, schedule at period end instead of immediate
   const isDowngrade = (
     targetTier.order < currentTier.order ||
@@ -163,7 +159,9 @@ export default defineEventHandler(async (event) => {
 
       await db.update(subscriptionTable)
         .set({
-          plan: newPlan.id
+          scheduledPlanId: newPlan.id,
+          scheduledPlanInterval: newInterval,
+          scheduledPlanSeats: quantity
         })
         .where(eq(subscriptionTable.stripeSubscriptionId, subscription.id))
 
@@ -227,7 +225,10 @@ export default defineEventHandler(async (event) => {
 
   // Update local database immediately
   const updateData: any = {
-    plan: newPlan.id
+    plan: newPlan.id,
+    scheduledPlanId: null,
+    scheduledPlanInterval: null,
+    scheduledPlanSeats: null
   }
 
   if (subscription.status === 'trialing' || updatedSub.status === 'active') {

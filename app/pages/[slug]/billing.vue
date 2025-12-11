@@ -141,7 +141,7 @@ const activePlan = computed(() => {
 
 // Find the config for the user's actual current plan (handles legacy pricing)
 const currentSubPlanConfig = computed(() => {
-  if (!activeSub.value)
+  if (!activeSub.value?.plan)
     return null
   const pricing = getPlanPricing(activeSub.value.plan)
   if (pricing) {
@@ -151,11 +151,14 @@ const currentSubPlanConfig = computed(() => {
       interval: pricing.interval
     }
   }
-  // Fallback to current plan pricing
+  // Fallback to derived current tier pricing
+  const fallbackTierKey = (currentTierKey.value === 'free' ? 'pro' : currentTierKey.value) as Exclude<PlanKey, 'free'>
+  const fallbackInterval = currentBillingInterval.value
+  const fallbackPlan = getTierForInterval(fallbackTierKey, fallbackInterval)
   return {
-    price: activePlan.value.price,
-    seatPrice: activePlan.value.seatPrice,
-    interval: billingInterval.value
+    price: fallbackPlan.price,
+    seatPrice: fallbackPlan.seatPrice,
+    interval: fallbackInterval
   }
 })
 

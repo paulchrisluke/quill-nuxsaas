@@ -171,6 +171,11 @@ export default defineEventHandler(async (event) => {
       : null
     const qty = subscription.items.data[0].quantity || 1
 
+    const periodEndText = periodEnd
+      ? periodEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'your next billing date'
+    const currentTierName = currentTier?.name || 'your current plan'
+
     return {
       isTrialing: false,
       currentPlan: currentPlan
@@ -195,7 +200,7 @@ export default defineEventHandler(async (event) => {
       seats: qty,
       periodEnd: periodEnd ? periodEnd.toISOString() : null,
       paymentMethod: null, // Not needed for scheduled downgrade
-      message: `Your plan will change to ${targetTier.name} on ${periodEnd?.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}. You'll keep ${currentTier?.name} features until then.`
+      message: `Your plan will change to ${targetTier.name} on ${periodEndText}. You'll keep ${currentTierName} features until then.`
     }
   }
 

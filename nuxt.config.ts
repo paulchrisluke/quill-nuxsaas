@@ -26,8 +26,15 @@ export default defineNuxtConfig({
     ? {
         hub: {
           db: 'postgresql',
+          workers: true,
           kv: true,
-          blob: true
+          blob: true,
+          bindings: {
+            hyperdrive: [{
+              binding: 'HYPERDRIVE',
+              id: process.env.NUXT_CF_HYPERDRIVE_ID as string
+            }]
+          }
         }
       }
     : {}),

@@ -145,7 +145,10 @@ export const subscription = pgTable(
     trialStart: timestamp('trial_start'),
     trialEnd: timestamp('trial_end'),
     cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
-    seats: integer('seats')
+    seats: integer('seats'),
+    scheduledPlanId: text('scheduled_plan_id'),
+    scheduledPlanInterval: text('scheduled_plan_interval'),
+    scheduledPlanSeats: integer('scheduled_plan_seats')
   },
   table => [
     index('subscription_stripe_customer_id_idx').on(table.stripeCustomerId),
