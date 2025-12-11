@@ -1704,22 +1704,7 @@ export default defineEventHandler(async (event) => {
 
         let shouldRunAgent = true
 
-        if (intentResult?.action === 'clarify') {
-          shouldRunAgent = false
-          const clarifyingMessage = formatClarifyingMessage(intentResult.clarifyingQuestions)
-          agentAssistantReply = clarifyingMessage
-          if (!currentMessageId) {
-            currentMessageId = randomUUID()
-          }
-          writeSSE('message:chunk', {
-            messageId: currentMessageId,
-            chunk: clarifyingMessage
-          })
-          writeSSE('message:complete', {
-            messageId: currentMessageId,
-            message: clarifyingMessage
-          })
-        } else if (mode === 'chat') {
+        if (mode === 'chat') {
           shouldRunAgent = false
           const chatModeMessage = formatChatModeRestrictionMessage()
           agentAssistantReply = chatModeMessage
@@ -1733,6 +1718,21 @@ export default defineEventHandler(async (event) => {
           writeSSE('message:complete', {
             messageId: currentMessageId,
             message: chatModeMessage
+          })
+        } else if (intentResult?.action === 'clarify') {
+          shouldRunAgent = false
+          const clarifyingMessage = formatClarifyingMessage(intentResult.clarifyingQuestions)
+          agentAssistantReply = clarifyingMessage
+          if (!currentMessageId) {
+            currentMessageId = randomUUID()
+          }
+          writeSSE('message:chunk', {
+            messageId: currentMessageId,
+            chunk: clarifyingMessage
+          })
+          writeSSE('message:complete', {
+            messageId: currentMessageId,
+            message: clarifyingMessage
           })
         }
 

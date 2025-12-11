@@ -1,5 +1,6 @@
 import type { H3Event } from 'h3'
 import { and, eq } from 'drizzle-orm'
+import { createError } from 'h3'
 import * as schema from '../database/schema'
 import { getAuthSession } from './auth'
 import { getDB } from './db'

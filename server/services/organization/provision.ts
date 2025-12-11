@@ -34,11 +34,11 @@ const buildDefaultName = (user: MinimalUserInfo) => {
 }
 
 const generateUniqueSlug = async (db: DbInstance, seed: string) => {
+  const MAX_ATTEMPTS = 10
   const base = slugify(seed) || `team-${Math.random().toString(36).slice(2, 8)}`
   let candidate = base
-  let attempt = 1
 
-  while (true) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const [existing] = await db
       .select({ id: schema.organization.id })
       .from(schema.organization)
@@ -48,15 +48,19 @@ const generateUniqueSlug = async (db: DbInstance, seed: string) => {
     if (!existing)
       return candidate
 
-    const suffix = Math.random().toString(36).slice(2, 6)
-    candidate = `${base}-${suffix}`
-    attempt++
+    if (attempt === MAX_ATTEMPTS) {
+      break
+    }
 
-    if (attempt > 5) {
-      // Last resort: include timestamp to guarantee uniqueness
+    if (attempt >= 5) {
       candidate = `${base}-${Date.now().toString(36)}`
+    } else {
+      const suffix = Math.random().toString(36).slice(2, 6)
+      candidate = `${base}-${suffix}`
     }
   }
+
+  throw new Error('Unable to generate a unique organization slug')
 }
 
 export const setUserActiveOrganization = async (userId: string, organizationId: string) => {
