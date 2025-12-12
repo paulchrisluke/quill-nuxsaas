@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import type { ConversationQuotaUsagePayload } from '~/types/conversation'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import Logo from '~/components/Logo.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
@@ -8,6 +9,8 @@ import UserNavigation from '~/components/UserNavigation.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
+const router = useRouter()
+const { loggedIn } = useAuth()
 
 const i18nHead = useLocaleHead()
 const route = useRoute()
@@ -71,10 +74,68 @@ const shouldUseFullWidth = computed(() => {
 const primaryActionColor = computed(() => {
   return (workspaceHeader.value?.primaryActionColor ?? 'primary') as 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
 })
+
+// Access conversation quota state for mobile header display
+const conversationQuotaState = useState<ConversationQuotaUsagePayload | null>('conversation-quota-usage', () => null)
+
+// Format quota display for mobile header
+const quotaDisplay = computed(() => {
+  const quota = conversationQuotaState.value
+  if (!quota)
+    return null
+
+  if (quota.unlimited) {
+    return '∞'
+  }
+
+  if (quota.limit !== null && quota.used !== null) {
+    return `${quota.used}/${quota.limit}`
+  }
+
+  if (quota.remaining !== null) {
+    return t('global.quota.left', { remaining: quota.remaining })
+  }
+
+  return null
+})
 </script>
 
 <template>
   <div class="relative">
+    <!-- Mobile Header - only visible on mobile when sidebar should be shown -->
+    <header
+      v-if="shouldShowSidebar"
+      class="lg:hidden border-b border-neutral-200/70 dark:border-neutral-800/60 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm sticky top-0 z-50"
+    >
+      <div class="px-4 py-2 flex items-center justify-between w-full">
+        <!-- New Conversation Button (Left) -->
+        <UButton
+          icon="i-lucide-message-square-plus"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :aria-label="t('global.conversations.new')"
+          @click="router.push(localePath('/conversations'))"
+        />
+
+        <!-- Right side: Quota and User Navigation -->
+        <div class="flex items-center gap-2">
+          <!-- Quota Display -->
+          <UBadge
+            v-if="quotaDisplay"
+            color="neutral"
+            variant="soft"
+            class="px-3 py-1.5 text-sm"
+          >
+            {{ quotaDisplay }}
+          </UBadge>
+
+          <!-- User Navigation -->
+          <UserNavigation />
+        </div>
+      </div>
+    </header>
+
     <UDashboardGroup
       storage-key="dashboard-sidebar"
       storage="localStorage"
@@ -90,7 +151,6 @@ const primaryActionColor = computed(() => {
             v-if="!collapsed"
             class="flex items-center gap-2"
           >
-            <Logo class="h-5 w-auto shrink-0" />
             <span class="text-sm font-semibold">{{ t('global.appName') }}</span>
           </div>
           <UIcon
@@ -130,7 +190,9 @@ const primaryActionColor = computed(() => {
       <!-- Main content panel -->
       <UDashboardPanel>
         <template #header>
-          <UDashboardNavbar>
+          <UDashboardNavbar
+            :class="{ 'hidden lg:flex': shouldShowSidebar }"
+          >
             <template
               v-if="showWorkspaceHeader"
               #left
@@ -287,6 +349,35 @@ const primaryActionColor = computed(() => {
               <slot />
             </div>
           </div>
+        </div>
+
+        <!-- Legal Disclaimer - Only for anonymous/guest users (desktop only, mobile is in QuillioWidget) -->
+        <div
+          v-if="!loggedIn && shouldShowChat"
+          class="bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm px-4 py-2 hidden lg:block"
+        >
+          <i18n-t
+            keypath="global.legal.chatDisclaimer"
+            tag="p"
+            class="text-xs text-muted-600 dark:text-muted-400 text-center"
+          >
+            <template #terms>
+              <NuxtLink
+                :to="localePath('/terms')"
+                class="underline hover:text-primary-600 dark:hover:text-primary-400"
+              >
+                {{ t('global.legal.terms') }}
+              </NuxtLink>
+            </template>
+            <template #privacy>
+              <NuxtLink
+                :to="localePath('/privacy')"
+                class="underline hover:text-primary-600 dark:hover:text-primary-400"
+              >
+                {{ t('global.legal.privacyPolicy') }}
+              </NuxtLink>
+            </template>
+          </i18n-t>
         </div>
       </UDashboardPanel>
     </UDashboardGroup>
