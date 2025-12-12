@@ -73,6 +73,21 @@ interface MergeOptions {
   optimisticAssistantId?: string | null
 }
 
+function mergeMessageParts(
+  existingParts: NonEmptyArray<MessagePart>,
+  incomingParts: NonEmptyArray<MessagePart>
+): NonEmptyArray<MessagePart> {
+  const hasIncomingToolParts = incomingParts.some(part => part.type === 'tool_call')
+  if (hasIncomingToolParts) {
+    return incomingParts
+  }
+  const existingToolParts = existingParts.filter(part => part.type === 'tool_call')
+  if (existingToolParts.length === 0) {
+    return incomingParts
+  }
+  return [...incomingParts, ...existingToolParts] as NonEmptyArray<MessagePart>
+}
+
 function mergeMessagesWithOptimistic(
   current: ChatMessage[],
   incoming: ChatMessage[],
@@ -80,37 +95,48 @@ function mergeMessagesWithOptimistic(
 ) {
   let optimisticUserId = options?.optimisticUserId ?? null
   let optimisticAssistantId = options?.optimisticAssistantId ?? null
-  const merged = [...current]
+
+  const mergedById = new Map(current.map(message => [message.id, message] as const))
+  const lastIncomingByRole: Partial<Record<ChatMessage['role'], ChatMessage>> = {}
 
   for (const message of incoming) {
-    if (optimisticUserId && message.role === 'user') {
-      const optimisticIndex = merged.findIndex(m => m.id === optimisticUserId)
-      if (optimisticIndex >= 0) {
-        merged[optimisticIndex] = message
-        optimisticUserId = null
-        continue
-      }
-    }
-
-    if (optimisticAssistantId && message.role === 'assistant') {
-      const optimisticIndex = merged.findIndex(m => m.id === optimisticAssistantId)
-      if (optimisticIndex >= 0) {
-        merged[optimisticIndex] = message
-        optimisticAssistantId = null
-        continue
-      }
-    }
-
-    const existingIndex = merged.findIndex(m => m.id === message.id)
-    if (existingIndex >= 0) {
-      merged[existingIndex] = message
+    lastIncomingByRole[message.role] = message
+    const existing = mergedById.get(message.id)
+    if (existing) {
+      mergedById.set(message.id, {
+        ...existing,
+        ...message,
+        parts: mergeMessageParts(existing.parts, message.parts)
+      })
     } else {
-      merged.push(message)
+      mergedById.set(message.id, message)
     }
   }
 
+  const reconcileOptimistic = (optimisticId: string | null, role: ChatMessage['role']) => {
+    if (!optimisticId) {
+      return null
+    }
+    const replacement = lastIncomingByRole[role]
+    if (!replacement) {
+      return optimisticId
+    }
+    mergedById.delete(optimisticId)
+    if (!mergedById.has(replacement.id)) {
+      mergedById.set(replacement.id, replacement)
+    }
+    return null
+  }
+
+  optimisticUserId = reconcileOptimistic(optimisticUserId, 'user')
+  optimisticAssistantId = reconcileOptimistic(optimisticAssistantId, 'assistant')
+
+  const messages = Array.from(mergedById.values()).sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+  )
+
   return {
-    messages: merged.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+    messages,
     optimisticUserId,
     optimisticAssistantId
   }

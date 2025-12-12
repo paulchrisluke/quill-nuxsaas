@@ -13,16 +13,16 @@ export default defineNuxtPlugin({
     const event = useRequestEvent()
     nuxtApp.payload.isCached = Boolean(event?.context.cache)
 
-    if (!event || !nuxtApp.payload.serverRendered || nuxtApp.payload.prerenderedAt || nuxtApp.payload.isCached) {
-      return
-    }
-
     const [sessionState, userState, activeOrgState, activeOrgExtrasState] = [
       useState('auth:session', () => null),
       useState('auth:user', () => null),
       useState('auth:active-organization:data', () => null),
       useState('active-org-extras', () => createEmptyActiveOrgExtras())
     ]
+
+    if (!event || !nuxtApp.payload.serverRendered || nuxtApp.payload.prerenderedAt || nuxtApp.payload.isCached) {
+      return
+    }
 
     const authSession = await getAuthSession(event)
     event.context.authSession = authSession
@@ -48,7 +48,12 @@ export default defineNuxtPlugin({
       activeOrgState.value = fullOrganization
 
       if (authSession?.user?.id) {
-        activeOrgExtrasState.value = await fetchActiveOrgExtrasForUser(authSession.user.id, activeOrganizationId)
+        try {
+          activeOrgExtrasState.value = await fetchActiveOrgExtrasForUser(authSession.user.id, activeOrganizationId)
+        } catch (error) {
+          console.debug('[better-auth-ssr-hydration] Failed to load active org extras', error)
+          activeOrgExtrasState.value = createEmptyActiveOrgExtras()
+        }
       } else {
         activeOrgExtrasState.value = createEmptyActiveOrgExtras()
       }

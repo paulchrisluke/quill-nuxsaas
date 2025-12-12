@@ -22,8 +22,25 @@ const DEFAULT_CONVERSATION_QUOTA = {
 
 let runtimeConfigInstance: NitroRuntimeConfig | null = null
 let _resolvedFromNuxt = false
-let resolvedFromEnv = false
+let _resolvedFromEnv = false
 let dotenvLoaded = false
+
+const callUseRuntimeConfig = () => (useRuntimeConfig as () => NitroRuntimeConfig)()
+
+const tryResolveFromNuxt = () => {
+  if (_resolvedFromNuxt || typeof useRuntimeConfig === 'undefined') {
+    return false
+  }
+
+  try {
+    runtimeConfigInstance = callUseRuntimeConfig()
+    _resolvedFromNuxt = true
+    _resolvedFromEnv = false
+    return true
+  } catch {
+    return false
+  }
+}
 
 export const generateRuntimeConfig = () => ({
   preset: process.env.NUXT_NITRO_PRESET,
@@ -101,13 +118,13 @@ export const generateRuntimeConfig = () => ({
 })
 
 const resolveRuntimeConfig = () => {
-  if (!runtimeConfigInstance && !resolvedFromEnv && typeof useRuntimeConfig !== 'undefined') {
-    try {
-      runtimeConfigInstance = useRuntimeConfig()
-      _resolvedFromNuxt = true
+  if (!runtimeConfigInstance && tryResolveFromNuxt()) {
+    return runtimeConfigInstance
+  }
+
+  if (runtimeConfigInstance && !_resolvedFromNuxt) {
+    if (tryResolveFromNuxt()) {
       return runtimeConfigInstance
-    } catch {
-      // Ignore - Nuxt instance might not be ready yet
     }
   }
 
@@ -118,7 +135,7 @@ const resolveRuntimeConfig = () => {
       dotenvLoaded = true
     }
     runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
-    resolvedFromEnv = true
+    _resolvedFromEnv = true
   }
 
   return runtimeConfigInstance

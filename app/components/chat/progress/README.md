@@ -36,7 +36,7 @@ Create a unified, multi-step progress tracker that:
 
 ## Component Architecture
 
-```
+```text
 AgentProgressTracker.vue          ← Main container (replaces/enhances AgentStatus)
 ├── ProgressControls.vue          ← "Collapse all" / "Expand all" controls
 └── ProgressStep.vue (multiple)   ← Individual step components
@@ -126,9 +126,14 @@ The following issues were identified in the scaffolded components and should be 
 
 ### AgentProgressTracker.vue
 
-1. **Set Reactivity Issue** (Lines 42-50, 56-62)
-   - **Problem**: Direct mutations to `Set` may not trigger Vue reactivity
-   - **Solution**: Use `reactive()` wrapper or replace `Set` with reactive array/object
+1. **Set Reactivity Issue** (Lines 40-61)
+   - **Problem**: Direct mutations to `Set` (`.add()`, `.delete()`, `.clear()`) don't trigger Vue reactivity
+   - **Solution (Best Practice)**: Replace `ref<Set<string>>()` with `ref<string[]>()` and use array methods:
+     - Check membership: `array.includes(id)` instead of `set.has(id)`
+     - Add: `array.push(id)` or `array = [...array, id]`
+     - Remove: `array = array.filter(id => id !== targetId)`
+     - Clear: `array = []` or assign new empty array
+   - **Alternative**: If Set is required, create new Set and reassign: `individualCollapsed.value = new Set([...individualCollapsed.value, id])`
    - **Impact**: Collapse/expand state may not update UI correctly
    - **Priority**: High - affects core functionality
 
@@ -158,10 +163,16 @@ The following issues were identified in the scaffolded components and should be 
 
 4. **SSR & Security Concerns** (Lines 61-69)
    - **Problem**: `window.open()` is not SSR-safe and has security implications
-   - **Solution**:
-     - Use `process.client` check: `if (process.client) window.open(...)`
-     - Or use Nuxt's `navigateTo()` with `external: true` option
-     - Consider `rel="noopener noreferrer"` for security
+   - **Solution (Best Practice)**: Replace inline arrow handler with component method:
+     ```typescript
+     function openDiff(url: string) {
+       if (typeof window !== 'undefined') {
+         window.open(url, '_blank', 'noopener,noreferrer')
+       }
+     }
+     ```
+     Then use `@click="openDiff(edit.diffUrl)"` instead of inline handler
+   - **Alternative**: Use `process.client` check or Nuxt's `navigateTo()` with `external: true`
    - **Impact**: SSR errors and potential security vulnerabilities
    - **Priority**: High - breaks SSR builds
 
@@ -183,6 +194,101 @@ The following issues were identified in the scaffolded components and should be 
      - Implement actual timestamp-based calculation
    - **Impact**: Better UX during thinking phase
    - **Priority**: Low - UX polish
+
+### StepHeader.vue
+
+7. **Accessibility Issue** (Lines 65-109)
+   - **Problem**: Clickable `<div>` lacks keyboard semantics and accessibility
+   - **Solution (Best Practice)**: Replace `<div>` with `<button type="button">`:
+     - Preserve all classes and styling
+     - Add `:aria-expanded="!collapsed"` attribute
+     - Add `aria-label="Toggle step details"` or similar descriptive label
+     - Ensure focus ring is visible for keyboard users
+   - **Alternative**: If must keep div, add `role="button"`, `tabindex="0"`, and keydown handlers for Enter/Space
+   - **Impact**: Poor accessibility, keyboard users can't interact
+   - **Priority**: Medium - accessibility compliance
+
+### ChatConversationMessages.vue (Integration)
+
+8. **getMessageText Truncation** (Lines 155-160)
+   - **Problem**: `getMessageText()` only returns first part's text, truncating multi-part messages
+   - **Solution**: Concatenate all text parts:
+     ```typescript
+     function getMessageText(message: ChatMessage | null) {
+       if (!message) return ''
+       return message.parts
+         .filter(part => part.type === 'text' && part.text)
+         .map(part => part.text)
+         .join(' ') // or '\n' for newlines, match ChatMessageContent.vue behavior
+     }
+     ```
+   - **Impact**: Action sheet shows incomplete message content
+   - **Priority**: Medium - data integrity issue
+
+### INTEGRATION_EXAMPLE.md
+
+9. **Template Control Flow** (Lines 35-58)
+   - **Problem**: Mixing `v-for` with `v-if`/`v-else-if` on same elements creates fragile control flow
+   - **Solution (Best Practice)**: Refactor with top-level conditionals:
+     ```vue
+     <template>
+       <div>
+         <!-- Multiple tool calls -->
+         <template v-if="hasMultipleToolCalls">
+           <AgentProgressTracker :message="message" />
+         </template>
+
+         <!-- Single tool call -->
+         <template v-else-if="hasSingleToolCall">
+           <AgentStatus
+             v-for="(part, index) in message.parts.filter(p => p.type === 'tool_call')"
+             :key="index"
+             :part="part"
+           />
+         </template>
+
+         <!-- Text parts -->
+         <template v-else>
+           <p
+             v-for="(part, index) in message.parts.filter(p => p.type === 'text' && p.text.trim())"
+             :key="index"
+             class="whitespace-pre-line"
+           >
+             {{ part.text }}
+           </p>
+         </template>
+       </div>
+     </template>
+     ```
+   - **Impact**: Unpredictable rendering, maintenance issues
+   - **Priority**: Medium - code quality
+
+10. **Missing Props in Example** (Lines 69-83)
+    - **Problem**: Example passes `:current-activity` and `:current-tool-name` but component doesn't define these props
+    - **Solution**: Add props to `AgentProgressTracker.vue`:
+      ```typescript
+      interface Props {
+        message: ChatMessage
+        showControls?: boolean
+        defaultCollapsed?: boolean
+        currentActivity?: 'thinking' | 'streaming' | null
+        currentToolName?: string | null
+      }
+      ```
+      Then use/forward them where needed (e.g., in `ThinkingIndicator.vue`)
+    - **Impact**: Runtime prop warnings, example doesn't work
+    - **Priority**: Medium - documentation accuracy
+
+### README.md (Markdownlint)
+
+11. **Missing Language Identifiers** (Multiple locations)
+    - **Problem**: Fenced code blocks missing language identifiers (markdownlint MD040)
+    - **Solution**: Add language identifiers to all code blocks:
+      - Plain text diagrams: ` ```text `
+      - TypeScript code: ` ```typescript `
+      - Vue templates: ` ```vue `
+    - **Impact**: Markdownlint failures
+    - **Priority**: Low - linting compliance
 
 ---
 
@@ -208,7 +314,9 @@ type MessagePart =
     }
 ```
 
-**Note**: The current `MessagePart` type in `shared/utils/types.ts` may need to be extended in Phase 2 to include:
+### Note on MessagePart Type Extensions
+
+The current `MessagePart` type in `shared/utils/types.ts` may need to be extended in Phase 2 to include:
 - `thinkingContent?: string` - For thinking step content
 - `fileEdits?: FileEdit[]` - Structured file diff data
 - `thinkingDuration?: number` - Calculated thinking time in seconds
@@ -274,7 +382,9 @@ interface Props {
 }
 ```
 
-**Note**: The `stepType` field is computed/detected from `toolName` and `result` structure. It's optional in the interface to allow for cases where step type cannot be determined.
+### Note on stepType Field
+
+The `stepType` field is computed/detected from `toolName` and `result` structure. It's optional in the interface to allow for cases where step type cannot be determined.
 
 ---
 
@@ -380,11 +490,21 @@ These questions should be resolved before Phase 2 enhancements:
 
 When implementing, ensure these issues are addressed:
 
-- [ ] **AgentProgressTracker.vue** - Fix Set reactivity (HIGH)
+### High Priority
+- [ ] **AgentProgressTracker.vue** - Fix Set reactivity (use reactive array) (HIGH)
+- [ ] **FileDiffView.vue** - Fix SSR compatibility for window.open (use method) (HIGH)
+
+### Medium Priority
 - [ ] **AgentProgressTracker.vue** - Fix toggle logic with global collapse (MEDIUM)
-- [ ] **FileDiffView.vue** - Fix SSR compatibility for window.open (HIGH)
 - [ ] **AnalysisStep.vue** - Add proper type definition (MEDIUM)
+- [ ] **StepHeader.vue** - Fix accessibility (use button element) (MEDIUM)
+- [ ] **ChatConversationMessages.vue** - Fix getMessageText truncation (MEDIUM)
+- [ ] **INTEGRATION_EXAMPLE.md** - Fix template control flow (MEDIUM)
+- [ ] **INTEGRATION_EXAMPLE.md** - Add missing props to AgentProgressTracker (MEDIUM)
+
+### Low Priority
 - [ ] **StepHeader.vue & ToolExecutionStep.vue** - Extract shared constant (LOW)
 - [ ] **ThinkingIndicator.vue** - Improve placeholder text (LOW)
+- [ ] **README.md** - Add language identifiers to code blocks (LOW)
 
 See "Known Issues & Technical Debt" section above for detailed solutions.

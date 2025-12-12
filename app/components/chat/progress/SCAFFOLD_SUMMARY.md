@@ -61,12 +61,23 @@ AgentProgressTracker (main)
 - [ ] Handle edge cases (errors, missing data, etc.)
 
 #### Known Issues to Fix (CodeRabbit Comments)
-- [ ] **AgentProgressTracker.vue**: Fix Set reactivity issue (lines 42-50, 56-62) - HIGH PRIORITY
+
+**High Priority**:
+- [ ] **AgentProgressTracker.vue**: Fix Set reactivity - replace with `ref<string[]>()` (lines 40-61) - HIGH PRIORITY
+- [ ] **FileDiffView.vue**: Fix SSR compatibility - use component method instead of inline handler (lines 61-69) - HIGH PRIORITY
+
+**Medium Priority**:
 - [ ] **AgentProgressTracker.vue**: Fix toggle logic when global collapse is active (lines 52-62) - MEDIUM PRIORITY
-- [ ] **FileDiffView.vue**: Fix SSR compatibility for `window.open()` (lines 61-69) - HIGH PRIORITY
 - [ ] **AnalysisStep.vue**: Add proper type definition for `analysisData` (lines 12-22) - MEDIUM PRIORITY
+- [ ] **StepHeader.vue**: Fix accessibility - replace div with button element (lines 65-109) - MEDIUM PRIORITY
+- [ ] **ChatConversationMessages.vue**: Fix `getMessageText()` to concatenate all text parts (lines 155-160) - MEDIUM PRIORITY
+- [ ] **INTEGRATION_EXAMPLE.md**: Fix template control flow - separate v-if from v-for (lines 35-58) - MEDIUM PRIORITY
+- [ ] **INTEGRATION_EXAMPLE.md**: Add missing props to AgentProgressTracker (currentActivity, currentToolName) (lines 69-83) - MEDIUM PRIORITY
+
+**Low Priority**:
 - [ ] **StepHeader.vue & ToolExecutionStep.vue**: Extract shared `toolDisplayNames` constant - LOW PRIORITY
 - [ ] **ThinkingIndicator.vue**: Improve placeholder text and implement time calculation (lines 11-17) - LOW PRIORITY
+- [ ] **README.md**: Add language identifiers to all code blocks (markdownlint MD040) - LOW PRIORITY
 
 ---
 
@@ -112,8 +123,9 @@ AgentProgressTracker (main)
 
 ### Phase 1: Basic Functionality
 1. **Fix Critical Issues First**:
-   - Fix Set reactivity in `AgentProgressTracker.vue` (HIGH PRIORITY)
-   - Fix SSR compatibility in `FileDiffView.vue` (HIGH PRIORITY)
+   - Fix Set reactivity in `AgentProgressTracker.vue` - use `ref<string[]>()` instead of Set (HIGH PRIORITY)
+   - Fix SSR compatibility in `FileDiffView.vue` - use component method for `window.open()` (HIGH PRIORITY)
+   - Fix `getMessageText()` in `ChatConversationMessages.vue` to concatenate all text parts (MEDIUM PRIORITY)
 2. Test `AgentProgressTracker` with existing message data
 3. Verify step numbering works correctly
 4. Test collapse/expand functionality (verify reactivity fix works)
@@ -127,6 +139,9 @@ AgentProgressTracker (main)
 4. **Fix Medium Priority Issues**:
    - Add proper type definitions for `AnalysisStep.vue`
    - Improve toggle logic in `AgentProgressTracker.vue`
+   - Fix accessibility in `StepHeader.vue` (use button element)
+   - Fix template control flow in `INTEGRATION_EXAMPLE.md`
+   - Add missing props to `AgentProgressTracker.vue` (currentActivity, currentToolName)
 
 ### Phase 3: Enhanced Features
 1. Add thinking time calculation (using validated timestamp approach)
@@ -137,11 +152,12 @@ AgentProgressTracker (main)
 ### Phase 4: Polish
 1. Add animations and transitions
 2. Improve mobile responsiveness
-3. Add accessibility features
+3. Add accessibility features (verify StepHeader button implementation)
 4. Performance optimization (if needed)
-5. **Refactoring**:
+5. **Refactoring & Linting**:
    - Extract shared `toolDisplayNames` constant
    - Improve thinking indicator placeholder text
+   - Fix markdownlint issues (add language identifiers to code blocks)
 
 ### Critical Questions to Resolve
 

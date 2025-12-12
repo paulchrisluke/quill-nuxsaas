@@ -57,6 +57,20 @@ if (props.initialMode) {
   mode.value = props.initialMode
 }
 
+if (!loggedIn.value && mode.value === 'agent') {
+  mode.value = 'chat'
+}
+
+watch(
+  [loggedIn, () => mode.value],
+  ([isLoggedIn, currentMode]) => {
+    if (!isLoggedIn && currentMode === 'agent') {
+      mode.value = 'chat'
+    }
+  },
+  { immediate: true }
+)
+
 // Mode dropdown items - conditionally disable agent mode for non-logged-in users
 const modeItems = computed(() => [
   { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
@@ -100,7 +114,7 @@ interface ConversationListResponse {
     metadata: Record<string, any> | null
     _computed?: {
       artifactCount: number
-      firstArtifactTitle: string | null
+      latestArtifactTitle: string | null
     }
   }>
   conversationQuota?: ConversationQuotaUsagePayload | null
@@ -174,7 +188,7 @@ const fetchedConversationEntries = computed(() => {
 
     return {
       id: conv.id,
-      title: conv._computed?.title || conv._computed?.firstArtifactTitle || 'Untitled conversation',
+      title: conv._computed?.title || conv._computed?.latestArtifactTitle || 'Untitled conversation',
       status: conv.status,
       updatedAt,
       lastMessage: conv._computed?.lastMessage || null

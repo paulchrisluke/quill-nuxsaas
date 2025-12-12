@@ -32,30 +32,29 @@ const hasSingleToolCall = computed(() => {
 <template>
   <div>
     <!-- Use new tracker for messages with multiple tool calls -->
-    <AgentProgressTracker
-      v-if="hasMultipleToolCalls"
-      :message="message"
-    />
+    <template v-if="hasMultipleToolCalls">
+      <AgentProgressTracker :message="message" />
+    </template>
 
     <!-- Use simple AgentStatus for single tool calls (backward compat) -->
     <template v-else-if="hasSingleToolCall">
       <AgentStatus
-        v-for="(part, index) in message.parts"
-        v-if="part.type === 'tool_call'"
+        v-for="(part, index) in message.parts.filter(p => p.type === 'tool_call')"
         :key="index"
         :part="part"
       />
     </template>
 
     <!-- Text parts -->
-    <p
-      v-for="(part, index) in message.parts"
-      v-else-if="part.type === 'text' && part.text.trim()"
-      :key="index"
-      class="whitespace-pre-line"
-    >
-      {{ part.text }}
-    </p>
+    <template v-else>
+      <p
+        v-for="(part, index) in message.parts.filter(p => p.type === 'text' && p.text.trim())"
+        :key="index"
+        class="whitespace-pre-line"
+      >
+        {{ part.text }}
+      </p>
+    </template>
   </div>
 </template>
 ```
@@ -80,7 +79,17 @@ const { currentActivity, currentToolName } = useConversation()
 </template>
 ```
 
-Note: You may need to extend `AgentProgressTracker` props to accept these.
+**Note**: You must extend `AgentProgressTracker.vue` props to accept `currentActivity` and `currentToolName`:
+
+```typescript
+interface Props {
+  message: ChatMessage
+  showControls?: boolean
+  defaultCollapsed?: boolean
+  currentActivity?: 'thinking' | 'streaming' | null
+  currentToolName?: string | null
+}
+```
 
 ---
 

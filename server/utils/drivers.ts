@@ -18,7 +18,7 @@ const createPgPool = () => new pg.Pool({
   idleTimeoutMillis: 30000
 })
 
-const PG_POOL_KEY = Symbol.for('quillio.pgPool')
+const PG_POOL_KEY = '__quillio_pgPool'
 type GlobalWithPool = typeof globalThis & { [PG_POOL_KEY]?: pg.Pool }
 const globalRef = globalThis as GlobalWithPool
 
@@ -28,10 +28,14 @@ const setExistingPool = (pool: pg.Pool) => {
   return pool
 }
 
-const pgPool = getExistingPool() ?? setExistingPool(createPgPool())
-
 // PG Pool
-export const getPgPool = () => pgPool
+export const getPgPool = () => {
+  const existingPool = getExistingPool()
+  if (existingPool) {
+    return existingPool
+  }
+  return setExistingPool(createPgPool())
+}
 
 // Cache Client
 let redisClient: Redis | undefined
