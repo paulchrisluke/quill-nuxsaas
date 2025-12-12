@@ -33,12 +33,15 @@
       },
       "quota": {
         "left": "{remaining} left"
+      },
+      "legal": {
+        "chatDisclaimer": "By messaging Quillio, an AI chatbot, you agree to our {terms} and have read our {privacy}.",
+        "terms": "Terms",
+        "privacyPolicy": "Privacy Policy"
+      },
+      "conversations": {
+        "new": "New conversation"
       }
-    },
-    "legal": {
-      "chatDisclaimer": "By messaging Quillio, an AI chatbot, you agree to our {terms} and have read our {privacy}.",
-      "terms": "Terms",
-      "privacyPolicy": "Privacy Policy"
     },
     "chat": {
       "errorDetails": "Error Details:",
@@ -79,6 +82,9 @@
         "chatDisclaimer": "通过向 Quillio（AI 聊天机器人）发送消息，您同意我们的 {terms} 并已阅读我们的 {privacy}。",
         "terms": "条款",
         "privacyPolicy": "隐私政策"
+      },
+      "conversations": {
+        "new": "新对话"
       }
     },
     "chat": {
@@ -120,6 +126,9 @@
         "chatDisclaimer": "Quillio（AI チャットボット）にメッセージを送信することで、{terms} に同意し、{privacy} を読んだことになります。",
         "terms": "利用規約",
         "privacyPolicy": "プライバシーポリシー"
+      },
+      "conversations": {
+        "new": "新しい会話"
       }
     },
     "chat": {
@@ -161,6 +170,9 @@
         "chatDisclaimer": "En envoyant un message à Quillio, un chatbot IA, vous acceptez nos {terms} et avez lu notre {privacy}.",
         "terms": "Conditions",
         "privacyPolicy": "Politique de confidentialité"
+      },
+      "conversations": {
+        "new": "Nouvelle conversation"
       }
     },
     "chat": {

@@ -11,14 +11,26 @@ import * as schema from '~~/server/db/schema'
 import { getAuthSession } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 
+interface BetterAuthSession {
+  session?: {
+    activeOrganizationId?: string
+  }
+  data?: {
+    session?: {
+      activeOrganizationId?: string
+    }
+  }
+  activeOrganizationId?: string
+}
+
 export default defineEventHandler(async (event) => {
   try {
-    const session = await getAuthSession(event)
+    const session = await getAuthSession(event) as BetterAuthSession | null
 
     // Try to get activeOrganizationId from session (Better Auth's organization plugin sets this)
-    const activeOrganizationId = (session as any)?.session?.activeOrganizationId
-      ?? (session as any)?.data?.session?.activeOrganizationId
-      ?? (session as any)?.activeOrganizationId
+    const activeOrganizationId = session?.session?.activeOrganizationId
+      ?? session?.data?.session?.activeOrganizationId
+      ?? session?.activeOrganizationId
 
     if (!activeOrganizationId) {
       return null
@@ -40,8 +52,9 @@ export default defineEventHandler(async (event) => {
       data: organization
     }
   }
-  catch {
-    // If there's any error, return null to prevent breaking the client
+  catch (err) {
+    // If there's any error, log it and return null to prevent breaking the client
+    console.error('[use-active-organization] Failed to get active organization:', err)
     return null
   }
 })

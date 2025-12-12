@@ -946,7 +946,7 @@ if (import.meta.client) {
             <!-- Legal Disclaimer - Only for anonymous/guest users, below composer on mobile -->
             <i18n-t
               v-if="!loggedIn"
-              keypath="legal.chatDisclaimer"
+              keypath="global.legal.chatDisclaimer"
               tag="p"
               class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2 lg:hidden"
             >
@@ -955,7 +955,7 @@ if (import.meta.client) {
                   :to="localePath('/terms')"
                   class="underline hover:text-primary-600 dark:hover:text-primary-400"
                 >
-                  {{ t('legal.terms') }}
+                  {{ t('global.legal.terms') }}
                 </NuxtLink>
               </template>
               <template #privacy>
@@ -963,7 +963,7 @@ if (import.meta.client) {
                   :to="localePath('/privacy')"
                   class="underline hover:text-primary-600 dark:hover:text-primary-400"
                 >
-                  {{ t('legal.privacyPolicy') }}
+                  {{ t('global.legal.privacyPolicy') }}
                 </NuxtLink>
               </template>
             </i18n-t>

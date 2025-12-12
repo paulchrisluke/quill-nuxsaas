@@ -121,7 +121,7 @@ const quotaDisplay = computed(() => {
           color="neutral"
           variant="ghost"
           size="sm"
-          :aria-label="t('conversations.new')"
+          :aria-label="t('global.conversations.new')"
           @click="router.push(localePath('/conversations'))"
         />
 
@@ -364,7 +364,7 @@ const quotaDisplay = computed(() => {
           class="bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm px-4 py-2 hidden lg:block"
         >
           <i18n-t
-            keypath="legal.chatDisclaimer"
+            keypath="global.legal.chatDisclaimer"
             tag="p"
             class="text-xs text-muted-600 dark:text-muted-400 text-center"
           >
@@ -373,7 +373,7 @@ const quotaDisplay = computed(() => {
                 :to="localePath('/terms')"
                 class="underline hover:text-primary-600 dark:hover:text-primary-400"
               >
-                {{ t('legal.terms') }}
+                {{ t('global.legal.terms') }}
               </NuxtLink>
             </template>
             <template #privacy>
@@ -381,7 +381,7 @@ const quotaDisplay = computed(() => {
                 :to="localePath('/privacy')"
                 class="underline hover:text-primary-600 dark:hover:text-primary-400"
               >
-                {{ t('legal.privacyPolicy') }}
+                {{ t('global.legal.privacyPolicy') }}
               </NuxtLink>
             </template>
           </i18n-t>
