@@ -2,11 +2,10 @@
 import type { ChatMessage } from '#shared/utils/types'
 import type { ConversationQuotaUsagePayload } from '~/types/conversation'
 import { useClipboard, useDebounceFn } from '@vueuse/core'
-import { computed, nextTick, onBeforeUnmount, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 
 import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
-import ChatMessageContent from './ChatMessageContent.vue'
-import FilesChanged from './FilesChanged.vue'
+import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
 import QuotaLimitModal from './QuotaLimitModal.vue'
 
@@ -50,7 +49,7 @@ const {
   prompt,
   mode,
   hydrateConversation,
-  getCachedMessages
+  getCachedMessagesMeta
 } = useConversation()
 
 // Set initial mode from props
@@ -58,42 +57,34 @@ if (props.initialMode) {
   mode.value = props.initialMode
 }
 
+if (!loggedIn.value && mode.value === 'agent') {
+  mode.value = 'chat'
+}
+
+watch(
+  [loggedIn, () => mode.value],
+  ([isLoggedIn, currentMode]) => {
+    if (!isLoggedIn && currentMode === 'agent') {
+      mode.value = 'chat'
+    }
+  },
+  { immediate: true }
+)
+
+// Mode dropdown items - conditionally disable agent mode for non-logged-in users
+const modeItems = computed(() => [
+  { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
+  { value: 'agent', label: 'Agent', icon: 'i-lucide-bot', disabled: !loggedIn.value }
+])
+
 const promptSubmitting = ref(false)
 const showQuotaModal = ref(false)
 const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
 const showUpgradeModal = ref(false)
 const showAgentModeLoginModal = ref(false)
-const LONG_PRESS_DELAY_MS = 500
-const LONG_PRESS_MOVE_THRESHOLD_PX = 10
-
 const { copy } = useClipboard()
 const toast = useToast()
 const runtimeConfig = useRuntimeConfig()
-
-const messageActionSheetOpen = ref(false)
-const messageActionSheetTarget = ref<ChatMessage | null>(null)
-let longPressTimeout: ReturnType<typeof setTimeout> | null = null
-let longPressStartPosition: { x: number, y: number } | null = null
-
-function getEventCoordinates(event?: Event | null): { x: number, y: number } | null {
-  if (!event)
-    return null
-
-  if ('touches' in event) {
-    const touchEvent = event as TouchEvent
-    const touch = touchEvent.touches?.[0]
-    if (!touch)
-      return null
-    return { x: touch.clientX, y: touch.clientY }
-  }
-
-  if ('clientX' in event && 'clientY' in event) {
-    const mouseEvent = event as MouseEvent
-    return { x: mouseEvent.clientX, y: mouseEvent.clientY }
-  }
-
-  return null
-}
 
 const parseConversationLimitValue = (value: unknown, fallback: number) => {
   if (typeof value === 'number' && Number.isFinite(value))
@@ -123,7 +114,7 @@ interface ConversationListResponse {
     metadata: Record<string, any> | null
     _computed?: {
       artifactCount: number
-      firstArtifactTitle: string | null
+      latestArtifactTitle: string | null
     }
   }>
   conversationQuota?: ConversationQuotaUsagePayload | null
@@ -197,7 +188,7 @@ const fetchedConversationEntries = computed(() => {
 
     return {
       id: conv.id,
-      title: conv._computed?.title || conv._computed?.firstArtifactTitle || 'Untitled conversation',
+      title: conv._computed?.title || conv._computed?.latestArtifactTitle || 'Untitled conversation',
       status: conv.status,
       updatedAt,
       lastMessage: conv._computed?.lastMessage || null
@@ -381,9 +372,9 @@ const handlePromptSubmit = async (value?: string) => {
     return
   }
   promptSubmitting.value = true
+  prompt.value = ''
   try {
     await sendMessage(trimmed)
-    prompt.value = ''
   } finally {
     promptSubmitting.value = false
   }
@@ -413,7 +404,7 @@ const isValidUUID = (id: string | null): boolean => {
   return uuidRegex.test(id)
 }
 
-const loadConversationMessages = async (conversationId: string) => {
+const loadConversationMessages = async (conversationId: string, options?: { force?: boolean }) => {
   if (!conversationId) {
     return
   }
@@ -424,16 +415,22 @@ const loadConversationMessages = async (conversationId: string) => {
   }
 
   // OPTIMIZATION: Check cache first for instant display
-  const cached = getCachedMessages(conversationId)
+  const cached = getCachedMessagesMeta(conversationId)
   if (cached) {
     // Show cached messages immediately (optimistic navigation)
     hydrateConversation({
       conversationId,
-      messages: cached
+      messages: cached.messages
     }, { skipCache: true }) // Don't re-cache what we just loaded from cache
   }
 
-  // Fetch fresh data in background (even if cached)
+  const shouldFetch = options?.force || !cached || cached.isStale
+
+  if (!shouldFetch) {
+    return
+  }
+
+  // Fetch fresh data in background when needed
   try {
     const messagesResponse = await $fetch<{ data: ContentConversationMessage[] }>(`/api/conversations/${conversationId}/messages`)
 
@@ -444,7 +441,7 @@ const loadConversationMessages = async (conversationId: string) => {
       content: msg.content,
       parts: msg.content ? [{ type: 'text' as const, text: msg.content }] : [],
       payload: msg.payload,
-      createdAt: msg.createdAt
+      createdAt: msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt)
     }))
 
     // Update with fresh data (this will also update the cache)
@@ -557,16 +554,8 @@ function _handleBackNavigation() {
   }
 }
 
-onBeforeUnmount(() => {
-  clearMessageLongPress()
-})
-
 function getMessageText(message: ChatMessage) {
   return message.parts[0]?.text || ''
-}
-
-function getDisplayMessageText(message: ChatMessage) {
-  return getMessageText(message)
 }
 
 async function handleCopy(message: ChatMessage) {
@@ -684,67 +673,6 @@ async function handleShare(message: ChatMessage) {
   })
 }
 
-function openMessageActions(message: ChatMessage, event?: Event) {
-  if (event) {
-    event.preventDefault()
-  }
-  messageActionSheetTarget.value = message
-  messageActionSheetOpen.value = true
-}
-
-function startMessageLongPress(message: ChatMessage, event?: Event) {
-  if (message.role !== 'user') {
-    return
-  }
-  if (event) {
-    event.stopPropagation()
-  }
-  clearMessageLongPress()
-  longPressStartPosition = getEventCoordinates(event)
-  longPressTimeout = setTimeout(() => {
-    openMessageActions(message)
-  }, LONG_PRESS_DELAY_MS)
-}
-
-function clearMessageLongPress() {
-  if (longPressTimeout) {
-    clearTimeout(longPressTimeout)
-    longPressTimeout = null
-  }
-  longPressStartPosition = null
-}
-
-function handleMessageLongPressMove(event: Event) {
-  if (!longPressTimeout || !longPressStartPosition) {
-    return
-  }
-
-  const coordinates = getEventCoordinates(event)
-  if (!coordinates) {
-    return
-  }
-
-  const deltaX = Math.abs(coordinates.x - longPressStartPosition.x)
-  const deltaY = Math.abs(coordinates.y - longPressStartPosition.y)
-
-  if (deltaX > LONG_PRESS_MOVE_THRESHOLD_PX || deltaY > LONG_PRESS_MOVE_THRESHOLD_PX) {
-    clearMessageLongPress()
-  }
-}
-
-function handleUserMessageContextMenu(message: ChatMessage, event: Event) {
-  if (message.role !== 'user') {
-    return
-  }
-  openMessageActions(message, event)
-}
-
-function closeMessageActionSheet() {
-  messageActionSheetOpen.value = false
-  messageActionSheetTarget.value = null
-  clearMessageLongPress()
-}
-
 watch(conversationsPayload, (payload) => {
   if (!payload?.conversations)
     return
@@ -777,104 +705,20 @@ if (import.meta.client) {
   <div class="w-full h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4">
     <div class="w-full flex-1 flex flex-col justify-center lg:justify-center">
       <div class="space-y-8">
-        <!-- Loading skeleton (shown when loading conversation without cache) -->
-        <div
-          v-if="!messages.length && conversationId && status === 'ready' && !errorMessage"
-          class="space-y-4"
-        >
-          <USkeleton class="h-20 w-full rounded-lg" />
-          <USkeleton class="h-32 w-3/4 rounded-lg" />
-          <USkeleton class="h-24 w-full rounded-lg" />
-        </div>
-
-        <!-- Welcome message -->
-        <div
-          v-if="!messages.length && !conversationId && !isBusy && !promptSubmitting"
-          class="flex items-center justify-center min-h-[50vh] lg:min-h-0"
-        >
-          <h1 class="text-2xl sm:text-3xl font-semibold text-center px-4">
-            What would you like to write today?
-          </h1>
-        </div>
-
-        <!-- Error banner -->
-        <UAlert
-          v-if="errorMessage && !messages.length"
-          color="error"
-          variant="soft"
-          icon="i-lucide-alert-triangle"
-          :description="errorMessage"
-          class="w-full"
+        <ChatConversationMessages
+          :messages="messages"
+          :display-messages="displayMessages"
+          :conversation-id="conversationId"
+          :status="status"
+          :ui-status="uiStatus"
+          :error-message="errorMessage"
+          :is-busy="isBusy"
+          :prompt-submitting="promptSubmitting"
+          @copy="handleCopy"
+          @regenerate="handleRegenerate"
+          @send-again="handleSendAgain"
+          @share="handleShare"
         />
-
-        <!-- Messages -->
-        <div
-          v-if="messages.length"
-          class="space-y-6 w-full"
-        >
-          <div class="w-full">
-            <UChatMessages
-              class="py-4"
-              :messages="displayMessages"
-              :status="uiStatus"
-              should-auto-scroll
-              :assistant="{
-                actions: [
-                  {
-                    label: 'Copy',
-                    icon: 'i-lucide-copy',
-                    onClick: (e, message) => handleCopy(message as ChatMessage)
-                  },
-                  {
-                    label: 'Regenerate',
-                    icon: 'i-lucide-rotate-ccw',
-                    onClick: (e, message) => handleRegenerate(message as ChatMessage)
-                  }
-                ]
-              }"
-              :user="{
-                actions: [
-                  {
-                    label: 'Copy',
-                    icon: 'i-lucide-copy',
-                    onClick: (e, message) => handleCopy(message as ChatMessage)
-                  },
-                  {
-                    label: 'Send again',
-                    icon: 'i-lucide-send',
-                    onClick: (e, message) => handleSendAgain(message as ChatMessage)
-                  }
-                ]
-              }"
-            >
-              <template #content="{ message }">
-                <div
-                  :class="message.role === 'user' ? 'cursor-pointer select-text' : 'select-text'"
-                  @touchstart.passive="startMessageLongPress(message, $event)"
-                  @touchmove.passive="handleMessageLongPressMove"
-                  @touchend.passive="clearMessageLongPress"
-                  @touchcancel.passive="clearMessageLongPress"
-                  @mousedown="startMessageLongPress(message, $event)"
-                  @mousemove="handleMessageLongPressMove"
-                  @mouseup="clearMessageLongPress"
-                  @mouseleave="clearMessageLongPress"
-                  @contextmenu.prevent="handleUserMessageContextMenu(message, $event)"
-                >
-                  <ChatMessageContent
-                    :message="message"
-                    :display-text="getDisplayMessageText(message)"
-                  />
-                </div>
-              </template>
-            </UChatMessages>
-          </div>
-
-          <!-- Files Changed Summary -->
-          <FilesChanged
-            v-if="conversationId"
-            :conversation-id="conversationId"
-          />
-        </div>
 
         <!-- Main chat input - always visible -->
         <div class="w-full flex flex-col justify-center mt-8 lg:mt-4 fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 pb-safe lg:static lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none lg:pb-0">
@@ -887,21 +731,20 @@ if (import.meta.client) {
               @submit="handlePromptSubmit"
             >
               <template #footer>
-                <UTooltip
-                  v-if="!loggedIn"
-                  text="Sign in to unlock agent mode"
+                <component
+                  :is="!loggedIn ? 'UTooltip' : 'div'"
+                  v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
                 >
-                  <USelectMenu
+                  <UInputMenu
                     v-model="mode"
-                    :items="[
-                      { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
-                      { value: 'agent', label: 'Agent', icon: 'i-lucide-bot', disabled: !loggedIn }
-                    ]"
+                    :items="modeItems"
                     value-key="value"
-                    option-attribute="label"
+                    label-key="label"
                     variant="ghost"
                     size="sm"
-                    :searchable="false"
+                    ignore-filter
+                    readonly
+                    open-on-click
                   >
                     <template #leading>
                       <UIcon
@@ -910,28 +753,8 @@ if (import.meta.client) {
                         :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
                       />
                     </template>
-                  </USelectMenu>
-                </UTooltip>
-                <USelectMenu
-                  v-else
-                  v-model="mode"
-                  :items="[
-                    { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
-                    { value: 'agent', label: 'Agent', icon: 'i-lucide-bot' }
-                  ]"
-                  value-key="value"
-                  option-attribute="label"
-                  variant="ghost"
-                  size="sm"
-                  :searchable="false"
-                >
-                  <template #leading>
-                    <UIcon
-                      :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
-                      class="w-4 h-4"
-                    />
-                  </template>
-                </USelectMenu>
+                  </UInputMenu>
+                </component>
               </template>
             </PromptComposer>
 
@@ -963,46 +786,6 @@ if (import.meta.client) {
         </div>
       </div>
     </div>
-
-    <UModal
-      v-model:open="messageActionSheetOpen"
-      :ui="{
-        overlay: 'bg-black/60 backdrop-blur-sm',
-        wrapper: 'max-w-sm mx-auto',
-        content: 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white rounded-2xl shadow-2xl border border-muted-200/80 dark:border-muted-800/70',
-        header: 'hidden',
-        body: 'p-4 space-y-4',
-        footer: 'hidden'
-      }"
-      @close="closeMessageActionSheet"
-    >
-      <template #body>
-        <div class="space-y-3">
-          <p class="text-sm text-muted-700 dark:text-muted-200 whitespace-pre-wrap max-h-48 overflow-y-auto">
-            {{ messageActionSheetTarget ? getMessageText(messageActionSheetTarget) : '' }}
-          </p>
-          <div class="flex flex-col gap-2">
-            <UButton
-              color="primary"
-              block
-              icon="i-lucide-copy"
-              @click="messageActionSheetTarget && handleCopy(messageActionSheetTarget); closeMessageActionSheet()"
-            >
-              Copy
-            </UButton>
-            <UButton
-              color="neutral"
-              variant="ghost"
-              block
-              icon="i-lucide-share"
-              @click="messageActionSheetTarget && handleShare(messageActionSheetTarget); closeMessageActionSheet()"
-            >
-              Share
-            </UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
 
     <QuotaLimitModal
       v-model:open="showQuotaModal"

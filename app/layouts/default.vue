@@ -25,10 +25,12 @@ const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () 
 
 // Page title state - pages can set this via provide
 const headerTitle = useState<string | null>('page-header-title', () => null)
+const mobileSidebarOpen = ref(false)
 
 // Reset header title on route change
 watch(() => route.path, () => {
   headerTitle.value = null
+  mobileSidebarOpen.value = false
 })
 
 // Simple page title
@@ -108,15 +110,26 @@ const quotaDisplay = computed(() => {
       class="lg:hidden border-b border-neutral-200/70 dark:border-neutral-800/60 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm sticky top-0 z-50"
     >
       <div class="px-4 py-2 flex items-center justify-between w-full">
-        <!-- New Conversation Button (Left) -->
-        <UButton
-          icon="i-lucide-message-square-plus"
-          color="neutral"
-          variant="ghost"
-          size="sm"
-          :aria-label="t('global.conversations.new')"
-          @click="router.push(localePath('/conversations'))"
-        />
+        <!-- Mobile navigation triggers -->
+        <div class="flex items-center gap-2">
+          <UButton
+            icon="i-lucide-menu"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            aria-label="Menu"
+            @click="mobileSidebarOpen = true"
+          />
+
+          <UButton
+            icon="i-lucide-message-square-plus"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            :aria-label="t('global.conversations.new')"
+            @click="router.push(localePath('/conversations'))"
+          />
+        </div>
 
         <!-- Right side: Quota and User Navigation -->
         <div class="flex items-center gap-2">
@@ -135,6 +148,30 @@ const quotaDisplay = computed(() => {
         </div>
       </div>
     </header>
+
+    <USlideover
+      v-model="mobileSidebarOpen"
+      side="left"
+      :handle="false"
+      aria-label="Mobile navigation"
+    >
+      <template #content>
+        <div class="w-[80vw] max-w-sm h-full flex flex-col bg-white dark:bg-gray-900 text-left">
+          <div class="px-4 pt-4 pb-2 border-b border-neutral-200/70 dark:border-neutral-800/60 flex items-center gap-2">
+            <Logo class="h-6 w-6" />
+            <span class="text-lg font-semibold truncate">
+              {{ t('global.appName') }}
+            </span>
+          </div>
+          <div class="flex-1 overflow-y-auto px-4 py-4">
+            <SidebarNavigation />
+          </div>
+          <div class="px-4 pb-4 border-t border-neutral-200/70 dark:border-neutral-800/60">
+            <UserNavigation />
+          </div>
+        </div>
+      </template>
+    </USlideover>
 
     <UDashboardGroup
       storage-key="dashboard-sidebar"

@@ -38,6 +38,15 @@ export const content = pgTable('content', {
 }, table => ({
   organizationIdx: index('content_organization_idx').on(table.organizationId),
   conversationIdx: index('content_conversation_idx').on(table.conversationId),
+  conversationOrgUpdatedIdx: index('content_conv_org_updated_idx').on(
+    table.conversationId,
+    table.organizationId,
+    table.updatedAt
+  ),
+  conversationUpdatedIdx: index('content_conversation_updated_idx').on(
+    table.conversationId,
+    table.updatedAt.desc()
+  ),
   statusIdx: index('content_status_idx').on(table.status),
   slugOrgUnique: uniqueIndex('content_org_slug_idx').on(table.organizationId, table.slug),
   orgStatusIdx: index('content_org_status_idx').on(table.organizationId, table.status),

@@ -20,7 +20,27 @@ const DEFAULT_CONVERSATION_QUOTA = {
   paid: parseConversationQuotaLimit(process.env.NUXT_CONVERSATION_QUOTA_PAID, 0)
 }
 
-let runtimeConfigInstance: NitroRuntimeConfig
+let runtimeConfigInstance: NitroRuntimeConfig | null = null
+let _resolvedFromNuxt = false
+let _resolvedFromEnv = false
+let dotenvLoaded = false
+
+const callUseRuntimeConfig = () => (useRuntimeConfig as () => NitroRuntimeConfig)()
+
+const tryResolveFromNuxt = () => {
+  if (_resolvedFromNuxt || typeof useRuntimeConfig === 'undefined') {
+    return false
+  }
+
+  try {
+    runtimeConfigInstance = callUseRuntimeConfig()
+    _resolvedFromNuxt = true
+    _resolvedFromEnv = false
+    return true
+  } catch {
+    return false
+  }
+}
 
 export const generateRuntimeConfig = () => ({
   preset: process.env.NUXT_NITRO_PRESET,
@@ -97,12 +117,50 @@ export const generateRuntimeConfig = () => ({
   }
 })
 
-if (typeof useRuntimeConfig !== 'undefined') {
-  runtimeConfigInstance = useRuntimeConfig()
-} else {
-  // for cli: npm run auth:schema
-  config()
-  runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
+const resolveRuntimeConfig = () => {
+  if (!runtimeConfigInstance && tryResolveFromNuxt()) {
+    return runtimeConfigInstance
+  }
+
+  if (runtimeConfigInstance && !_resolvedFromNuxt) {
+    if (tryResolveFromNuxt()) {
+      return runtimeConfigInstance
+    }
+  }
+
+  if (!runtimeConfigInstance) {
+    // CLI or early usage before Nuxt initializes - fall back to env config
+    if (!dotenvLoaded) {
+      config()
+      dotenvLoaded = true
+    }
+    runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
+    _resolvedFromEnv = true
+  }
+
+  return runtimeConfigInstance
 }
 
-export const runtimeConfig = runtimeConfigInstance
+export const runtimeConfig = new Proxy({} as NitroRuntimeConfig, {
+  get(_, prop) {
+    const instance = resolveRuntimeConfig()
+    return (instance as any)[prop]
+  },
+  set(_, prop, value) {
+    const instance = resolveRuntimeConfig()
+    ;(instance as any)[prop] = value
+    return true
+  },
+  has(_, prop) {
+    const instance = resolveRuntimeConfig()
+    return prop in instance
+  },
+  ownKeys() {
+    const instance = resolveRuntimeConfig()
+    return Reflect.ownKeys(instance)
+  },
+  getOwnPropertyDescriptor(_, prop) {
+    const instance = resolveRuntimeConfig()
+    return Object.getOwnPropertyDescriptor(instance, prop as any)
+  }
+})

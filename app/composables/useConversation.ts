@@ -4,7 +4,7 @@ import { useState } from '#app'
 import { useLocalStorage } from '@vueuse/core'
 import { computed } from 'vue'
 
-type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
+export type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
 interface ChatResponse {
   assistantMessage?: string
@@ -66,6 +66,80 @@ function normalizeMessages(list: ChatResponse['messages']): ChatMessage[] {
         payload: message.payload ?? null
       }
     })
+}
+
+interface MergeOptions {
+  optimisticUserId?: string | null
+  optimisticAssistantId?: string | null
+}
+
+function mergeMessageParts(
+  existingParts: NonEmptyArray<MessagePart>,
+  incomingParts: NonEmptyArray<MessagePart>
+): NonEmptyArray<MessagePart> {
+  const hasIncomingToolParts = incomingParts.some(part => part.type === 'tool_call')
+  if (hasIncomingToolParts) {
+    return incomingParts
+  }
+  const existingToolParts = existingParts.filter(part => part.type === 'tool_call')
+  if (existingToolParts.length === 0) {
+    return incomingParts
+  }
+  return [...incomingParts, ...existingToolParts] as NonEmptyArray<MessagePart>
+}
+
+function mergeMessagesWithOptimistic(
+  current: ChatMessage[],
+  incoming: ChatMessage[],
+  options?: MergeOptions
+) {
+  let optimisticUserId = options?.optimisticUserId ?? null
+  let optimisticAssistantId = options?.optimisticAssistantId ?? null
+
+  const mergedById = new Map(current.map(message => [message.id, message] as const))
+  const lastIncomingByRole: Partial<Record<ChatMessage['role'], ChatMessage>> = {}
+
+  for (const message of incoming) {
+    lastIncomingByRole[message.role] = message
+    const existing = mergedById.get(message.id)
+    if (existing) {
+      mergedById.set(message.id, {
+        ...existing,
+        ...message,
+        parts: mergeMessageParts(existing.parts, message.parts)
+      })
+    } else {
+      mergedById.set(message.id, message)
+    }
+  }
+
+  const reconcileOptimistic = (optimisticId: string | null, role: ChatMessage['role']) => {
+    if (!optimisticId) {
+      return null
+    }
+    const replacement = lastIncomingByRole[role]
+    if (!replacement) {
+      return optimisticId
+    }
+    mergedById.delete(optimisticId)
+    if (!mergedById.has(replacement.id)) {
+      mergedById.set(replacement.id, replacement)
+    }
+    return null
+  }
+
+  optimisticUserId = reconcileOptimistic(optimisticUserId, 'user')
+  optimisticAssistantId = reconcileOptimistic(optimisticAssistantId, 'assistant')
+
+  const messages = Array.from(mergedById.values()).sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+  )
+
+  return {
+    messages,
+    optimisticUserId,
+    optimisticAssistantId
+  }
 }
 
 export function useConversation() {
@@ -139,22 +213,35 @@ export function useConversation() {
   }
 
   // Get cached messages if available and fresh
-  const getCachedMessages = (id: string): ChatMessage[] | null => {
+  const getCachedMessagesMeta = (id: string): { messages: ChatMessage[], isStale: boolean, age: number } | null => {
     const cached = messageCache.value.get(id)
     if (!cached)
       return null
 
     const age = Date.now() - cached.timestamp
-    if (age > CACHE_TTL_MS) {
-      // Cache expired, remove it
+    const isStale = age > CACHE_TTL_MS
+
+    return {
+      messages: structuredClone(cached.messages),
+      isStale,
+      age
+    }
+  }
+
+  const getCachedMessages = (id: string): ChatMessage[] | null => {
+    const cached = getCachedMessagesMeta(id)
+    if (!cached)
+      return null
+
+    if (cached.isStale) {
       messageCache.value.delete(id)
       return null
     }
 
-    return structuredClone(cached.messages)
+    return cached.messages
   }
 
-  async function callChatEndpoint(body: Record<string, any>) {
+  async function callChatEndpoint(body: Record<string, any>, runtimeOptions?: MergeOptions) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
     requestStartedAt.value = new Date()
     status.value = 'submitted'
@@ -166,6 +253,18 @@ export function useConversation() {
       activeController.value.abort()
     }
     activeController.value = controller
+
+    let optimisticUserId = runtimeOptions?.optimisticUserId ?? null
+    let optimisticAssistantId = runtimeOptions?.optimisticAssistantId ?? null
+    const removeMessageById = (id: string | null) => {
+      if (!id) {
+        return
+      }
+      const index = messages.value.findIndex(message => message.id === id)
+      if (index >= 0) {
+        messages.value.splice(index, 1)
+      }
+    }
 
     try {
       status.value = 'streaming'
@@ -198,7 +297,7 @@ export function useConversation() {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      let currentAssistantMessageId: string | null = null
+      let currentAssistantMessageId: string | null = runtimeOptions?.optimisticAssistantId ?? null
       let currentAssistantMessageText = ''
       let pendingEventType: string | null = null
 
@@ -258,6 +357,7 @@ export function useConversation() {
                       if (message) {
                         message.id = serverMessageId
                         currentAssistantMessageId = serverMessageId
+                        optimisticAssistantId = null
                       }
                     }
 
@@ -487,9 +587,17 @@ export function useConversation() {
                   case 'messages:complete': {
                     if (Array.isArray(eventData.messages)) {
                       const normalizedMessages = normalizeMessages(eventData.messages)
-                      messages.value = normalizedMessages.sort((a, b) =>
-                        a.createdAt.getTime() - b.createdAt.getTime()
+                      const mergeResult = mergeMessagesWithOptimistic(
+                        messages.value,
+                        normalizedMessages,
+                        {
+                          optimisticUserId,
+                          optimisticAssistantId
+                        }
                       )
+                      messages.value = mergeResult.messages
+                      optimisticUserId = mergeResult.optimisticUserId
+                      optimisticAssistantId = mergeResult.optimisticAssistantId
                       currentAssistantMessageId = null
                       currentAssistantMessageText = ''
                     }
@@ -518,6 +626,11 @@ export function useConversation() {
                     if (eventData.conversationId) {
                       conversationId.value = eventData.conversationId ?? conversationId.value
                     }
+                    break
+                  }
+
+                  case 'ping': {
+                    // Keep-alive event from server, no action needed
                     break
                   }
 
@@ -562,12 +675,15 @@ export function useConversation() {
         requestStartedAt.value = null
         currentActivity.value = null
         currentToolName.value = null
+        removeMessageById(optimisticAssistantId)
         return null
       }
       status.value = 'error'
       requestStartedAt.value = null
       currentActivity.value = null
       currentToolName.value = null
+      removeMessageById(optimisticAssistantId)
+      removeMessageById(optimisticUserId)
       const errorMsg = error?.message || error?.data?.statusMessage || error?.data?.message || 'Something went wrong.'
       errorMessage.value = errorMsg
       return null
@@ -587,11 +703,37 @@ export function useConversation() {
       return null
     }
 
-    return await callChatEndpoint({
-      message: trimmed,
-      mode: mode.value,
-      contentId: options?.contentId
+    const optimisticUserId = `temp-user-${createId()}`
+    const optimisticAssistantId = `temp-assistant-${createId()}`
+    const createdAt = new Date()
+
+    messages.value.push({
+      id: optimisticUserId,
+      role: 'user',
+      parts: [{ type: 'text', text: trimmed }] as NonEmptyArray<MessagePart>,
+      createdAt,
+      payload: null
     })
+
+    messages.value.push({
+      id: optimisticAssistantId,
+      role: 'assistant',
+      parts: [{ type: 'text', text: 'Thinking...' }] as NonEmptyArray<MessagePart>,
+      createdAt: new Date(createdAt.getTime() + 1),
+      payload: null
+    })
+
+    return await callChatEndpoint(
+      {
+        message: trimmed,
+        mode: mode.value,
+        contentId: options?.contentId
+      },
+      {
+        optimisticUserId,
+        optimisticAssistantId
+      }
+    )
   }
 
   function stopResponse() {
@@ -614,6 +756,7 @@ export function useConversation() {
     hydrateConversation,
     resetConversation,
     getCachedMessages,
+    getCachedMessagesMeta,
     prompt,
     mode,
     currentActivity,
