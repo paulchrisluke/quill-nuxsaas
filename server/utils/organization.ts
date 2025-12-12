@@ -267,6 +267,22 @@ export const fetchFullOrganizationForSSR = async (organizationId: string): Promi
 
 export const fetchActiveOrgExtrasForUser = async (userId: string, organizationId: string): Promise<ActiveOrgExtras> => {
   const db = getDB()
+  const [membership] = await db
+    .select()
+    .from(schema.member)
+    .where(and(
+      eq(schema.member.userId, userId),
+      eq(schema.member.organizationId, organizationId)
+    ))
+    .limit(1)
+
+  if (!membership) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'You do not have access to this organization'
+    })
+  }
+
   const subscriptions = await db
     .select()
     .from(schema.subscription)

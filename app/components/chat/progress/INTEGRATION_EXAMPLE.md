@@ -8,6 +8,7 @@ Replace or enhance the existing `AgentStatus` usage:
 
 ```vue
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { ChatMessage } from '#shared/utils/types'
 import AgentStatus from './AgentStatus.vue'  // Keep for simple cases
 import AgentProgressTracker from './progress/AgentProgressTracker.vue'  // New component

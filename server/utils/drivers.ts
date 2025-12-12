@@ -28,14 +28,10 @@ const setExistingPool = (pool: pg.Pool) => {
   return pool
 }
 
+const pgPool = getExistingPool() ?? setExistingPool(createPgPool())
+
 // PG Pool
-export const getPgPool = () => {
-  const existingPool = getExistingPool()
-  if (existingPool) {
-    return existingPool
-  }
-  return setExistingPool(createPgPool())
-}
+export const getPgPool = () => pgPool
 
 // Cache Client
 let redisClient: Redis | undefined

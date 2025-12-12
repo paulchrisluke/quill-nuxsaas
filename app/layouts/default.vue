@@ -131,30 +131,6 @@ const quotaDisplay = computed(() => {
           />
         </div>
 
-        <USlideover
-          v-if="shouldShowSidebar"
-          v-model="mobileSidebarOpen"
-          side="left"
-          :handle="false"
-        >
-          <template #content>
-            <div class="w-[80vw] max-w-sm h-full flex flex-col bg-white dark:bg-gray-900 text-left">
-              <div class="px-4 pt-4 pb-2 border-b border-neutral-200/70 dark:border-neutral-800/60 flex items-center gap-2">
-                <Logo class="h-6 w-6" />
-                <span class="text-lg font-semibold truncate">
-                  {{ t('global.appName') }}
-                </span>
-              </div>
-              <div class="flex-1 overflow-y-auto px-4 py-4">
-                <SidebarNavigation />
-              </div>
-              <div class="px-4 pb-4 border-t border-neutral-200/70 dark:border-neutral-800/60">
-                <UserNavigation />
-              </div>
-            </div>
-          </template>
-        </USlideover>
-
         <!-- Right side: Quota and User Navigation -->
         <div class="flex items-center gap-2">
           <!-- Quota Display -->
@@ -172,6 +148,30 @@ const quotaDisplay = computed(() => {
         </div>
       </div>
     </header>
+
+    <USlideover
+      v-model="mobileSidebarOpen"
+      side="left"
+      :handle="false"
+      aria-label="Mobile navigation"
+    >
+      <template #content>
+        <div class="w-[80vw] max-w-sm h-full flex flex-col bg-white dark:bg-gray-900 text-left">
+          <div class="px-4 pt-4 pb-2 border-b border-neutral-200/70 dark:border-neutral-800/60 flex items-center gap-2">
+            <Logo class="h-6 w-6" />
+            <span class="text-lg font-semibold truncate">
+              {{ t('global.appName') }}
+            </span>
+          </div>
+          <div class="flex-1 overflow-y-auto px-4 py-4">
+            <SidebarNavigation />
+          </div>
+          <div class="px-4 pb-4 border-t border-neutral-200/70 dark:border-neutral-800/60">
+            <UserNavigation />
+          </div>
+        </div>
+      </template>
+    </USlideover>
 
     <UDashboardGroup
       storage-key="dashboard-sidebar"
