@@ -1393,6 +1393,11 @@ export default defineEventHandler(async (event) => {
     writeSSE('ping', { ts: Date.now() })
   }
 
+  // Send initial ping immediately to keep connection alive
+  // This prevents Cloudflare Workers from detecting the stream as hung
+  // if async processing takes time to start
+  flushPing()
+
   // Start async processing (don't await - let it run in background)
   ;(async () => {
     try {
