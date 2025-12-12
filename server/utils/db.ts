@@ -7,7 +7,10 @@ import { getPgPool } from './drivers'
 import { runtimeConfig } from './runtimeConfig'
 
 const createDB = (dbSchema?: typeof schema) => {
-  return drizzle({ client: getPgPool(), schema: dbSchema })
+  return drizzle({
+    client: getPgPool(),
+    schema: dbSchema
+  })
 }
 
 let db: ReturnType<typeof createDB>

@@ -213,10 +213,6 @@ function formatClarifyingMessage(questions: IntentGap[]): string {
   return `${intro}\n${items}`
 }
 
-function formatChatModeRestrictionMessage(): string {
-  return 'I can analyze your request here, but I’m in read-only chat mode and can’t make workspace changes. Switch to agent mode when you’re ready for me to build or edit content.'
-}
-
 interface ToolExecutionResult {
   success: boolean
   result?: any
@@ -1830,22 +1826,7 @@ export default defineEventHandler(async (event) => {
 
         let shouldRunAgent = true
 
-        if (mode === 'chat') {
-          shouldRunAgent = false
-          const chatModeMessage = formatChatModeRestrictionMessage()
-          agentAssistantReply = chatModeMessage
-          if (!currentMessageId) {
-            currentMessageId = randomUUID()
-          }
-          writeSSE('message:chunk', {
-            messageId: currentMessageId,
-            chunk: chatModeMessage
-          })
-          writeSSE('message:complete', {
-            messageId: currentMessageId,
-            message: chatModeMessage
-          })
-        } else if (intentResult?.action === 'clarify') {
+        if (intentResult?.action === 'clarify') {
           shouldRunAgent = false
           const clarifyingMessage = formatClarifyingMessage(intentResult.clarifyingQuestions)
           agentAssistantReply = clarifyingMessage

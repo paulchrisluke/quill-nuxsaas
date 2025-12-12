@@ -18,18 +18,23 @@ const createPgPool = () => new pg.Pool({
   idleTimeoutMillis: 30000
 })
 
-let pgPool: pg.Pool
+const PG_POOL_KEY = Symbol.for('quillio.pgPool')
+type GlobalWithPool = typeof globalThis & { [PG_POOL_KEY]?: pg.Pool }
+const globalRef = globalThis as GlobalWithPool
+
+const getExistingPool = () => globalRef[PG_POOL_KEY]
+const setExistingPool = (pool: pg.Pool) => {
+  globalRef[PG_POOL_KEY] = pool
+  return pool
+}
 
 // PG Pool
 export const getPgPool = () => {
-  if (runtimeConfig.preset == 'node-server') {
-    if (!pgPool) {
-      pgPool = createPgPool()
-    }
-    return pgPool
-  } else {
-    return createPgPool()
+  const existingPool = getExistingPool()
+  if (existingPool) {
+    return existingPool
   }
+  return setExistingPool(createPgPool())
 }
 
 // Cache Client

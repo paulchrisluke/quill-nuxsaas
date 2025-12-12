@@ -43,6 +43,10 @@ export const content = pgTable('content', {
     table.organizationId,
     table.updatedAt
   ),
+  conversationUpdatedIdx: index('content_conversation_updated_idx').on(
+    table.conversationId,
+    table.updatedAt.desc()
+  ),
   statusIdx: index('content_status_idx').on(table.status),
   slugOrgUnique: uniqueIndex('content_org_slug_idx').on(table.organizationId, table.slug),
   orgStatusIdx: index('content_org_status_idx').on(table.organizationId, table.status),

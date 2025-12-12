@@ -26,7 +26,7 @@ export const conversation = pgTable('conversation', {
     .notNull()
 }, table => ({
   organizationIdx: index('conversation_org_idx').on(table.organizationId),
-  organizationUpdatedIdx: index('conversation_org_updated_idx').on(table.organizationId, table.updatedAt),
+  organizationUpdatedIdx: index('conversation_org_updated_idx').on(table.organizationId, table.updatedAt.desc()),
   sourceIdx: index('conversation_source_idx').on(table.sourceContentId)
 }))
 
@@ -50,6 +50,10 @@ export const conversationMessage = pgTable('conversation_message', {
     table.conversationId,
     table.organizationId,
     table.createdAt
+  ),
+  conversationCreatedIdx: index('conversation_message_conv_created_idx').on(
+    table.conversationId,
+    table.createdAt.desc()
   )
 }))
 

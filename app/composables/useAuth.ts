@@ -8,6 +8,7 @@ import type { ActiveOrgExtras, OwnershipInfo } from '~~/shared/utils/organizatio
 import type { User } from '~~/shared/utils/types'
 import { stripeClient } from '@better-auth/stripe/client'
 import { watchDebounced } from '@vueuse/core'
+import { computed, isRef, watch } from 'vue'
 import { adminClient, anonymousClient, apiKeyClient, inferAdditionalFields, organizationClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
 import {
@@ -75,27 +76,89 @@ export function useAuth() {
   const activeOrgExtras = useState<ActiveOrgExtras<Subscription>>('active-org-extras', () => createEmptyActiveOrgExtras<Subscription>())
   const latestOrgFetchId = useState<string | null>('active-org-extras:latest-fetch', () => null)
   const sharedActiveOrganization = useState<any>('auth:active-organization:data', () => null)
+  const activeOrgWatcherInitialized = import.meta.client
+    ? useState<boolean>('auth:active-organization:watcher-initialized', () => false)
+    : null
+  const activeOrgInitPending = import.meta.client
+    ? useState<boolean>('auth:active-organization:init-pending', () => false)
+    : null
   const clientActiveOrganization = import.meta.client
     ? useState<ReturnType<typeof client.organization.useActiveOrganization> | null>('auth:active-organization:client-source', () => null)
     : null
 
+  const resolveSourceValue = (source: any) => {
+    if (!source) {
+      return null
+    }
+    if ('value' in source && source.value !== undefined) {
+      return isRef(source.value) ? source.value.value : source.value
+    }
+    if (isRef(source)) {
+      return source.value
+    }
+    if ('data' in source) {
+      const data = source.data
+      return isRef(data) ? data.value : data
+    }
+    return source
+  }
+
+  const isPromiseLike = <T>(value: any): value is Promise<T> =>
+    Boolean(value) && typeof value === 'object' && typeof value.then === 'function'
+
+  const attachActiveOrgWatcher = (source: any) => {
+    if (!source || !activeOrgWatcherInitialized || activeOrgWatcherInitialized.value)
+      return
+    watch(
+      () => resolveSourceValue(source),
+      (org) => {
+        sharedActiveOrganization.value = org ?? null
+      },
+      { immediate: true, deep: false }
+    )
+    activeOrgWatcherInitialized.value = true
+  }
+
+  const initializeClientActiveOrganizationSource = () => {
+    if (!import.meta.client || !clientActiveOrganization)
+      return
+
+    if (clientActiveOrganization.value) {
+      attachActiveOrgWatcher(clientActiveOrganization.value)
+      return
+    }
+
+    if (activeOrgInitPending?.value)
+      return
+
+    activeOrgInitPending!.value = true
+    const rawSource = client.organization.useActiveOrganization()
+    const handleResolved = (resolved: any) => {
+      clientActiveOrganization.value = resolved
+      attachActiveOrgWatcher(resolved)
+      activeOrgInitPending!.value = false
+    }
+
+    if (isPromiseLike(rawSource)) {
+      rawSource
+        .then(handleResolved)
+        .catch((error) => {
+          console.error('[useAuth] Failed to initialize active organization source', error)
+          activeOrgInitPending!.value = false
+        })
+    } else {
+      handleResolved(rawSource)
+    }
+  }
+
   const resolveActiveOrganization = () => {
     if (import.meta.client) {
-      if (clientActiveOrganization!.value === null) {
-        const source = client.organization.useActiveOrganization()
-        clientActiveOrganization!.value = source
-        watch(
-          source,
-          (org) => {
-            sharedActiveOrganization.value = org ?? null
-          },
-          { immediate: true, deep: false }
-        )
-      }
+      initializeClientActiveOrganizationSource()
 
       return computed(() => {
-        const sourceValue = clientActiveOrganization!.value?.value
-        if (sourceValue) {
+        const sourceRef = clientActiveOrganization!.value
+        const sourceValue = resolveSourceValue(sourceRef)
+        if (sourceValue !== undefined && sourceValue !== null) {
           return sourceValue
         }
         return sharedActiveOrganization.value
