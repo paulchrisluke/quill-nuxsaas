@@ -22,8 +22,8 @@ const analysisData = computed(() => {
 })
 
 const hasResults = computed(() => {
-  return analysisData.value.results !== undefined ||
-         (Array.isArray(analysisData.value.items) && analysisData.value.items.length > 0)
+  return analysisData.value.results !== undefined
+    || (Array.isArray(analysisData.value.items) && analysisData.value.items.length > 0)
 })
 </script>
 

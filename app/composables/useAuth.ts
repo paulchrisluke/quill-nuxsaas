@@ -8,9 +8,9 @@ import type { ActiveOrgExtras, OwnershipInfo } from '~~/shared/utils/organizatio
 import type { User } from '~~/shared/utils/types'
 import { stripeClient } from '@better-auth/stripe/client'
 import { watchDebounced } from '@vueuse/core'
-import { computed, isRef, watch } from 'vue'
 import { adminClient, anonymousClient, apiKeyClient, inferAdditionalFields, organizationClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
+import { computed, isRef, watch } from 'vue'
 import {
   computeNeedsUpgrade,
   computeUserOwnsMultipleOrgs,

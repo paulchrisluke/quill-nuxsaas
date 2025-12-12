@@ -3,12 +3,12 @@ interface Props {
   allCollapsed: boolean
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
 
 const emit = defineEmits<{
-  (event: 'collapse-all'): void
-  (event: 'expand-all'): void
-}>
+  (event: 'collapseAll'): void
+  (event: 'expandAll'): void
+}>()
 </script>
 
 <template>
@@ -21,7 +21,7 @@ const emit = defineEmits<{
       variant="ghost"
       size="xs"
       :icon="allCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'"
-      @click="allCollapsed ? $emit('expand-all') : $emit('collapse-all')"
+      @click="allCollapsed ? emit('expandAll') : emit('collapseAll')"
     >
       {{ allCollapsed ? 'Expand all' : 'Collapse all' }}
     </UButton>

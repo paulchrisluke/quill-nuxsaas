@@ -21,7 +21,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   (event: 'copy', message: ChatMessage): void
   (event: 'regenerate', message: ChatMessage): void
-  (event: 'send-again', message: ChatMessage): void
+  (event: 'sendAgain', message: ChatMessage): void
   (event: 'share', message: ChatMessage): void
 }>()
 
@@ -63,7 +63,7 @@ const userActions = computed(() => [
   {
     label: 'Send again',
     icon: 'i-lucide-send',
-    onClick: (_event: Event, message: ChatMessage) => emit('send-again', message)
+    onClick: (_event: Event, message: ChatMessage) => emit('sendAgain', message)
   }
 ])
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { Step } from './ProgressStep.vue'
-import ThinkingIndicator from './ThinkingIndicator.vue'
-import FileDiffView from './FileDiffView.vue'
 import AnalysisStep from './AnalysisStep.vue'
+import FileDiffView from './FileDiffView.vue'
+import ThinkingIndicator from './ThinkingIndicator.vue'
 import ToolExecutionStep from './ToolExecutionStep.vue'
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
   stepType: 'file_edit' | 'analysis' | 'search' | 'tool_execution' | 'thinking'
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
 </script>
 
 <template>

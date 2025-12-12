@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import StepHeader from './StepHeader.vue'
 import StepContent from './StepContent.vue'
+import StepHeader from './StepHeader.vue'
 
 export interface Step {
   stepNumber: number

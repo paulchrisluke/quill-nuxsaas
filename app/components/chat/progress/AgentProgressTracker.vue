@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
 import { computed, ref } from 'vue'
-import ProgressStep from './ProgressStep.vue'
 import ProgressControls from './ProgressControls.vue'
+import ProgressStep from './ProgressStep.vue'
 
 interface Props {
   message: ChatMessage

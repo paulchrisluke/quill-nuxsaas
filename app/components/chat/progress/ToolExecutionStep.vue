@@ -22,7 +22,7 @@ const toolDisplayNames: Record<string, string> = {
   read_workspace_summary: 'Workspace Summary'
 }
 
-const displayName = computed(() =>
+const _displayName = computed(() =>
   toolDisplayNames[props.step.toolName] || props.step.toolName
 )
 
