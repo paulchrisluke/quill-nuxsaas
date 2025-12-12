@@ -21,7 +21,12 @@ export default defineNuxtPlugin({
       return
     }
 
-    const authSession = await getAuthSession(event)
+    let authSession = null
+    try {
+      authSession = await getAuthSession(event)
+    } catch (error) {
+      console.debug('[better-auth-ssr-hydration] Failed to load auth session', error)
+    }
     event.context.authSession = authSession
 
     sessionState.value = authSession?.session ?? null
@@ -55,10 +60,15 @@ export default defineNuxtPlugin({
       return
     }
 
-    const fullOrganization = await fetchFullOrganizationForSSR(activeOrganizationId)
-    if (fullOrganization) {
-      activeOrgState.value = fullOrganization
-    } else {
+    try {
+      const fullOrganization = await fetchFullOrganizationForSSR(activeOrganizationId)
+      if (fullOrganization) {
+        activeOrgState.value = fullOrganization
+      } else {
+        resetOrgState()
+      }
+    } catch (error) {
+      console.debug('[better-auth-ssr-hydration] Failed to load full organization', error)
       resetOrgState()
     }
   }
