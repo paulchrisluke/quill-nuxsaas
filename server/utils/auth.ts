@@ -1080,7 +1080,12 @@ const ensureDeviceFingerprintInOrg = async (
     let metadata: Record<string, any> = {}
     if (org.metadata) {
       try {
-        metadata = JSON.parse(org.metadata)
+        const parsed = JSON.parse(org.metadata)
+        if (parsed && typeof parsed === 'object') {
+          metadata = parsed as Record<string, any>
+        } else {
+          metadata = {}
+        }
       } catch {
         metadata = {}
       }
