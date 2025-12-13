@@ -12,7 +12,7 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30)
 })
 
-type CursorPayload = {
+interface CursorPayload {
   id: string
   updatedAt: string
 }
@@ -121,7 +121,7 @@ export default defineEventHandler(async (event) => {
   }
 
   return {
-    conversations: conversations.map((conv) => ({
+    conversations: conversations.map(conv => ({
       id: conv.id,
       status: conv.status,
       title: deriveTitle(conv.metadata),

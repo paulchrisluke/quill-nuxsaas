@@ -3,9 +3,9 @@ import type { ChatMessage } from '#shared/utils/types'
 import { useClipboard } from '@vueuse/core'
 import { computed, watch } from 'vue'
 
+import { useConversationList } from '~/composables/useConversationList'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
-import { useConversationList } from '~/composables/useConversationList'
 
 interface ContentConversationMessage {
   id: string

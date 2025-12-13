@@ -85,7 +85,6 @@ const shouldUseFullWidth = computed(() => {
 const primaryActionColor = computed(() => {
   return (workspaceHeader.value?.primaryActionColor ?? 'primary') as 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
 })
-
 </script>
 
 <template>
