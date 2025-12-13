@@ -1,5 +1,12 @@
 <script setup lang="ts">
 const { t } = useI18n()
+const appConfig = useAppConfig()
+
+// Format the date string for display
+const privacyLastUpdated = computed(() => {
+  const date = new Date(appConfig.site.privacyLastUpdated)
+  return date.toLocaleDateString()
+})
 
 useHead({
   title: t('global.legal.privacyPolicy')
@@ -19,7 +26,7 @@ useHead({
             Privacy Policy
           </h2>
           <p class="text-muted-foreground mb-4">
-            Last updated: January 1, 2025
+            Last updated: {{ privacyLastUpdated }}
           </p>
           <p class="mb-4">
             This Privacy Policy describes how we collect, use, and protect your personal information when you use our service.

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { defineAsyncComponent, onBeforeUnmount, onErrorCaptured } from 'vue'
 
+const props = defineProps<{
+  conversationId?: string | null
+}>()
+
 const emit = defineEmits<{
   (e: 'loading'): void
   (e: 'ready'): void
@@ -89,7 +93,7 @@ const reloadPage = () => {
             Loading chat...
           </div>
         </template>
-        <ChatShell />
+        <ChatShell :conversation-id="props.conversationId" />
       </Suspense>
     </NuxtErrorBoundary>
   </ClientOnly>

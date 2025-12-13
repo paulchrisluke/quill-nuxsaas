@@ -13,6 +13,7 @@ export default defineAppConfig({
     }
   },
   site: {
-    termsLastUpdated: '2024-01-01'
+    termsLastUpdated: '2024-01-01',
+    privacyLastUpdated: '2025-01-01'
   }
 })

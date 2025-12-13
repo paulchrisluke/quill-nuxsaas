@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { and, desc, eq, lt, or } from 'drizzle-orm'
+import { and, desc, eq, lt, or, sql } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
@@ -87,17 +87,6 @@ const formatUpdatedAgo = (value: Date) => {
   return formatter.format(value)
 }
 
-const deriveTitle = (metadata: Record<string, any> | null | undefined) => {
-  if (metadata?.title) {
-    return String(metadata.title)
-  }
-  const previewTitle = metadata?.preview?.latestArtifact?.title
-  if (previewTitle) {
-    return String(previewTitle)
-  }
-  return 'Untitled conversation'
-}
-
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
   const { organizationId } = await requireActiveOrganization(event, user.id, {
@@ -139,8 +128,8 @@ export default defineEventHandler(async (event) => {
   const results = await db
     .select({
       id: schema.conversation.id,
-      metadata: schema.conversation.metadata,
-      updatedAt: schema.conversation.updatedAt
+      updatedAt: schema.conversation.updatedAt,
+      title: sql<string | null>`NULLIF(${schema.conversation.metadata}->>'title', '')`
     })
     .from(schema.conversation)
     .where(whereClause)
@@ -174,9 +163,10 @@ export default defineEventHandler(async (event) => {
   return {
     conversations: conversations.map((conv) => {
       const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
+      const rawTitle = typeof conv.title === 'string' ? conv.title.trim() : ''
       return {
         id: conv.id,
-        displayLabel: deriveTitle(conv.metadata),
+        displayLabel: rawTitle || 'Untitled conversation',
         updatedAgo: formatUpdatedAgo(updatedAtDate)
       }
     }),

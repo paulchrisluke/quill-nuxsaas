@@ -55,25 +55,7 @@ const { data, pending, error, refresh } = await useFetch<{ org: Org, conversatio
     method: 'GET',
     query: { compact: 'true' },
     server: false,
-    immediate: false,
-    transform(response) {
-      return {
-        org: response.org,
-        conversation: response.conversation,
-        messages: (response.messages || []).map(msg => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          createdAt: msg.createdAt
-        })),
-        logs: (response.logs || []).map(log => ({
-          id: log.id,
-          type: log.type,
-          message: log.message,
-          createdAt: log.createdAt
-        }))
-      }
-    }
+    immediate: false
   }
 )
 
