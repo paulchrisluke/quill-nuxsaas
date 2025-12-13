@@ -1,6 +1,6 @@
 import { setup } from '@nuxt/test-utils/e2e'
 import { $fetch } from 'ofetch'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 /**
  * Light E2E tests for chat vs agent mode behavior
@@ -12,6 +12,7 @@ describe('chat Modes E2E', async () => {
   await setup({ host: process.env.NUXT_TEST_APP_URL })
 
   // Helper to archive conversations to clear quota
+  // Optimized: Only archive once before all tests, not before/after each
   async function archiveAllConversations() {
     try {
       const response = await $fetch('/api/conversations', {
@@ -20,30 +21,40 @@ describe('chat Modes E2E', async () => {
 
       const conversations = response?.conversations || []
 
-      for (const conv of conversations) {
-        if (conv.id && conv.status !== 'archived') {
-          try {
-            await $fetch(`/api/conversations/${conv.id}`, {
+      // Archive in parallel instead of sequentially
+      await Promise.all(
+        conversations
+          .filter((conv: any) => conv.id && conv.status !== 'archived')
+          .map((conv: any) =>
+            $fetch(`/api/conversations/${conv.id}`, {
               method: 'DELETE'
+            }).catch(() => {
+              // Ignore errors
             })
-          } catch {
-            // Ignore errors
-          }
-        }
-      }
+          )
+      )
 
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Reduced wait time
+      await new Promise(resolve => setTimeout(resolve, 500))
     } catch {
       // Ignore errors
     }
   }
 
-  beforeEach(async () => {
+  // Only archive once before all tests to reduce overhead
+  beforeAll(async () => {
     await archiveAllConversations()
   })
 
-  afterEach(async () => {
-    await archiveAllConversations()
+  describe('anonymous conversations API', () => {
+    it('returns quota details for anonymous users', async () => {
+      const response = await $fetch('/api/conversations', {
+        method: 'GET'
+      }) as any
+
+      expect(Array.isArray(response?.conversations)).toBe(true)
+      expect(response?.conversationQuota?.profile).toBe('anonymous')
+    })
   })
 
   describe('chat Mode (Read-Only)', () => {
