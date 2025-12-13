@@ -88,90 +88,107 @@ const formatUpdatedAgo = (value: Date) => {
 }
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event, { allowAnonymous: true })
-  const { organizationId } = await requireActiveOrganization(event, user.id, {
-    isAnonymousUser: Boolean(user.isAnonymous)
-  })
-
-  const query = await getValidatedQuery(event, querySchema.parse)
-  const db = await useDB(event)
-
-  let cursorDate: Date | null = null
-  let cursorId: string | null = null
-  if (query.cursor) {
-    const decoded = decodeCursor(query.cursor)
-    cursorId = decoded.id
-    const parsedDate = new Date(decoded.updatedAt)
-    if (Number.isNaN(parsedDate.getTime())) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Bad Request',
-        message: 'Invalid cursor value'
-      })
-    }
-    cursorDate = parsedDate
-  }
-
-  const filters = [eq(schema.conversation.organizationId, organizationId)]
-  if (cursorDate && cursorId) {
-    filters.push(or(
-      lt(schema.conversation.updatedAt, cursorDate),
-      and(
-        eq(schema.conversation.updatedAt, cursorDate),
-        lt(schema.conversation.id, cursorId)
-      )
-    ))
-  }
-
-  const whereClause = filters.length === 1 ? filters[0] : and(...filters)
-
-  const results = await db
-    .select({
-      id: schema.conversation.id,
-      updatedAt: schema.conversation.updatedAt,
-      title: sql<string | null>`NULLIF(${schema.conversation.metadata}->>'title', '')`
+  try {
+    const user = await requireAuth(event, { allowAnonymous: true })
+    const { organizationId } = await requireActiveOrganization(event, user.id, {
+      isAnonymousUser: Boolean(user.isAnonymous)
     })
-    .from(schema.conversation)
-    .where(whereClause)
-    .orderBy(desc(schema.conversation.updatedAt), desc(schema.conversation.id))
-    .limit(query.limit + 1)
 
-  const hasMore = results.length > query.limit
-  const conversations = hasMore ? results.slice(0, query.limit) : results
+    const query = await getValidatedQuery(event, querySchema.parse)
+    const db = await useDB(event)
 
-  for (const conv of conversations) {
-    const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
-    if (Number.isNaN(updatedAtDate.getTime())) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Internal Server Error',
-        message: 'Invalid updatedAt value in database'
-      })
-    }
-  }
-
-  let nextCursor: string | null = null
-  if (hasMore && conversations.length > 0) {
-    const last = conversations[conversations.length - 1]
-    const updatedAtDate = last.updatedAt instanceof Date ? last.updatedAt : new Date(last.updatedAt)
-    nextCursor = encodeCursor({
-      id: last.id,
-      updatedAt: updatedAtDate.toISOString()
-    })
-  }
-
-  return {
-    conversations: conversations.map((conv) => {
-      const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
-      const rawTitle = typeof conv.title === 'string' ? conv.title.trim() : ''
-      return {
-        id: conv.id,
-        displayLabel: rawTitle || 'Untitled conversation',
-        updatedAgo: formatUpdatedAgo(updatedAtDate)
+    let cursorDate: Date | null = null
+    let cursorId: string | null = null
+    if (query.cursor) {
+      const decoded = decodeCursor(query.cursor)
+      cursorId = decoded.id
+      const parsedDate = new Date(decoded.updatedAt)
+      if (Number.isNaN(parsedDate.getTime())) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Bad Request',
+          message: 'Invalid cursor value'
+        })
       }
-    }),
-    nextCursor,
-    hasMore,
-    limit: query.limit
+      cursorDate = parsedDate
+    }
+
+    const filters = [eq(schema.conversation.organizationId, organizationId)]
+    if (cursorDate && cursorId) {
+      filters.push(or(
+        lt(schema.conversation.updatedAt, cursorDate),
+        and(
+          eq(schema.conversation.updatedAt, cursorDate),
+          lt(schema.conversation.id, cursorId)
+        )
+      ))
+    }
+
+    const whereClause = filters.length === 1 ? filters[0] : and(...filters)
+
+    const results = await db
+      .select({
+        id: schema.conversation.id,
+        updatedAt: schema.conversation.updatedAt,
+        title: sql<string | null>`NULLIF(${schema.conversation.metadata}->>'title', '')`
+      })
+      .from(schema.conversation)
+      .where(whereClause)
+      .orderBy(desc(schema.conversation.updatedAt), desc(schema.conversation.id))
+      .limit(query.limit + 1)
+
+    const hasMore = results.length > query.limit
+    const conversations = hasMore ? results.slice(0, query.limit) : results
+
+    for (const conv of conversations) {
+      const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
+      if (Number.isNaN(updatedAtDate.getTime())) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Internal Server Error',
+          message: 'Invalid updatedAt value in database'
+        })
+      }
+    }
+
+    let nextCursor: string | null = null
+    if (hasMore && conversations.length > 0) {
+      const last = conversations[conversations.length - 1]
+      const updatedAtDate = last.updatedAt instanceof Date ? last.updatedAt : new Date(last.updatedAt)
+      nextCursor = encodeCursor({
+        id: last.id,
+        updatedAt: updatedAtDate.toISOString()
+      })
+    }
+
+    return {
+      conversations: conversations.map((conv) => {
+        const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
+        const rawTitle = typeof conv.title === 'string' ? conv.title.trim() : ''
+        return {
+          id: conv.id,
+          displayLabel: rawTitle || 'Untitled conversation',
+          updatedAgo: formatUpdatedAgo(updatedAtDate)
+        }
+      }),
+      nextCursor,
+      hasMore,
+      limit: query.limit
+    }
+  } catch (error) {
+    console.error('[Conversations API] Error:', error)
+    if (error instanceof Error) {
+      console.error('[Conversations API] Error stack:', error.stack)
+      console.error('[Conversations API] Error name:', error.name)
+    }
+    // Re-throw H3 errors as-is, wrap others
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      throw error
+    }
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Internal Server Error',
+      message: error instanceof Error ? error.message : 'An unexpected error occurred'
+    })
   }
 })
