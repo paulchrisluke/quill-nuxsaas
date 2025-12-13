@@ -2,9 +2,17 @@
 const { t } = useI18n()
 const appConfig = useAppConfig()
 
-// Format the date string for display
+// Format the date string for display with validation
+// Validates that the config value exists and creates a valid date before formatting
 const privacyLastUpdated = computed(() => {
-  const date = new Date(appConfig.site.privacyLastUpdated)
+  const value = appConfig.site.privacyLastUpdated
+  if (!value) {
+    return '—'
+  }
+  const date = new Date(value)
+  if (isNaN(date.getTime())) {
+    return '—'
+  }
   return date.toLocaleDateString()
 })
 

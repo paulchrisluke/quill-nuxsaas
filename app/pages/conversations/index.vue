@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import QuillioWidget from '~/components/chat/QuillioWidget.vue'
+
 definePageMeta({
-  auth: false, // Allow anonymous users
-  renderChatWidget: false
+  auth: false // Allow anonymous users
 })
 
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
@@ -13,5 +14,11 @@ useHead({
 </script>
 
 <template>
-  <ConversationListLanding />
+  <div class="w-full h-full">
+    <ClientOnly>
+      <KeepAlive :max="5">
+        <QuillioWidget />
+      </KeepAlive>
+    </ClientOnly>
+  </div>
 </template>

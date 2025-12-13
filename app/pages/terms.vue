@@ -1,11 +1,18 @@
 <script setup lang="ts">
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const appConfig = useAppConfig()
 
-// Format the date string for display
+// Format the date string for display with validation and locale support
 const termsLastUpdated = computed(() => {
-  const date = new Date(appConfig.site.termsLastUpdated)
-  return date.toLocaleDateString()
+  const value = appConfig.site.termsLastUpdated
+  if (!value) {
+    return t('global.unknown') || ''
+  }
+  const date = new Date(value)
+  if (isNaN(date.getTime())) {
+    return t('global.unknown') || ''
+  }
+  return date.toLocaleDateString(locale.value)
 })
 
 useHead({
