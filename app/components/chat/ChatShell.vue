@@ -478,7 +478,7 @@ if (import.meta.client) {
             v-if="!loggedIn"
             keypath="global.legal.chatDisclaimer"
             tag="p"
-            class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2"
+            class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2 lg:hidden"
           >
             <template #terms>
               <NuxtLink
