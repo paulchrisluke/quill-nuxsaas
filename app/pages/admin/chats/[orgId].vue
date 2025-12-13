@@ -12,6 +12,8 @@ const localePath = useLocalePath()
 
 const detailOpen = ref(false)
 const selectedConversationId = ref<string | null>(null)
+// Guard token to prevent race conditions when opening/closing modal quickly
+let watcherToken = 0
 
 interface ConversationDetail {
   org: { id: string, name: string, slug: string }
@@ -62,10 +64,22 @@ const {
 )
 
 watch(detailOpen, async (open) => {
+  // Increment token for this watcher invocation
+  const currentToken = ++watcherToken
+
   if (open && selectedConversationId.value) {
     await refreshDetail()
+    // If the watcher fired again during refresh, abort to avoid stale state
+    if (currentToken !== watcherToken) {
+      return
+    }
   }
   if (!open) {
+    // Check if this is still the latest operation before clearing
+    // If detailOpen became true again (via openConversation), watcherToken will have incremented
+    if (currentToken !== watcherToken) {
+      return
+    }
     selectedConversationId.value = null
     clearDetail()
   }

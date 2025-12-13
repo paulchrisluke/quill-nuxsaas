@@ -139,25 +139,34 @@ async function handleResendEmail() {
     return
 
   resendLoading.value = true
-  const { error } = await auth.sendVerificationEmail({
-    email: unverifiedEmail,
-    callbackURL: redirectTo.value
-  })
 
-  if (error) {
+  try {
+    const { error } = await auth.sendVerificationEmail({
+      email: unverifiedEmail,
+      callbackURL: redirectTo.value
+    })
+
+    if (error) {
+      toast.add({
+        title: error.message,
+        color: 'error'
+      })
+    } else {
+      toast.add({
+        title: t('signIn.sendEmailSuccess'),
+        color: 'success'
+      })
+    }
+  } catch (err: any) {
+    console.error('[auth-modal] Failed to send verification email:', err)
     toast.add({
-      title: error.message,
+      title: err?.message || t('signIn.errors.generalError'),
       color: 'error'
     })
-  } else {
-    toast.add({
-      title: t('signIn.sendEmailSuccess'),
-      color: 'success'
-    })
+  } finally {
+    resendLoading.value = false
+    isEmailVerifyModalOpen.value = false
   }
-
-  isEmailVerifyModalOpen.value = false
-  resendLoading.value = false
 }
 
 // ---------- Sign up form ----------
@@ -397,7 +406,6 @@ async function onSignUpSubmit(event: FormSubmitEvent<SignUpSchema>) {
             <UFormField
               :label="t('signUp.form.email.label')"
               name="email"
-              autocomplete="email"
               required
             >
               <UInput
@@ -405,6 +413,7 @@ async function onSignUpSubmit(event: FormSubmitEvent<SignUpSchema>) {
                 type="email"
                 :placeholder="t('signUp.form.email.placeholder')"
                 class="w-full"
+                autocomplete="email"
               />
             </UFormField>
 

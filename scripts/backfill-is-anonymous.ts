@@ -58,12 +58,15 @@ async function backfillIsAnonymous() {
 
     // Also ensure all organizations without 'anonymous-' prefix have isAnonymous = false
     // (This is a safety check in case the default value wasn't applied correctly)
-    await client.query(
+    // Only update rows where is_anonymous IS NULL to avoid flipping legitimate true values
+    const safetyResult = await client.query(
       `UPDATE "organization"
        SET "is_anonymous" = false
        WHERE "slug" NOT LIKE 'anonymous-%'
-       AND ("is_anonymous" IS NULL OR "is_anonymous" = true)`
+       AND "is_anonymous" IS NULL`
     )
+
+    console.log(`\nUpdated ${safetyResult.rowCount} organizations from NULL to isAnonymous = false`)
 
     await client.query('COMMIT')
     console.log('\n✅ Ensured all non-anonymous organizations have isAnonymous = false')
