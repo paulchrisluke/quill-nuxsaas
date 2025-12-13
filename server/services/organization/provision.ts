@@ -1,7 +1,8 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '../../db/schema'
+import { orgProvisioningQueue } from '../../db/schema/orgProvisioningQueue'
 import { getDB } from '../../utils/db'
 
 type DbInstance = NodePgDatabase<typeof schema>
@@ -126,93 +127,222 @@ export const setUserActiveOrganization = async (
   ])
 }
 
+/**
+ * Queue a failed organization provisioning attempt for retry.
+ */
+const queueOrgProvisioningRetry = async (userId: string, error: Error) => {
+  try {
+    const db = getDB()
+    // Check if there's already a pending queue entry for this user
+    const [existing] = await db
+      .select()
+      .from(orgProvisioningQueue)
+      .where(and(
+        eq(orgProvisioningQueue.userId, userId),
+        sql`${orgProvisioningQueue.completedAt} IS NULL`
+      ))
+      .limit(1)
+
+    if (existing) {
+      // Update existing entry
+      await db
+        .update(orgProvisioningQueue)
+        .set({
+          error: error.message,
+          lastRetryAt: new Date()
+        })
+        .where(eq(orgProvisioningQueue.id, existing.id))
+    } else {
+      // Create new entry
+      await db.insert(orgProvisioningQueue).values({
+        userId,
+        error: error.message,
+        retryCount: 0,
+        createdAt: new Date()
+      })
+    }
+  } catch (queueError) {
+    console.error('[OrgProvisioning] Failed to queue provisioning retry:', queueError)
+  }
+}
+
 export const ensureDefaultOrganizationForUser = async (
-  user: MinimalUserInfo | null | undefined
+  user: MinimalUserInfo | null | undefined,
+  options?: {
+    queueOnFailure?: boolean
+  }
 ): Promise<{ id: string, created: boolean } | null> => {
   if (!user?.id || user.isAnonymous)
     return null
 
+  const queueOnFailure = options?.queueOnFailure ?? true
   const db = getDB()
-  let result: { id: string, created: boolean } | null = null
 
-  await db.transaction(async (tx) => {
-    const [existingNonAnonymous] = await tx
-      .select({ organizationId: schema.member.organizationId })
-      .from(schema.member)
-      .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-      .where(and(
-        eq(schema.member.userId, user.id),
-        eq(schema.organization.isAnonymous, false)
-      ))
-      .limit(1)
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [existingNonAnonymous] = await tx
+        .select({ organizationId: schema.member.organizationId })
+        .from(schema.member)
+        .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+        .where(and(
+          eq(schema.member.userId, user.id),
+          eq(schema.organization.isAnonymous, false)
+        ))
+        .limit(1)
 
-    if (existingNonAnonymous?.organizationId) {
-      result = { id: existingNonAnonymous.organizationId, created: false }
-      return
-    }
+      if (existingNonAnonymous?.organizationId) {
+        return { id: existingNonAnonymous.organizationId, created: false }
+      }
 
-    // If the user only has an anonymous org (created while they were anonymous), create a real org.
-    const [anonymousOrg] = await tx
-      .select({ organizationId: schema.member.organizationId })
-      .from(schema.member)
-      .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
-      .where(and(
-        eq(schema.member.userId, user.id),
-        eq(schema.organization.isAnonymous, true)
-      ))
-      .limit(1)
+      // If the user only has an anonymous org (created while they were anonymous), create a real org.
+      const [anonymousOrg] = await tx
+        .select({ organizationId: schema.member.organizationId })
+        .from(schema.member)
+        .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+        .where(and(
+          eq(schema.member.userId, user.id),
+          eq(schema.organization.isAnonymous, true)
+        ))
+        .limit(1)
 
-    const random = buildRandomOrgNameAndSlugSeed()
-    const name = random.name || buildDefaultName(user)
-    const slug = await generateUniqueSlug(tx, random.slugSeed || name)
-    const now = new Date()
-    const orgId = uuidv7()
+      const random = buildRandomOrgNameAndSlugSeed()
+      const name = random.name || buildDefaultName(user)
+      const slug = await generateUniqueSlug(tx, random.slugSeed || name)
+      const now = new Date()
+      const orgId = uuidv7()
 
-    await tx
-      .insert(schema.organization)
-      .values({
-        id: orgId,
-        name,
-        slug,
-        createdAt: now,
-        metadata: JSON.stringify({
-          autoProvisioned: true,
-          source: anonymousOrg?.organizationId ? 'anon-upgrade' : 'auto-provision'
+      await tx
+        .insert(schema.organization)
+        .values({
+          id: orgId,
+          name,
+          slug,
+          createdAt: now,
+          metadata: JSON.stringify({
+            autoProvisioned: true,
+            source: anonymousOrg?.organizationId ? 'anon-upgrade' : 'auto-provision'
+          })
         })
+
+      await tx.insert(schema.member).values({
+        id: uuidv7(),
+        organizationId: orgId,
+        userId: user.id,
+        role: 'owner',
+        createdAt: now
       })
 
-    await tx.insert(schema.member).values({
-      id: uuidv7(),
-      organizationId: orgId,
-      userId: user.id,
-      role: 'owner',
-      createdAt: now
+      // Migrate anonymous conversations to the newly created org so the user's existing work carries over.
+      if (anonymousOrg?.organizationId) {
+        await tx
+          .update(schema.conversation)
+          .set({ organizationId: orgId })
+          .where(eq(schema.conversation.organizationId, anonymousOrg.organizationId))
+
+        await tx
+          .update(schema.conversationMessage)
+          .set({ organizationId: orgId })
+          .where(eq(schema.conversationMessage.organizationId, anonymousOrg.organizationId))
+
+        await tx
+          .update(schema.conversationLog)
+          .set({ organizationId: orgId })
+          .where(eq(schema.conversationLog.organizationId, anonymousOrg.organizationId))
+      }
+
+      return { id: orgId, created: true }
     })
 
-    // Migrate anonymous conversations to the newly created org so the user's existing work carries over.
-    if (anonymousOrg?.organizationId) {
-      await tx
-        .update(schema.conversation)
-        .set({ organizationId: orgId })
-        .where(eq(schema.conversation.organizationId, anonymousOrg.organizationId))
-
-      await tx
-        .update(schema.conversationMessage)
-        .set({ organizationId: orgId })
-        .where(eq(schema.conversationMessage.organizationId, anonymousOrg.organizationId))
-
-      await tx
-        .update(schema.conversationLog)
-        .set({ organizationId: orgId })
-        .where(eq(schema.conversationLog.organizationId, anonymousOrg.organizationId))
+    if (result && result.created) {
+      await setUserActiveOrganization(user.id, result.id)
     }
 
-    result = { id: orgId, created: true }
-  })
+    return result
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error('Unknown error')
+    console.error('[OrgProvisioning] Failed to ensure default organization:', err)
 
-  if (result?.created) {
-    await setUserActiveOrganization(user.id, result.id)
+    // Queue for retry if enabled
+    if (queueOnFailure) {
+      await queueOrgProvisioningRetry(user.id, err)
+    }
+
+    // Re-throw so caller knows it failed
+    throw error
   }
+}
 
-  return result
+/**
+ * Retry queued organization provisioning attempts.
+ * Should be called periodically by a background job.
+ */
+export async function retryQueuedOrgProvisioning(maxRetries: number = 5, batchSize: number = 50) {
+  const db = getDB()
+
+  try {
+    // Get queued provisioning attempts that haven't exceeded max retries
+    const queuedItems = await db
+      .select()
+      .from(orgProvisioningQueue)
+      .where(and(
+        sql`${orgProvisioningQueue.retryCount} < ${maxRetries}`,
+        sql`${orgProvisioningQueue.completedAt} IS NULL`
+      ))
+      .limit(batchSize)
+
+    for (const queuedItem of queuedItems) {
+      try {
+        // Get user info
+        const [user] = await db
+          .select({
+            id: schema.user.id,
+            name: schema.user.name,
+            email: schema.user.email,
+            isAnonymous: schema.user.isAnonymous
+          })
+          .from(schema.user)
+          .where(eq(schema.user.id, queuedItem.userId))
+          .limit(1)
+
+        if (!user) {
+          // User doesn't exist - mark as completed (nothing to do)
+          await db
+            .update(orgProvisioningQueue)
+            .set({ completedAt: new Date() })
+            .where(eq(orgProvisioningQueue.id, queuedItem.id))
+          continue
+        }
+
+        // Try provisioning again
+        await ensureDefaultOrganizationForUser(user, { queueOnFailure: false })
+
+        // Success - mark as completed
+        await db
+          .update(orgProvisioningQueue)
+          .set({ completedAt: new Date() })
+          .where(eq(orgProvisioningQueue.id, queuedItem.id))
+      } catch (error) {
+        // Failed again - increment retry count
+        const newRetryCount = queuedItem.retryCount + 1
+        await db
+          .update(orgProvisioningQueue)
+          .set({
+            retryCount: newRetryCount,
+            lastRetryAt: new Date(),
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+          .where(eq(orgProvisioningQueue.id, queuedItem.id))
+
+        // If exceeded max retries, log for manual investigation
+        if (newRetryCount >= maxRetries) {
+          console.error(`[OrgProvisioning] Provisioning exceeded max retries (${maxRetries}):`, {
+            id: queuedItem.id,
+            userId: queuedItem.userId
+          })
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[OrgProvisioning] Failed to retry queued provisioning:', error)
+  }
 }

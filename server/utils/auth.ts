@@ -610,24 +610,14 @@ export const createBetterAuth = () => betterAuth({
           } else {
             userId = ctx.context.session?.user.id
           }
-          // Make audit logging non-blocking for sign-in operations to prevent timeouts
-          const isSignInOperation = ['/sign-in/email', '/sign-up/email'].includes(ctx.path)
-          if (isSignInOperation) {
-            // Fire-and-forget: don't await to prevent blocking the response
-            logAuditEvent({
-              userId,
-              category: 'auth',
-              action: ctx.path,
-              targetType,
-              targetId,
-              ipAddress,
-              userAgent,
-              status: 'success'
-            }).catch((error) => {
-              console.error('[Auth] Failed to log audit event (non-blocking):', error)
-            })
-          } else {
-            // For other operations, keep it blocking
+
+          // Critical security events (sign-in/sign-up) must be logged with timeout protection
+          // to ensure compliance. Failed events are automatically queued for retry.
+          const isCriticalAuthEvent = ['/sign-in/email', '/sign-up/email'].includes(ctx.path)
+
+          try {
+            // Use timeout protection (2s default) to prevent hanging, but keep it blocking
+            // for critical events to ensure audit trail completeness
             await logAuditEvent({
               userId,
               category: 'auth',
@@ -637,7 +627,14 @@ export const createBetterAuth = () => betterAuth({
               ipAddress,
               userAgent,
               status: 'success'
+            }, {
+              timeout: isCriticalAuthEvent ? 2000 : 5000, // Shorter timeout for critical events
+              queueOnFailure: true // Automatically queue failures for retry
             })
+          } catch (error) {
+            // Log error but don't block response - event is queued for retry
+            // For critical events, we've attempted to log synchronously with timeout
+            console.error('[Auth] Audit log failed (queued for retry):', error)
           }
         }
       }
