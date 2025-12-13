@@ -2,10 +2,8 @@ import { computed } from 'vue'
 
 export interface ConversationListItem {
   id: string
-  status: string
-  title: string
-  createdAt: string | Date
-  updatedAt: string | Date
+  displayLabel: string
+  updatedAgo: string
 }
 
 interface FetchResponse {
@@ -91,8 +89,9 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
 
   const upsert = (entry: ConversationListItem) => {
     const normalized: ConversationListItem = {
-      ...entry,
-      title: entry.title || 'Untitled conversation'
+      id: entry.id,
+      displayLabel: entry.displayLabel || 'Untitled conversation',
+      updatedAgo: entry.updatedAgo || 'Just now'
     }
     const next = itemsState.value.filter(item => item.id !== normalized.id)
     itemsState.value = [normalized, ...next]
@@ -100,17 +99,6 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
 
   const remove = (conversationId: string) => {
     itemsState.value = itemsState.value.filter(item => item.id !== conversationId)
-  }
-
-  const markStatus = (conversationId: string, status: string) => {
-    itemsState.value = itemsState.value.map((item) => {
-      if (item.id !== conversationId)
-        return item
-      return {
-        ...item,
-        status
-      }
-    })
   }
 
   const reset = () => {
@@ -139,7 +127,6 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
     loadMore,
     upsert,
     remove,
-    markStatus,
     reset,
     hasConversation
   }

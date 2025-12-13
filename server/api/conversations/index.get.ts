@@ -17,12 +17,12 @@ interface CursorPayload {
   updatedAt: string
 }
 
+const MAX_CURSOR_LENGTH = 2048
+
 const encodeCursor = (payload: CursorPayload) => {
   const base64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '')
 }
-
-const MAX_CURSOR_LENGTH = 2048
 
 const decodeCursor = (cursor: string): CursorPayload => {
   if (cursor.length > MAX_CURSOR_LENGTH) {
@@ -50,6 +50,35 @@ const decodeCursor = (cursor: string): CursorPayload => {
       message: 'Invalid cursor value'
     })
   }
+}
+
+const formatUpdatedAgo = (value: Date) => {
+  const timestamp = value.getTime()
+  if (Number.isNaN(timestamp))
+    return 'Just now'
+
+  const diffMs = Date.now() - timestamp
+  if (diffMs <= 0)
+    return 'Just now'
+
+  const seconds = Math.floor(diffMs / 1000)
+  if (seconds < 60)
+    return 'Just now'
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60)
+    return `${minutes}m ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24)
+    return `${hours}h ago`
+
+  const days = Math.floor(hours / 24)
+  if (days < 7)
+    return `${days}d ago`
+
+  const formatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+  return formatter.format(value)
 }
 
 const deriveTitle = (metadata: Record<string, any> | null | undefined) => {
@@ -104,9 +133,7 @@ export default defineEventHandler(async (event) => {
   const results = await db
     .select({
       id: schema.conversation.id,
-      status: schema.conversation.status,
       metadata: schema.conversation.metadata,
-      createdAt: schema.conversation.createdAt,
       updatedAt: schema.conversation.updatedAt
     })
     .from(schema.conversation)
@@ -120,9 +147,8 @@ export default defineEventHandler(async (event) => {
   let nextCursor: string | null = null
   if (hasMore && conversations.length > 0) {
     const last = conversations[conversations.length - 1]
-    const updatedAt = last.updatedAt instanceof Date
-      ? last.updatedAt.toISOString()
-      : new Date(last.updatedAt).toISOString()
+    const updatedAtDate = last.updatedAt instanceof Date ? last.updatedAt : new Date(last.updatedAt)
+    const updatedAt = Number.isNaN(updatedAtDate.getTime()) ? new Date().toISOString() : updatedAtDate.toISOString()
     nextCursor = encodeCursor({
       id: last.id,
       updatedAt
@@ -130,13 +156,14 @@ export default defineEventHandler(async (event) => {
   }
 
   return {
-    conversations: conversations.map(conv => ({
-      id: conv.id,
-      status: conv.status,
-      title: deriveTitle(conv.metadata),
-      createdAt: conv.createdAt,
-      updatedAt: conv.updatedAt
-    })),
+    conversations: conversations.map((conv) => {
+      const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
+      return {
+        id: conv.id,
+        displayLabel: deriveTitle(conv.metadata),
+        updatedAgo: formatUpdatedAgo(updatedAtDate)
+      }
+    }),
     nextCursor,
     hasMore,
     limit: query.limit

@@ -1,12 +1,17 @@
-import { createError } from 'h3'
+import { createError, sendWebResponse, toWebRequest } from 'h3'
 import { useServerAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
   try {
     const serverAuth = useServerAuth()
-    return await serverAuth.handler(toWebRequest(event))
+    const request = toWebRequest(event)
+    const response = await serverAuth.handler(request)
+    return sendWebResponse(event, response)
   } catch (error) {
     console.error('[Auth] Unhandled error in auth handler:', error)
+    if (error instanceof Error) {
+      console.error('[Auth] Error stack:', error.stack)
+    }
     // Return a proper error response instead of letting it bubble up as 500
     throw createError({
       statusCode: 500,

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { format } from 'date-fns'
-
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
@@ -51,14 +49,6 @@ const createConversation = () => {
   router.push(localePath('/conversations'))
 }
 
-const formatTimestamp = (value: string | Date) => {
-  try {
-    return format(new Date(value), 'MMM d · HH:mm')
-  } catch {
-    return ''
-  }
-}
-
 const primaryNavigation = computed(() => ([
   [
     {
@@ -100,10 +90,10 @@ const primaryNavigation = computed(() => ([
             @click="openConversation(conversation.id)"
           >
             <p class="text-sm font-medium truncate">
-              {{ conversation.title }}
+              {{ conversation.displayLabel }}
             </p>
             <p class="text-xs text-muted-foreground">
-              {{ formatTimestamp(conversation.updatedAt) }}
+              {{ conversation.updatedAgo }}
             </p>
           </button>
         </template>
