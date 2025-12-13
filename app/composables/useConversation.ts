@@ -26,6 +26,16 @@ interface ChatResponse {
   }>
 }
 
+interface ActiveToolActivity {
+  toolCallId: string
+  messageId: string
+  toolName: string
+  status: 'preparing' | 'running'
+  args?: Record<string, any>
+  progressMessage?: string
+  startedAt: string
+}
+
 function createId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -161,9 +171,59 @@ export function useConversation() {
   const currentActivity = useState<'thinking' | 'streaming' | null>('chat/current-activity', () => null)
   const currentToolName = useState<string | null>('chat/current-tool-name', () => null)
 
-  // Track active tool calls by unique toolCallId (supports concurrent calls to same tool)
-  // Maps toolCallId -> { messageId, partIndex }
-  const activeToolCalls = useState<Map<string, { messageId: string, partIndex: number }>>('chat/active-tool-calls', () => new Map())
+  const activeToolActivities = useState<Map<string, ActiveToolActivity>>('chat/active-tool-activities', () => new Map())
+  const activeToolActivitiesList = computed(() => Array.from(activeToolActivities.value.values()))
+
+  const upsertToolActivity = (
+    toolCallId: string | null | undefined,
+    payload: Partial<ActiveToolActivity> & { messageId?: string | null }
+  ): ActiveToolActivity | null => {
+    if (!toolCallId) {
+      return null
+    }
+    const next = new Map(activeToolActivities.value)
+    const existing = next.get(toolCallId) ?? null
+    const messageId = payload.messageId ?? existing?.messageId
+    if (!messageId) {
+      return null
+    }
+    const merged: ActiveToolActivity = {
+      toolCallId,
+      messageId,
+      toolName: payload.toolName ?? existing?.toolName ?? 'Tool',
+      status: payload.status ?? existing?.status ?? 'preparing',
+      args: payload.args ?? existing?.args,
+      progressMessage: payload.progressMessage ?? existing?.progressMessage,
+      startedAt: existing?.startedAt ?? payload.startedAt ?? new Date().toISOString()
+    }
+    next.set(toolCallId, merged)
+    activeToolActivities.value = next
+    return merged
+  }
+
+  const removeToolActivity = (toolCallId: string | null | undefined) => {
+    if (!toolCallId || !activeToolActivities.value.has(toolCallId)) {
+      return {
+        removed: null as ActiveToolActivity | null,
+        remaining: activeToolActivities.value.size
+      }
+    }
+    const next = new Map(activeToolActivities.value)
+    const removed = next.get(toolCallId) ?? null
+    next.delete(toolCallId)
+    activeToolActivities.value = next
+    return {
+      removed,
+      remaining: next.size
+    }
+  }
+
+  const clearToolActivities = () => {
+    if (activeToolActivities.value.size === 0) {
+      return
+    }
+    activeToolActivities.value = new Map()
+  }
 
   // Client-side message cache for instant navigation
   // Maps conversationId -> { messages, timestamp }
@@ -204,7 +264,7 @@ export function useConversation() {
     requestStartedAt.value = null
     currentActivity.value = null
     currentToolName.value = null
-    activeToolCalls.value.clear()
+    clearToolActivities()
     intentSnapshot.value = null
     intentAction.value = null
     intentClarifyingQuestions.value = []
@@ -218,7 +278,7 @@ export function useConversation() {
     requestStartedAt.value = null
     currentActivity.value = null
     currentToolName.value = null
-    activeToolCalls.value.clear()
+    clearToolActivities()
     intentSnapshot.value = null
     intentAction.value = null
     intentClarifyingQuestions.value = []
@@ -320,6 +380,27 @@ export function useConversation() {
       let currentAssistantMessageId: string | null = runtimeOptions?.optimisticAssistantId ?? null
       let currentAssistantMessageText = ''
       let pendingEventType: string | null = null
+      const ensureAssistantMessageEntry = (messageId: string) => {
+        if (!messageId) {
+          return
+        }
+        const existingIndex = messages.value.findIndex(message => message.id === messageId)
+        if (existingIndex === -1) {
+          messages.value.push({
+            id: messageId,
+            role: 'assistant' as const,
+            parts: [{ type: 'text' as const, text: '' }] as NonEmptyArray<MessagePart>,
+            createdAt: new Date()
+          })
+        }
+      }
+      const getToolCallIdOrWarn = (value: unknown, context: string): string | null => {
+        if (typeof value === 'string' && value.trim().length > 0) {
+          return value
+        }
+        console.warn(`[useConversation] ${context} missing toolCallId, skipping`)
+        return null
+      }
 
       try {
         while (true) {
@@ -360,8 +441,12 @@ export function useConversation() {
 
                 switch (eventType) {
                   case 'message:chunk': {
-                    currentActivity.value = 'streaming'
-                    currentToolName.value = null
+                    if (activeToolActivities.value.size > 0) {
+                      currentActivity.value = 'thinking'
+                    } else {
+                      currentActivity.value = 'streaming'
+                      currentToolName.value = null
+                    }
 
                     if (!eventData.messageId) {
                       console.warn('message:chunk missing messageId, skipping')
@@ -434,6 +519,10 @@ export function useConversation() {
                   case 'tool:preparing': {
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
+                    const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:preparing')
+                    if (!toolCallId) {
+                      break
+                    }
 
                     // Ensure we have an assistant message
                     if (!currentAssistantMessageId) {
@@ -456,31 +545,13 @@ export function useConversation() {
 
                     const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                     const message = messageIndex >= 0 ? messages.value[messageIndex] : null
-                    if (message && eventData.toolName) {
-                      // Check if tool part already exists (upgrade from preparing to running)
-                      const existingToolPartIndex = message.parts.findIndex(
-                        p => p.type === 'tool_call' && p.toolCallId === eventData.toolCallId
-                      )
-
-                      if (existingToolPartIndex >= 0) {
-                        // Already exists, skip (will be upgraded to 'running' by tool:start)
-                        break
-                      }
-
-                      // Add tool_call part with 'preparing' status
-                      const toolPart: MessagePart = {
-                        type: 'tool_call',
-                        toolCallId: eventData.toolCallId,
-                        toolName: eventData.toolName,
-                        status: 'preparing',
-                        timestamp: new Date().toISOString()
-                      }
-                      message.parts.push(toolPart)
-
-                      // Track by toolCallId (not toolName!)
-                      activeToolCalls.value.set(eventData.toolCallId, {
+                    if (message) {
+                      upsertToolActivity(toolCallId, {
                         messageId: message.id,
-                        partIndex: message.parts.length - 1
+                        toolName: eventData.toolName ?? 'Tool',
+                        status: 'preparing',
+                        args: eventData.args,
+                        startedAt: new Date().toISOString()
                       })
                     }
                     break
@@ -489,6 +560,10 @@ export function useConversation() {
                   case 'tool:start': {
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
+                    const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:start')
+                    if (!toolCallId) {
+                      break
+                    }
 
                     // Ensure we have an assistant message
                     if (!currentAssistantMessageId) {
@@ -511,85 +586,74 @@ export function useConversation() {
 
                     const messageIndex = messages.value.findIndex(m => m.id === currentAssistantMessageId)
                     const message = messageIndex >= 0 ? messages.value[messageIndex] : null
-                    if (message && eventData.toolName) {
-                      // Check if tool part already exists (from tool:preparing)
-                      const existingToolPartIndex = message.parts.findIndex(
-                        p => p.type === 'tool_call' && p.toolCallId === eventData.toolCallId
-                      )
-
-                      if (existingToolPartIndex >= 0) {
-                        // Upgrade from 'preparing' to 'running'
-                        const toolPart = message.parts[existingToolPartIndex]
-                        if (toolPart.type === 'tool_call') {
-                          toolPart.status = 'running'
-                          toolPart.args = eventData.args
-                        }
-                        // Update tracking
-                        activeToolCalls.value.set(eventData.toolCallId, {
-                          messageId: message.id,
-                          partIndex: existingToolPartIndex
-                        })
-                      } else {
-                        // Add new tool_call part with 'running' status
-                        const toolPart: MessagePart = {
-                          type: 'tool_call',
-                          toolCallId: eventData.toolCallId,
-                          toolName: eventData.toolName,
-                          status: 'running',
-                          args: eventData.args,
-                          timestamp: new Date().toISOString()
-                        }
-                        message.parts.push(toolPart)
-
-                        // Track by toolCallId (not toolName!)
-                        activeToolCalls.value.set(eventData.toolCallId, {
-                          messageId: message.id,
-                          partIndex: message.parts.length - 1
-                        })
-                      }
+                    if (message) {
+                      upsertToolActivity(toolCallId, {
+                        messageId: message.id,
+                        toolName: eventData.toolName ?? 'Tool',
+                        status: 'running',
+                        args: eventData.args
+                      })
                     }
                     break
                   }
 
                   case 'tool:complete': {
                     currentToolName.value = null
+                    const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:complete')
+                    if (!toolCallId) {
+                      break
+                    }
 
-                    const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
-                    if (toolCallInfo) {
-                      const messageIndex = messages.value.findIndex(m => m.id === toolCallInfo.messageId)
+                    const { removed: activity } = removeToolActivity(toolCallId)
+                    const targetMessageId = eventData.messageId || activity?.messageId || currentAssistantMessageId
+                    if (targetMessageId) {
+                      const messageIndex = messages.value.findIndex(m => m.id === targetMessageId)
                       const message = messageIndex >= 0 ? messages.value[messageIndex] : null
 
                       if (message) {
-                        const toolPart = message.parts[toolCallInfo.partIndex]
-                        if (toolPart && toolPart.type === 'tool_call') {
-                          toolPart.status = eventData.success ? 'success' : 'error'
-                          toolPart.result = eventData.result
-                          toolPart.error = eventData.error
+                        const toolPart: MessagePart = {
+                          type: 'tool_call',
+                          toolCallId,
+                          toolName: eventData.toolName ?? activity?.toolName ?? 'Tool',
+                          status: eventData.success ? 'success' : 'error',
+                          args: activity?.args ?? eventData.args,
+                          result: eventData.result,
+                          error: eventData.error,
+                          progressMessage: activity?.progressMessage,
+                          timestamp: new Date().toISOString()
                         }
+                        message.parts.push(toolPart)
                       }
+                    }
 
-                      // Remove from active tracking
-                      activeToolCalls.value.delete(eventData.toolCallId)
+                    if (activeToolActivities.value.size === 0 && currentAssistantMessageText) {
+                      currentActivity.value = 'streaming'
                     }
                     break
                   }
 
                   case 'tool:progress': {
-                    // Update progress message for long-running tools
-
-                    const toolCallInfo = activeToolCalls.value.get(eventData.toolCallId)
-                    if (toolCallInfo) {
-                      const messageIndex = messages.value.findIndex(m => m.id === toolCallInfo.messageId)
-                      const message = messageIndex >= 0 ? messages.value[messageIndex] : null
-
-                      if (message) {
-                        const toolPart = message.parts[toolCallInfo.partIndex]
-                        if (toolPart && toolPart.type === 'tool_call') {
-                          // Add progress message to tool part
-                          toolPart.progressMessage = eventData.message
-                        }
-                      }
+                    const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:progress')
+                    if (!toolCallId) {
+                      break
                     }
+                    let targetMessageId = eventData.messageId
+                    if (!targetMessageId) {
+                      const active = activeToolActivities.value.get(toolCallId)
+                      targetMessageId = active?.messageId || currentAssistantMessageId || null
+                    }
+                    if (!targetMessageId) {
+                      targetMessageId = createId()
+                      currentAssistantMessageId = targetMessageId
+                      currentAssistantMessageText = ''
+                      ensureAssistantMessageEntry(targetMessageId)
+                    } else {
+                      ensureAssistantMessageEntry(targetMessageId)
+                    }
+                    upsertToolActivity(toolCallId, {
+                      messageId: targetMessageId,
+                      progressMessage: eventData.message
+                    })
                     break
                   }
 
@@ -681,7 +745,7 @@ export function useConversation() {
         reader.releaseLock()
         currentAssistantMessageId = null
         currentAssistantMessageText = ''
-        activeToolCalls.value.clear()
+        clearToolActivities()
       }
 
       status.value = 'ready'
@@ -695,6 +759,7 @@ export function useConversation() {
         requestStartedAt.value = null
         currentActivity.value = null
         currentToolName.value = null
+        clearToolActivities()
         removeMessageById(optimisticAssistantId)
         return null
       }
@@ -702,6 +767,7 @@ export function useConversation() {
       requestStartedAt.value = null
       currentActivity.value = null
       currentToolName.value = null
+      clearToolActivities()
       removeMessageById(optimisticAssistantId)
       removeMessageById(optimisticUserId)
       const errorMsg = error?.message || error?.data?.statusMessage || error?.data?.message || 'Something went wrong.'
@@ -783,6 +849,7 @@ export function useConversation() {
     currentToolName,
     intentSnapshot,
     intentAction,
-    intentClarifyingQuestions
+    intentClarifyingQuestions,
+    activeToolActivities: activeToolActivitiesList
   }
 }

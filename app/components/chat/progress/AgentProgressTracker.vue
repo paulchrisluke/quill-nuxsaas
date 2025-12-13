@@ -4,22 +4,33 @@ import { computed, ref } from 'vue'
 import ProgressControls from './ProgressControls.vue'
 import ProgressStep from './ProgressStep.vue'
 
+interface LiveActivity {
+  toolCallId: string
+  toolName: string
+  status: 'preparing' | 'running'
+  args?: Record<string, any>
+  progressMessage?: string
+  startedAt?: string
+}
+
 interface Props {
   message: ChatMessage
   showControls?: boolean
   defaultCollapsed?: boolean
   currentActivity?: 'thinking' | 'streaming' | null
+  liveActivities?: LiveActivity[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showControls: true,
   defaultCollapsed: false,
-  currentActivity: null
+  currentActivity: null,
+  liveActivities: () => []
 })
 
 // Extract all tool calls and organize them as numbered steps
 const progressSteps = computed(() => {
-  return props.message.parts
+  const completedSteps = props.message.parts
     .filter(part => part.type === 'tool_call')
     .map((part, index) => ({
       stepNumber: index + 1,
@@ -31,6 +42,41 @@ const progressSteps = computed(() => {
       error: part.error,
       progressMessage: part.progressMessage,
       timestamp: part.timestamp
+    }))
+
+  const completedIds = new Set(completedSteps.map(step => step.toolCallId))
+
+  const liveSteps = props.liveActivities
+    .filter(activity => !completedIds.has(activity.toolCallId))
+    .map(activity => ({
+      stepNumber: 0,
+      toolCallId: activity.toolCallId,
+      toolName: activity.toolName,
+      status: activity.status,
+      args: activity.args,
+      result: null,
+      error: undefined,
+      progressMessage: activity.progressMessage,
+      timestamp: activity.startedAt
+    }))
+
+  const getTimestamp = (value?: string | null) => {
+    if (!value) {
+      return Number.MAX_SAFE_INTEGER
+    }
+    const parsed = new Date(value).getTime()
+    return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
+  }
+
+  return [...liveSteps, ...completedSteps]
+    .sort((a, b) => {
+      const aTime = getTimestamp(a.timestamp)
+      const bTime = getTimestamp(b.timestamp)
+      return aTime - bTime
+    })
+    .map((step, index) => ({
+      ...step,
+      stepNumber: index + 1
     }))
 })
 
@@ -79,7 +125,7 @@ const toggleStep = (toolCallId: string) => {
     class="agent-progress-tracker space-y-2 my-2"
   >
     <ProgressControls
-      v-if="showControls && progressSteps.length > 1"
+      v-if="showControls"
       :all-collapsed="allCollapsed"
       @collapse-all="handleCollapseAll"
       @expand-all="handleExpandAll"
