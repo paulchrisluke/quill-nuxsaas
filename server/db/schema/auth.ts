@@ -19,7 +19,8 @@ export const organization = pgTable('organization', {
   metadata: text('metadata'),
   stripeCustomerId: text('stripe_customer_id'),
   referralCode: text('referral_code'),
-  deviceFingerprint: text('device_fingerprint')
+  deviceFingerprint: text('device_fingerprint'),
+  isAnonymous: boolean('is_anonymous').default(false).notNull()
 }, table => [
   index('organization_device_fingerprint_idx').on(table.deviceFingerprint)
 ])
@@ -42,7 +43,7 @@ export const user = pgTable('user', {
   lastActiveOrganizationId: text('last_active_organization_id')
     .references(() => organization.id, { onDelete: 'set null' }),
   referralCode: text('referral_code').unique(),
-  isAnonymous: boolean('is_anonymous').default(false)
+  isAnonymous: boolean('is_anonymous').default(false).notNull()
 })
 
 export const account = pgTable(

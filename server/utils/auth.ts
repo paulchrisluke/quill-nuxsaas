@@ -188,7 +188,8 @@ export const createBetterAuth = () => betterAuth({
                     createdAt: new Date(),
                     // Store device fingerprint if available in context/headers?
                     // Ideally we'd capture this, but for now just creating the org is the priority.
-                    metadata: JSON.stringify({ isAnonymous: true })
+                    metadata: JSON.stringify({ isAnonymous: true }),
+                    isAnonymous: true
                   })
                   .returning()
 
@@ -630,6 +631,69 @@ export const createBetterAuth = () => betterAuth({
       )
 
       if (shouldEnsureOrganization) {
+        // If the user was previously an anonymous user in this browser/session and is now
+        // a real user (new session), transfer their anonymous organization membership to the
+        // new user so that conversation migration can occur.
+        const previousSessionUser = ctx.context.session?.user
+        const newSessionUser = ctx.context.newSession?.user
+        const isAnonymousUpgrade = Boolean(previousSessionUser?.id)
+          && Boolean(newSessionUser?.id)
+          && Boolean(previousSessionUser?.isAnonymous)
+          && !newSessionUser?.isAnonymous
+          && previousSessionUser?.id !== newSessionUser?.id
+
+        if (isAnonymousUpgrade) {
+          const db = getDB()
+          try {
+            await db.transaction(async (tx) => {
+              const previousUserId = previousSessionUser!.id
+              const newUserId = newSessionUser!.id
+
+              // Find anonymous org memberships on the previous anonymous user.
+              const anonMemberships = await tx
+                .select({ organizationId: schema.member.organizationId })
+                .from(schema.member)
+                .innerJoin(schema.organization, eq(schema.organization.id, schema.member.organizationId))
+                .where(and(
+                  eq(schema.member.userId, previousUserId),
+                  eq(schema.organization.isAnonymous, true)
+                ))
+
+              const anonOrgIds = Array.from(
+                new Set(anonMemberships.map(m => m.organizationId).filter(Boolean))
+              )
+
+              if (anonOrgIds.length === 0) {
+                return
+              }
+
+              // Avoid unique constraint collisions (member_unique_idx on orgId+userId)
+              // by removing any existing memberships for the new user on these orgs.
+              await tx
+                .delete(schema.member)
+                .where(and(
+                  eq(schema.member.userId, newUserId),
+                  inArray(schema.member.organizationId, anonOrgIds)
+                ))
+
+              // Transfer the anon memberships to the new user.
+              await tx
+                .update(schema.member)
+                .set({ userId: newUserId })
+                .where(and(
+                  eq(schema.member.userId, previousUserId),
+                  inArray(schema.member.organizationId, anonOrgIds)
+                ))
+
+              // Set active org to the first anonymous org (best-effort).
+              // Use the transaction so this participates in the same transaction
+              await setUserActiveOrganization(newUserId, anonOrgIds[0], tx)
+            })
+          } catch (error) {
+            console.error('[Auth] Failed to transfer anonymous org membership during upgrade:', error)
+          }
+        }
+
         await ensureDefaultOrganizationForUser(sessionUser)
       }
     })
@@ -854,6 +918,19 @@ export const requireAuth = async (event: H3Event, options: RequireAuthOptions = 
   })
 }
 
+export const requireAdmin = async (event: H3Event) => {
+  const user = await requireAuth(event)
+  if (user.role !== 'admin') {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden',
+      message: 'Admin access required'
+    })
+  }
+
+  return user
+}
+
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing'] as const
 
 const getOrganizationSubscriptionStatus = async (db: NodePgDatabase<typeof schema>, organizationId: string) => {
@@ -1046,10 +1123,10 @@ export const getDeviceFingerprint = async (
  * Follows Better Auth patterns by using session data when available
  */
 const _ensureDeviceFingerprintInOrg = async (
-  _db: NodePgDatabase<typeof schema>,
-  _organizationId: string,
-  _event?: H3Event | null,
-  _userId?: string | null
+  db: NodePgDatabase<typeof schema>,
+  organizationId: string,
+  event?: H3Event | null,
+  userId?: string | null
 ): Promise<void> => {
   if (!event)
     return
@@ -1064,7 +1141,7 @@ const _ensureDeviceFingerprintInOrg = async (
     const [org] = await db
       .select({
         id: schema.organization.id,
-        slug: schema.organization.slug,
+        isAnonymous: schema.organization.isAnonymous,
         metadata: schema.organization.metadata,
         deviceFingerprint: schema.organization.deviceFingerprint
       })
@@ -1072,7 +1149,7 @@ const _ensureDeviceFingerprintInOrg = async (
       .where(eq(schema.organization.id, organizationId))
       .limit(1)
 
-    if (!org || !org.slug.startsWith('anonymous-'))
+    if (!org || !org.isAnonymous)
       return
 
     let metadata: Record<string, any> = {}
@@ -1136,14 +1213,12 @@ const findAnonymousOrganizationIdsForFingerprint = async (
   if (!fingerprint)
     return [] as string[]
 
-  const baseConditions = sql`${schema.organization.slug} LIKE 'anonymous-%'`
-
   const directMatches = await db
     .select({ id: schema.organization.id })
     .from(schema.organization)
     .where(and(
       eq(schema.organization.deviceFingerprint, fingerprint),
-      baseConditions
+      eq(schema.organization.isAnonymous, true)
     ))
 
   if (directMatches.length > 0)
@@ -1154,7 +1229,7 @@ const findAnonymousOrganizationIdsForFingerprint = async (
     .from(schema.organization)
     .where(and(
       buildDeviceFingerprintSearchCondition(fingerprint),
-      baseConditions
+      eq(schema.organization.isAnonymous, true)
     ))
 
   if (legacyMatches.length === 0)
