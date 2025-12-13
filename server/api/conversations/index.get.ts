@@ -77,7 +77,13 @@ const formatUpdatedAgo = (value: Date) => {
   if (days < 7)
     return `${days}d ago`
 
-  const formatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+  const currentYear = new Date().getFullYear()
+  const dateYear = value.getFullYear()
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(dateYear !== currentYear ? { year: 'numeric' } : {})
+  })
   return formatter.format(value)
 }
 
@@ -148,10 +154,16 @@ export default defineEventHandler(async (event) => {
   if (hasMore && conversations.length > 0) {
     const last = conversations[conversations.length - 1]
     const updatedAtDate = last.updatedAt instanceof Date ? last.updatedAt : new Date(last.updatedAt)
-    const updatedAt = Number.isNaN(updatedAtDate.getTime()) ? new Date().toISOString() : updatedAtDate.toISOString()
+    if (Number.isNaN(updatedAtDate.getTime())) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Internal Server Error',
+        message: 'Invalid updatedAt value in database'
+      })
+    }
     nextCursor = encodeCursor({
       id: last.id,
-      updatedAt
+      updatedAt: updatedAtDate.toISOString()
     })
   }
 
