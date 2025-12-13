@@ -1418,8 +1418,17 @@ export default defineEventHandler(async (event) => {
         if (!user.isAnonymous) {
         // STRATEGY 1: Signed-In User
         // Try session first (Fastest)
-          const authSession = await getAuthSession(event)
-          const sessionOrgId = (authSession?.session as any)?.activeOrganizationId
+          console.log('[Chat API] Getting auth session for organization lookup')
+          const authSessionPromise = getAuthSession(event)
+          const authSessionTimeout = new Promise<null>((_, reject) => {
+            setTimeout(() => reject(new Error('getAuthSession timeout after 5s (org lookup)')), 5000)
+          })
+          const authSession = await Promise.race([authSessionPromise, authSessionTimeout]).catch((error) => {
+            console.error('[Chat API] getAuthSession failed or timed out during org lookup:', error)
+            return null
+          })
+          const sessionOrgId = authSession ? (authSession?.session as any)?.activeOrganizationId : null
+          console.log('[Chat API] Session org ID:', sessionOrgId)
 
           if (sessionOrgId) {
           // Verify existence (fast query by PK)
@@ -1437,17 +1446,36 @@ export default defineEventHandler(async (event) => {
           // Fallback to active organization requirement (Slower, DB intensive)
           if (!organizationId) {
           // Direct call - no try/catch wrapper needed for signed-in users
-            const result = await requireActiveOrganization(event, user.id)
+            console.log('[Chat API] Falling back to requireActiveOrganization')
+            const orgPromise = requireActiveOrganization(event, user.id)
+            const orgTimeout = new Promise<{ organizationId: string }>((_, reject) => {
+              setTimeout(() => reject(new Error('requireActiveOrganization timeout after 10s')), 10000)
+            })
+            const result = await Promise.race([orgPromise, orgTimeout]).catch((error) => {
+              console.error('[Chat API] requireActiveOrganization failed or timed out:', error)
+              throw createValidationError('Unable to resolve organization. Please try again.')
+            })
             organizationId = result.organizationId
+            console.log('[Chat API] Organization resolved via requireActiveOrganization:', organizationId)
           }
         } else {
         // STRATEGY 2: Anonymous User
         // They don't have a session with activeOrgId.
         // We rely on requireActiveOrganization to handle guest/anonymous context creation.
+          console.log('[Chat API] Resolving organization for anonymous user')
           try {
-            const result = await requireActiveOrganization(event, user.id, { isAnonymousUser: true })
+            const orgPromise = requireActiveOrganization(event, user.id, { isAnonymousUser: true })
+            const orgTimeout = new Promise<{ organizationId: string }>((_, reject) => {
+              setTimeout(() => reject(new Error('requireActiveOrganization timeout after 10s (anonymous)')), 10000)
+            })
+            const result = await Promise.race([orgPromise, orgTimeout]).catch((error) => {
+              console.error('[Chat API] requireActiveOrganization failed or timed out for anonymous user:', error)
+              throw createValidationError('Unable to initialize anonymous session. Please try again or create an account to continue.')
+            })
             organizationId = result.organizationId
-          } catch {
+            console.log('[Chat API] Anonymous organization resolved:', organizationId)
+          } catch (error) {
+            console.error('[Chat API] Error resolving anonymous organization:', error)
             throw createValidationError('Unable to initialize anonymous session. Please try again or create an account to continue.')
           }
         }
