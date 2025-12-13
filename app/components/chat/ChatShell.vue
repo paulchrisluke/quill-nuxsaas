@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
-import { useClipboard } from '@vueuse/core'
-import { computed, watch } from 'vue'
+import { useClipboard, useElementVisibility } from '@vueuse/core'
+import { computed, ref, watch } from 'vue'
 
 import { useConversationList } from '~/composables/useConversationList'
 import ChatConversationMessages from './ChatConversationMessages.vue'
@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
 
 const router = useRouter()
 const route = useRoute()
+const localePath = useLocalePath()
 const { loggedIn, signIn } = useAuth()
 
 const {
@@ -54,8 +55,10 @@ const promptSubmitting = ref(false)
 const showAgentModeLoginModal = ref(false)
 const { copy } = useClipboard()
 const toast = useToast()
-const archivingConversationId = ref<string | null>(null)
 const conversationList = useConversationList({ pageSize: 40 })
+const chatContainerRef = ref<HTMLElement | null>(null)
+const chatVisible = useElementVisibility(chatContainerRef)
+const pendingConversationLoad = ref<string | null>(null)
 conversationList.loadInitial().catch(() => {})
 
 const uiStatus = computed(() => status.value)
@@ -118,6 +121,14 @@ const isValidUUID = (id: string | null): boolean => {
   return uuidRegex.test(id)
 }
 
+interface ContentConversationMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  payload?: Record<string, any> | null
+  createdAt: string | Date
+}
+
 const loadConversationMessages = async (conversationId: string, options?: { force?: boolean }) => {
   if (!conversationId || conversationId === 'new' || !isValidUUID(conversationId))
     return
@@ -132,14 +143,18 @@ const loadConversationMessages = async (conversationId: string, options?: { forc
     return
 
   try {
-    const messagesResponse = await $fetch<{ data: ChatMessage[] }>(`/api/conversations/${conversationId}/messages`)
-    const converted = (messagesResponse.data || []).map(msg => ({
-      id: msg.id,
-      role: msg.role,
-      parts: msg.parts,
-      createdAt: msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt),
-      payload: msg.payload ?? null
-    })) as ChatMessage[]
+    const messagesResponse = await $fetch<{ data: ContentConversationMessage[] }>(`/api/conversations/${conversationId}/messages`)
+    const converted = (messagesResponse.data || []).map((msg) => {
+      const createdAt = msg.createdAt instanceof Date ? msg.createdAt : new Date(msg.createdAt)
+      const text = msg.content || ''
+      return {
+        id: msg.id,
+        role: msg.role,
+        parts: [{ type: 'text' as const, text }],
+        createdAt,
+        payload: msg.payload ?? null
+      }
+    }) as ChatMessage[]
 
     hydrateConversation({ conversationId, messages: converted })
   } catch (error) {
@@ -155,19 +170,43 @@ const loadConversationMessages = async (conversationId: string, options?: { forc
   }
 }
 
+const requestConversationMessages = async (conversationId: string, options?: { force?: boolean }) => {
+  if (!chatVisible.value) {
+    pendingConversationLoad.value = conversationId
+    return
+  }
+  pendingConversationLoad.value = null
+  await loadConversationMessages(conversationId, options)
+}
+
 watch([() => props.conversationId, routeConversationId], async ([propId, routeId]) => {
   const targetId = propId || routeId
 
   if (targetId && targetId !== activeConversationId.value) {
     if (isValidUUID(targetId)) {
       activeConversationId.value = targetId
-      await loadConversationMessages(targetId)
+      try {
+        await requestConversationMessages(targetId)
+      } catch (error) {
+        console.error('Failed to load conversation history', error)
+      }
     }
   } else if (!targetId && activeConversationId.value) {
+    pendingConversationLoad.value = null
     activeConversationId.value = null
     resetConversation()
   }
 }, { immediate: true })
+
+watch(chatVisible, (visible) => {
+  if (!visible || !pendingConversationLoad.value)
+    return
+  const target = pendingConversationLoad.value
+  pendingConversationLoad.value = null
+  loadConversationMessages(target).catch((error) => {
+    console.error('Failed to load conversation after becoming visible', error)
+  })
+})
 
 watch(activeConversationId, (value, previous) => {
   if (!value || value === previous)
@@ -179,45 +218,6 @@ watch(activeConversationId, (value, previous) => {
   if (!conversationList.hasConversation(value))
     conversationList.refresh().catch(() => {})
 })
-
-const _closeConversation = async () => {
-  router.push('/conversations')
-  resetConversation()
-}
-
-const _archiveConversation = async (entry: { id: string, title?: string | null }) => {
-  if (!entry?.id || archivingConversationId.value === entry.id)
-    return
-
-  archivingConversationId.value = entry.id
-  try {
-    await $fetch(`/api/conversations/${entry.id}`, { method: 'DELETE' })
-    conversationList.remove(entry.id)
-
-    if (activeConversationId.value === entry.id) {
-      router.push('/conversations')
-      resetConversation()
-    }
-
-    await conversationList.refresh()
-    toast.add({
-      title: 'Conversation archived',
-      description: entry.title || 'Conversation moved to archive.',
-      color: 'neutral',
-      icon: 'i-lucide-archive'
-    })
-  } catch (error: any) {
-    const message = error?.data?.statusMessage || error?.statusMessage || 'Failed to archive conversation'
-    toast.add({
-      title: 'Archive failed',
-      description: message,
-      color: 'error',
-      icon: 'i-lucide-alert-triangle'
-    })
-  } finally {
-    archivingConversationId.value = null
-  }
-}
 
 const getMessageText = (message: ChatMessage) => {
   return message.parts[0]?.text || ''
@@ -267,16 +267,17 @@ const handleRegenerate = async (message: ChatMessage) => {
     return
   }
 
-  prompt.value = text
   await handlePromptSubmit(text)
 }
 
 async function handleSendAgain(message: ChatMessage) {
+  if (isBusy.value)
+    return
+
   const text = message.parts?.[0]?.text || ''
   if (!text)
     return
 
-  prompt.value = text
   try {
     await handlePromptSubmit(text)
   } catch (error) {
@@ -347,9 +348,12 @@ if (import.meta.client) {
 </script>
 
 <template>
-  <div class="w-full h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4">
+  <div
+    ref="chatContainerRef"
+    class="w-full h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4"
+  >
     <div class="w-full flex-1 flex flex-col justify-center lg:justify-center">
-      <div class="space-y-8">
+      <div class="space-y-8 w-full max-w-3xl mx-auto">
         <ChatConversationMessages
           :messages="messages"
           :display-messages="displayMessages"
@@ -364,69 +368,69 @@ if (import.meta.client) {
           @send-again="handleSendAgain"
           @share="handleShare"
         />
+      </div>
+    </div>
 
-        <div class="w-full flex flex-col justify-center mt-8 lg:mt-4 fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 pb-safe lg:static lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none lg:pb-0">
-          <div class="w-full max-w-3xl mx-auto px-4 py-4 lg:py-0">
-            <PromptComposer
-              v-model="prompt"
-              placeholder="Paste a transcript or describe what you need..."
-              :disabled="isBusy || promptSubmitting"
-              :status="promptSubmitting ? 'submitted' : uiStatus"
-              @submit="handlePromptSubmit"
+    <div class="w-full flex flex-col justify-center mt-8 lg:mt-4 fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 pb-safe lg:static lg:bg-transparent lg:dark:bg-transparent lg:backdrop-blur-none lg:pb-0">
+      <div class="w-full max-w-3xl mx-auto px-4 py-4 lg:py-0">
+        <PromptComposer
+          v-model="prompt"
+          placeholder="Paste a transcript or describe what you need..."
+          :disabled="isBusy || promptSubmitting"
+          :status="promptSubmitting ? 'submitted' : uiStatus"
+          @submit="handlePromptSubmit"
+        >
+          <template #footer>
+            <component
+              :is="!loggedIn ? 'UTooltip' : 'div'"
+              v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
             >
-              <template #footer>
-                <component
-                  :is="!loggedIn ? 'UTooltip' : 'div'"
-                  v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
-                >
-                  <UInputMenu
-                    v-model="mode"
-                    :items="modeItems"
-                    value-key="value"
-                    label-key="label"
-                    variant="ghost"
-                    size="sm"
-                    ignore-filter
-                    readonly
-                    open-on-click
-                  >
-                    <template #leading>
-                      <UIcon
-                        :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
-                        class="w-4 h-4"
-                        :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
-                      />
-                    </template>
-                  </UInputMenu>
-                </component>
-              </template>
-            </PromptComposer>
+              <UInputMenu
+                v-model="mode"
+                :items="modeItems"
+                value-key="value"
+                label-key="label"
+                variant="ghost"
+                size="sm"
+                ignore-filter
+                readonly
+                open-on-click
+              >
+                <template #leading>
+                  <UIcon
+                    :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
+                    class="w-4 h-4"
+                    :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
+                  />
+                </template>
+              </UInputMenu>
+            </component>
+          </template>
+        </PromptComposer>
 
-            <i18n-t
-              v-if="!loggedIn"
-              keypath="global.legal.chatDisclaimer"
-              tag="p"
-              class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2 lg:hidden"
+        <i18n-t
+          v-if="!loggedIn"
+          keypath="global.legal.chatDisclaimer"
+          tag="p"
+          class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2 lg:hidden"
+        >
+          <template #terms>
+            <NuxtLink
+              :to="localePath('/terms')"
+              class="underline hover:text-primary-600 dark:hover:text-primary-400"
             >
-              <template #terms>
-                <NuxtLink
-                  :to="localePath('/terms')"
-                  class="underline hover:text-primary-600 dark:hover:text-primary-400"
-                >
-                  {{ $t('global.legal.terms') }}
-                </NuxtLink>
-              </template>
-              <template #privacy>
-                <NuxtLink
-                  :to="localePath('/privacy')"
-                  class="underline hover:text-primary-600 dark:hover:text-primary-400"
-                >
-                  {{ $t('global.legal.privacyPolicy') }}
-                </NuxtLink>
-              </template>
-            </i18n-t>
-          </div>
-        </div>
+              {{ $t('global.legal.terms') }}
+            </NuxtLink>
+          </template>
+          <template #privacy>
+            <NuxtLink
+              :to="localePath('/privacy')"
+              class="underline hover:text-primary-600 dark:hover:text-primary-400"
+            >
+              {{ $t('global.legal.privacyPolicy') }}
+            </NuxtLink>
+          </template>
+        </i18n-t>
       </div>
     </div>
 

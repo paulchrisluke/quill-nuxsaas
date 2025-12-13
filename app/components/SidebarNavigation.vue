@@ -10,8 +10,7 @@ const {
   hasMore,
   initialized,
   loadInitial,
-  loadMore,
-  refresh
+  loadMore
 } = useConversationList({ pageSize: 40 })
 
 const initialize = async () => {
@@ -124,7 +123,7 @@ const primaryNavigation = computed(() => ([
         :title="error"
       />
 
-      <div class="flex items-center justify-between gap-2 pt-2">
+      <div class="pt-2">
         <UButton
           v-if="hasMore"
           color="neutral"
@@ -134,16 +133,6 @@ const primaryNavigation = computed(() => ([
           @click="loadMore()"
         >
           Load more
-        </UButton>
-        <UButton
-          v-else
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          :loading="pending"
-          @click="refresh()"
-        >
-          Refresh
         </UButton>
       </div>
     </section>
