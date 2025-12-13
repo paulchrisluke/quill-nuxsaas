@@ -223,7 +223,7 @@ watch(activeConversationId, (value, previous) => {
     return
 
   if (!props.contentId && value !== routeConversationId.value)
-    router.push(`/conversations/${value}`)
+    router.push(localePath(`/conversations/${value}`))
 
   if (!conversationList.hasConversation(value))
     conversationList.refresh().catch(() => {})
@@ -332,12 +332,21 @@ async function handleShare(message: ChatMessage) {
     console.warn('Navigator share failed, falling back to copy', error)
   }
 
-  copy(text)
-  toast.add({
-    title: 'Copied to clipboard',
-    description: 'Message copied for sharing.',
-    color: 'primary'
-  })
+  try {
+    await copy(text)
+    toast.add({
+      title: 'Copied to clipboard',
+      description: 'Message copied for sharing.',
+      color: 'primary'
+    })
+  } catch (error) {
+    console.error('Failed to copy message', error)
+    toast.add({
+      title: 'Copy failed',
+      description: 'Could not copy message to clipboard.',
+      color: 'error'
+    })
+  }
 }
 
 if (import.meta.client) {

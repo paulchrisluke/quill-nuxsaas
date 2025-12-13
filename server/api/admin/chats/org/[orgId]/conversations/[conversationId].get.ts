@@ -1,4 +1,5 @@
 import { and, asc, desc, eq } from 'drizzle-orm'
+import { getQuery } from 'h3'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
 import { requireAdmin } from '~~/server/utils/auth'
@@ -11,6 +12,10 @@ const paramsSchema = z.object({
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
   const { orgId, conversationId } = await getValidatedRouterParams(event, paramsSchema.parse)
+  const query = getQuery(event)
+  const compact = typeof query.compact === 'string'
+    ? query.compact === 'true' || query.compact === '1'
+    : Boolean(query.compact)
   const db = await useDB(event)
 
   const [org] = await db
@@ -85,5 +90,35 @@ export default defineEventHandler(async (event) => {
     .orderBy(desc(schema.conversationLog.createdAt))
     .limit(200)
 
-  return { org, conversation, messages, logs }
+  const responseConversation = compact
+    ? {
+        id: conversation.id,
+        organizationId: conversation.organizationId,
+        status: conversation.status,
+        sourceContentId: conversation.sourceContentId,
+        createdByUserId: conversation.createdByUserId,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt
+      }
+    : conversation
+
+  const responseMessages = compact
+    ? messages.map(message => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt
+      }))
+    : messages
+
+  const responseLogs = compact
+    ? logs.map(log => ({
+        id: log.id,
+        type: log.type,
+        message: log.message,
+        createdAt: log.createdAt
+      }))
+    : logs
+
+  return { org, conversation: responseConversation, messages: responseMessages, logs: responseLogs }
 })

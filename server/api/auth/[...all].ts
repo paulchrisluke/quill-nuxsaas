@@ -1,9 +1,9 @@
 import { createError, sendWebResponse, toWebRequest } from 'h3'
-import { useServerAuth } from '~~/server/utils/auth'
+import { getServerAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
   try {
-    const serverAuth = useServerAuth()
+    const serverAuth = getServerAuth()
     const request = toWebRequest(event)
     const response = await serverAuth.handler(request)
     return sendWebResponse(event, response)

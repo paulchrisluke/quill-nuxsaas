@@ -5,7 +5,7 @@ import { APIError } from 'better-auth/api'
 import { and, eq } from 'drizzle-orm'
 import { member } from '~~/server/db/schema'
 import * as schema from '~~/server/db/schema'
-import { requireAuth, useServerAuth } from '~~/server/utils/auth'
+import { getServerAuth, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { GITHUB_INTEGRATION_MATCH_SCOPES } from '~~/shared/constants/githubScopes'
@@ -161,7 +161,7 @@ async function softDisconnectGithubIntegration(
 
 // Hard unlink: Completely remove the account from Better Auth
 async function hardUnlinkAccount(
-  auth: ReturnType<typeof useServerAuth>,
+  auth: ReturnType<typeof getServerAuth>,
   eventHeaders: Headers,
   accounts: Array<typeof schema.account.$inferSelect>,
   targetAccount: typeof schema.account.$inferSelect,
@@ -221,7 +221,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const auth = useServerAuth()
+  const auth = getServerAuth()
 
   // For Google-based integrations, accounts are stored as 'google' provider with the requested scopes
   if (isGoogleIntegrationProvider(provider)) {

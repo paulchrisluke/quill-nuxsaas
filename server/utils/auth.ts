@@ -895,7 +895,7 @@ interface RequireAuthOptions {
   allowAnonymous?: boolean
 }
 
-export const useServerAuth = () => {
+export const getServerAuth = () => {
   if (runtimeConfig.preset == 'node-server') {
     if (!_auth) {
       _auth = createBetterAuth()
@@ -908,7 +908,7 @@ export const useServerAuth = () => {
 
 const createAnonymousUserSession = async (event: H3Event) => {
   try {
-    const serverAuth = useServerAuth()
+    const serverAuth = getServerAuth()
     const headers = new Headers()
     const reqHeaders = getRequestHeaders(event)
     for (const [key, value] of Object.entries(reqHeaders)) {
@@ -971,7 +971,7 @@ export const getAuthSession = async (event: H3Event) => {
       headers.append(key, value)
   }
 
-  const serverAuth = useServerAuth()
+  const serverAuth = getServerAuth()
   const session = await serverAuth.api.getSession({
     headers
   })
