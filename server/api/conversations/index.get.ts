@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { and, desc, eq, lt, or, sql } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
@@ -19,8 +18,11 @@ interface CursorPayload {
 
 const MAX_CURSOR_LENGTH = 2048
 
+// Use Web APIs that work in both Node.js and Cloudflare Workers
 const encodeCursor = (payload: CursorPayload) => {
-  const base64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
+  const json = JSON.stringify(payload)
+  // Use btoa for base64 encoding (works in both environments)
+  const base64 = btoa(unescape(encodeURIComponent(json)))
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '')
 }
 
@@ -37,7 +39,8 @@ const decodeCursor = (cursor: string): CursorPayload => {
     const base64 = cursor.replace(/-/g, '+').replace(/_/g, '/')
     const paddingNeeded = (4 - (base64.length % 4 || 4)) % 4
     const padded = `${base64}${'='.repeat(paddingNeeded)}`
-    const json = Buffer.from(padded, 'base64').toString('utf8')
+    // Use atob for base64 decoding (works in both environments)
+    const json = decodeURIComponent(escape(atob(padded)))
     const parsed = JSON.parse(json) as CursorPayload
     if (!parsed?.id || !parsed?.updatedAt) {
       throw new Error('Invalid payload')
@@ -89,13 +92,20 @@ const formatUpdatedAgo = (value: Date) => {
 
 export default defineEventHandler(async (event) => {
   try {
+    console.log('[Conversations API] Starting request')
     const user = await requireAuth(event, { allowAnonymous: true })
+    console.log('[Conversations API] User authenticated:', { userId: user.id, isAnonymous: user.isAnonymous })
+
     const { organizationId } = await requireActiveOrganization(event, user.id, {
       isAnonymousUser: Boolean(user.isAnonymous)
     })
+    console.log('[Conversations API] Organization resolved:', { organizationId })
 
     const query = await getValidatedQuery(event, querySchema.parse)
+    console.log('[Conversations API] Query validated:', { limit: query.limit, hasCursor: !!query.cursor })
+
     const db = await useDB(event)
+    console.log('[Conversations API] Database connection obtained')
 
     let cursorDate: Date | null = null
     let cursorId: string | null = null
@@ -125,6 +135,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const whereClause = filters.length === 1 ? filters[0] : and(...filters)
+    console.log('[Conversations API] Executing database query')
 
     const results = await db
       .select({
@@ -136,6 +147,8 @@ export default defineEventHandler(async (event) => {
       .where(whereClause)
       .orderBy(desc(schema.conversation.updatedAt), desc(schema.conversation.id))
       .limit(query.limit + 1)
+
+    console.log('[Conversations API] Query completed:', { resultCount: results.length })
 
     const hasMore = results.length > query.limit
     const conversations = hasMore ? results.slice(0, query.limit) : results
@@ -176,15 +189,21 @@ export default defineEventHandler(async (event) => {
       limit: query.limit
     }
   } catch (error) {
-    console.error('[Conversations API] Error:', error)
+    console.error('[Conversations API] Error caught:', error)
     if (error instanceof Error) {
-      console.error('[Conversations API] Error stack:', error.stack)
       console.error('[Conversations API] Error name:', error.name)
+      console.error('[Conversations API] Error message:', error.message)
+      console.error('[Conversations API] Error stack:', error.stack)
+    } else {
+      console.error('[Conversations API] Error type:', typeof error)
+      console.error('[Conversations API] Error value:', JSON.stringify(error, Object.getOwnPropertyNames(error)))
     }
     // Re-throw H3 errors as-is, wrap others
     if (error && typeof error === 'object' && 'statusCode' in error) {
+      console.error('[Conversations API] Re-throwing H3 error with statusCode:', (error as any).statusCode)
       throw error
     }
+    console.error('[Conversations API] Wrapping error in createError')
     throw createError({
       statusCode: 500,
       statusMessage: 'Internal Server Error',

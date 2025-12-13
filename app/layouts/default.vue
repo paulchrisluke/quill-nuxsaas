@@ -366,7 +366,7 @@ const primaryActionColor = computed(() => {
         <div class="flex-1 overflow-y-auto min-h-0">
           <div
             class="w-full mx-auto"
-            :class="shouldUseFullWidth ? 'h-full' : 'max-w-3xl px-4 py-6'"
+            :class="shouldUseFullWidth ? '' : 'max-w-3xl px-4 py-6'"
           >
             <!-- Chat interface - only on conversation routes -->
             <ClientOnly>

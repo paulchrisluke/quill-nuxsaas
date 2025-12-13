@@ -18,7 +18,17 @@ export default defineEventHandler(async (event) => {
     })
 
     // Better Auth handler returns a Response - Nitro supports returning Response objects directly
-    const response = await serverAuth.handler(request)
+    // Add timeout for Cloudflare Workers (30s max execution time)
+    const timeoutMs = 25000 // 25 seconds to leave buffer
+    const handlerPromise = serverAuth.handler(request)
+
+    const timeoutPromise = new Promise<Response>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Auth handler timeout after ${timeoutMs}ms for ${method} ${url.pathname}`))
+      }, timeoutMs)
+    })
+
+    const response = await Promise.race([handlerPromise, timeoutPromise])
     return response
   } catch (error) {
     console.error('[Auth] Unhandled error in auth handler:', error)

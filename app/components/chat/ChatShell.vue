@@ -415,7 +415,7 @@ if (import.meta.client) {
 <template>
   <div
     ref="chatContainerRef"
-    class="w-full h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4"
+    class="w-full min-h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4"
   >
     <template v-if="isWelcomeState">
       <div class="w-full flex-1 flex flex-col justify-center">
