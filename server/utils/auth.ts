@@ -610,27 +610,47 @@ export const createBetterAuth = () => betterAuth({
           } else {
             userId = ctx.context.session?.user.id
           }
-          await logAuditEvent({
-            userId,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'success'
-          })
+
+          // Critical security events (sign-in/sign-up) must be logged with timeout protection
+          // to ensure compliance. Failed events are automatically queued for retry.
+          const isCriticalAuthEvent = ['/sign-in/email', '/sign-up/email'].includes(ctx.path)
+
+          try {
+            // Use timeout protection (2s default) to prevent hanging, but keep it blocking
+            // for critical events to ensure audit trail completeness
+            await logAuditEvent({
+              userId,
+              category: 'auth',
+              action: ctx.path,
+              targetType,
+              targetId,
+              ipAddress,
+              userAgent,
+              status: 'success'
+            }, {
+              timeout: isCriticalAuthEvent ? 2000 : 5000, // Shorter timeout for critical events
+              queueOnFailure: true // Automatically queue failures for retry
+            })
+          } catch (error) {
+            // Log error but don't block response - event is queued for retry
+            // For critical events, we've attempted to log synchronously with timeout
+            console.error('[Auth] Audit log failed (queued for retry):', error)
+          }
         }
       }
 
       const sessionUser = ctx.context.newSession?.user || ctx.context.session?.user
-      const shouldEnsureOrganization = Boolean(sessionUser) && !sessionUser.isAnonymous && (
+      const shouldEnsureOrganization = sessionUser && !sessionUser.isAnonymous && (
         Boolean(ctx.context.newSession)
         || ctx.path.startsWith('/organization/delete')
         || ctx.path.startsWith('/organization/leave')
       )
 
       if (shouldEnsureOrganization) {
+        // For sign-in operations, make organization provisioning non-blocking to prevent
+        // request timeouts if database operations hang. The user doesn't need to wait
+        // for organization provisioning to complete before they can sign in.
+        const isSignInOperation = ['/sign-in/email', '/sign-up/email'].includes(ctx.path)
         // If the user was previously an anonymous user in this browser/session and is now
         // a real user (new session), transfer their anonymous organization membership to the
         // new user so that conversation migration can occur.
@@ -694,7 +714,20 @@ export const createBetterAuth = () => betterAuth({
           }
         }
 
-        await ensureDefaultOrganizationForUser(sessionUser)
+        // For sign-in operations, make organization provisioning non-blocking
+        // to prevent request timeouts. For other operations, keep it blocking.
+        if (isSignInOperation) {
+          // Fire-and-forget: don't await to prevent blocking the response
+          // sessionUser is guaranteed to be defined here due to the outer if condition
+          ensureDefaultOrganizationForUser(sessionUser!).catch((error) => {
+            console.error('[Auth] Failed to ensure default organization for user (non-blocking):', error)
+          })
+        } else {
+          // For non-sign-in operations (like org delete/leave), keep it blocking
+          // as these operations may depend on the organization state
+          // sessionUser is guaranteed to be defined here due to the outer if condition
+          await ensureDefaultOrganizationForUser(sessionUser!)
+        }
       }
     })
   },

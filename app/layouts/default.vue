@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
-import type { ConversationQuotaUsagePayload } from '~/types/conversation'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import Logo from '~/components/Logo.vue'
@@ -86,36 +85,6 @@ const shouldUseFullWidth = computed(() => {
 const primaryActionColor = computed(() => {
   return (workspaceHeader.value?.primaryActionColor ?? 'primary') as 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
 })
-
-// Access conversation quota state for mobile header display
-const conversationQuotaState = useState<ConversationQuotaUsagePayload | null>('conversation-quota-usage', () => null)
-
-// Format quota display for mobile header
-// Hide quota display when quotas are disabled (feature flag off)
-const quotaDisplay = computed(() => {
-  const quota = conversationQuotaState.value
-  if (!quota)
-    return null
-
-  // Hide quota display when quotas are disabled (indicated by 'Unlimited access' label)
-  if (quota.label === 'Unlimited access') {
-    return null
-  }
-
-  if (quota.unlimited) {
-    return '∞'
-  }
-
-  if (quota.limit !== null && quota.used !== null) {
-    return `${quota.used}/${quota.limit}`
-  }
-
-  if (quota.remaining !== null) {
-    return t('global.quota.left', { remaining: quota.remaining })
-  }
-
-  return null
-})
 </script>
 
 <template>
@@ -147,19 +116,8 @@ const quotaDisplay = computed(() => {
           />
         </div>
 
-        <!-- Right side: Quota and User Navigation -->
+        <!-- Right side: User Navigation -->
         <div class="flex items-center gap-2">
-          <!-- Quota Display -->
-          <UBadge
-            v-if="quotaDisplay"
-            color="neutral"
-            variant="soft"
-            class="px-3 py-1.5 text-sm"
-          >
-            {{ quotaDisplay }}
-          </UBadge>
-
-          <!-- User Navigation -->
           <UserNavigation @sign-in="openSignInModal" />
         </div>
       </div>

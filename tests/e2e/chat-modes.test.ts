@@ -53,7 +53,6 @@ describe('chat Modes E2E', async () => {
       }) as any
 
       expect(Array.isArray(response?.conversations)).toBe(true)
-      expect(response?.conversationQuota?.profile).toBe('anonymous')
     })
   })
 

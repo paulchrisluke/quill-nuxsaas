@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
-import type { ConversationQuotaUsagePayload } from '~/types/conversation'
-import { useClipboard, useDebounceFn } from '@vueuse/core'
-import { computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
+import { useClipboard } from '@vueuse/core'
+import { computed, watch } from 'vue'
 
-import BillingUpgradeModal from '~/components/billing/UpgradeModal.vue'
+import { useConversationList } from '~/composables/useConversationList'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
-import QuotaLimitModal from './QuotaLimitModal.vue'
 
 interface ContentConversationMessage {
   id: string
@@ -35,8 +33,7 @@ const route = useRoute()
 const { t } = useI18n()
 const localePath = useLocalePath()
 const auth = useAuth()
-const { loggedIn, useActiveOrganization, refreshActiveOrganizationExtras, signIn } = auth
-const activeOrgState = useActiveOrganization()
+const { loggedIn, signIn } = auth
 
 const {
   messages,
@@ -78,253 +75,17 @@ const modeItems = computed(() => [
 ])
 
 const promptSubmitting = ref(false)
-const showQuotaModal = ref(false)
-const quotaModalData = ref<{ limit: number | null, used: number | null, remaining: number | null, planLabel: string | null } | null>(null)
-const showUpgradeModal = ref(false)
 const showAgentModeLoginModal = ref(false)
 const { copy } = useClipboard()
 const toast = useToast()
-const runtimeConfig = useRuntimeConfig()
-
-const parseConversationLimitValue = (value: unknown, fallback: number) => {
-  if (typeof value === 'number' && Number.isFinite(value))
-    return value
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10)
-    if (Number.isFinite(parsed))
-      return parsed
-  }
-  return fallback
-}
-
-const guestConversationLimit = computed(() => parseConversationLimitValue((runtimeConfig.public as any)?.conversationQuota?.anonymous, 10))
-const verifiedConversationLimit = computed(() => parseConversationLimitValue((runtimeConfig.public as any)?.conversationQuota?.verified, 50))
-
 const archivingConversationId = ref<string | null>(null)
-const conversationQuotaState = useState<ConversationQuotaUsagePayload | null>('conversation-quota-usage', () => null)
-
-interface ConversationListResponse {
-  conversations: Array<{
-    id: string
-    status: string
-    updatedAt: Date | string
-    createdAt: Date | string
-    contentId: string | null
-    sourceContentId: string | null
-    metadata: Record<string, any> | null
-    _computed?: {
-      artifactCount: number
-      latestArtifactTitle: string | null
-    }
-  }>
-  conversationQuota?: ConversationQuotaUsagePayload | null
-}
-
-const {
-  data: conversationsPayload,
-  refresh: refreshConversations
-} = await useFetch<ConversationListResponse>('/api/conversations', {
-  lazy: true, // Don't block page load
-  default: () => ({
-    conversations: []
-  })
-})
-const debouncedRefreshConversations = useDebounceFn(() => refreshConversations(), 300)
-// Populate conversation list cache for header reuse
-const conversationListCache = useState<Map<string, any>>('conversation-list-cache', () => new Map())
-
-const updateLocalConversationStatus = (conversationId: string, status: string) => {
-  const currentPayload = conversationsPayload.value
-  if (!currentPayload?.conversations?.length)
-    return
-
-  const nextConversations = currentPayload.conversations.map((conv) => {
-    if (conv.id !== conversationId)
-      return conv
-    return {
-      ...conv,
-      status
-    }
-  })
-
-  conversationsPayload.value = {
-    ...currentPayload,
-    conversations: nextConversations
-  }
-
-  const archivedConversation = nextConversations.find(conv => conv.id === conversationId)
-  if (archivedConversation) {
-    conversationListCache.value.set(conversationId, archivedConversation)
-  }
-}
-
-const conversationQuotaUsage = computed<ConversationQuotaUsagePayload | null>(() =>
-  conversationsPayload.value?.conversationQuota ?? null
-)
-const quotaPlanLabel = computed(() => conversationQuotaUsage.value?.label ?? (loggedIn.value ? 'Current plan' : 'Guest access'))
-
-watch(conversationQuotaUsage, (value) => {
-  if (value) {
-    conversationQuotaState.value = {
-      limit: value.limit ?? null,
-      used: value.used ?? null,
-      remaining: value.remaining ?? null,
-      label: value.label ?? null,
-      unlimited: value.unlimited ?? false
-    }
-  } else {
-    conversationQuotaState.value = null
-  }
-}, { immediate: true, deep: true })
-
-const fetchedConversationEntries = computed(() => {
-  const list = Array.isArray(conversationsPayload.value?.conversations) ? conversationsPayload.value?.conversations : []
-  return list.map((conv: any) => {
-    let updatedAt: Date | null = null
-    if (conv.updatedAt) {
-      const parsedDate = new Date(conv.updatedAt)
-      updatedAt = Number.isFinite(parsedDate.getTime()) ? parsedDate : null
-    }
-
-    return {
-      id: conv.id,
-      title: conv._computed?.title || conv._computed?.latestArtifactTitle || 'Untitled conversation',
-      status: conv.status,
-      updatedAt,
-      lastMessage: conv._computed?.lastMessage || null
-    }
-  }).filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-})
-
-// Filter out archived conversations - show only active/completed
-const conversationEntries = computed(() => {
-  return fetchedConversationEntries.value.filter((entry) => {
-    const status = (entry.status || '').toLowerCase().trim()
-    return status !== 'archived'
-  })
-})
-
-// Convert conversations to UNavigationMenu format (array of arrays for groups)
-const conversationMenuItems = computed(() => {
-  const items = conversationEntries.value.map(conv => ({
-    label: conv.title,
-    to: `/conversations/${conv.id}`,
-    badge: conv.status === 'pending' ? 'pending' : undefined
-  }))
-  // Return as array of arrays (groups) like other menus
-  return items.length > 0 ? [items] : []
-})
-
-// Share conversation menu items via shared state (accessible from layout)
-const conversationMenuItemsState = useState<any[][]>('conversation-menu-items', () => [])
-watch(conversationMenuItems, (items) => {
-  conversationMenuItemsState.value = items
-}, { immediate: true })
+const conversationList = useConversationList({ pageSize: 40 })
+conversationList.loadInitial().catch(() => {})
 
 const uiStatus = computed(() => status.value)
 
 // Tool progress is now shown inline as message parts, no need for placeholder
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
-const openQuotaModal = (payload?: { limit?: number | null, used?: number | null, remaining?: number | null, label?: string | null } | null) => {
-  const fallback = conversationQuotaUsage.value
-
-  // Simplified: guest vs logged-in only
-  const isGuest = !loggedIn.value
-  const baseLimit = payload?.limit ?? fallback?.limit ?? (isGuest ? guestConversationLimit.value : verifiedConversationLimit.value)
-  const usedValue = payload?.used ?? fallback?.used ?? 0
-  const remainingValue = payload?.remaining ?? fallback?.remaining ?? (baseLimit !== null ? Math.max(0, baseLimit - usedValue) : null)
-
-  quotaModalData.value = {
-    limit: baseLimit,
-    used: usedValue,
-    remaining: remainingValue,
-    planLabel: payload?.label ?? fallback?.label ?? quotaPlanLabel.value ?? null
-  }
-  showQuotaModal.value = true
-}
-
-const quotaModalMessage = computed(() => {
-  if (!loggedIn.value) {
-    return `Make an account to unlock ${verifiedConversationLimit.value} total conversations or archive conversations to continue chatting.`
-  }
-  if (conversationQuotaUsage.value?.unlimited) {
-    return 'Your current plan includes unlimited conversations.'
-  }
-  return 'Starter plans have a conversation limit. Upgrade to unlock unlimited conversations or archive conversations to continue chatting.'
-})
-
-const quotaModalTitle = computed(() => {
-  const limit = quotaModalData.value?.limit ?? conversationQuotaUsage.value?.limit ?? null
-  const used = quotaModalData.value?.used ?? conversationQuotaUsage.value?.used ?? null
-  if (typeof limit === 'number') {
-    const remaining = Math.max(0, limit - (typeof used === 'number' ? used : 0))
-    return `You have ${remaining}/${limit} conversations remaining.`
-  }
-  if (conversationQuotaUsage.value?.unlimited) {
-    return 'Unlimited conversations unlocked.'
-  }
-  return loggedIn.value ? 'Upgrade to unlock more conversations.' : 'Create an account for more conversations.'
-})
-
-const quotaPrimaryLabel = computed(() => {
-  if (!loggedIn.value)
-    return 'Sign up'
-  if (conversationQuotaUsage.value?.unlimited)
-    return 'Close'
-  return 'Upgrade'
-})
-
-const handleQuotaModalPrimary = () => {
-  showQuotaModal.value = false
-  if (conversationQuotaUsage.value?.unlimited) {
-    // For unlimited plans, just close the modal
-    return
-  }
-  if (loggedIn.value) {
-    showUpgradeModal.value = true
-    return
-  }
-  const destination = `/signup?redirect=${encodeURIComponent('/')}`
-  router.push(destination)
-}
-
-const handleQuotaModalCancel = () => {
-  showQuotaModal.value = false
-}
-
-const handleUpgradeSuccess = async () => {
-  showUpgradeModal.value = false
-  // Wait for modal to close and DOM to update before refreshing
-  await nextTick()
-  try {
-    await refreshActiveOrganizationExtras(activeOrgState.value?.data?.id)
-    await refreshConversations()
-  } catch (error) {
-    // Silently handle errors during refresh to prevent crashes
-    // Component may be unmounting or in a transitional state
-    console.error('Error refreshing after upgrade:', error)
-  }
-}
-
-const handleQuotaGoogleSignup = () => {
-  showQuotaModal.value = false
-  if (typeof window === 'undefined')
-    return
-  try {
-    signIn.social?.({
-      provider: 'google',
-      callbackURL: window.location.href
-    })
-  } catch (error) {
-    console.error('Failed to start Google signup', error)
-  }
-}
-
-const handleQuotaEmailSignup = () => {
-  showQuotaModal.value = false
-  const redirect = route.fullPath || '/'
-  router.push(`/signup?redirect=${encodeURIComponent(redirect)}`)
-}
 
 const handleAgentModeGoogleSignup = () => {
   showAgentModeLoginModal.value = false
@@ -350,19 +111,6 @@ const handleAgentModeSignIn = () => {
   showAgentModeLoginModal.value = false
   const redirect = route.fullPath || '/'
   router.push(`/signin?redirect=${encodeURIComponent(redirect)}`)
-}
-
-if (import.meta.client) {
-  const handleQuotaEvent = (event: Event) => {
-    const detail = (event as CustomEvent<{ limit?: number, used?: number, remaining?: number, label?: string, unlimited?: boolean }>).detail
-    openQuotaModal(detail || undefined)
-  }
-  onMounted(() => {
-    window.addEventListener('quillio:show-quota', handleQuotaEvent as EventListener)
-  })
-  onBeforeUnmount(() => {
-    window.removeEventListener('quillio:show-quota', handleQuotaEvent as EventListener)
-  })
 }
 
 const handlePromptSubmit = async (value?: string) => {
@@ -492,11 +240,8 @@ watch(activeConversationId, (value, previous) => {
     router.push(`/conversations/${value}`)
   }
 
-  // Refresh conversations to ensure new conversation appears in list
-  const alreadyPresent = fetchedConversationEntries.value.some(entry => entry.id === value)
-
-  if (!alreadyPresent) {
-    debouncedRefreshConversations()
+  if (!conversationList.hasConversation(value)) {
+    conversationList.refresh().catch(() => {})
   }
 })
 
@@ -517,14 +262,14 @@ const _archiveConversation = async (entry: { id: string, title?: string | null }
       method: 'DELETE'
     })
 
-    updateLocalConversationStatus(entry.id, 'archived')
+    conversationList.markStatus(entry.id, 'archived')
 
     if (activeConversationId.value === entry.id) {
       router.push('/conversations')
       resetConversation()
     }
 
-    await refreshConversations()
+    await conversationList.refresh()
 
     toast.add({
       title: 'Content archived',
@@ -673,21 +418,13 @@ async function handleShare(message: ChatMessage) {
   })
 }
 
-watch(conversationsPayload, (payload) => {
-  if (!payload?.conversations)
-    return
-  const cache = conversationListCache.value
-  payload.conversations.forEach((conv: any) => {
-    if (conv.id) {
-      cache.set(conv.id, conv)
-    }
-  })
-}, { immediate: true, deep: true })
-
 if (import.meta.client) {
-  watch(loggedIn, () => {
-    debouncedRefreshConversations()
-  }, { immediate: true })
+  watch(loggedIn, (value, previous) => {
+    if (value === previous)
+      return
+    conversationList.reset()
+    conversationList.loadInitial().catch(() => {})
+  })
 
   // Watch mode changes - block agent mode for anonymous users
   watch(mode, (newMode) => {
@@ -786,52 +523,6 @@ if (import.meta.client) {
         </div>
       </div>
     </div>
-
-    <QuotaLimitModal
-      v-model:open="showQuotaModal"
-      :title="quotaModalTitle"
-      :limit="quotaModalData?.limit ?? conversationQuotaUsage?.limit ?? null"
-      :used="quotaModalData?.used ?? conversationQuotaUsage?.used ?? null"
-      :remaining="quotaModalData?.remaining ?? conversationQuotaUsage?.remaining ?? null"
-      :plan-label="quotaModalData?.planLabel ?? quotaPlanLabel"
-      :message="quotaModalMessage"
-      :primary-label="quotaPrimaryLabel"
-      @primary="handleQuotaModalPrimary"
-      @cancel="handleQuotaModalCancel"
-    >
-      <template
-        v-if="!loggedIn"
-        #actions
-      >
-        <div class="flex flex-col gap-3 pt-4">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <UButton
-              color="neutral"
-              variant="soft"
-              icon="i-simple-icons-google"
-              class="flex-1 justify-center"
-              @click="handleQuotaGoogleSignup"
-            >
-              Continue with Google
-            </UButton>
-            <div class="flex-1 text-center sm:text-left">
-              <button
-                type="button"
-                class="text-sm text-primary-400 font-semibold hover:underline"
-                @click="handleQuotaEmailSignup"
-              >
-                Sign up
-              </button>
-            </div>
-          </div>
-        </div>
-      </template>
-    </QuotaLimitModal>
-    <BillingUpgradeModal
-      v-model:open="showUpgradeModal"
-      :organization-id="activeOrgState?.value?.data?.id || undefined"
-      @upgraded="handleUpgradeSuccess"
-    />
 
     <!-- Agent Mode Login Modal -->
     <UModal

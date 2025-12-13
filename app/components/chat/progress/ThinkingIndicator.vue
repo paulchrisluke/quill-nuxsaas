@@ -15,6 +15,13 @@ const props = withDefaults(defineProps<Props>(), {
 const elapsedSeconds = ref(0)
 let intervalId: ReturnType<typeof setInterval> | null = null
 
+const stopTimer = () => {
+  if (intervalId) {
+    clearInterval(intervalId)
+    intervalId = null
+  }
+}
+
 const startTimer = () => {
   // Always clear any existing interval before creating a new one
   stopTimer()
@@ -67,13 +74,6 @@ const startTimer = () => {
       elapsedSeconds.value = 0
     }
   }, 1000)
-}
-
-const stopTimer = () => {
-  if (intervalId) {
-    clearInterval(intervalId)
-    intervalId = null
-  }
 }
 
 // Calculate thinking time from timestamps - only returns formatted duration, never placeholder text
