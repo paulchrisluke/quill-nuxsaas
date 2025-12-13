@@ -48,7 +48,9 @@ function setMode(mode: Mode) {
 }
 
 const redirectTo = computed(() => {
-  const redirect = route.query.redirect as string
+  const redirect = Array.isArray(route.query.redirect)
+    ? route.query.redirect[0]
+    : route.query.redirect
   return localePath(redirect || '/')
 })
 
