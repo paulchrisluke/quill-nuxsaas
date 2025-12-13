@@ -1,79 +1,171 @@
 <script setup lang="ts">
-const { loggedIn } = useAuth()
+import { format } from 'date-fns'
 
-// Get conversation menu items from shared state (set by QuillioWidget)
-const conversationMenuItems = useState<any[][]>('conversation-menu-items', () => [])
+const router = useRouter()
+const route = useRoute()
+const localePath = useLocalePath()
 
-// Fetch content list (only for logged in users)
-const { data: contentData, execute: fetchContent } = useFetch('/api/content', {
-  default: () => [],
-  lazy: true,
-  server: false,
-  immediate: false
+const {
+  items,
+  pending,
+  error,
+  hasMore,
+  initialized,
+  loadInitial,
+  loadMore,
+  refresh
+} = useConversationList({ pageSize: 40 })
+
+const initialize = async () => {
+  try {
+    await loadInitial()
+  } catch {
+    // Errors are surfaced via UI alert; swallow here to avoid console noise
+  }
+}
+
+onMounted(() => {
+  initialize()
 })
 
-watch(loggedIn, (isLoggedIn) => {
-  if (isLoggedIn) {
-    fetchContent()
+const activeConversationId = computed(() => {
+  const id = route.params.id
+  if (Array.isArray(id))
+    return id[0] || null
+  return id || null
+})
+
+const isConversationActive = (id: string) => {
+  return activeConversationId.value === id
+}
+
+const openConversation = (conversationId: string | null) => {
+  if (conversationId) {
+    router.push(localePath(`/conversations/${conversationId}`))
   } else {
-    contentData.value = []
+    router.push(localePath('/conversations'))
   }
-}, { immediate: true })
+}
 
-// Transform content to menu items format
-const contentMenuItems = computed(() => {
-  if (!loggedIn.value || !contentData.value || !Array.isArray(contentData.value)) {
-    return []
+const createConversation = () => {
+  router.push(localePath('/conversations'))
+}
+
+const formatTimestamp = (value: string | Date) => {
+  try {
+    return format(new Date(value), 'MMM d · HH:mm')
+  } catch {
+    return ''
   }
+}
 
-  const items = contentData.value.map((row: any) => {
-    const content = row.content
-    if (!content)
-      return null
-
-    return {
-      label: content.title || 'Untitled',
-      to: `/content/${content.id}`,
-      badge: content.status || undefined
+const primaryNavigation = computed(() => ([
+  [
+    {
+      label: 'Home',
+      icon: 'i-lucide-home',
+      to: '/'
     }
-  }).filter(Boolean)
-
-  return items.length > 0 ? [items] : []
-})
-
-// Build navigation menu items using NuxtUI format (array of arrays for groups)
-const navigationMenuItems = computed(() => {
-  const items: any[][] = []
-
-  // Content section (only for logged in users)
-  if (loggedIn.value) {
-    const contentHeader = {
-      label: 'Content',
-      icon: 'i-lucide-file-text',
-      to: '/content',
-      disabled: false
-    }
-    const contentList = contentMenuItems.value[0] || []
-    items.push([contentHeader, ...contentList])
-  }
-
-  // Conversations section
-  const conversationsHeader = {
-    label: 'Conversations',
-    icon: 'i-lucide-message-circle',
-    to: '/conversations',
-    disabled: false
-  }
-  const conversationsList = conversationMenuItems.value[0] || []
-  items.push([conversationsHeader, ...conversationsList])
-
-  return items
-})
+  ]
+]))
 </script>
 
 <template>
-  <UNavigationMenu
-    :items="navigationMenuItems"
-    orientation="vertical"
-  />
+  <div class="space-y-6">
+    <section class="space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-xs uppercase tracking-wide text-muted-foreground">
+          Conversations
+        </p>
+        <UButton
+          icon="i-lucide-plus"
+          size="2xs"
+          color="neutral"
+          variant="ghost"
+          aria-label="New conversation"
+          @click="createConversation"
+        />
+      </div>
+
+      <div class="space-y-1">
+        <template v-if="initialized && items.length > 0">
+          <button
+            v-for="conversation in items"
+            :key="conversation.id"
+            type="button"
+            class="w-full text-left rounded-md px-3 py-2 border border-transparent transition-colors"
+            :class="isConversationActive(conversation.id)
+              ? 'bg-neutral-100/80 dark:bg-neutral-800/60'
+              : 'hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40'"
+            @click="openConversation(conversation.id)"
+          >
+            <p class="text-sm font-medium truncate">
+              {{ conversation.title }}
+            </p>
+            <p class="text-xs text-muted-foreground">
+              {{ formatTimestamp(conversation.updatedAt) }}
+            </p>
+          </button>
+        </template>
+
+        <template v-else-if="pending && !initialized">
+          <div
+            v-for="n in 5"
+            :key="n"
+            class="rounded-md border border-neutral-200/60 dark:border-neutral-800/60 px-3 py-2"
+          >
+            <USkeleton class="h-4 w-3/4" />
+            <USkeleton class="h-3 w-1/2 mt-2" />
+          </div>
+        </template>
+
+        <p
+          v-else
+          class="text-sm text-muted-foreground py-3"
+        >
+          No conversations yet.
+        </p>
+      </div>
+
+      <UAlert
+        v-if="error"
+        color="error"
+        variant="soft"
+        :title="error"
+      />
+
+      <div class="flex items-center justify-between gap-2 pt-2">
+        <UButton
+          v-if="hasMore"
+          color="neutral"
+          variant="outline"
+          size="xs"
+          :loading="pending"
+          @click="loadMore()"
+        >
+          Load more
+        </UButton>
+        <UButton
+          v-else
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          :loading="pending"
+          @click="refresh()"
+        >
+          Refresh
+        </UButton>
+      </div>
+    </section>
+
+    <section>
+      <p class="text-xs uppercase tracking-wide text-muted-foreground mb-3">
+        Navigation
+      </p>
+      <UNavigationMenu
+        :items="primaryNavigation"
+        orientation="vertical"
+      />
+    </section>
+  </div>
 </template>

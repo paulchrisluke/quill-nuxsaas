@@ -1,5 +1,4 @@
 import type * as schema from '~~/server/db/schema'
-import type { ConversationQuotaUsageResult } from '~~/server/utils/auth'
 
 /**
  * Conversation status values
@@ -67,12 +66,4 @@ export interface ConversationResponse {
   messages?: ConversationMessage[]
   logs?: ConversationLog[]
   artifacts?: Artifact[]
-}
-
-/**
- * Conversation list response
- */
-export interface ConversationListResponse {
-  conversations: Conversation[]
-  conversationQuota: ConversationQuotaUsageResult
 }
