@@ -35,6 +35,36 @@ const filteredOrgs = computed(() => {
     return o.name.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q) || o.id.toLowerCase().includes(q)
   })
 })
+
+function getCircularReplacer() {
+  const seen = new WeakSet()
+  return (key: string, value: any) => {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular]'
+      }
+      seen.add(value)
+    }
+    return value
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  if (!error) {
+    return 'Unknown error'
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String(error.message)
+  }
+  try {
+    return JSON.stringify(error, getCircularReplacer())
+  } catch {
+    return String(error)
+  }
+}
 </script>
 
 <template>
@@ -71,7 +101,7 @@ const filteredOrgs = computed(() => {
         color="error"
         variant="soft"
         title="Failed to load organizations"
-        :description="String(error)"
+        :description="getErrorMessage(error)"
       />
 
       <UCard>

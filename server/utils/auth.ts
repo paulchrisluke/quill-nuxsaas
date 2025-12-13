@@ -918,6 +918,19 @@ export const requireAuth = async (event: H3Event, options: RequireAuthOptions = 
   })
 }
 
+export const requireAdmin = async (event: H3Event) => {
+  const user = await requireAuth(event)
+  if (user.role !== 'admin') {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden',
+      message: 'Admin access required'
+    })
+  }
+
+  return user
+}
+
 const ACTIVE_SUBSCRIPTION_STATUSES = ['active', 'trialing'] as const
 
 const getOrganizationSubscriptionStatus = async (db: NodePgDatabase<typeof schema>, organizationId: string) => {

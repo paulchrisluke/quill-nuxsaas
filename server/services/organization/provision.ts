@@ -175,7 +175,10 @@ export const ensureDefaultOrganizationForUser = async (
         name,
         slug,
         createdAt: now,
-        metadata: JSON.stringify({ autoProvisioned: true, source: 'anon-upgrade' })
+        metadata: JSON.stringify({
+          autoProvisioned: true,
+          source: anonymousOrg?.organizationId ? 'anon-upgrade' : 'auto-provision'
+        })
       })
 
     await tx.insert(schema.member).values({

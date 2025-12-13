@@ -43,7 +43,7 @@ export const user = pgTable('user', {
   lastActiveOrganizationId: text('last_active_organization_id')
     .references(() => organization.id, { onDelete: 'set null' }),
   referralCode: text('referral_code').unique(),
-  isAnonymous: boolean('is_anonymous').default(false)
+  isAnonymous: boolean('is_anonymous').default(false).notNull()
 })
 
 export const account = pgTable(

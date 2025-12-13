@@ -57,6 +57,48 @@ const formatTime = (value: string) => {
     return value
   }
 }
+
+const errorDescription = computed(() => {
+  if (!error.value)
+    return ''
+
+  const parts: string[] = []
+
+  // Extract statusCode and statusMessage
+  if (error.value.statusCode) {
+    parts.push(`Status: ${error.value.statusCode}`)
+  }
+  if (error.value.statusMessage) {
+    parts.push(error.value.statusMessage)
+  }
+
+  // Extract and serialize data if available
+  if (error.value.data !== undefined) {
+    try {
+      const dataStr = typeof error.value.data === 'string'
+        ? error.value.data
+        : JSON.stringify(error.value.data, null, 2)
+      parts.push(`Data: ${dataStr}`)
+    } catch {
+      parts.push('Data: [Unable to serialize]')
+    }
+  }
+
+  // If we have parts, join them; otherwise fall back to message or stringify
+  if (parts.length > 0) {
+    return parts.join(' | ')
+  }
+
+  if (error.value.message) {
+    return error.value.message
+  }
+
+  try {
+    return JSON.stringify(error.value, null, 2)
+  } catch {
+    return String(error.value)
+  }
+})
 </script>
 
 <template>
@@ -102,7 +144,7 @@ const formatTime = (value: string) => {
         color="error"
         variant="soft"
         title="Failed to load conversation"
-        :description="String(error)"
+        :description="errorDescription"
       />
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

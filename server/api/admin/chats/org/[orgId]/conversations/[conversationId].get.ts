@@ -1,6 +1,7 @@
 import { and, asc, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
+import { requireAdmin } from '~~/server/utils/auth'
 
 const paramsSchema = z.object({
   orgId: z.string().min(1),
@@ -8,6 +9,7 @@ const paramsSchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
+  await requireAdmin(event)
   const { orgId, conversationId } = await getValidatedRouterParams(event, paramsSchema.parse)
   const db = await useDB(event)
 

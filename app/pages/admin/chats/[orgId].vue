@@ -84,24 +84,106 @@ interface Conversation {
   status: string
   sourceContentId: string | null
   createdByUserId: string | null
-  metadata: any
   createdAt: string
   updatedAt: string
 }
 
-const { data, pending, error, refresh } = await useFetch<{ org: Org, conversations: Conversation[] }>(
+interface ConversationsResponse {
+  org: Org
+  conversations: Conversation[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+const PAGE_SIZE = 50
+
+const {
+  data,
+  pending,
+  error,
+  refresh
+} = await useFetch<ConversationsResponse>(
   () => `/api/admin/chats/org/${orgId.value}/conversations`,
-  { method: 'GET' }
+  {
+    method: 'GET',
+    query: { limit: PAGE_SIZE }
+  }
 )
 
 const org = computed(() => data.value?.org)
-const conversations = computed(() => data.value?.conversations ?? [])
+const conversations = ref<Conversation[]>([])
+const nextCursor = ref<string | null>(null)
+const loadMorePending = ref(false)
+const loadMoreError = ref<string | null>(null)
+
+watch(
+  () => data.value,
+  (value) => {
+    if (!value) {
+      conversations.value = []
+      nextCursor.value = null
+      loadMoreError.value = null
+      return
+    }
+    conversations.value = value.conversations ?? []
+    nextCursor.value = value.nextCursor ?? null
+    loadMoreError.value = null
+  },
+  { immediate: true }
+)
 
 const formatTime = (value: string) => {
   try {
     return format(new Date(value), 'yyyy-MM-dd HH:mm:ss')
   } catch {
     return value
+  }
+}
+
+const formatErrorMessage = (input: unknown): string => {
+  if (!input)
+    return 'Unknown error'
+  if (typeof input === 'string')
+    return input
+  if (input instanceof Error)
+    return input.message
+  if (typeof input === 'object' && 'message' in input)
+    return String((input as any).message)
+  try {
+    return JSON.stringify(input)
+  } catch {
+    return String(input)
+  }
+}
+
+const loadMore = async () => {
+  if (!nextCursor.value || loadMorePending.value)
+    return
+
+  loadMorePending.value = true
+  loadMoreError.value = null
+
+  try {
+    const response = await $fetch<Pick<ConversationsResponse, 'conversations' | 'nextCursor'>>(
+      `/api/admin/chats/org/${orgId.value}/conversations`,
+      {
+        method: 'GET',
+        query: {
+          cursor: nextCursor.value,
+          limit: PAGE_SIZE
+        }
+      }
+    )
+
+    conversations.value = [
+      ...conversations.value,
+      ...(response.conversations ?? [])
+    ]
+    nextCursor.value = response.nextCursor ?? null
+  } catch (loadError) {
+    loadMoreError.value = formatErrorMessage(loadError)
+  } finally {
+    loadMorePending.value = false
   }
 }
 
@@ -152,7 +234,7 @@ const detailJson = computed(() => {
         color="error"
         variant="soft"
         title="Failed to load conversations"
-        :description="String(error)"
+        :description="formatErrorMessage(error)"
       />
 
       <UCard>
@@ -184,6 +266,36 @@ const detailJson = computed(() => {
             class="py-6 text-sm text-muted-foreground text-center"
           >
             No conversations found for this org.
+          </div>
+        </div>
+
+        <div
+          v-if="conversations.length > 0"
+          class="mt-4 space-y-3"
+        >
+          <UAlert
+            v-if="loadMoreError"
+            color="error"
+            variant="soft"
+            title="Unable to load more conversations"
+            :description="loadMoreError"
+          />
+          <div class="flex items-center justify-center">
+            <UButton
+              v-if="nextCursor"
+              color="neutral"
+              variant="outline"
+              :loading="loadMorePending"
+              @click="loadMore"
+            >
+              Load more
+            </UButton>
+            <p
+              v-else
+              class="text-xs text-muted-foreground"
+            >
+              You've reached the end of the results.
+            </p>
           </div>
         </div>
       </UCard>

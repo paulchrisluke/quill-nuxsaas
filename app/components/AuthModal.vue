@@ -75,9 +75,15 @@ const resendLoading = ref(false)
 let unverifiedEmail = ''
 
 async function onSignInSocialLogin(action: 'google' | 'github') {
-  loading.value = true
-  loadingAction.value = action
-  auth.signIn.social({ provider: action, callbackURL: redirectTo.value })
+  try {
+    loading.value = true
+    loadingAction.value = action
+    await auth.signIn.social({ provider: action, callbackURL: redirectTo.value })
+  } catch (err: any) {
+    console.error('[auth-modal] Social login failed:', err)
+    loading.value = false
+    loadingAction.value = ''
+  }
 }
 
 async function onSignInSubmit(event: FormSubmitEvent<SignInSchema>) {
@@ -158,7 +164,9 @@ async function handleResendEmail() {
 const referralCode = useStorage('referralCode', '')
 
 watchEffect(() => {
-  const refParam = route.query.ref as string
+  const refParam = Array.isArray(route.query.ref)
+    ? route.query.ref[0]
+    : route.query.ref
   if (refParam) {
     referralCode.value = refParam
   }
@@ -184,14 +192,19 @@ const signUpState = reactive<Partial<SignUpSchema>>({
 })
 
 async function onSignUpSocialLogin(action: 'google' | 'github') {
-  loading.value = true
-  loadingAction.value = action
-
-  auth.signIn.social({
-    provider: action,
-    callbackURL: redirectTo.value,
-    additionalData: referralCode.value ? { referralCode: referralCode.value } : undefined
-  })
+  try {
+    loading.value = true
+    loadingAction.value = action
+    await auth.signIn.social({
+      provider: action,
+      callbackURL: redirectTo.value,
+      additionalData: referralCode.value ? { referralCode: referralCode.value } : undefined
+    })
+  } catch (err: any) {
+    console.error('[auth-modal] Social login failed:', err)
+    loading.value = false
+    loadingAction.value = ''
+  }
 }
 
 async function onSignUpSubmit(event: FormSubmitEvent<SignUpSchema>) {
@@ -229,7 +242,7 @@ async function onSignUpSubmit(event: FormSubmitEvent<SignUpSchema>) {
     }
   } catch (err: any) {
     toast.add({
-      title: err?.message || err?.statusText || 'An error occurred',
+      title: err?.message || err?.statusText || t('signIn.errors.generalError'),
       color: 'error'
     })
     console.error(err)
@@ -283,7 +296,7 @@ async function onSignUpSubmit(event: FormSubmitEvent<SignUpSchema>) {
               :disabled="loading"
               @click="currentMode === 'signin' ? onSignInSocialLogin('github') : onSignUpSocialLogin('github')"
             >
-              Github
+              GitHub
             </UButton>
           </div>
 
@@ -450,7 +463,7 @@ async function onSignUpSubmit(event: FormSubmitEvent<SignUpSchema>) {
         <template #content>
           <UCard>
             <template #header>
-              <div class="flex items">
+              <div class="flex items-center">
                 <h3 class="text-lg font-medium">
                   {{ t('signIn.emailNotVerified') }}
                 </h3>
