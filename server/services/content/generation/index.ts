@@ -19,6 +19,7 @@ import {
   ensureUniqueContentSlug,
   resolveIngestMethodFromSourceContent
 } from '~~/server/utils/content'
+import { safeError, safeLog } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import {
   assembleMarkdownFromSections,
@@ -687,18 +688,18 @@ export const updateContentSectionWithAI = async (
     mode
   } = input
 
-  console.log('[updateContentSection] Starting section update', {
-    contentId,
-    sectionId,
+  safeLog('[updateContentSection] Starting section update', {
+    hasContentId: !!contentId,
+    hasSectionId: !!sectionId,
     mode,
-    organizationId,
-    userId,
+    hasOrganizationId: !!organizationId,
+    hasUserId: !!userId,
     hasInstructions: !!instructions
   })
 
   // Enforce agent mode for writes
   if (mode === 'chat') {
-    console.error('[updateContentSection] Mode check failed - chat mode not allowed for writes', { mode })
+    safeError('[updateContentSection] Mode check failed - chat mode not allowed for writes', { mode })
     throw createError({
       statusCode: 403,
       statusMessage: 'Writes are not allowed in chat mode'
@@ -708,7 +709,11 @@ export const updateContentSectionWithAI = async (
   const trimmedInstructions = instructions?.trim()
 
   if (!organizationId || !userId || !contentId) {
-    console.error('[updateContentSection] Missing required parameters', { organizationId: !!organizationId, userId: !!userId, contentId: !!contentId })
+    safeError('[updateContentSection] Missing required parameters', {
+      hasOrganizationId: !!organizationId,
+      hasUserId: !!userId,
+      hasContentId: !!contentId
+    })
     throw createError({
       statusCode: 400,
       statusMessage: 'organization, user, and content context are required'
@@ -716,14 +721,17 @@ export const updateContentSectionWithAI = async (
   }
 
   if (!trimmedInstructions) {
-    console.error('[updateContentSection] Missing instructions')
+    safeError('[updateContentSection] Missing instructions')
     throw createError({
       statusCode: 400,
       statusMessage: 'instructions are required to patch a section'
     })
   }
 
-  console.log('[updateContentSection] Querying database for content', { contentId, organizationId })
+  safeLog('[updateContentSection] Querying database for content', {
+    hasContentId: !!contentId,
+    hasOrganizationId: !!organizationId
+  })
   const [record] = await db
     .select({
       content: schema.content,
@@ -809,16 +817,16 @@ export const updateContentSectionWithAI = async (
   }
 
   // RAG: Search global context instead of partial source
-  console.log('[updateContentSection] Starting RAG context search', {
-    sectionTitle: targetSection.title,
-    queryText: `${targetSection.title} ${trimmedInstructions}`.substring(0, 100)
+  safeLog('[updateContentSection] Starting RAG context search', {
+    hasSectionTitle: !!targetSection.title,
+    queryTextLength: `${targetSection.title} ${trimmedInstructions}`.length
   })
   const relevantChunks = await findGlobalRelevantChunks({
     db,
     organizationId,
     queryText: `${targetSection.title} ${trimmedInstructions}`
   })
-  console.log('[updateContentSection] RAG search completed', {
+  safeLog('[updateContentSection] RAG search completed', {
     chunksFound: relevantChunks.length
   })
 
@@ -849,8 +857,8 @@ export const updateContentSectionWithAI = async (
     'Respond with JSON {"body": string, "summary": string?}. Rewrite only this section content - do NOT include the section heading or title, as it will be added automatically.'
   ].join('\n\n')
 
-  console.log('[updateContentSection] Calling AI for section generation', {
-    sectionTitle: targetSection.title,
+  safeLog('[updateContentSection] Calling AI for section generation', {
+    hasSectionTitle: !!targetSection.title,
     promptLength: prompt.length,
     temperature,
     contextChunks: relevantChunks.length
@@ -862,7 +870,7 @@ export const updateContentSectionWithAI = async (
     ],
     temperature
   })
-  console.log('[updateContentSection] AI call completed', {
+  safeLog('[updateContentSection] AI call completed', {
     responseLength: raw?.length || 0
   })
 
@@ -870,8 +878,8 @@ export const updateContentSectionWithAI = async (
   const updatedBody = (parsed.body ?? parsed.body_mdx ?? '').trim()
 
   if (!updatedBody) {
-    console.error('[updateContentSection] AI response parsing failed - no content returned', {
-      parsed,
+    safeError('[updateContentSection] AI response parsing failed - no content returned', {
+      hasParsed: !!parsed,
       rawLength: raw?.length || 0
     })
     throw createError({
@@ -880,7 +888,7 @@ export const updateContentSectionWithAI = async (
     })
   }
 
-  console.log('[updateContentSection] AI response parsed successfully', {
+  safeLog('[updateContentSection] AI response parsed successfully', {
     bodyLength: updatedBody.length,
     hasSummary: !!parsed.summary
   })

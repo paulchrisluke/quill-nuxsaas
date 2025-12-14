@@ -509,6 +509,16 @@ async function executeChatTool(
     const args = toolInvocation.arguments as ChatToolInvocation<'content_write'>['arguments']
     const action = validateRequiredString(args.action, 'action') as 'create' | 'enrich'
 
+    console.log('[content_write] Starting content_write tool', {
+      action,
+      contentId: args.contentId,
+      sourceContentId: args.sourceContentId,
+      hasSourceText: !!(args.sourceText || args.context),
+      mode: context.mode,
+      organizationId,
+      userId
+    })
+
     if (action === 'create') {
       try {
         const intentSnapshot = getIntentSnapshotFromMetadata(conversationMetadata as Record<string, any> | null)
@@ -597,6 +607,11 @@ async function executeChatTool(
           temperature: sanitizedTemperature
         })
 
+        console.log('[content_write] Successfully created content', {
+          contentId: generationResult.content.id,
+          versionId: generationResult.version.id
+        })
+
         return {
           success: true,
           result: {
@@ -611,22 +626,53 @@ async function executeChatTool(
           contentId: generationResult.content.id
         }
       } catch (error: any) {
+        console.error('[content_write] Error during content creation', {
+          error: error?.message,
+          stack: error?.stack,
+          action,
+          sourceContentId: args.sourceContentId,
+          hasSourceText: !!(args.sourceText || args.context),
+          mode: context.mode,
+          organizationId,
+          userId,
+          errorStatus: error?.statusCode,
+          errorStatusMessage: error?.statusMessage
+        })
         return {
           success: false,
-          error: error?.message || 'Failed to create content'
+          error: error?.message || error?.statusMessage || 'Failed to create content'
         }
       }
     } else if (action === 'enrich') {
-      const contentId = validateUUID(args.contentId, 'contentId')
-      const baseUrl = validateOptionalString(args.baseUrl, 'baseUrl')
+      if (!args.contentId) {
+        console.error('[content_write] Missing contentId for enrich action')
+        return {
+          success: false,
+          error: 'contentId is required for action="enrich". Use read_content_list to get valid content IDs.'
+        }
+      }
 
       try {
+        const contentId = validateUUID(args.contentId, 'contentId')
+        const baseUrl = validateOptionalString(args.baseUrl, 'baseUrl')
+
+        console.log('[content_write] Enriching content', {
+          contentId,
+          hasBaseUrl: !!baseUrl,
+          mode: context.mode
+        })
+
         const { refreshContentVersionMetadata } = await import('~~/server/services/content/generation')
         const result = await refreshContentVersionMetadata(db, {
           organizationId,
           userId,
           contentId,
           baseUrl: baseUrl ?? undefined
+        })
+
+        console.log('[content_write] Successfully enriched content', {
+          contentId: result.content.id,
+          versionId: result.version.id
         })
 
         return {
@@ -642,9 +688,29 @@ async function executeChatTool(
           contentId: result.content.id
         }
       } catch (error: any) {
+        console.error('[content_write] Error during content enrichment', {
+          error: error?.message,
+          stack: error?.stack,
+          contentId: args.contentId,
+          action,
+          mode: context.mode,
+          organizationId,
+          userId,
+          errorStatus: error?.statusCode,
+          errorStatusMessage: error?.statusMessage
+        })
+
+        // If it's a validation error (like UUID format), provide helpful message
+        if (error?.statusMessage?.includes('UUID')) {
+          return {
+            success: false,
+            error: `${error.statusMessage}. Use read_content_list to get valid content IDs.`
+          }
+        }
+
         return {
           success: false,
-          error: error?.message || 'Failed to enrich content'
+          error: error?.message || error?.statusMessage || 'Failed to enrich content'
         }
       }
     } else {
