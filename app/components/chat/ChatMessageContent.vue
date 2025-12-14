@@ -40,6 +40,59 @@ const toolCalls = computed(() => props.message.parts.filter(p => p.type === 'too
 const hasToolCalls = computed(() => toolCalls.value.length > 0)
 const textParts = computed(() => props.message.parts.filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text' && !!p.text?.trim()))
 
+type MarkdownSegment =
+  | { type: 'text', text: string }
+  | { type: 'link', text: string, href: string, external: boolean }
+
+function parseMarkdownLinks(text: string | null | undefined): MarkdownSegment[] {
+  if (!text) {
+    return []
+  }
+
+  const normalized = text
+  const segments: MarkdownSegment[] = []
+  const linkPattern = /\[([^[\]]+)\]\(([^)]+)\)/g
+  let match: RegExpExecArray | null
+  let lastIndex = 0
+
+  while ((match = linkPattern.exec(normalized)) !== null) {
+    const [fullMatch, label, url] = match
+    const preceding = normalized.slice(lastIndex, match.index)
+    if (preceding) {
+      segments.push({ type: 'text', text: preceding })
+    }
+    if (label && url) {
+      const href = url.trim()
+      if (href.length) {
+        segments.push({
+          type: 'link',
+          text: label.trim() || href,
+          href,
+          external: /^https?:\/\//i.test(href)
+        })
+      } else {
+        segments.push({ type: 'text', text: fullMatch })
+      }
+    }
+    lastIndex = match.index + fullMatch.length
+  }
+
+  const trailing = normalized.slice(lastIndex)
+  if (trailing) {
+    segments.push({ type: 'text', text: trailing })
+  }
+
+  if (!segments.length) {
+    segments.push({ type: 'text', text: normalized })
+  }
+
+  return segments
+}
+
+const renderedTextParts = computed(() => textParts.value.map(part => ({
+  segments: parseMarkdownLinks(part.text)
+})))
+
 const ALLOWED_EMBED_DOMAINS = [
   'youtube.com',
   'www.youtube.com',
@@ -179,13 +232,36 @@ function toSummaryBullets(summary: string | null | undefined) {
     </template>
 
     <!-- Text parts: Show after tool calls (LLM response reflects tool results) -->
-    <template v-if="textParts.length > 0 && !hasLiveToolActivities">
+    <template v-if="renderedTextParts.length > 0 && !hasLiveToolActivities">
       <p
-        v-for="(part, index) in textParts"
+        v-for="(part, index) in renderedTextParts"
         :key="`${message.id}-text-${index}`"
-        class="whitespace-pre-line"
+        class="whitespace-pre-line break-words"
       >
-        {{ part.text }}
+        <template
+          v-for="(segment, segmentIndex) in part.segments"
+          :key="`${message.id}-segment-${index}-${segmentIndex}`"
+        >
+          <NuxtLink
+            v-if="segment.type === 'link' && !segment.external"
+            :to="segment.href"
+            class="text-primary underline decoration-dotted break-words"
+          >
+            {{ segment.text }}
+          </NuxtLink>
+          <a
+            v-else-if="segment.type === 'link'"
+            :href="segment.href"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-primary underline decoration-dotted break-words"
+          >
+            {{ segment.text }}
+          </a>
+          <span v-else>
+            {{ segment.text }}
+          </span>
+        </template>
       </p>
     </template>
   </div>
