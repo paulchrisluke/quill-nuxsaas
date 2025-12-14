@@ -1,5 +1,8 @@
 import { useUserOrganizations } from '~/composables/useUserOrganizations'
 
+// Known locale codes from nuxt.config.ts
+const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
+
 export default defineNuxtRouteMiddleware(async (to) => {
   const { loggedIn, organization, useActiveOrganization, fetchSession, session } = useAuth()
 
@@ -8,16 +11,22 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   let routeSlug = to.params.slug as string | undefined
   if (!routeSlug || routeSlug === 't') {
-    // Get current locale and strip it from path if present
-    const { locale } = useI18n()
-    const currentLocale = locale.value
+    // Get current locale from route params or check first path segment
+    // In Nuxt i18n, the locale might be in to.params.locale or as the first path segment
+    const routeLocale = (to.params.locale as string | undefined) ||
+      (to.path.split('/').filter(Boolean)[0] as string | undefined)
+
+    // Check if first path segment is a known locale code
+    const currentLocale = routeLocale && KNOWN_LOCALES.includes(routeLocale) ? routeLocale : null
     let pathToCheck = to.path
 
     // Remove locale prefix if it matches the first segment
-    const pathSegments = pathToCheck.split('/').filter(Boolean)
-    if (pathSegments.length > 0 && pathSegments[0] === currentLocale) {
-      pathSegments.shift()
-      pathToCheck = `/${pathSegments.join('/')}`
+    if (currentLocale) {
+      const pathSegments = pathToCheck.split('/').filter(Boolean)
+      if (pathSegments.length > 0 && pathSegments[0] === currentLocale) {
+        pathSegments.shift()
+        pathToCheck = `/${pathSegments.join('/')}`
+      }
     }
 
     const contentMatch = pathToCheck.match(/^\/([^/]+)\/content(?:\/|$)/)
