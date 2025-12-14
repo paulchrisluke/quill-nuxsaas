@@ -185,21 +185,6 @@ const structuredDataSnippet = computed(() => {
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 
-const isMounted = ref(false)
-
-const setOnBackCallback = () => {
-  if (workspaceHeader.value) {
-    workspaceHeader.value.onBack = () => {
-      router.push(localePath(contentListPath.value))
-    }
-  }
-}
-
-onMounted(() => {
-  isMounted.value = true
-  setOnBackCallback()
-})
-
 watch(contentEntry, (entry) => {
   if (entry) {
     const updatedAtLabel = formatDateRelative(entry.updatedAt, { includeTime: true })
@@ -214,17 +199,15 @@ watch(contentEntry, (entry) => {
       deletions: entry.deletions ?? 0,
       contentId: entry.id,
       showBackButton: true,
-      onBack: null,
+      onBack: () => {
+        router.push(localePath(contentListPath.value))
+      },
       onArchive: null,
       onShare: null,
       onPrimaryAction: null,
       primaryActionLabel: '',
       primaryActionColor: '',
       primaryActionDisabled: false
-    }
-
-    if (isMounted.value) {
-      setOnBackCallback()
     }
 
     workspaceHeaderLoading.value = false

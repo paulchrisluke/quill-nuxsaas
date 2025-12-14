@@ -151,6 +151,24 @@ async function updateChunkingStatus(
 }
 
 /**
+ * Creates a progress emitter that safely calls an optional progress callback
+ */
+function createProgressEmitter(
+  callback: ((message: string) => Promise<void> | void) | undefined,
+  context: string
+) {
+  return async (message: string) => {
+    if (!callback)
+      return
+    try {
+      await callback(message)
+    } catch (error) {
+      safeWarn(`[${context}] Progress callback failed`, { error })
+    }
+  }
+}
+
+/**
  * Generates a content draft from a source content (context, YouTube video, etc.)
  *
  * @param db - Database instance
@@ -175,16 +193,7 @@ export const generateContentDraftFromSource = async (
     event: _event,
     intentSnapshot
   } = input
-  const progressCallback = input.onProgress
-  const emitProgress = async (message: string) => {
-    if (!progressCallback)
-      return
-    try {
-      await progressCallback(message)
-    } catch (error) {
-      safeWarn('[generateContentDraftFromSource] Progress callback failed', { error })
-    }
-  }
+  const emitProgress = createProgressEmitter(input.onProgress, 'generateContentDraftFromSource')
 
   // Enforce agent mode for writes
   if (mode === 'chat') {
@@ -706,15 +715,7 @@ export const updateContentSectionWithAI = async (
     mode,
     onProgress
   } = input
-  const emitProgress = async (message: string) => {
-    if (!onProgress)
-      return
-    try {
-      await onProgress(message)
-    } catch (error) {
-      safeWarn('[updateContentSection] Progress callback failed', { error })
-    }
-  }
+  const emitProgress = createProgressEmitter(onProgress, 'updateContentSection')
 
   safeLog('[updateContentSection] Starting section update', {
     hasContentId: !!contentId,
