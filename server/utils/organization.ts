@@ -153,9 +153,12 @@ export const requireActiveOrganization = async (
   const session = await getAuthSession(event) as BetterAuthSession | null
 
   // Better Auth's organization plugin sets activeOrganizationId in the session
-  let organizationId = session?.session?.activeOrganizationId
+  const sessionOrganizationId = session?.session?.activeOrganizationId
     ?? session?.data?.session?.activeOrganizationId
     ?? session?.activeOrganizationId
+  const hadSessionOrganization = Boolean(sessionOrganizationId)
+  let organizationId = sessionOrganizationId
+  let membershipFromLookup: typeof schema.member.$inferSelect | null = null
 
   const eventCached = getEventCachedActiveOrg(event, userId, organizationId, options?.requireRoles)
   if (eventCached) {
@@ -171,6 +174,18 @@ export const requireActiveOrganization = async (
     if (organizationId === cachedResult.organizationId && hasRequiredRole(cachedResult.membership.role, options?.requireRoles)) {
       setEventCachedActiveOrg(event, userId, cachedResult)
       return cachedResult
+    }
+  }
+
+  if (!organizationId) {
+    const [userRecord] = await db
+      .select({ lastActiveOrganizationId: schema.user.lastActiveOrganizationId })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId))
+      .limit(1)
+
+    if (userRecord?.lastActiveOrganizationId) {
+      organizationId = userRecord.lastActiveOrganizationId
     }
   }
 
@@ -197,18 +212,18 @@ export const requireActiveOrganization = async (
   }
 
   if (!organizationId) {
-    const [firstOrg] = await db
-      .select({ id: schema.organization.id })
+    const [firstMembership] = await db
+      .select()
       .from(schema.member)
-      .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
       .where(eq(schema.member.userId, userId))
-      .orderBy(asc(schema.organization.createdAt))
+      .orderBy(asc(schema.member.createdAt))
       .limit(1)
 
-    if (firstOrg?.id) {
-      organizationId = firstOrg.id
+    if (firstMembership?.organizationId) {
+      organizationId = firstMembership.organizationId
+      membershipFromLookup = firstMembership
       try {
-        await setUserActiveOrganization(userId, firstOrg.id)
+        await setUserActiveOrganization(userId, firstMembership.organizationId)
       } catch (error) {
         console.error('[requireActiveOrganization] Failed to set active organization in session:', error)
       }
@@ -254,14 +269,18 @@ export const requireActiveOrganization = async (
 
   // Verify membership using Better Auth's organization data
   // This ensures the user is actually a member of the organization
-  const [membership] = await db
-    .select()
-    .from(schema.member)
-    .where(and(
-      eq(schema.member.userId, userId),
-      eq(schema.member.organizationId, organizationId)
-    ))
-    .limit(1)
+  let membership = membershipFromLookup
+  if (!membership || membership.organizationId !== organizationId) {
+    const [freshMembership] = await db
+      .select()
+      .from(schema.member)
+      .where(and(
+        eq(schema.member.userId, userId),
+        eq(schema.member.organizationId, organizationId)
+      ))
+      .limit(1)
+    membership = freshMembership ?? null
+  }
 
   if (!membership) {
     await clearCachedActiveOrg(userId)
@@ -284,6 +303,11 @@ export const requireActiveOrganization = async (
   const result: ActiveOrgResult = { organizationId, membership }
   setEventCachedActiveOrg(event, userId, result)
   void cacheActiveOrg(userId, result)
+  if (!hadSessionOrganization) {
+    setUserActiveOrganization(userId, organizationId).catch((error) => {
+      console.error('[requireActiveOrganization] Failed to persist active organization to session:', error)
+    })
+  }
   return result
 }
 
