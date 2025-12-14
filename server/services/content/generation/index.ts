@@ -19,7 +19,7 @@ import {
   ensureUniqueContentSlug,
   resolveIngestMethodFromSourceContent
 } from '~~/server/utils/content'
-import { safeError, safeLog } from '~~/server/utils/safeLogger'
+import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import {
   assembleMarkdownFromSections,
@@ -222,16 +222,14 @@ export const generateContentDraftFromSource = async (
     resolvedIngestMethod = resolveIngestMethodFromSourceContent(sourceContent)
 
     // Log for debugging
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[generateContentDraftFromSource] Source content found:', {
-        id: sourceContent.id,
-        ingestStatus: sourceContent.ingestStatus,
-        sourceTextLength: resolvedSourceText?.length || 0,
-        hasSourceText: !!resolvedSourceText,
-        sourceType: sourceContent.sourceType,
-        externalId: sourceContent.externalId
-      })
-    }
+    safeLog('[generateContentDraftFromSource] Source content found:', {
+      hasId: !!sourceContent.id,
+      ingestStatus: sourceContent.ingestStatus,
+      sourceTextLength: resolvedSourceText?.length || 0,
+      hasSourceText: !!resolvedSourceText,
+      sourceType: sourceContent.sourceType,
+      hasExternalId: !!sourceContent.externalId
+    })
   }
 
   let existingContent: typeof schema.content.$inferSelect | null = null
@@ -272,11 +270,10 @@ export const generateContentDraftFromSource = async (
   }
 
   if (!resolvedSourceText) {
-    console.error('[generateContentDraftFromSource] Missing sourceText:', {
-      sourceContentId,
+    safeError('[generateContentDraftFromSource] Missing sourceText:', {
+      hasSourceContentId: !!sourceContentId,
       hasSourceContent: !!sourceContent,
       sourceTextLength: resolvedSourceText?.length || 0,
-      sourceTextPreview: resolvedSourceText?.substring(0, 100) || 'null/empty',
       ingestStatus: sourceContent?.ingestStatus,
       hasConversationHistory: !!conversationHistory,
       conversationHistoryLength: conversationHistory?.length || 0
@@ -319,7 +316,9 @@ export const generateContentDraftFromSource = async (
       try {
         await updateChunkingStatus(db, newSource.id, 'processing')
       } catch (err) {
-        console.error('[Content Generation] Failed to update chunking status to processing:', err)
+        safeError('[Content Generation] Failed to update chunking status to processing:', {
+          error: err instanceof Error ? err.message : 'Unknown error'
+        })
         throw createError({
           statusCode: 500,
           statusMessage: 'Failed to initialize chunking status'
@@ -330,7 +329,9 @@ export const generateContentDraftFromSource = async (
       const chunkingPromise = ensureSourceContentChunksExist(db, newSource, newSource.sourceText)
         .then(() => updateChunkingStatus(db, newSource.id, 'completed'))
         .catch(async (err) => {
-          console.error('[Content Generation] Background chunking failed:', err)
+          safeError('[Content Generation] Background chunking failed:', {
+            error: err instanceof Error ? err.message : 'Unknown error'
+          })
           await updateChunkingStatus(db, newSource.id, 'failed', err?.message || 'Unknown error')
         })
 
@@ -342,7 +343,9 @@ export const generateContentDraftFromSource = async (
       } else {
         // Fallback for Node.js/dev: fire-and-forget (tasks may not complete if server shuts down)
         chunkingPromise.catch((err) => {
-          console.error('[Content Generation] Fire-and-forget chunking failed:', err)
+          safeError('[Content Generation] Fire-and-forget chunking failed:', {
+            error: err instanceof Error ? err.message : 'Unknown error'
+          })
         })
       }
 
@@ -803,7 +806,9 @@ export const updateContentSectionWithAI = async (
 
       if (elapsedMinutes > 10) {
         // Job is stale/stuck (>10 mins). Mark as failed and proceed (on a best-effort basis)
-        console.warn(`[Content Update] Found stale chunking job for source ${record.sourceContent.id}, marking failed.`)
+        safeWarn('[Content Update] Found stale chunking job for source, marking failed.', {
+          hasSourceContentId: !!record.sourceContent.id
+        })
         await updateChunkingStatus(db, record.sourceContent.id, 'failed', 'Chunking timeout - auto-failed')
         // Proceed without throwing 503
       } else {
@@ -1083,9 +1088,9 @@ export async function reEnrichContentVersion(
   const seoSnapshot = currentVersion.seoSnapshot as Record<string, any> | null
 
   if (!frontmatter) {
-    console.error('[reEnrichContentVersion] Invalid or missing frontmatter', {
-      contentId,
-      versionId: currentVersion.id
+    safeError('[reEnrichContentVersion] Invalid or missing frontmatter', {
+      hasContentId: !!contentId,
+      hasVersionId: !!currentVersion.id
     })
     throw createError({
       statusCode: 400,

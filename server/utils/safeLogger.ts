@@ -41,14 +41,23 @@ const SENSITIVE_CONTENT_FIELDS = [
 /**
  * Redacts sensitive data from an object, replacing IDs with boolean flags
  * and sensitive content with redaction markers or metadata only.
+ * Handles circular references to prevent infinite recursion.
  */
-function redactSensitiveData(data: unknown): unknown {
+function redactSensitiveData(data: unknown, seen: Set<unknown> = new Set()): unknown {
   if (data === null || data === undefined) {
     return data
   }
 
+  // Check for circular references
+  if (typeof data === 'object') {
+    if (seen.has(data)) {
+      return '[Circular]'
+    }
+    seen.add(data)
+  }
+
   if (Array.isArray(data)) {
-    return data.map(redactSensitiveData)
+    return data.map(item => redactSensitiveData(item, seen))
   }
 
   if (typeof data === 'object') {
@@ -59,12 +68,12 @@ function redactSensitiveData(data: unknown): unknown {
 
       // Check if this is a sensitive ID field
       const isSensitiveId = SENSITIVE_ID_FIELDS.some(
-        field => keyLower === field.toLowerCase() || keyLower.includes(field.toLowerCase())
+        field => keyLower === field.toLowerCase() || keyLower.endsWith(field.toLowerCase())
       )
 
       // Check if this is sensitive content
       const isSensitiveContent = SENSITIVE_CONTENT_FIELDS.some(
-        field => keyLower === field.toLowerCase() || keyLower.includes(field.toLowerCase())
+        field => keyLower === field.toLowerCase() || keyLower.endsWith(field.toLowerCase())
       )
 
       if (isSensitiveId) {
@@ -82,7 +91,7 @@ function redactSensitiveData(data: unknown): unknown {
         }
       } else {
         // Recursively process nested objects
-        redacted[key] = redactSensitiveData(value)
+        redacted[key] = redactSensitiveData(value, seen)
       }
     }
 

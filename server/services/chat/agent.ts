@@ -83,7 +83,7 @@ function generateSummaryFromToolHistory(
     if (failedTools.length > 0) {
       return 'I attempted several operations but encountered issues. Please try again or provide more specific instructions.'
     }
-    return 'I completed the requested operations.'
+    return 'I didn\'t perform any operations; please provide instructions or try again.'
   }
 
   const summaries: string[] = []
@@ -154,12 +154,23 @@ function generateSummaryFromToolHistory(
 
   if (message.length > 500) {
     // Truncate if too long, but keep the important parts
-    message = `${summaries.slice(0, 2).join('. ')}.`
+    const truncatedSummaries = summaries.slice(0, 2).join('. ')
+    const remainingCount = summaries.length - 2
+    message = `${truncatedSummaries}.`
     if (summaries.length > 2) {
-      message += ` (and ${summaries.length - 2} more operation${summaries.length - 2 !== 1 ? 's' : ''})`
+      message += ` (and ${remainingCount} more operation${remainingCount !== 1 ? 's' : ''})`
+    }
+    // Preserve failure information even in truncated version
+    if (failedTools.length > 0 && successfulTools.length > 0) {
+      const failedCount = [...new Set(failedTools.map(t => t.toolName))].length
+      message += ` Note: ${failedCount} operation${failedCount !== 1 ? 's' : ''} had issues.`
     }
     if (iteration >= MAX_TOOL_ITERATIONS) {
       message += ' I reached the maximum number of tool calls.'
+    }
+    // Ensure we're actually under the limit
+    if (message.length > 500) {
+      message = `${truncatedSummaries.substring(0, 450)}... (truncated)`
     }
   }
 
