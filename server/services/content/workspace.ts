@@ -1,6 +1,6 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { ContentFrontmatter, ContentSection } from './generation/types'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { getConversationById, getConversationLogs, getConversationMessages } from '../conversation'
@@ -17,13 +17,10 @@ export async function getContentWorkspacePayload(
   const [contentRow] = await db
     .select()
     .from(schema.content)
-    .where(and(
-      eq(schema.content.organizationId, organizationId),
-      eq(schema.content.id, contentId)
-    ))
+    .where(eq(schema.content.id, contentId))
     .limit(1)
 
-  if (!contentRow) {
+  if (!contentRow || contentRow.organizationId !== organizationId) {
     throw createError({
       statusCode: 404,
       statusMessage: 'Content not found'
