@@ -1,13 +1,13 @@
 import { computed } from 'vue'
 
-export interface ConversationListItem {
+export interface ContentListItem {
   id: string
   displayLabel: string
   updatedAgo: string
 }
 
 interface FetchResponse {
-  conversations: ConversationListItem[]
+  contents: ContentListItem[]
   nextCursor: string | null
   hasMore: boolean
   limit: number
@@ -15,19 +15,19 @@ interface FetchResponse {
 
 const DEFAULT_PAGE_SIZE = 30
 
-export function useConversationList(options?: { pageSize?: number, stateKey?: string }) {
+export function useContentList(options?: { pageSize?: number, stateKey?: string }) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE
   const baseKey = options?.stateKey ?? `default:${pageSize}`
-  const resolveKey = (segment: string) => `conversation-list:${baseKey}:${segment}`
+  const resolveKey = (segment: string) => `content-list:${baseKey}:${segment}`
 
-  const itemsState = useState<ConversationListItem[]>(resolveKey('items'), () => [])
+  const itemsState = useState<ContentListItem[]>(resolveKey('items'), () => [])
   const cursorState = useState<string | null>(resolveKey('cursor'), () => null)
   const hasMoreState = useState<boolean>(resolveKey('has-more'), () => true)
   const pendingState = useState<boolean>(resolveKey('pending'), () => false)
   const errorState = useState<string | null>(resolveKey('error'), () => null)
   const initializedState = useState<boolean>(resolveKey('initialized'), () => false)
 
-  const mergeItems = (incoming: ConversationListItem[], replace = false) => {
+  const mergeItems = (incoming: ContentListItem[], replace = false) => {
     if (replace) {
       itemsState.value = [...incoming]
       return
@@ -47,21 +47,21 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
     pendingState.value = true
     errorState.value = null
     try {
-      const response = await $fetch<FetchResponse>('/api/conversations', {
+      const response = await $fetch<FetchResponse>('/api/content', {
         query: {
           limit: pageSize,
           cursor: opts?.cursor ?? undefined
         }
       })
 
-      const records = response?.conversations ?? []
+      const records = response?.contents ?? []
       mergeItems(records, Boolean(opts?.replace || !opts?.cursor))
       cursorState.value = response?.nextCursor ?? null
       hasMoreState.value = Boolean(response?.hasMore && response.nextCursor)
       initializedState.value = true
     } catch (error) {
-      console.error('[conversation-list] failed to fetch', error)
-      errorState.value = error instanceof Error ? error.message : 'Failed to load conversations'
+      console.error('[content-list] failed to fetch', error)
+      errorState.value = error instanceof Error ? error.message : 'Failed to load content'
       throw error
     } finally {
       pendingState.value = false
@@ -84,18 +84,18 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
     await fetchPage({ cursor: cursorState.value })
   }
 
-  const upsert = (entry: ConversationListItem) => {
-    const normalized: ConversationListItem = {
+  const upsert = (entry: ContentListItem) => {
+    const normalized: ContentListItem = {
       id: entry.id,
-      displayLabel: entry.displayLabel || 'Untitled conversation',
+      displayLabel: entry.displayLabel || 'Untitled content',
       updatedAgo: entry.updatedAgo || 'Just now'
     }
     const next = itemsState.value.filter(item => item.id !== normalized.id)
     itemsState.value = [normalized, ...next]
   }
 
-  const remove = (conversationId: string) => {
-    itemsState.value = itemsState.value.filter(item => item.id !== conversationId)
+  const remove = (contentId: string) => {
+    itemsState.value = itemsState.value.filter(item => item.id !== contentId)
   }
 
   const reset = () => {
@@ -107,10 +107,10 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
     initializedState.value = false
   }
 
-  const hasConversation = (conversationId: string | null | undefined) => {
-    if (!conversationId)
+  const hasContent = (contentId: string | null | undefined) => {
+    if (!contentId)
       return false
-    return itemsState.value.some(item => item.id === conversationId)
+    return itemsState.value.some(item => item.id === contentId)
   }
 
   return {
@@ -125,6 +125,6 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
     upsert,
     remove,
     reset,
-    hasConversation
+    hasContent
   }
 }
