@@ -23,7 +23,6 @@ import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import {
   assembleMarkdownFromSections,
-  enrichMarkdownWithMetadata,
   extractMarkdownFromEnrichedMdx
 } from './assembly'
 import {
@@ -51,6 +50,7 @@ import {
   isValidContentFrontmatter,
   parseAIResponseAsJSON
 } from './utils'
+import { deriveSchemaMetadata, validateSchemaMetadata } from './schemaMetadata'
 
 function formatIntentSummary(snapshot?: ConversationIntentSnapshot | null): string | null {
   if (!snapshot) {
@@ -113,9 +113,6 @@ export type {
 
 // Internal constant alias
 const SECTION_PATCH_SYSTEM_PROMPT = CONTENT_SECTION_UPDATE_SYSTEM_PROMPT
-
-// Re-export for external use (used by workspaceFiles.ts)
-export const enrichMdxWithMetadata = enrichMarkdownWithMetadata
 
 /**
  * Updates chunking status in sourceContent metadata
@@ -462,6 +459,8 @@ export const generateContentDraftFromSource = async (
   })
   pipelineStages.push('assembly')
 
+  frontmatter = deriveSchemaMetadata(frontmatter, assembled.sections)
+
   const resolvedSourceContentId = frontmatter.sourceContentId ?? sourceContent?.id ?? null
   const selectedStatus = frontmatter.status
   const selectedContentType = frontmatter.contentType
@@ -471,22 +470,19 @@ export const generateContentDraftFromSource = async (
   // SEO snapshot is created, so SEO stage is complete
   pipelineStages.push('seo')
 
+  const schemaValidation = validateSchemaMetadata(frontmatter)
   const assets = createGenerationMetadata(sourceContent, pipelineStages)
   const seoSnapshot = {
     plan: plan.seo,
     primaryKeyword,
     targetLocale,
     contentType: selectedContentType,
-    schemaTypes: frontmatter.schemaTypes
+    schemaTypes: frontmatter.schemaTypes,
+    schemaValidation
   }
 
-  // Enrich MDX with frontmatter and JSON-LD structured data
-  const enrichedMdx = enrichMdxWithMetadata({
-    markdown: assembled.markdown,
-    frontmatter,
-    seoSnapshot
-  })
-  pipelineStages.push('enrichment')
+  const markdown = assembled.markdown
+  pipelineStages.push('markdown')
 
   const result = await db.transaction(async (tx) => {
     let contentRecord = existingContent
@@ -609,7 +605,7 @@ export const generateContentDraftFromSource = async (
           primaryKeyword,
           targetLocale
         },
-        bodyMdx: enrichedMdx,
+        bodyMdx: markdown,
         bodyHtml: null,
         sections: assembled.sections,
         assets,
@@ -657,7 +653,7 @@ export const generateContentDraftFromSource = async (
   return {
     content: result.content,
     version: result.version,
-    markdown: enrichedMdx,
+    markdown,
     meta
   }
 }
@@ -791,7 +787,7 @@ export const updateContentSectionWithAI = async (
   // Store original section body for diff calculation
   const originalSectionBody = targetSection.body || ''
 
-  const frontmatter = extractFrontmatterFromVersion({
+  let frontmatter = extractFrontmatterFromVersion({
     content: recordContent,
     version: currentVersion
   })
@@ -924,6 +920,8 @@ export const updateContentSectionWithAI = async (
     sections: updatedSections
   })
 
+  frontmatter = deriveSchemaMetadata(frontmatter, assembled.sections)
+
   // Calculate diff stats by comparing old vs new section body
   // Uses a more accurate line-by-line comparison
   const calculateDiffStats = (oldText: string, newText: string): { additions: number, deletions: number } => {
@@ -1003,6 +1001,7 @@ export const updateContentSectionWithAI = async (
   const slug = record.version.frontmatter?.slug || record.content.slug
   const previousSeoSnapshot = currentVersion.seoSnapshot ?? {}
   const assets = createSectionUpdateMetadata(record.sourceContent ?? null, targetSection.id)
+  const schemaValidation = validateSchemaMetadata(frontmatter)
   const seoSnapshot = {
     ...previousSeoSnapshot,
     primaryKeyword: frontmatter.primaryKeyword,
@@ -1010,15 +1009,9 @@ export const updateContentSectionWithAI = async (
     contentType: frontmatter.contentType,
     schemaTypes: frontmatter.schemaTypes,
     lastPatchedSectionId: targetSection.id,
-    patchedAt: new Date().toISOString()
+    patchedAt: new Date().toISOString(),
+    schemaValidation
   }
-
-  // Enrich MDX with frontmatter and JSON-LD structured data
-  const enrichedMdx = enrichMdxWithMetadata({
-    markdown: assembled.markdown,
-    frontmatter,
-    seoSnapshot
-  })
 
   const result = await db.transaction(async (tx) => {
     const [latestVersion] = await tx
@@ -1054,7 +1047,7 @@ export const updateContentSectionWithAI = async (
             deletions: diffStats.deletions
           }
         },
-        bodyMdx: enrichedMdx,
+        bodyMdx: assembled.markdown,
         bodyHtml: null,
         sections: assembled.sections,
         assets,
@@ -1094,7 +1087,7 @@ export const updateContentSectionWithAI = async (
   return {
     content: result.content,
     version: result.version,
-    markdown: enrichedMdx,
+    markdown: assembled.markdown,
     section: {
       id: targetSection.id,
       title: targetSection.title,
@@ -1112,15 +1105,15 @@ export const updateContentSection = async (
 }
 
 /**
- * Re-enriches existing content version with frontmatter and JSON-LD
+ * Normalizes an existing content version so that bodyMdx stores raw markdown only.
  *
  * @param db - Database instance
- * @param params - Parameters for re-enrichment
+ * @param params - Parameters for normalization
  * @param params.organizationId - Organization ID
  * @param params.userId - User ID
  * @param params.contentId - Content ID
- * @param params.baseUrl - Base URL for content
- * @returns Updated content version with enriched MDX
+ * @param params.baseUrl - Base URL for content (unused, kept for backwards compatibility)
+ * @returns Updated content version with normalized markdown
  */
 export async function reEnrichContentVersion(
   db: NodePgDatabase<typeof schema>,
@@ -1133,9 +1126,9 @@ export async function reEnrichContentVersion(
 ): Promise<{
   content: typeof schema.content.$inferSelect
   version: typeof schema.contentVersion.$inferSelect
-  enrichedMdx: string
+  markdown: string
 }> {
-  const { organizationId, userId: _userId, contentId, baseUrl } = params
+  const { organizationId, userId: _userId, contentId, baseUrl: _baseUrl } = params
 
   // Fetch content and current version
   const [record] = await db
@@ -1190,20 +1183,12 @@ export async function reEnrichContentVersion(
   }
   const rawMarkdown = extractMarkdownFromEnrichedMdx(currentVersion.bodyMdx)
 
-  // Re-enrich with current frontmatter and seoSnapshot
-  const enrichedMdx = enrichMdxWithMetadata({
-    markdown: rawMarkdown,
-    frontmatter,
-    seoSnapshot,
-    baseUrl
-  })
-
-  // Update the current version's bodyMdx with enriched content
+  // Update the current version's bodyMdx to store normalized markdown only
   const result = await db.transaction(async (tx) => {
     const [updatedVersion] = await tx
       .update(schema.contentVersion)
       .set({
-        bodyMdx: enrichedMdx
+        bodyMdx: rawMarkdown
         // Update updatedAt if there's such a field, otherwise just update bodyMdx
       })
       .where(eq(schema.contentVersion.id, currentVersion.id))
@@ -1241,7 +1226,7 @@ export async function reEnrichContentVersion(
   return {
     content: result.content,
     version: result.version,
-    enrichedMdx
+    markdown: rawMarkdown
   }
 }
 
@@ -1257,7 +1242,7 @@ export async function refreshContentVersionMetadata(
 ): Promise<{
   content: typeof schema.content.$inferSelect
   version: typeof schema.contentVersion.$inferSelect
-  enrichedMdx: string
+  markdown: string
 }> {
   return reEnrichContentVersion(db, params)
 }
@@ -1268,6 +1253,8 @@ export {
   enrichMarkdownWithMetadata,
   extractMarkdownFromEnrichedMdx
 } from './assembly'
+
+export { enrichMarkdownWithMetadata as enrichMdxWithMetadata } from './assembly'
 
 export {
   buildChunkPreviewText,

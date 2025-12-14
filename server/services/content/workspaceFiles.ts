@@ -1,6 +1,7 @@
 import type * as schema from '~~/server/db/schema'
 import { slugifyTitle } from '~~/server/utils/content'
 import { enrichMdxWithMetadata } from './generation'
+import type { ContentSection } from './generation/types'
 
 export interface WorkspaceFilePayload {
   id: string
@@ -108,7 +109,7 @@ export function buildWorkspaceFilesPayload(
   options?: { organizationSlug?: string | null }
 ): WorkspaceFilePayload[] {
   const body = version.bodyMdx || version.bodyHtml || ''
-  const sections = Array.isArray(version.sections) ? version.sections : []
+  const sections = Array.isArray(version.sections) ? version.sections as ContentSection[] : []
   const frontmatter = version.frontmatter && typeof version.frontmatter === 'object'
     ? version.frontmatter as Record<string, any>
     : {}
@@ -134,7 +135,8 @@ export function buildWorkspaceFilesPayload(
     markdown: body,
     frontmatter: frontmatter as any,
     seoSnapshot,
-    baseUrl: undefined
+    baseUrl: undefined,
+    sections: sections as any
   })
 
   return [

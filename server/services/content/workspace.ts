@@ -3,6 +3,8 @@ import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { getConversationById, getConversationLogs, getConversationMessages } from '../conversation'
+import type { ContentFrontmatter, ContentSection } from './generation/types'
+import { generateStructuredDataJsonLd } from './generation'
 import { buildWorkspaceSummary } from './workspaceSummary'
 
 export async function getContentWorkspacePayload(
@@ -95,8 +97,25 @@ export async function getContentWorkspacePayload(
     sourceContent: record.sourceContent
   })
 
+  let structuredData: string | null = null
+  if (record.currentVersion?.frontmatter) {
+    structuredData = generateStructuredDataJsonLd({
+      frontmatter: record.currentVersion.frontmatter as ContentFrontmatter,
+      seoSnapshot: record.currentVersion.seoSnapshot as Record<string, any> | null,
+      sections: record.currentVersion.sections as ContentSection[] | null | undefined
+    }) || null
+  }
+
+  const currentVersionWithDerived = record.currentVersion
+    ? {
+        ...record.currentVersion,
+        structuredData
+      }
+    : null
+
   return {
     ...record,
+    currentVersion: currentVersionWithDerived,
     workspaceSummary,
     chatSession: conversation, // Legacy field name for backwards compatibility
     chatMessages: includeChat ? chatMessages : null,

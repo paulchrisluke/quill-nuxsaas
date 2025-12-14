@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useContentList } from '~/composables/useContentList'
+import { useConversationList } from '~/composables/useConversationList'
+
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()

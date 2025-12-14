@@ -24,7 +24,11 @@ const FRONTMATTER_KEY_ORDER = [
   'keywords',
   'tags',
   'schemaTypes',
-  'sourceContentId'
+  'sourceContentId',
+  'recipe',
+  'howTo',
+  'course',
+  'faq'
 ]
 
 export const createFrontmatterFromOutline = (params: {
@@ -221,7 +225,11 @@ export const extractFrontmatterFromVersion = (params: {
     schemaTypes,
     primaryKeyword: versionFrontmatter.primaryKeyword ?? params.content.primaryKeyword ?? null,
     targetLocale: versionFrontmatter.targetLocale ?? params.content.targetLocale ?? null,
-    sourceContentId: versionFrontmatter.sourceContentId ?? params.content.sourceContentId ?? null
+    sourceContentId: versionFrontmatter.sourceContentId ?? params.content.sourceContentId ?? null,
+    recipe: versionFrontmatter.recipe || undefined,
+    howTo: versionFrontmatter.howTo || undefined,
+    course: versionFrontmatter.course || undefined,
+    faq: versionFrontmatter.faq || undefined
   }
 }
 

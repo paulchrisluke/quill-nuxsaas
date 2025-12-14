@@ -62,14 +62,15 @@ export const enrichMarkdownWithMetadata = (params: {
   frontmatter: ContentFrontmatter
   seoSnapshot: Record<string, any> | null
   baseUrl?: string
+  sections?: ContentSection[] | null
 }): string => {
-  const { markdown, frontmatter, seoSnapshot, baseUrl } = params
+  const { markdown, frontmatter, seoSnapshot, baseUrl, sections } = params
 
   // Extract raw markdown if already enriched
   const rawMarkdown = extractMarkdownFromEnrichedMdx(markdown)
 
   const frontmatterBlock = formatFrontmatterAsYaml(frontmatter)
-  const jsonLd = generateStructuredDataJsonLd({ frontmatter, seoSnapshot, baseUrl })
+  const jsonLd = generateStructuredDataJsonLd({ frontmatter, seoSnapshot, baseUrl, sections })
 
   const parts: string[] = [frontmatterBlock]
   if (jsonLd) {

@@ -88,6 +88,49 @@ export interface ContentOutline {
   }
 }
 
+export interface RecipeMetadata {
+  yield?: string | null
+  prepTime?: string | null
+  cookTime?: string | null
+  totalTime?: string | null
+  calories?: string | null
+  cuisine?: string | null
+  ingredients?: string[]
+  instructions?: string[]
+}
+
+export interface HowToMetadata {
+  estimatedCost?: string | null
+  totalTime?: string | null
+  difficulty?: string | null
+  supplies?: string[]
+  tools?: string[]
+  steps?: string[]
+}
+
+export interface CourseModuleMetadata {
+  title?: string
+  description?: string | null
+  mode?: string | null
+}
+
+export interface CourseMetadata {
+  providerName?: string | null
+  providerUrl?: string | null
+  courseCode?: string | null
+  modules?: CourseModuleMetadata[]
+}
+
+export interface FaqEntryMetadata {
+  question: string
+  answer: string
+}
+
+export interface FaqMetadata {
+  description?: string | null
+  entries?: FaqEntryMetadata[]
+}
+
 export interface ContentFrontmatter {
   title: string
   description?: string
@@ -101,6 +144,10 @@ export interface ContentFrontmatter {
   primaryKeyword?: string | null
   targetLocale?: string | null
   sourceContentId?: string | null
+  recipe?: RecipeMetadata
+  howTo?: HowToMetadata
+  course?: CourseMetadata
+  faq?: FaqMetadata
 }
 
 export interface ContentPlanDetails {

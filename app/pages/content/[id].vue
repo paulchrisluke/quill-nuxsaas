@@ -13,7 +13,14 @@ interface ContentEntry {
   additions?: number
   deletions?: number
   conversationId?: string | null
-  bodyMdx?: string
+  bodyMarkdown: string
+  frontmatter: Record<string, any> | null
+  schemaTypes: string[]
+  jsonLd: string | null
+  schemaValidation: {
+    errors: string[]
+    warnings: string[]
+  } | null
 }
 
 interface ContentApiResponse {
@@ -29,6 +36,7 @@ interface ContentApiResponse {
     }
     currentVersion?: {
       bodyMdx?: string
+      structuredData?: string | null
       diffStats?: {
         additions?: number
         deletions?: number
@@ -39,7 +47,8 @@ interface ContentApiResponse {
           additions?: number
           deletions?: number
         }
-      }
+      } & Record<string, any>
+      seoSnapshot?: Record<string, any> | null
     }
   }
 }
@@ -114,6 +123,20 @@ const contentEntry = computed<ContentEntry | null>(() => {
   const fmStats = currentVersion?.frontmatter?.diffStats as { additions?: number, deletions?: number } | undefined
   const additions = versionStats?.additions ?? fmStats?.additions ?? 0
   const deletions = versionStats?.deletions ?? fmStats?.deletions ?? 0
+  const frontmatter = (currentVersion?.frontmatter as Record<string, any> | undefined) ?? null
+  const schemaTypes = Array.isArray(frontmatter?.schemaTypes)
+    ? frontmatter.schemaTypes.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : []
+  const jsonLd = typeof currentVersion?.structuredData === 'string' ? currentVersion.structuredData : null
+  const schemaValidationRaw = currentVersion?.seoSnapshot && typeof currentVersion.seoSnapshot === 'object'
+    ? (currentVersion.seoSnapshot as Record<string, any>).schemaValidation
+    : null
+  const schemaValidation = schemaValidationRaw && typeof schemaValidationRaw === 'object'
+    ? {
+        errors: Array.isArray(schemaValidationRaw.errors) ? schemaValidationRaw.errors.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [],
+        warnings: Array.isArray(schemaValidationRaw.warnings) ? schemaValidationRaw.warnings.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0) : []
+      }
+    : null
 
   return {
     id: content?.id || '',
@@ -125,9 +148,34 @@ const contentEntry = computed<ContentEntry | null>(() => {
     additions,
     deletions,
     conversationId: content?.conversationId || null,
-    bodyMdx: currentVersion?.bodyMdx || ''
+    bodyMarkdown: currentVersion?.bodyMdx || '',
+    frontmatter,
+    schemaTypes,
+    jsonLd: jsonLd?.trim() || null,
+    schemaValidation
   }
 })
+
+const frontmatterJson = computed(() => {
+  if (!contentEntry.value?.frontmatter) {
+    return 'Frontmatter has not been generated yet.'
+  }
+  try {
+    return JSON.stringify(contentEntry.value.frontmatter, null, 2)
+  } catch {
+    return 'Failed to serialize frontmatter.'
+  }
+})
+
+const structuredDataSnippet = computed(() => {
+  if (contentEntry.value?.jsonLd) {
+    return contentEntry.value.jsonLd
+  }
+  return 'Structured data will be generated automatically once schema types are configured.'
+})
+
+const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
+const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 
 // Helper to set onBack callback (used after mount to avoid hydration mismatch)
 const setOnBackCallback = () => {
@@ -188,53 +236,180 @@ watchEffect(() => {
 </script>
 
 <template>
-  <div class="w-full h-full flex flex-col py-4 px-4 sm:px-6">
-    <div class="w-full">
-      <div class="space-y-8">
-        <!-- Loading skeleton -->
-        <div
-          v-if="pending"
-          class="space-y-4"
-        >
-          <USkeleton class="h-20 w-full rounded-lg" />
-          <USkeleton class="h-32 w-3/4 rounded-lg" />
-          <USkeleton class="h-24 w-full rounded-lg" />
-        </div>
+  <div class="space-y-6">
+    <!-- Loading skeleton -->
+    <div
+      v-if="pending"
+      class="space-y-4"
+    >
+      <USkeleton class="h-20 w-full" />
+      <USkeleton class="h-32 w-3/4" />
+      <USkeleton class="h-24 w-full" />
+    </div>
 
-        <!-- Error banner -->
+    <!-- Error banner -->
+    <UAlert
+      v-else-if="error"
+      color="error"
+      variant="soft"
+      icon="i-lucide-alert-triangle"
+      :description="error.message || 'Failed to load content'"
+    />
+
+    <!-- Content Display -->
+    <template v-else-if="contentEntry">
+      <div class="space-y-4 mb-4">
         <UAlert
-          v-else-if="error"
+          v-if="schemaErrors.length"
           color="error"
           variant="soft"
-          icon="i-lucide-alert-triangle"
-          :description="error.message || 'Failed to load content'"
-          class="w-full"
-        />
-
-        <!-- Content Display -->
-        <template v-else-if="contentEntry">
-          <div class="w-full">
-            <UTextarea
-              :model-value="contentEntry.bodyMdx || ''"
-              placeholder="No content available"
-              readonly
-              autoresize
-              class="w-full min-h-96"
-            />
-          </div>
-        </template>
-
-        <!-- Empty state -->
+          icon="i-lucide-alert-circle"
+          title="Schema requirements missing"
+        >
+          <template #description>
+            <ul class="list-disc list-inside space-y-1 text-sm">
+              <li
+                v-for="issue in schemaErrors"
+                :key="`schema-error-${issue}`"
+              >
+                {{ issue }}
+              </li>
+            </ul>
+          </template>
+        </UAlert>
         <UAlert
-          v-else
-          color="neutral"
+          v-if="schemaWarnings.length"
+          color="warning"
           variant="soft"
-          icon="i-lucide-file-text"
-          title="No content available"
-          description="This content item could not be found or loaded."
+          icon="i-lucide-alert-triangle"
+          title="Schema improvements suggested"
+        >
+          <template #description>
+            <ul class="list-disc list-inside space-y-1 text-sm">
+              <li
+                v-for="issue in schemaWarnings"
+                :key="`schema-warning-${issue}`"
+              >
+                {{ issue }}
+              </li>
+            </ul>
+          </template>
+        </UAlert>
+      </div>
+
+      <UCard class="mb-4">
+        <template #header>
+          <p class="text-sm font-medium">
+            Content details
+          </p>
+        </template>
+        <div class="space-y-4">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted-500">
+              Slug
+            </p>
+            <p class="font-medium break-all">
+              {{ contentEntry.slug || '—' }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted-500">
+              Status
+            </p>
+            <p class="font-medium capitalize">
+              {{ contentEntry.status }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted-500">
+              Content type
+            </p>
+            <p class="font-medium capitalize">
+              {{ contentEntry.contentType }}
+            </p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-muted-500">
+              Schema types
+            </p>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <template v-if="contentEntry.schemaTypes.length">
+                <UBadge
+                  v-for="schema in contentEntry.schemaTypes"
+                  :key="schema"
+                  size="xs"
+                  color="neutral"
+                  variant="soft"
+                >
+                  {{ schema }}
+                </UBadge>
+              </template>
+              <span
+                v-else
+                class="text-sm text-muted-500"
+              >
+                Not set
+              </span>
+            </div>
+          </div>
+        </div>
+      </UCard>
+
+      <UCard class="mb-4">
+        <template #header>
+          <p class="text-sm font-medium">
+            Body Markdown
+          </p>
+        </template>
+        <UTextarea
+          :model-value="contentEntry.bodyMarkdown || ''"
+          placeholder="No content available"
+          readonly
+          :rows="20"
+          autoresize
           class="w-full"
         />
-      </div>
-    </div>
+      </UCard>
+
+      <UCard class="mb-4">
+        <template #header>
+          <p class="text-sm font-medium">
+            Frontmatter
+          </p>
+        </template>
+        <UTextarea
+          :model-value="frontmatterJson"
+          readonly
+          :rows="12"
+          autoresize
+          class="w-full"
+        />
+      </UCard>
+
+      <UCard>
+        <template #header>
+          <p class="text-sm font-medium">
+            JSON-LD Structured Data
+          </p>
+        </template>
+        <UTextarea
+          :model-value="structuredDataSnippet"
+          readonly
+          :rows="12"
+          autoresize
+          class="w-full"
+        />
+      </UCard>
+    </template>
+
+    <!-- Empty state -->
+    <UAlert
+      v-else
+      color="neutral"
+      variant="soft"
+      icon="i-lucide-file-text"
+      title="No content available"
+      description="This content item could not be found or loaded."
+    />
   </div>
 </template>

@@ -1,11 +1,119 @@
-import type { ContentFrontmatter } from './types'
+import type { ContentFrontmatter, ContentSection } from './types'
+import {
+  buildCourseInstancesFromMetadata,
+  buildCourseInstancesFromSections,
+  buildFaqEntriesFromMetadata,
+  buildFaqEntriesFromSections,
+  buildManualSteps,
+  buildStepEntries,
+  collectListItemsFromSections,
+  normalizeStringArray
+} from './schemaMetadata'
+
+const buildRecipeStructuredData = (params: {
+  frontmatter: ContentFrontmatter
+  sections?: ContentSection[] | null
+}) => {
+  const recipeMeta = params.frontmatter.recipe
+  const manualIngredients = normalizeStringArray(recipeMeta?.ingredients)
+  const manualInstructions = normalizeStringArray(recipeMeta?.instructions)
+  const ingredients = manualIngredients.length
+    ? manualIngredients
+    : collectListItemsFromSections(params.sections ?? null, ['ingredient'])
+  const instructions = manualInstructions.length
+    ? buildManualSteps(manualInstructions)
+    : buildStepEntries(params.sections ?? null, true)
+
+  const data: Record<string, any> = {}
+  if (ingredients.length) {
+    data.recipeIngredient = ingredients
+  }
+  if (instructions.length) {
+    data.recipeInstructions = instructions
+  }
+  if (recipeMeta?.yield) {
+    data.recipeYield = recipeMeta.yield
+  }
+  if (recipeMeta?.prepTime) {
+    data.prepTime = recipeMeta.prepTime
+  }
+  if (recipeMeta?.cookTime) {
+    data.cookTime = recipeMeta.cookTime
+  }
+  if (recipeMeta?.totalTime) {
+    data.totalTime = recipeMeta.totalTime
+  }
+  if (recipeMeta?.calories) {
+    data.nutrition = {
+      '@type': 'NutritionInformation',
+      calories: recipeMeta.calories
+    }
+  }
+  if (recipeMeta?.cuisine) {
+    data.recipeCuisine = recipeMeta.cuisine
+  } else if (params.frontmatter.targetLocale) {
+    data.recipeCuisine = params.frontmatter.targetLocale
+  }
+  if (!data.recipeCategory) {
+    if (params.frontmatter.primaryKeyword) {
+      data.recipeCategory = params.frontmatter.primaryKeyword
+    } else if (Array.isArray(params.frontmatter.tags) && params.frontmatter.tags.length) {
+      data.recipeCategory = params.frontmatter.tags[0]
+    }
+  }
+  return data
+}
+
+const buildHowToStructuredData = (params: {
+  frontmatter: ContentFrontmatter
+  sections?: ContentSection[] | null
+}) => {
+  const howToMeta = params.frontmatter.howTo
+  const manualSteps = normalizeStringArray(howToMeta?.steps)
+  const manualSupplies = normalizeStringArray(howToMeta?.supplies)
+  const manualTools = normalizeStringArray(howToMeta?.tools)
+  const steps = manualSteps.length
+    ? buildManualSteps(manualSteps)
+    : buildStepEntries(params.sections ?? null, true)
+  const supplies = manualSupplies.length
+    ? manualSupplies
+    : collectListItemsFromSections(params.sections ?? null, ['supply', 'material'])
+  const tools = manualTools.length
+    ? manualTools
+    : collectListItemsFromSections(params.sections ?? null, ['tool', 'equipment'])
+
+  const data: Record<string, any> = {}
+  if (steps.length) {
+    data.step = steps
+  }
+  if (supplies.length) {
+    data.supply = supplies
+  }
+  if (tools.length) {
+    data.tool = tools
+  }
+  if (howToMeta?.estimatedCost) {
+    data.estimatedCost = {
+      '@type': 'MonetaryAmount',
+      value: howToMeta.estimatedCost
+    }
+  }
+  if (howToMeta?.totalTime) {
+    data.totalTime = howToMeta.totalTime
+  }
+  if (howToMeta?.difficulty) {
+    data.difficulty = howToMeta.difficulty
+  }
+  return data
+}
 
 export const generateStructuredDataJsonLd = (params: {
   frontmatter: ContentFrontmatter
   seoSnapshot: Record<string, any> | null
   baseUrl?: string
+  sections?: ContentSection[] | null
 }): string => {
-  const { frontmatter, seoSnapshot, baseUrl } = params
+  const { frontmatter, seoSnapshot, baseUrl, sections } = params
   const schemaTypes = Array.isArray(frontmatter.schemaTypes) ? frontmatter.schemaTypes : []
   const normalizedSchemaTypes = schemaTypes
     .map(type => (typeof type === 'string' ? type.trim() : ''))
@@ -17,7 +125,7 @@ export const generateStructuredDataJsonLd = (params: {
 
   const structuredData: Record<string, any> = {
     '@context': 'https://schema.org',
-    '@type': normalizedSchemaTypes[0] || 'BlogPosting'
+    '@type': normalizedSchemaTypes.length === 1 ? normalizedSchemaTypes[0] : normalizedSchemaTypes
   }
 
   // Basic article properties
@@ -61,14 +169,48 @@ export const generateStructuredDataJsonLd = (params: {
     structuredData.url = `${normalizedBase}/${normalizedSlug}`
   }
 
-  // Add additional schema types as nested structures
-  if (normalizedSchemaTypes.length > 1) {
-    structuredData['@type'] = normalizedSchemaTypes
+  const hasType = (typeName: string) => normalizedSchemaTypes.includes(typeName)
+
+  if (hasType('Recipe')) {
+    Object.assign(structuredData, buildRecipeStructuredData({ frontmatter, sections }))
+  }
+
+  if (hasType('HowTo')) {
+    Object.assign(structuredData, buildHowToStructuredData({ frontmatter, sections }))
+  }
+
+  if (hasType('FAQPage')) {
+    const manualFaqEntries = buildFaqEntriesFromMetadata(frontmatter.faq?.entries)
+    const fallbackFaqEntries = buildFaqEntriesFromSections(sections)
+    const faqEntries = manualFaqEntries.length ? manualFaqEntries : fallbackFaqEntries
+    if (faqEntries.length) {
+      structuredData.mainEntity = faqEntries
+      if (frontmatter.faq?.description && !structuredData.description) {
+        structuredData.description = frontmatter.faq.description
+      }
+    }
+  }
+
+  if (hasType('Course')) {
+    const manualInstances = buildCourseInstancesFromMetadata(frontmatter.course?.modules)
+    const fallbackInstances = buildCourseInstancesFromSections(sections)
+    const courseInstances = manualInstances.length ? manualInstances : fallbackInstances
+    if (courseInstances.length) {
+      structuredData.hasCourseInstance = courseInstances
+    }
+    if (frontmatter.course?.courseCode) {
+      structuredData.courseCode = frontmatter.course.courseCode
+    }
+    if (frontmatter.course?.providerName) {
+      structuredData.provider = {
+        '@type': 'Organization',
+        name: frontmatter.course.providerName,
+        ...(frontmatter.course.providerUrl ? { sameAs: frontmatter.course.providerUrl } : {})
+      }
+    }
   }
 
   const jsonLd = JSON.stringify(structuredData, null, 2)
-  // Escape closing script tag sequences to prevent XSS
-  // Replace </script (case-insensitive) with <\/script to prevent premature tag termination
   const escapedJsonLd = jsonLd.replace(/<\/script/gi, '<\\/script')
   return `<script type="application/ld+json">\n${escapedJsonLd}\n</script>`
 }
