@@ -9,7 +9,8 @@ import {
 import * as schema from '../db/schema'
 import { setUserActiveOrganization } from '../services/organization/provision'
 import { getAuthSession } from './auth'
-import { getDB } from './db'
+import { getDB, useDB } from './db'
+import { cacheClient } from './drivers'
 
 interface BetterAuthSession {
   session?: {
@@ -32,6 +33,106 @@ interface RequireActiveOrganizationOptions {
   isAnonymousUser?: boolean
 }
 
+const ACTIVE_ORG_CACHE_PREFIX = 'active-org:v1'
+const ACTIVE_ORG_CACHE_TTL_SECONDS = 60
+const ACTIVE_ORG_EVENT_CACHE_KEY = '__activeOrgCache'
+
+interface ActiveOrgResult {
+  organizationId: string
+  membership: typeof schema.member.$inferSelect
+}
+
+type ActiveOrgContextValue = ActiveOrgResult & { userId: string }
+
+const hasRequiredRole = (role: string, requiredRoles?: Array<'owner' | 'admin' | 'member'>) => {
+  if (!requiredRoles || requiredRoles.length === 0) {
+    return true
+  }
+  return requiredRoles.includes(role as any)
+}
+
+const buildActiveOrgCacheKey = (userId: string) => `${ACTIVE_ORG_CACHE_PREFIX}:${userId}`
+
+const serializeMembership = (membership: typeof schema.member.$inferSelect) => ({
+  ...membership,
+  createdAt: membership.createdAt instanceof Date ? membership.createdAt.toISOString() : membership.createdAt
+})
+
+const deserializeMembership = (membership: ReturnType<typeof serializeMembership>): typeof schema.member.$inferSelect => ({
+  ...membership,
+  createdAt: membership.createdAt ? new Date(membership.createdAt) : new Date()
+})
+
+const getEventCachedActiveOrg = (
+  event: H3Event | undefined,
+  userId: string,
+  organizationId?: string | null,
+  requiredRoles?: Array<'owner' | 'admin' | 'member'>
+): ActiveOrgResult | null => {
+  if (!event)
+    return null
+  const cached = (event.context as Record<string, any>)[ACTIVE_ORG_EVENT_CACHE_KEY] as ActiveOrgContextValue | undefined
+  if (!cached || cached.userId !== userId) {
+    return null
+  }
+  if (organizationId && cached.organizationId !== organizationId) {
+    return null
+  }
+  if (!hasRequiredRole(cached.membership.role, requiredRoles)) {
+    return null
+  }
+  return { organizationId: cached.organizationId, membership: cached.membership }
+}
+
+const setEventCachedActiveOrg = (event: H3Event | undefined, userId: string, payload: ActiveOrgResult) => {
+  if (!event)
+    return
+  (event.context as Record<string, any>)[ACTIVE_ORG_EVENT_CACHE_KEY] = {
+    userId,
+    ...payload
+  }
+}
+
+const getCachedActiveOrg = async (userId: string): Promise<ActiveOrgResult | null> => {
+  try {
+    const key = buildActiveOrgCacheKey(userId)
+    const raw = await cacheClient.get(key)
+    if (!raw)
+      return null
+    const parsed = JSON.parse(raw) as { organizationId?: string, membership?: ReturnType<typeof serializeMembership> }
+    if (!parsed.organizationId || !parsed.membership) {
+      return null
+    }
+    return {
+      organizationId: parsed.organizationId,
+      membership: deserializeMembership(parsed.membership)
+    }
+  } catch (error) {
+    console.error('[requireActiveOrganization] Failed to read cache', error)
+    return null
+  }
+}
+
+const cacheActiveOrg = async (userId: string, payload: ActiveOrgResult) => {
+  try {
+    const key = buildActiveOrgCacheKey(userId)
+    await cacheClient.set(key, JSON.stringify({
+      organizationId: payload.organizationId,
+      membership: serializeMembership(payload.membership)
+    }), ACTIVE_ORG_CACHE_TTL_SECONDS)
+  } catch (error) {
+    console.error('[requireActiveOrganization] Failed to cache organization lookup', error)
+  }
+}
+
+const clearCachedActiveOrg = async (userId: string) => {
+  try {
+    await cacheClient.delete(buildActiveOrgCacheKey(userId))
+  } catch (error) {
+    console.error('[requireActiveOrganization] Failed to clear cached organization', error)
+  }
+}
+
 /**
  * Get the active organization from Better Auth session data.
  * This uses Better Auth's session hooks which inject activeOrganizationId into the session.
@@ -46,7 +147,7 @@ export const requireActiveOrganization = async (
   userId: string,
   options?: RequireActiveOrganizationOptions
 ) => {
-  const db = getDB()
+  const db = await useDB(event)
 
   // Get active organization from Better Auth session
   const session = await getAuthSession(event) as BetterAuthSession | null
@@ -55,6 +156,23 @@ export const requireActiveOrganization = async (
   let organizationId = session?.session?.activeOrganizationId
     ?? session?.data?.session?.activeOrganizationId
     ?? session?.activeOrganizationId
+
+  const eventCached = getEventCachedActiveOrg(event, userId, organizationId, options?.requireRoles)
+  if (eventCached) {
+    return eventCached
+  }
+
+  const cachedResult = await getCachedActiveOrg(userId)
+  if (cachedResult) {
+    if (!organizationId) {
+      organizationId = cachedResult.organizationId
+    }
+
+    if (organizationId === cachedResult.organizationId && hasRequiredRole(cachedResult.membership.role, options?.requireRoles)) {
+      setEventCachedActiveOrg(event, userId, cachedResult)
+      return cachedResult
+    }
+  }
 
   // Anonymous users get an auto-provisioned org; fall back to it if not in session
   if (!organizationId && options?.isAnonymousUser) {
@@ -100,12 +218,14 @@ export const requireActiveOrganization = async (
   if (!organizationId) {
     // For anonymous users, provide a more helpful error message
     if (options?.isAnonymousUser) {
+      await clearCachedActiveOrg(userId)
       throw createError({
         statusCode: 400,
         statusMessage: 'No active organization found. Anonymous users need an organization to continue. Please create an account or wait for organization creation to complete.'
       })
     }
 
+    await clearCachedActiveOrg(userId)
     throw createError({
       statusCode: 400,
       statusMessage: 'No active organization found in session'
@@ -120,6 +240,7 @@ export const requireActiveOrganization = async (
     .limit(1)
 
   if (!orgExists) {
+    await clearCachedActiveOrg(userId)
     // Organization doesn't exist (was deleted), treat as no organization
     throw createError({
       statusCode: 400,
@@ -143,6 +264,7 @@ export const requireActiveOrganization = async (
     .limit(1)
 
   if (!membership) {
+    await clearCachedActiveOrg(userId)
     throw createError({
       statusCode: 403,
       statusMessage: 'You do not have access to this organization'
@@ -159,7 +281,10 @@ export const requireActiveOrganization = async (
     }
   }
 
-  return { organizationId, membership }
+  const result: ActiveOrgResult = { organizationId, membership }
+  setEventCachedActiveOrg(event, userId, result)
+  void cacheActiveOrg(userId, result)
+  return result
 }
 
 const parseMetadata = (value: string | null) => {
