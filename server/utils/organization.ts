@@ -159,7 +159,6 @@ export const requireActiveOrganization = async (
   const sessionOrganizationId = session?.session?.activeOrganizationId
     ?? session?.data?.session?.activeOrganizationId
     ?? session?.activeOrganizationId
-  const hadSessionOrganization = Boolean(sessionOrganizationId)
   let organizationId = sessionOrganizationId
   let membershipFromLookup: typeof schema.member.$inferSelect | null = null
   const contextUser = event.context.user as { lastActiveOrganizationId?: string } | undefined
@@ -302,11 +301,6 @@ export const requireActiveOrganization = async (
   const result: ActiveOrgResult = { organizationId, membership }
   setEventCachedActiveOrg(event, userId, result)
   void cacheActiveOrg(userId, result)
-  if (!hadSessionOrganization) {
-    setUserActiveOrganization(userId, organizationId).catch((error) => {
-      console.error('[requireActiveOrganization] Failed to persist active organization to session:', error)
-    })
-  }
   return result
 }
 
