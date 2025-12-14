@@ -687,8 +687,18 @@ export const updateContentSectionWithAI = async (
     mode
   } = input
 
+  console.log('[updateContentSection] Starting section update', {
+    contentId,
+    sectionId,
+    mode,
+    organizationId,
+    userId,
+    hasInstructions: !!instructions
+  })
+
   // Enforce agent mode for writes
   if (mode === 'chat') {
+    console.error('[updateContentSection] Mode check failed - chat mode not allowed for writes', { mode })
     throw createError({
       statusCode: 403,
       statusMessage: 'Writes are not allowed in chat mode'
@@ -698,6 +708,7 @@ export const updateContentSectionWithAI = async (
   const trimmedInstructions = instructions?.trim()
 
   if (!organizationId || !userId || !contentId) {
+    console.error('[updateContentSection] Missing required parameters', { organizationId: !!organizationId, userId: !!userId, contentId: !!contentId })
     throw createError({
       statusCode: 400,
       statusMessage: 'organization, user, and content context are required'
@@ -705,12 +716,14 @@ export const updateContentSectionWithAI = async (
   }
 
   if (!trimmedInstructions) {
+    console.error('[updateContentSection] Missing instructions')
     throw createError({
       statusCode: 400,
       statusMessage: 'instructions are required to patch a section'
     })
   }
 
+  console.log('[updateContentSection] Querying database for content', { contentId, organizationId })
   const [record] = await db
     .select({
       content: schema.content,
@@ -796,10 +809,17 @@ export const updateContentSectionWithAI = async (
   }
 
   // RAG: Search global context instead of partial source
+  console.log('[updateContentSection] Starting RAG context search', {
+    sectionTitle: targetSection.title,
+    queryText: `${targetSection.title} ${trimmedInstructions}`.substring(0, 100)
+  })
   const relevantChunks = await findGlobalRelevantChunks({
     db,
     organizationId,
     queryText: `${targetSection.title} ${trimmedInstructions}`
+  })
+  console.log('[updateContentSection] RAG search completed', {
+    chunksFound: relevantChunks.length
   })
 
   // Format context for the AI
@@ -829,6 +849,12 @@ export const updateContentSectionWithAI = async (
     'Respond with JSON {"body": string, "summary": string?}. Rewrite only this section content - do NOT include the section heading or title, as it will be added automatically.'
   ].join('\n\n')
 
+  console.log('[updateContentSection] Calling AI for section generation', {
+    sectionTitle: targetSection.title,
+    promptLength: prompt.length,
+    temperature,
+    contextChunks: relevantChunks.length
+  })
   const raw = await callChatCompletions({
     messages: [
       { role: 'system', content: SECTION_PATCH_SYSTEM_PROMPT },
@@ -836,16 +862,28 @@ export const updateContentSectionWithAI = async (
     ],
     temperature
   })
+  console.log('[updateContentSection] AI call completed', {
+    responseLength: raw?.length || 0
+  })
 
   const parsed = parseAIResponseAsJSON<{ body?: string, body_mdx?: string, summary?: string }>(raw, 'section patch')
   const updatedBody = (parsed.body ?? parsed.body_mdx ?? '').trim()
 
   if (!updatedBody) {
+    console.error('[updateContentSection] AI response parsing failed - no content returned', {
+      parsed,
+      rawLength: raw?.length || 0
+    })
     throw createError({
       statusCode: 502,
       statusMessage: 'AI section patch did not return any content'
     })
   }
+
+  console.log('[updateContentSection] AI response parsed successfully', {
+    bodyLength: updatedBody.length,
+    hasSummary: !!parsed.summary
+  })
 
   const updatedSections = normalizedSections.map((section) => {
     if (section.id !== targetSection.id) {

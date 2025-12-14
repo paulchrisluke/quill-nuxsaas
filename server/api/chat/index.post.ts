@@ -659,14 +659,26 @@ async function executeChatTool(
     // TypeScript now knows this is edit_section
     const args = toolInvocation.arguments as ChatToolInvocation<'edit_section'>['arguments']
 
+    console.log('[edit_section] Starting edit_section tool', {
+      contentId: args.contentId,
+      sectionId: args.sectionId,
+      sectionTitle: args.sectionTitle,
+      hasInstructions: !!args.instructions,
+      mode: context.mode,
+      organizationId,
+      userId
+    })
+
     if (!args.contentId) {
+      console.error('[edit_section] Missing contentId')
       return {
         success: false,
-        error: 'contentId is required for edit_section'
+        error: 'contentId is required for edit_section. Use read_content_list to get valid content IDs.'
       }
     }
 
     if (!args.instructions) {
+      console.error('[edit_section] Missing instructions')
       return {
         success: false,
         error: 'instructions is required for edit_section'
@@ -674,6 +686,8 @@ async function executeChatTool(
     }
 
     try {
+      // Validate contentId is a valid UUID format
+      const contentId = validateUUID(args.contentId, 'contentId')
       let sanitizedTemperature = 1
       if (args.temperature !== undefined && args.temperature !== null) {
         sanitizedTemperature = validateNumber(args.temperature, 'temperature', 0, 2)
@@ -684,8 +698,10 @@ async function executeChatTool(
 
       if (args.sectionId) {
         resolvedSectionId = validateRequiredString(args.sectionId, 'sectionId')
+        console.log('[edit_section] Using provided sectionId:', resolvedSectionId)
       } else if (args.sectionTitle) {
         const sectionTitle = validateRequiredString(args.sectionTitle, 'sectionTitle')
+        console.log('[edit_section] Resolving sectionId from title:', sectionTitle)
 
         // Query content version to find section by title
         const [contentRecord] = await db
@@ -696,14 +712,15 @@ async function executeChatTool(
           .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
           .where(and(
             eq(schema.content.organizationId, organizationId),
-            eq(schema.content.id, args.contentId)
+            eq(schema.content.id, contentId)
           ))
           .limit(1)
 
         if (!contentRecord?.version) {
+          console.error('[edit_section] Content version not found', { contentId })
           return {
             success: false,
-            error: 'Content version not found'
+            error: `Content version not found for contentId: ${contentId}. Make sure the content exists and has a version.`
           }
         }
 
@@ -717,30 +734,46 @@ async function executeChatTool(
 
           if (matchingSection) {
             resolvedSectionId = matchingSection.id || matchingSection.section_id || null
+            console.log('[edit_section] Found section by title:', resolvedSectionId)
           }
         }
 
         if (!resolvedSectionId) {
+          console.error('[edit_section] Section not found by title', { sectionTitle, contentId })
           return {
             success: false,
-            error: `Section with title "${sectionTitle}" not found in this content`
+            error: `Section with title "${sectionTitle}" not found in content ${contentId}. Use read_content to see available sections.`
           }
         }
       } else {
+        console.error('[edit_section] Missing both sectionId and sectionTitle')
         return {
           success: false,
           error: 'Either sectionId or sectionTitle is required for edit_section'
         }
       }
 
+      console.log('[edit_section] Calling updateContentSection', {
+        contentId,
+        sectionId: resolvedSectionId,
+        mode: context.mode,
+        temperature: sanitizedTemperature
+      })
+
       const patchResult = await updateContentSection(db, {
         organizationId,
         userId,
-        contentId: args.contentId,
+        contentId,
         sectionId: resolvedSectionId,
         instructions: args.instructions,
         temperature: sanitizedTemperature,
         mode: context.mode
+      })
+
+      console.log('[edit_section] Successfully updated section', {
+        contentId: patchResult.content.id,
+        versionId: patchResult.version.id,
+        sectionId: patchResult.section?.id ?? null
       })
 
       return {
@@ -757,9 +790,30 @@ async function executeChatTool(
         contentId: patchResult.content.id
       }
     } catch (error: any) {
+      console.error('[edit_section] Error during section edit', {
+        error: error?.message,
+        stack: error?.stack,
+        contentId: args.contentId,
+        sectionId: args.sectionId,
+        sectionTitle: args.sectionTitle,
+        mode: context.mode,
+        organizationId,
+        userId,
+        errorStatus: error?.statusCode,
+        errorStatusMessage: error?.statusMessage
+      })
+
+      // If it's a validation error (like UUID format), provide helpful message
+      if (error?.statusMessage?.includes('UUID')) {
+        return {
+          success: false,
+          error: `${error.statusMessage}. Use read_content_list to get valid content IDs.`
+        }
+      }
+
       return {
         success: false,
-        error: error?.message || 'Failed to patch section'
+        error: error?.message || error?.statusMessage || 'Failed to patch section'
       }
     }
   }
