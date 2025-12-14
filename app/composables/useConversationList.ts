@@ -32,15 +32,12 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
       itemsState.value = [...incoming]
       return
     }
-    const next = [...itemsState.value]
-    for (const entry of incoming) {
-      const existingIndex = next.findIndex(item => item.id === entry.id)
-      if (existingIndex !== -1) {
-        next.splice(existingIndex, 1)
-      }
-      next.push(entry)
-    }
-    itemsState.value = next
+    // Use Set for O(1) lookup of incoming IDs
+    const incomingIds = new Set(incoming.map(item => item.id))
+    // Filter out existing items that are in incoming (they'll be replaced)
+    const existingItems = itemsState.value.filter(item => !incomingIds.has(item.id))
+    // Append all incoming items at the end (preserves order: existing items stay, new/updated items appended)
+    itemsState.value = [...existingItems, ...incoming]
   }
 
   const fetchPage = async (opts?: { cursor?: string | null, replace?: boolean }) => {

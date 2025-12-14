@@ -183,7 +183,7 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
           </div>
         </template>
 
-        <template v-else-if="contentPending && !contentInitialized">
+        <template v-else-if="!contentInitialized">
           <div
             v-for="n in 5"
             :key="n"
@@ -195,7 +195,7 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
         </template>
 
         <p
-          v-else
+          v-else-if="contentInitialized && contentItems.length === 0"
           class="text-sm text-muted-foreground py-3"
         >
           No content yet.
@@ -275,7 +275,7 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
           </div>
         </template>
 
-        <template v-else-if="conversationPending && !conversationInitialized">
+        <template v-else-if="!conversationInitialized">
           <div
             v-for="n in 5"
             :key="n"
@@ -287,7 +287,7 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
         </template>
 
         <p
-          v-else
+          v-else-if="conversationInitialized && conversationItems.length === 0"
           class="text-sm text-muted-foreground py-3"
         >
           No conversations yet.
