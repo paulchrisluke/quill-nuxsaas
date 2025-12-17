@@ -1,8 +1,9 @@
 import { relations } from 'drizzle-orm'
 import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { v7 as uuidv7 } from 'uuid'
-import { account, organization, user } from './auth'
+import { organization, user } from './auth'
 import { conversation } from './chat'
+import { integration } from './integration'
 import { sourceContent } from './sourceContent'
 
 export const publicationStatusEnum = pgEnum('publication_status', ['pending', 'published', 'failed'])
@@ -84,7 +85,7 @@ export const publication = pgTable('publication', {
   contentVersionId: uuid('content_version_id')
     .notNull()
     .references(() => contentVersion.id, { onDelete: 'cascade' }),
-  integrationId: text('integration_id').references(() => account.id, { onDelete: 'set null' }),
+  integrationId: uuid('integration_id').references(() => integration.id, { onDelete: 'set null' }),
   externalId: text('external_id'),
   status: publicationStatusEnum('status').default('pending').notNull(),
   publishedAt: timestamp('published_at'),
@@ -144,8 +145,8 @@ export const publicationRelations = relations(publication, ({ one }) => ({
     fields: [publication.contentVersionId],
     references: [contentVersion.id]
   }),
-  integration: one(account, {
+  integration: one(integration, {
     fields: [publication.integrationId],
-    references: [account.id]
+    references: [integration.id]
   })
 }))
