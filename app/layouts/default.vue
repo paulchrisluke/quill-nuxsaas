@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import { useMediaQuery } from '@vueuse/core'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
@@ -10,6 +11,8 @@ const { t } = useI18n()
 const localePath = useLocalePath()
 const router = useRouter()
 const { loggedIn } = useAuth()
+const isDesktop = useMediaQuery('(min-width: 1024px)')
+const shouldShowTopNav = computed(() => !isDesktop.value || !loggedIn.value)
 
 const i18nHead = useLocaleHead()
 const route = useRoute()
@@ -202,7 +205,7 @@ const primaryActionColor = computed(() => {
 
       <!-- Main content panel -->
       <UDashboardPanel>
-        <UDashboardNavbar>
+        <UDashboardNavbar v-if="shouldShowTopNav">
           <!-- Replace built-in sidebar toggle (non-sidebar routes) -->
           <template #toggle>
             <UButton
