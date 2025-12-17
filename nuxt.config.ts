@@ -11,7 +11,7 @@ if (isTestEnv) {
 const nitroPreset = process.env.NUXT_NITRO_PRESET
 
 const hyperdriveId = process.env.NUXT_CF_HYPERDRIVE_ID
-const hyperdriveBindings = hyperdriveId && process.env.NODE_ENV === 'production'
+const hyperdriveBindings = hyperdriveId
   ? [{
       binding: 'HYPERDRIVE',
       id: hyperdriveId
@@ -57,9 +57,8 @@ export default defineNuxtConfig({
   ...(nitroPreset && nitroPreset !== 'node-server'
     ? {
         hub: {
-          // Enable db for Cloudflare Workers (production builds), but not in local dev
-          // In local dev, use DATABASE_URL directly via server/utils/db.ts
-          ...(process.env.NUXT_NITRO_PRESET === 'cloudflare-module' && process.env.NODE_ENV === 'production'
+          // Enable db when using the Cloudflare-module preset (prod + wrangler/local worker runs).
+          ...(process.env.NUXT_NITRO_PRESET === 'cloudflare-module'
             ? { db: 'postgresql' }
             : {}),
           workers: true,
