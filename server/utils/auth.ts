@@ -124,8 +124,7 @@ export const createBetterAuth = () => betterAuth({
       },
       defaultOrganizationId: {
         type: 'string',
-        required: true,
-        defaultValue: ''
+        required: false
       }
     }
   },
