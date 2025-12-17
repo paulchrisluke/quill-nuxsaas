@@ -6,6 +6,8 @@ const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
 const toast = useToast()
+const { useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
 
 // Content list
 const {
@@ -54,37 +56,11 @@ onMounted(() => {
   initializeConversations()
 })
 
-const normalizePathForMatch = (value: string) => {
-  if (!value)
-    return ''
-  if (value === '/')
-    return '/'
-  return value.endsWith('/') ? value : `${value}/`
-}
-
-const ensureLeadingSlash = (value: string) => value.startsWith('/') ? value : `/${value}`
-
-const buildCandidates = (pattern: string) => {
-  const normalizedPattern = ensureLeadingSlash(pattern)
-  const candidates = new Set<string>()
-  const localizedPattern = localePath(normalizedPattern)
-
-  candidates.add(normalizePathForMatch(normalizedPattern))
-  if (localizedPattern)
-    candidates.add(normalizePathForMatch(localizedPattern))
-
-  return Array.from(candidates).filter(Boolean)
-}
-
-const isRouteMatch = (pattern: string) => {
-  const currentPath = normalizePathForMatch(route.path)
-  const candidates = buildCandidates(pattern)
-  return candidates.some(candidate => currentPath.startsWith(candidate))
-}
-
 // Active content/conversation detection
 const activeContentId = computed(() => {
-  if (isRouteMatch('/content/')) {
+  const path = route.path
+  // Check for /[slug]/content pattern
+  if (/\/[^/]+\/content\//.test(path)) {
     const id = route.params.id
     if (Array.isArray(id))
       return id[0] || null
@@ -94,7 +70,9 @@ const activeContentId = computed(() => {
 })
 
 const activeConversationId = computed(() => {
-  if (isRouteMatch('/conversations/')) {
+  const path = route.path
+  // Check for /[slug]/conversations pattern
+  if (/\/[^/]+\/conversations\//.test(path)) {
     const id = route.params.id
     if (Array.isArray(id))
       return id[0] || null
@@ -112,27 +90,41 @@ const isConversationActive = (id: string) => {
 }
 
 const resolveContentPath = (contentId?: string | null) => {
-  const base = '/content'
+  const slug = activeOrg.value?.data?.slug
+  if (!slug || slug === 't')
+    return null
+  const base = `/${slug}/content`
   return contentId ? `${base}/${contentId}` : base
 }
 
 const openContent = (contentId: string | null) => {
-  router.push(localePath(resolveContentPath(contentId || undefined)))
+  const path = resolveContentPath(contentId || undefined)
+  if (path)
+    router.push(localePath(path))
+}
+
+const resolveConversationPath = (conversationId?: string | null) => {
+  const slug = activeOrg.value?.data?.slug
+  if (!slug || slug === 't')
+    return null
+  const base = `/${slug}/conversations`
+  return conversationId ? `${base}/${conversationId}` : base
 }
 
 const openConversation = (conversationId: string | null) => {
-  if (conversationId) {
-    router.push(localePath(`/conversations/${conversationId}`))
-  } else {
-    router.push(localePath('/conversations'))
-  }
+  const path = resolveConversationPath(conversationId || undefined)
+  if (path)
+    router.push(localePath(path))
 }
 
 const createConversation = () => {
-  router.push({
-    path: localePath('/conversations'),
-    query: { new: '1' }
-  })
+  const path = resolveConversationPath()
+  if (path) {
+    router.push({
+      path: localePath(path),
+      query: { new: '1' }
+    })
+  }
 }
 
 const archivingConversationId = ref<string | null>(null)
@@ -151,7 +143,9 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
     removeConversation(conversationId)
 
     if (activeConversationId.value === conversationId) {
-      router.push(localePath('/conversations'))
+      const path = resolveConversationPath()
+      if (path)
+        router.push(localePath(path))
     }
 
     await refreshConversation().catch(() => {})

@@ -8,8 +8,8 @@ import { validateUUID } from '~~/server/utils/validation'
  * Get conversation metadata
  */
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
-  const { organizationId } = await requireActiveOrganization(event, user.id)
+  const _user = await requireAuth(event)
+  const { organizationId } = await requireActiveOrganization(event)
   const db = getDB()
 
   const { id } = getRouterParams(event)

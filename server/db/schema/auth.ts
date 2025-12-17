@@ -41,6 +41,7 @@ export const user = pgTable('user', {
   banReason: text('ban_reason'),
   banExpires: timestamp('ban_expires'),
   referralCode: text('referral_code').unique(),
+  defaultOrganizationId: text('default_organization_id').default('').notNull(),
   isAnonymous: boolean('is_anonymous').default(false).notNull()
 })
 

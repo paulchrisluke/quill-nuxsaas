@@ -12,6 +12,7 @@
       },
       "auth": {
         "signIn": "Sign In",
+        "signUp": "Sign Up",
         "signOut": "Sign Out",
         "profile": "Profile"
       },
@@ -57,6 +58,7 @@
       },
       "auth": {
         "signIn": "登录",
+        "signUp": "注册",
         "signOut": "退出",
         "profile": "个人资料"
       },
@@ -98,6 +100,7 @@
       },
       "auth": {
         "signIn": "ログイン",
+        "signUp": "新規登録",
         "signOut": "ログアウト",
         "profile": "プロフィール"
       },
@@ -139,6 +142,7 @@
       },
       "auth": {
         "signIn": "Connexion",
+        "signUp": "Créer un compte",
         "signOut": "Déconnexion",
         "profile": "Profil"
       },

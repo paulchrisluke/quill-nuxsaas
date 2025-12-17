@@ -59,18 +59,19 @@ export default defineNuxtRouteMiddleware(async (to) => {
     }
   }
 
-  // If not authenticated, redirect to home
-  const allowAnonymousRoutes = ['/', '/conversations', '/content']
-  const isAnonymousAllowedRoute = allowAnonymousRoutes.some((route) => {
-    const localized = localePath(route)
-    const candidates = [route, localized].filter(Boolean)
-    return candidates.some((candidate) => {
-      if (!candidate)
-        return false
-      const normalized = candidate.endsWith('/') && candidate !== '/' ? candidate.slice(0, -1) : candidate
-      return to.path === normalized || (normalized !== '/' && to.path.startsWith(`${normalized}/`))
-    })
-  })
+  // If not authenticated, check if route allows anonymous access
+  // Allow root route and *anonymous* slug-based conversation routes
+  const isAnonymousAllowedRoute = (() => {
+    const path = to.path
+    // Allow root route
+    if (path === '/' || path === localePath('/'))
+      return true
+    // Allow only anonymous workspace conversation routes: /anonymous-*/conversations
+    const convoMatch = path.match(/^\/([^/]+)\/conversations(?:\/|$)/)
+    if (convoMatch?.[1] && convoMatch[1].startsWith('anonymous-'))
+      return true
+    return false
+  })()
 
   if (!loggedIn.value) {
     if (isAnonymousAllowedRoute) {

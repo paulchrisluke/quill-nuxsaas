@@ -24,12 +24,10 @@ function hasGithubIntegrationScopes(scope: string | null | undefined, provider: 
 }
 
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
+  const _user = await requireAuth(event)
 
   // Get organizationId from Better Auth session
-  const { organizationId } = await requireActiveOrganization(event, user.id, {
-    requireRoles: ['owner', 'admin']
-  })
+  const { organizationId } = await requireActiveOrganization(event)
 
   const db = getDB()
 

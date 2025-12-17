@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 
-definePageMeta({
-  auth: false // Allow anonymous users
-})
-
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
 setHeaderTitle?.('Conversations')
 

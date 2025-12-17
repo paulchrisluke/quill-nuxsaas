@@ -9,6 +9,26 @@ export default defineNuxtRouteMiddleware(async (to) => {
   if (!loggedIn.value)
     return
 
+  // If a user hits home (`/`) while logged in, send them into their org-scoped workspace.
+  // This keeps `/` as the anonymous/landing experience without changing the default layout.
+  const localePath = useLocalePath()
+  if (to.path === '/' || to.path === localePath('/')) {
+    const activeOrg = useActiveOrganization()
+    const slug = activeOrg.value?.data?.slug
+    if (slug && slug !== 't') {
+      return navigateTo(localePath(`/${slug}/conversations`))
+    }
+    // Fall back to first available org if active org isn't loaded yet.
+    const { data: orgs, pending } = useUserOrganizations()
+    while (pending.value) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    const firstOrg = orgs.value?.[0]
+    if (firstOrg?.slug) {
+      return navigateTo(localePath(`/${firstOrg.slug}/conversations`))
+    }
+  }
+
   let routeSlug = to.params.slug as string | undefined
   if (!routeSlug || routeSlug === 't') {
     // Get current locale from route params or check first path segment
@@ -32,6 +52,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
     const contentMatch = pathToCheck.match(/^\/([^/]+)\/content(?:\/|$)/)
     if (contentMatch && contentMatch[1] && contentMatch[1] !== 't') {
       routeSlug = contentMatch[1]
+    }
+
+    const conversationsMatch = pathToCheck.match(/^\/([^/]+)\/conversations(?:\/|$)/)
+    if (conversationsMatch && conversationsMatch[1] && conversationsMatch[1] !== 't') {
+      routeSlug = conversationsMatch[1]
     }
   }
   if (!routeSlug || routeSlug === 't')

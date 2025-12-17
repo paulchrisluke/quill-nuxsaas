@@ -19,7 +19,7 @@ import { validateOptionalString, validateRequestBody, validateRequiredString } f
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
-  const { organizationId } = await requireActiveOrganization(event, user.id)
+  const { organizationId } = await requireActiveOrganization(event)
   const db = await useDB(event)
 
   if (!runtimeConfig.enableYoutubeIngestion) {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 const router = useRouter()
 const localePath = useLocalePath()
+const { useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
 
 const {
   items,
@@ -21,14 +23,20 @@ onMounted(() => {
 const openConversation = (conversationId: string | null) => {
   if (!conversationId)
     return
-  router.push(localePath(`/conversations/${conversationId}`))
+  const slug = activeOrg.value?.data?.slug
+  if (slug && slug !== 't') {
+    router.push(localePath(`/${slug}/conversations/${conversationId}`))
+  }
 }
 
 const startNewConversation = () => {
-  router.push({
-    path: localePath('/conversations'),
-    query: { new: '1' }
-  })
+  const slug = activeOrg.value?.data?.slug
+  if (slug && slug !== 't') {
+    router.push({
+      path: localePath(`/${slug}/conversations`),
+      query: { new: '1' }
+    })
+  }
 }
 </script>
 

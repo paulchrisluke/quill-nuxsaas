@@ -111,8 +111,8 @@ const formatUpdatedAgo = (value: Date) => {
  */
 export default defineEventHandler(async (event) => {
   try {
-    const user = await requireAuth(event)
-    const { organizationId } = await requireActiveOrganization(event, user.id)
+    const _user = await requireAuth(event)
+    const { organizationId } = await requireActiveOrganization(event)
 
     const query = await getValidatedQuery(event, querySchema.parse)
     const db = await useDB(event)
