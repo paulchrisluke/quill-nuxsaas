@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
-import { useMediaQuery } from '@vueuse/core'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
@@ -63,24 +62,16 @@ provide('setHeaderTitle', (title: string | null) => {
 
 const pathWithoutLocale = computed(() => stripLocalePrefix(route.path, KNOWN_LOCALES))
 
-// Only allow the "workspace header" state to hide the sidebar on routes that actually
-// render the workspace header content. This prevents stale state (e.g. after reload)
-// from hiding the sidebar on unrelated routes like conversations.
+// Workspace header routes (content detail pages).
 const isWorkspaceHeaderRoute = computed(() => {
   return /^\/[^/]+\/content\/[^/]+(?:\/|$)/.test(pathWithoutLocale.value)
 })
 
-// Determine if we should show workspace header
-const showWorkspaceHeader = computed(() => {
-  if (!isWorkspaceHeaderRoute.value)
-    return false
-  return workspaceHeader.value !== null || workspaceHeaderLoading.value
-})
-
-const isDesktop = useMediaQuery('(min-width: 1024px)')
-// Show navbar on mobile, for guests, or whenever the workspace header is active
-// (workspace header content is rendered inside the navbar).
-const shouldShowTopNav = computed(() => !isDesktop.value || !loggedIn.value || showWorkspaceHeader.value)
+// Always show the workspace header shell on content detail routes.
+// The page itself is client-only (`ssr: false`), so we can't rely on the page component
+// to populate `workspaceHeader` during SSR. Rendering the shell avoids SSR/client
+// structure divergence (hydration mismatches) and ensures the top header is visible.
+const showWorkspaceHeader = computed(() => isWorkspaceHeaderRoute.value)
 
 // Determine if we should show chat interface - only on conversation routes
 const shouldShowChat = computed(() => {
@@ -176,8 +167,8 @@ const primaryActionColor = computed(() => {
       <!-- Main content panel -->
       <UDashboardPanel>
         <UDashboardNavbar
-          v-if="shouldShowTopNav"
           :toggle="shouldShowSidebar"
+          :class="loggedIn && !showWorkspaceHeader ? 'lg:hidden' : ''"
         >
           <template
             v-if="showWorkspaceHeader"
@@ -185,7 +176,7 @@ const primaryActionColor = computed(() => {
           >
             <div class="flex flex-col gap-3 w-full lg:flex-row lg:items-center lg:justify-between">
               <div
-                v-if="workspaceHeaderLoading"
+                v-if="workspaceHeaderLoading || !workspaceHeader"
                 class="flex items-center gap-3 w-full"
               >
                 <USkeleton class="h-10 w-10 rounded-full flex-shrink-0" />
@@ -203,7 +194,7 @@ const primaryActionColor = computed(() => {
               </div>
 
               <div
-                v-else-if="workspaceHeader"
+                v-else
                 class="flex flex-col gap-3 w-full lg:flex-row lg:items-center lg:justify-between"
               >
                 <div class="flex items-center gap-2 w-full lg:w-auto">

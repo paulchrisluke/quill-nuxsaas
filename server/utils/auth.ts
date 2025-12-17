@@ -37,13 +37,47 @@ const trustedOrigins = [
 ]
 
 export const createBetterAuth = () => betterAuth({
-  baseURL: `${runtimeConfig.public.baseURL}/api/auth`,
+  // Better Auth expects `baseURL` to be the site origin, and `basePath` to be where
+  // the auth routes are mounted. Using a path inside `baseURL` can unintentionally
+  // scope cookies (e.g. Path=/api/auth), which breaks SSR session detection and can
+  // lead to Vue hydration mismatches.
+  baseURL: runtimeConfig.public.baseURL,
+  basePath: '/api/auth',
   trustedOrigins,
   secret: runtimeConfig.betterAuthSecret,
   session: {
     cookieCache: {
       enabled: true,
       maxAge: 5 * 60 // Cache for 5 minutes
+    }
+  },
+  advanced: {
+    cookies: {
+      // Ensure auth cookies are available to the entire app, not only /api/auth.
+      // This keeps SSR and client auth state consistent.
+      session_token: {
+        attributes: {
+          path: '/',
+          sameSite: 'lax'
+        }
+      },
+      session_data: {
+        attributes: {
+          path: '/',
+          sameSite: 'lax'
+        }
+      },
+      dont_remember: {
+        attributes: {
+          path: '/',
+          sameSite: 'lax'
+        }
+      }
+    },
+    database: {
+      generateId: () => {
+        return uuidv7()
+      }
     }
   },
   database: drizzleAdapter(
@@ -53,13 +87,6 @@ export const createBetterAuth = () => betterAuth({
       schema
     }
   ),
-  advanced: {
-    database: {
-      generateId: () => {
-        return uuidv7()
-      }
-    }
-  },
   user: {
     changeEmail: {
       enabled: true
