@@ -11,12 +11,42 @@ import { beforeAll, describe, expect, it } from 'vitest'
 describe('chat Modes E2E', async () => {
   await setup({ host: process.env.NUXT_TEST_APP_URL })
 
+  const baseURL = process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
+
+  const getSetCookieHeaders = (headers: any): string[] => {
+    // Node/undici Headers: non-standard but commonly available
+    if (typeof headers?.getSetCookie === 'function') {
+      return headers.getSetCookie() as string[]
+    }
+    // node-fetch style Headers
+    if (typeof headers?.raw === 'function') {
+      const raw = headers.raw()
+      const values = raw?.['set-cookie']
+      return Array.isArray(values) ? values : []
+    }
+    // Fallback (may only return the first Set-Cookie)
+    const value = typeof headers?.get === 'function' ? headers.get('set-cookie') : undefined
+    return typeof value === 'string' && value.length > 0 ? [value] : []
+  }
+
+  const getAnonymousCookie = async () => {
+    const res = await $fetch.raw(`${baseURL}/api/conversations`, { method: 'GET' })
+    const cookies = getSetCookieHeaders(res.headers)
+    return cookies
+      .map(cookie => cookie.split(';')[0]?.trim())
+      .filter(Boolean)
+      .join('; ')
+  }
+
   // Helper to archive conversations
   // Optimized: Only archive once before all tests, not before/after each
   async function archiveAllConversations() {
     try {
+      const cookie = await getAnonymousCookie()
       const response = await $fetch('/api/conversations', {
-        method: 'GET'
+        baseURL,
+        method: 'GET',
+        headers: cookie ? { Cookie: cookie } : undefined
       }) as any
 
       const conversations = response?.conversations || []
@@ -27,7 +57,9 @@ describe('chat Modes E2E', async () => {
           .filter((conv: any) => conv.id && conv.status !== 'archived')
           .map((conv: any) =>
             $fetch(`/api/conversations/${conv.id}`, {
-              method: 'DELETE'
+              baseURL,
+              method: 'DELETE',
+              headers: cookie ? { Cookie: cookie } : undefined
             }).catch(() => {
               // Ignore errors
             })
@@ -48,8 +80,11 @@ describe('chat Modes E2E', async () => {
 
   describe('anonymous conversations API', () => {
     it('returns conversations for anonymous users', async () => {
+      const cookie = await getAnonymousCookie()
       const response = await $fetch('/api/conversations', {
-        method: 'GET'
+        baseURL,
+        method: 'GET',
+        headers: cookie ? { Cookie: cookie } : undefined
       }) as any
 
       expect(Array.isArray(response?.conversations)).toBe(true)
@@ -63,11 +98,14 @@ describe('chat Modes E2E', async () => {
       // verify the endpoint accepts chat mode and doesn't immediately error
 
       try {
+        const cookie = await getAnonymousCookie()
         const response = await $fetch('/api/chat?stream=true', {
+          baseURL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
+            'Accept': 'text/event-stream',
+            ...(cookie ? { Cookie: cookie } : {})
           },
           body: {
             message: 'List all content items',
@@ -90,11 +128,14 @@ describe('chat Modes E2E', async () => {
 
     it('should block write operations in chat mode', async () => {
       try {
+        const cookie = await getAnonymousCookie()
         const response = await $fetch('/api/chat?stream=true', {
+          baseURL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
+            'Accept': 'text/event-stream',
+            ...(cookie ? { Cookie: cookie } : {})
           },
           body: {
             message: 'Create a new blog post about testing',
@@ -129,11 +170,14 @@ describe('chat Modes E2E', async () => {
   describe('agent Mode (Read+Write)', () => {
     it('should allow all operations in agent mode', async () => {
       try {
+        const cookie = await getAnonymousCookie()
         const response = await $fetch('/api/chat?stream=true', {
+          baseURL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
+            'Accept': 'text/event-stream',
+            ...(cookie ? { Cookie: cookie } : {})
           },
           body: {
             message: 'Create a blog post from this context: This is test content for agent mode.',
