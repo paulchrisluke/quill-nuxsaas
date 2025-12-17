@@ -10,8 +10,8 @@ import { validateUUID } from '~~/server/utils/validation'
  * Full workspace content is loaded via /api/content/:id when needed
  */
 export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
-  const { organizationId } = await requireActiveOrganization(event, user.id)
+  await requireAuth(event)
+  const { organizationId } = await requireActiveOrganization(event)
   const db = getDB()
 
   const { id } = getRouterParams(event)

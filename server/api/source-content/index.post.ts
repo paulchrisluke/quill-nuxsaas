@@ -21,7 +21,7 @@ import { validateEnum, validateOptionalString, validateRequestBody, validateRequ
  */
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
-  const { organizationId } = await requireActiveOrganization(event, user.id)
+  const { organizationId } = await requireActiveOrganization(event)
   const db = getDB()
 
   const body = await readBody<UpsertSourceContentRequestBody>(event)

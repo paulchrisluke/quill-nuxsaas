@@ -1,4 +1,8 @@
 import { defu } from 'defu'
+import { isAnonymousWorkspaceConversationRoute } from '~~/shared/utils/routeMatching'
+
+// Known locale codes from nuxt.config.ts (keep in sync with `organization.global.ts`)
+const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
 
 type MiddlewareOptions = false | {
   /**
@@ -59,18 +63,19 @@ export default defineNuxtRouteMiddleware(async (to) => {
     }
   }
 
-  // If not authenticated, redirect to home
-  const allowAnonymousRoutes = ['/', '/conversations', '/content']
-  const isAnonymousAllowedRoute = allowAnonymousRoutes.some((route) => {
-    const localized = localePath(route)
-    const candidates = [route, localized].filter(Boolean)
-    return candidates.some((candidate) => {
-      if (!candidate)
-        return false
-      const normalized = candidate.endsWith('/') && candidate !== '/' ? candidate.slice(0, -1) : candidate
-      return to.path === normalized || (normalized !== '/' && to.path.startsWith(`${normalized}/`))
-    })
-  })
+  // If not authenticated, check if route allows anonymous access
+  // Allow root route and *anonymous* slug-based conversation routes
+  const isAnonymousAllowedRoute = (() => {
+    const path = to.path
+    // Allow root route
+    if (path === '/' || path === localePath('/'))
+      return true
+    // Allow only anonymous workspace conversation routes: /anonymous-*/conversations
+    // Strip locale prefix (if present) before extracting the workspace slug.
+    if (isAnonymousWorkspaceConversationRoute(path, KNOWN_LOCALES))
+      return true
+    return false
+  })()
 
   if (!loggedIn.value) {
     if (isAnonymousAllowedRoute) {

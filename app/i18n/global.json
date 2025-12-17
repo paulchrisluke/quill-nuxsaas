@@ -12,6 +12,7 @@
       },
       "auth": {
         "signIn": "Sign In",
+        "signUp": "Sign Up",
         "signOut": "Sign Out",
         "profile": "Profile"
       },
@@ -37,7 +38,8 @@
         "privacyPolicy": "Privacy Policy"
       },
       "conversations": {
-        "new": "New conversation"
+        "new": "New conversation",
+        "signUpToStart": "Sign up to start a conversation"
       }
     },
     "chat": {
@@ -57,6 +59,7 @@
       },
       "auth": {
         "signIn": "登录",
+        "signUp": "注册",
         "signOut": "退出",
         "profile": "个人资料"
       },
@@ -78,7 +81,8 @@
         "privacyPolicy": "隐私政策"
       },
       "conversations": {
-        "new": "新对话"
+        "new": "新对话",
+        "signUpToStart": "注册以开始对话"
       }
     },
     "chat": {
@@ -98,6 +102,7 @@
       },
       "auth": {
         "signIn": "ログイン",
+        "signUp": "新規登録",
         "signOut": "ログアウト",
         "profile": "プロフィール"
       },
@@ -119,7 +124,8 @@
         "privacyPolicy": "プライバシーポリシー"
       },
       "conversations": {
-        "new": "新しい会話"
+        "new": "新しい会話",
+        "signUpToStart": "会話を始めるには登録してください"
       }
     },
     "chat": {
@@ -139,6 +145,7 @@
       },
       "auth": {
         "signIn": "Connexion",
+        "signUp": "Créer un compte",
         "signOut": "Déconnexion",
         "profile": "Profil"
       },
@@ -160,7 +167,8 @@
         "privacyPolicy": "Politique de confidentialité"
       },
       "conversations": {
-        "new": "Nouvelle conversation"
+        "new": "Nouvelle conversation",
+        "signUpToStart": "Inscrivez-vous pour démarrer une conversation"
       }
     },
     "chat": {

@@ -1614,7 +1614,7 @@ export default defineEventHandler(async (event) => {
           if (!organizationId) {
           // Direct call - no try/catch wrapper needed for signed-in users
             safeLog('[Chat API] Falling back to requireActiveOrganization')
-            const orgPromise = requireActiveOrganization(event, user.id)
+            const orgPromise = requireActiveOrganization(event)
             const orgTimeout = new Promise<{ organizationId: string }>((_, reject) => {
               setTimeout(() => reject(new Error('requireActiveOrganization timeout after 10s')), 10000)
             })
@@ -1635,7 +1635,7 @@ export default defineEventHandler(async (event) => {
         // We rely on requireActiveOrganization to handle guest/anonymous context creation.
           safeLog('[Chat API] Resolving organization for anonymous user')
           try {
-            const orgPromise = requireActiveOrganization(event, user.id, { isAnonymousUser: true })
+            const orgPromise = requireActiveOrganization(event)
             const orgTimeout = new Promise<{ organizationId: string }>((_, reject) => {
               setTimeout(() => reject(new Error('requireActiveOrganization timeout after 10s (anonymous)')), 10000)
             })

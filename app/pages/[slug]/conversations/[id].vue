@@ -2,7 +2,6 @@
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 
 definePageMeta({
-  auth: false, // Allow anonymous users
   ssr: false, // Client-side only for instant navigation
   renderChatWidget: false
 })

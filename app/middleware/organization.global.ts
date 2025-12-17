@@ -1,13 +1,72 @@
+import { watch } from 'vue'
 import { useUserOrganizations } from '~/composables/useUserOrganizations'
 
 // Known locale codes from nuxt.config.ts
 const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
+
+type PendingWaitResult = { ok: true } | { ok: false, reason: 'timeout' }
+
+async function waitForPendingToResolve(
+  pending: { value: boolean },
+  { timeoutMs = 3000 }: { timeoutMs?: number } = {}
+): Promise<PendingWaitResult> {
+  if (!pending.value) {
+    return { ok: true }
+  }
+
+  return await new Promise((resolve) => {
+    let done = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    const stop = watch(
+      () => pending.value,
+      (isPending) => {
+        if (done)
+          return
+        if (!isPending) {
+          done = true
+          stop()
+          if (timeoutId)
+            clearTimeout(timeoutId)
+          resolve({ ok: true })
+        }
+      },
+      { immediate: true }
+    )
+
+    timeoutId = setTimeout(() => {
+      if (done)
+        return
+      done = true
+      stop()
+      resolve({ ok: false, reason: 'timeout' })
+    }, timeoutMs)
+  })
+}
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const { loggedIn, organization, useActiveOrganization, fetchSession, session } = useAuth()
 
   if (!loggedIn.value)
     return
+
+  // If a user hits home (`/`) while logged in, send them into their org-scoped workspace.
+  // This keeps `/` as the anonymous/landing experience without changing the default layout.
+  const localePath = useLocalePath()
+  if (to.path === '/' || to.path === localePath('/')) {
+    const activeOrg = useActiveOrganization()
+    const slug = activeOrg.value?.data?.slug
+    if (slug && slug !== 't') {
+      return navigateTo(localePath(`/${slug}/conversations`))
+    }
+    // Fall back to first available org if active org isn't loaded yet.
+    const { data: orgs, pending } = useUserOrganizations()
+    await waitForPendingToResolve(pending, { timeoutMs: 3000 })
+    const firstOrg = orgs.value?.[0]
+    if (firstOrg?.slug) {
+      return navigateTo(localePath(`/${firstOrg.slug}/conversations`))
+    }
+  }
 
   let routeSlug = to.params.slug as string | undefined
   if (!routeSlug || routeSlug === 't') {
@@ -33,6 +92,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
     if (contentMatch && contentMatch[1] && contentMatch[1] !== 't') {
       routeSlug = contentMatch[1]
     }
+
+    const conversationsMatch = pathToCheck.match(/^\/([^/]+)\/conversations(?:\/|$)/)
+    if (conversationsMatch && conversationsMatch[1] && conversationsMatch[1] !== 't') {
+      routeSlug = conversationsMatch[1]
+    }
   }
   if (!routeSlug || routeSlug === 't')
     return
@@ -49,9 +113,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const { data: orgs, pending } = useUserOrganizations()
 
   // Wait for organizations to load
-  while (pending.value) {
-    await new Promise(resolve => setTimeout(resolve, 50))
-  }
+  await waitForPendingToResolve(pending, { timeoutMs: 3000 })
 
   if (!orgs.value || orgs.value.length === 0)
     return

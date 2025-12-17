@@ -1,12 +1,17 @@
 <script setup lang="ts">
+import QuillioWidget from '~/components/chat/QuillioWidget.vue'
+
 definePageMeta({
-  middleware: defineNuxtRouteMiddleware((_to) => {
-    const localePath = useLocalePath()
-    return navigateTo(localePath('/conversations'))
-  })
+  auth: false
 })
 </script>
 
 <template>
-  <div />
+  <div class="w-full h-full">
+    <ClientOnly>
+      <KeepAlive :max="5">
+        <QuillioWidget />
+      </KeepAlive>
+    </ClientOnly>
+  </div>
 </template>

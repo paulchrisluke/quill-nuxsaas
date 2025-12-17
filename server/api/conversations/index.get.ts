@@ -108,9 +108,7 @@ export default defineEventHandler(async (event) => {
     const user = await requireAuth(event, { allowAnonymous: true })
     console.log('[Conversations API] User authenticated:', { userId: user.id, isAnonymous: user.isAnonymous })
 
-    const { organizationId } = await requireActiveOrganization(event, user.id, {
-      isAnonymousUser: Boolean(user.isAnonymous)
-    })
+    const { organizationId } = await requireActiveOrganization(event)
     console.log('[Conversations API] Organization resolved:', { organizationId })
 
     const query = await getValidatedQuery(event, querySchema.parse)

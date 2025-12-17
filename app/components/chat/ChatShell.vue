@@ -20,7 +20,9 @@ const props = withDefaults(defineProps<{
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
-const { loggedIn, signIn } = useAuth()
+const { loggedIn, signIn, useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
+const NON_ORG_SLUG = 't'
 
 const {
   messages,
@@ -125,12 +127,11 @@ const routeConversationId = computed(() => {
 const conversationId = computed(() => {
   return props.conversationId || routeConversationId.value || activeConversationId.value
 })
-const isWelcomeState = computed(() => {
-  return messages.value.length === 0
-    && !conversationId.value
-    && !isBusy.value
-    && !promptSubmitting.value
-})
+
+const showWelcomeState = computed(() =>
+  !messages.value.length && !conversationId.value && !isBusy.value && !promptSubmitting.value
+)
+
 const routeNewConversation = computed(() => {
   const flag = route.query.new
   if (Array.isArray(flag))
@@ -283,15 +284,25 @@ watch(activeConversationId, (value, previous) => {
   if (!value || value === previous)
     return
 
-  if (!props.contentId && value !== routeConversationId.value)
-    router.push(localePath(`/conversations/${value}`))
+  if (!props.contentId && value !== routeConversationId.value) {
+    const slug = activeOrg.value?.data?.slug
+    if (slug && slug !== NON_ORG_SLUG) {
+      router.push(localePath(`/${slug}/conversations/${value}`))
+    }
+    else {
+      router.push(localePath(`/${NON_ORG_SLUG}/conversations/${value}`))
+    }
+  }
 
   if (!conversationList.hasConversation(value))
     conversationList.refresh().catch(() => {})
 })
 
 const getMessageText = (message: ChatMessage) => {
-  return message.parts[0]?.text || ''
+  return (message.parts || [])
+    .filter((part): part is { type: 'text', text: string } => part.type === 'text' && typeof (part as any).text === 'string')
+    .map(part => part.text)
+    .join('')
 }
 
 async function handleCopy(message: ChatMessage) {
@@ -328,7 +339,7 @@ const handleRegenerate = async (message: ChatMessage) => {
   if (isBusy.value)
     return
 
-  const text = message.parts[0]?.text?.trim() || ''
+  const text = getMessageText(message).trim()
   if (!text) {
     toast.add({
       title: 'Cannot regenerate',
@@ -345,7 +356,7 @@ async function handleSendAgain(message: ChatMessage) {
   if (isBusy.value)
     return
 
-  const text = message.parts?.[0]?.text || ''
+  const text = getMessageText(message)
   if (!text)
     return
 
@@ -431,149 +442,104 @@ if (import.meta.client) {
   <div
     ref="chatContainerRef"
     class="w-full min-h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4 overflow-x-hidden"
+    :class="showWelcomeState ? 'lg:min-h-[calc(100vh-4rem)] lg:justify-center' : ''"
   >
-    <template v-if="isWelcomeState">
-      <div class="w-full flex-1 flex flex-col justify-center">
-        <div class="space-y-8 w-full max-w-3xl mx-auto">
-          <ChatConversationMessages
-            :messages="messages"
-            :display-messages="displayMessages"
-            :conversation-id="conversationId"
-            :status="status"
-            :ui-status="uiStatus"
-            :error-message="errorMessage"
-            :is-busy="isBusy"
-            :prompt-submitting="promptSubmitting"
-            @copy="handleCopy"
-            @regenerate="handleRegenerate"
-            @send-again="handleSendAgain"
-            @share="handleShare"
-          />
-        </div>
-      </div>
+    <div
+      class="w-full flex-1 flex flex-col justify-end lg:justify-start"
+      :class="showWelcomeState ? 'lg:flex-none' : ''"
+    >
+      <div
+        class="space-y-8 w-full max-w-3xl mx-auto"
+        :class="showWelcomeState ? 'lg:space-y-10' : ''"
+      >
+        <h1
+          v-if="showWelcomeState"
+          class="hidden lg:block text-3xl font-semibold text-center px-4"
+        >
+          What would you like to write today?
+        </h1>
 
-      <div class="w-full flex flex-col justify-center fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6 overflow-x-hidden">
-        <div class="w-full max-w-3xl mx-auto">
-          <PromptComposer
-            v-model="prompt"
-            placeholder="Paste a transcript or describe what you need..."
-            :disabled="isBusy || promptSubmitting"
-            :status="promptSubmitting ? 'submitted' : uiStatus"
-            @submit="handlePromptSubmit"
-          >
-            <template #footer>
-              <component
-                :is="!loggedIn ? 'UTooltip' : 'div'"
-                v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
-              >
-                <UInputMenu
-                  v-model="mode"
-                  :items="modeItems"
-                  value-key="value"
-                  label-key="label"
-                  variant="ghost"
-                  size="sm"
-                  ignore-filter
-                  readonly
-                  open-on-click
-                >
-                  <template #leading>
-                    <UIcon
-                      :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
-                      class="w-4 h-4"
-                      :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
-                    />
-                  </template>
-                </UInputMenu>
-              </component>
-            </template>
-          </PromptComposer>
+        <ChatConversationMessages
+          :messages="messages"
+          :display-messages="displayMessages"
+          :conversation-id="conversationId"
+          :status="status"
+          :ui-status="uiStatus"
+          :error-message="errorMessage"
+          :is-busy="isBusy"
+          :prompt-submitting="promptSubmitting"
+          @copy="handleCopy"
+          @regenerate="handleRegenerate"
+          @send-again="handleSendAgain"
+          @share="handleShare"
+        />
+      </div>
+    </div>
 
-          <i18n-t
-            v-if="!loggedIn"
-            keypath="global.legal.chatDisclaimer"
-            tag="p"
-            class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2 lg:hidden"
-          >
-            <template #terms>
-              <NuxtLink
-                :to="localePath('/terms')"
-                class="underline hover:text-primary-600 dark:hover:text-primary-400"
+    <div
+      class="w-full flex flex-col justify-center fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6 overflow-x-hidden"
+    >
+      <div class="w-full max-w-3xl mx-auto">
+        <PromptComposer
+          v-model="prompt"
+          placeholder="Paste a transcript or describe what you need..."
+          :disabled="isBusy || promptSubmitting"
+          :status="promptSubmitting ? 'submitted' : uiStatus"
+          @submit="handlePromptSubmit"
+        >
+          <template #footer>
+            <component
+              :is="!loggedIn ? 'UTooltip' : 'div'"
+              v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
+            >
+              <UInputMenu
+                v-model="mode"
+                :items="modeItems"
+                value-key="value"
+                label-key="label"
+                variant="ghost"
+                size="sm"
+                ignore-filter
+                readonly
+                open-on-click
               >
-                {{ $t('global.legal.terms') }}
-              </NuxtLink>
-            </template>
-            <template #privacy>
-              <NuxtLink
-                :to="localePath('/privacy')"
-                class="underline hover:text-primary-600 dark:hover:text-primary-400"
-              >
-                {{ $t('global.legal.privacyPolicy') }}
-              </NuxtLink>
-            </template>
-          </i18n-t>
-        </div>
-      </div>
-    </template>
-    <template v-else>
-      <div class="w-full flex-1 flex flex-col justify-end lg:justify-start">
-        <div class="space-y-8 w-full max-w-3xl mx-auto">
-          <ChatConversationMessages
-            :messages="messages"
-            :display-messages="displayMessages"
-            :conversation-id="conversationId"
-            :status="status"
-            :ui-status="uiStatus"
-            :error-message="errorMessage"
-            :is-busy="isBusy"
-            :prompt-submitting="promptSubmitting"
-            @copy="handleCopy"
-            @regenerate="handleRegenerate"
-            @send-again="handleSendAgain"
-            @share="handleShare"
-          />
-        </div>
-      </div>
+                <template #leading>
+                  <UIcon
+                    :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
+                    class="w-4 h-4"
+                    :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
+                  />
+                </template>
+              </UInputMenu>
+            </component>
+          </template>
+        </PromptComposer>
 
-      <div class="w-full flex flex-col justify-center fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6 overflow-x-hidden">
-        <div class="w-full max-w-3xl mx-auto">
-          <PromptComposer
-            v-model="prompt"
-            placeholder="Paste a transcript or describe what you need..."
-            :disabled="isBusy || promptSubmitting"
-            :status="promptSubmitting ? 'submitted' : uiStatus"
-            @submit="handlePromptSubmit"
-          >
-            <template #footer>
-              <component
-                :is="!loggedIn ? 'UTooltip' : 'div'"
-                v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
-              >
-                <UInputMenu
-                  v-model="mode"
-                  :items="modeItems"
-                  value-key="value"
-                  label-key="label"
-                  variant="ghost"
-                  size="sm"
-                  ignore-filter
-                  readonly
-                  open-on-click
-                >
-                  <template #leading>
-                    <UIcon
-                      :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
-                      class="w-4 h-4"
-                      :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
-                    />
-                  </template>
-                </UInputMenu>
-              </component>
-            </template>
-          </PromptComposer>
-        </div>
+        <i18n-t
+          v-if="!loggedIn"
+          keypath="global.legal.chatDisclaimer"
+          tag="p"
+          class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2"
+        >
+          <template #terms>
+            <NuxtLink
+              :to="localePath('/terms')"
+              class="underline hover:text-primary-600 dark:hover:text-primary-400"
+            >
+              {{ $t('global.legal.terms') }}
+            </NuxtLink>
+          </template>
+          <template #privacy>
+            <NuxtLink
+              :to="localePath('/privacy')"
+              class="underline hover:text-primary-600 dark:hover:text-primary-400"
+            >
+              {{ $t('global.legal.privacyPolicy') }}
+            </NuxtLink>
+          </template>
+        </i18n-t>
       </div>
-    </template>
+    </div>
 
     <UModal
       v-model:open="showAgentModeLoginModal"

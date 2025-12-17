@@ -5,7 +5,7 @@ import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
-import { and, asc, count, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { appendResponseHeader, createError, getRequestHeaders } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
@@ -121,6 +121,11 @@ export const createBetterAuth = () => betterAuth({
       referralCode: {
         type: 'string',
         required: false
+      },
+      defaultOrganizationId: {
+        type: 'string',
+        required: true,
+        defaultValue: ''
       }
     }
   },
@@ -148,16 +153,22 @@ export const createBetterAuth = () => betterAuth({
           // Immediately create an anonymous organization for anonymous users
           // This ensures they always have a valid organization context
           if (user.isAnonymous) {
+            console.log('[Auth] Creating anonymous organization for user:', { userId: user.id, email: user.email })
             const db = getDB()
             let _anonymousOrgId: string | null = null
             try {
+              console.log('[Auth] Starting transaction to create anonymous org...')
               await db.transaction(async (tx) => {
+                const orgId = uuidv7()
+                const orgSlug = `anonymous-${user.id}`
+                console.log('[Auth] Inserting organization:', { orgId, orgSlug, userId: user.id })
+
                 const [newOrg] = await tx
                   .insert(schema.organization)
                   .values({
-                    id: uuidv7(),
+                    id: orgId,
                     name: 'Anonymous Workspace',
-                    slug: `anonymous-${user.id}`,
+                    slug: orgSlug,
                     createdAt: new Date(),
                     // Store device fingerprint if available in context/headers?
                     // Ideally we'd capture this, but for now just creating the org is the priority.
@@ -166,22 +177,61 @@ export const createBetterAuth = () => betterAuth({
                   })
                   .returning()
 
-                if (!newOrg)
-                  return
+                if (!newOrg) {
+                  console.error('[Auth] Organization insert returned no result')
+                  throw new Error('Organization insert returned no result')
+                }
 
+                console.log('[Auth] Organization created successfully:', { orgId: newOrg.id, slug: newOrg.slug })
                 _anonymousOrgId = newOrg.id
+
+                const memberId = uuidv7()
+                console.log('[Auth] Inserting member record:', { memberId, userId: user.id, organizationId: newOrg.id })
                 await tx.insert(schema.member).values({
-                  id: uuidv7(),
+                  id: memberId,
                   userId: user.id,
                   organizationId: newOrg.id,
                   role: 'owner',
                   createdAt: new Date()
                 })
 
+                console.log('[Auth] Member record created successfully')
                 // Organization is now managed by Better Auth's organization plugin
+
+                console.log('[Auth] Updating user defaultOrganizationId:', { userId: user.id, orgId: _anonymousOrgId })
+
+                try {
+                  const updateResult = await tx
+                    .update(schema.user)
+                    .set({ defaultOrganizationId: _anonymousOrgId })
+                    .where(eq(schema.user.id, user.id))
+                    .returning({ id: schema.user.id, defaultOrganizationId: schema.user.defaultOrganizationId })
+
+                  console.log('[Auth] Update query executed, result:', updateResult)
+
+                  if (!updateResult || updateResult.length === 0) {
+                    console.error('[Auth] ❌ Update returned no rows - user might not exist!')
+                    throw new Error('Failed to update user defaultOrganizationId (no rows returned)')
+                  } else {
+                    console.log('[Auth] Update returned rows:', updateResult.length)
+                    console.log('[Auth] ✅ Successfully set defaultOrganizationId:', { userId: user.id, orgId: _anonymousOrgId })
+                  }
+                } catch (updateError) {
+                  console.error('[Auth] ❌ Exception during user update:', updateError)
+                  if (updateError instanceof Error) {
+                    console.error('[Auth] Update error stack:', updateError.stack)
+                  }
+                  // Throw to rollback the whole transaction (org + member + user update)
+                  throw updateError
+                }
               })
+
+              console.log('[Auth] Transaction completed, _anonymousOrgId:', _anonymousOrgId)
             } catch (error) {
-              console.error('[Auth] Failed to create anonymous organization - aborting user creation:', error)
+              console.error('[Auth] ❌ Failed to create anonymous organization - aborting user creation:', error)
+              if (error instanceof Error) {
+                console.error('[Auth] Error stack:', error.stack)
+              }
               // Rethrow to prevent user from being created without a valid organization
               throw new Error('Failed to provision anonymous workspace', { cause: error })
             }
@@ -292,7 +342,7 @@ export const createBetterAuth = () => betterAuth({
             if (!user) {
               console.error('[Auth] Cannot create member: user does not exist:', member.userId)
               // Throw error - database hooks can throw to prevent the operation
-              throw new APIError('INVALID_SESSION', {
+              throw new APIError('UNAUTHORIZED', {
                 message: 'Invalid session: user not found. Please sign in again.'
               })
             }
@@ -302,6 +352,30 @@ export const createBetterAuth = () => betterAuth({
           }
           // Return undefined to continue with default behavior
           return undefined
+        },
+        after: async (member: Record<string, any>) => {
+          if (!member?.userId || !member?.organizationId) {
+            return
+          }
+
+          try {
+            const db = getDB()
+            const existing = await db.query.user.findFirst({
+              columns: { defaultOrganizationId: true },
+              where: eq(schema.user.id, member.userId)
+            })
+
+            if (!existing || existing.defaultOrganizationId) {
+              return
+            }
+
+            await db
+              .update(schema.user)
+              .set({ defaultOrganizationId: member.organizationId })
+              .where(eq(schema.user.id, member.userId))
+          } catch (error) {
+            console.error('[Auth] Failed to set default organization after membership creation:', error)
+          }
         }
       }
     },
@@ -313,6 +387,21 @@ export const createBetterAuth = () => betterAuth({
           }
 
           const db = getDB()
+          const userRecord = await db.query.user.findFirst({
+            columns: { defaultOrganizationId: true },
+            where: eq(schema.user.id, session.userId)
+          })
+
+          const defaultOrgId = userRecord?.defaultOrganizationId?.trim()
+          if (defaultOrgId) {
+            return {
+              data: {
+                ...session,
+                activeOrganizationId: defaultOrgId
+              }
+            }
+          }
+
           const [membership] = await db
             .select({ organizationId: schema.member.organizationId })
             .from(schema.member)
@@ -323,6 +412,12 @@ export const createBetterAuth = () => betterAuth({
           if (!membership?.organizationId) {
             return
           }
+
+          // Persist the discovered organization as the user's default for future sessions
+          await db
+            .update(schema.user)
+            .set({ defaultOrganizationId: membership.organizationId })
+            .where(eq(schema.user.id, session.userId))
 
           return {
             data: {
@@ -359,6 +454,34 @@ export const createBetterAuth = () => betterAuth({
           }
           // Return undefined to continue with default behavior
           return undefined
+        },
+        after: async (org: Record<string, any>, ctx: any) => {
+          try {
+            const sessionUserId =
+              ctx?.session?.user?.id
+              ?? ctx?.context?.session?.user?.id
+
+            if (!sessionUserId) {
+              return
+            }
+
+            const db = getDB()
+            const existing = await db.query.user.findFirst({
+              columns: { defaultOrganizationId: true },
+              where: eq(schema.user.id, sessionUserId)
+            })
+
+            if (!existing || existing.defaultOrganizationId) {
+              return
+            }
+
+            await db
+              .update(schema.user)
+              .set({ defaultOrganizationId: org.id })
+              .where(eq(schema.user.id, sessionUserId))
+          } catch (error) {
+            console.error('[Auth] Failed to update default organization after org creation:', error)
+          }
         }
       }
     },
@@ -812,6 +935,7 @@ export const getServerAuth = () => {
 
 const createAnonymousUserSession = async (event: H3Event) => {
   try {
+    console.log('[Auth] createAnonymousUserSession: Starting anonymous user creation')
     const serverAuth = getServerAuth()
     const headers = new Headers()
     const reqHeaders = getRequestHeaders(event)
@@ -820,6 +944,7 @@ const createAnonymousUserSession = async (event: H3Event) => {
         headers.set(key, value)
     }
 
+    console.log('[Auth] Calling signInAnonymous API...')
     // Call the anonymous sign-in endpoint directly via the API
     const result = await (serverAuth.api as any).signInAnonymous({
       headers,
@@ -827,9 +952,11 @@ const createAnonymousUserSession = async (event: H3Event) => {
     } as any)
 
     if (!result) {
-      console.error('[Auth] signInAnonymous returned no result')
+      console.error('[Auth] ❌ signInAnonymous returned no result')
       return null
     }
+
+    console.log('[Auth] signInAnonymous returned result, processing...')
 
     if (result?.headers) {
       result.headers.forEach((value: string, key: string) => {
@@ -839,27 +966,85 @@ const createAnonymousUserSession = async (event: H3Event) => {
       })
     }
 
-    const userId = (result as any)?.response?.user?.id
+    const responsePayload = (result as any)?.response
+    const userId = responsePayload?.user?.id
     if (!userId) {
-      console.error('[Auth] signInAnonymous did not return a user ID', { result })
+      console.error('[Auth] ❌ signInAnonymous did not return a user ID', { result })
       return null
     }
 
+    console.log('[Auth] Anonymous user created, userId:', userId)
+    const sessionToken = typeof responsePayload?.token === 'string' ? responsePayload.token : null
+
     const db = getDB()
+    console.log('[Auth] Fetching user record from database...')
     const [userRecord] = await db
-      .select()
+      .select({
+        id: schema.user.id,
+        email: schema.user.email,
+        isAnonymous: schema.user.isAnonymous,
+        defaultOrganizationId: schema.user.defaultOrganizationId
+      })
       .from(schema.user)
       .where(eq(schema.user.id, userId))
       .limit(1)
 
     if (!userRecord) {
-      console.error('[Auth] User record not found after anonymous sign-in', { userId })
+      console.error('[Auth] ❌ User record not found after anonymous sign-in', { userId })
       return null
+    }
+
+    console.log('[Auth] User record found:', {
+      userId: userRecord.id,
+      email: userRecord.email,
+      isAnonymous: userRecord.isAnonymous,
+      defaultOrganizationId: userRecord.defaultOrganizationId || 'NONE'
+    })
+
+    // Resolve organization immediately for THIS request, because the session cookie was just set on the response
+    // and will not be available to getSession() until the NEXT request.
+    let resolvedOrgId = (userRecord.defaultOrganizationId || '').trim()
+
+    if (!resolvedOrgId) {
+      console.warn('[Auth] defaultOrganizationId missing right after anonymous sign-in; checking membership...')
+      const [membership] = await db
+        .select({ organizationId: schema.member.organizationId })
+        .from(schema.member)
+        .where(eq(schema.member.userId, userId))
+        .orderBy(asc(schema.member.createdAt))
+        .limit(1)
+
+      if (membership?.organizationId) {
+        resolvedOrgId = membership.organizationId
+        console.warn('[Auth] Found membership orgId; persisting as defaultOrganizationId', { userId, orgId: resolvedOrgId })
+        await db
+          .update(schema.user)
+          .set({ defaultOrganizationId: resolvedOrgId })
+          .where(eq(schema.user.id, userId))
+      }
+    }
+
+    if (resolvedOrgId) {
+      event.context.organizationId = resolvedOrgId
+      console.log('[Auth] ✅ Resolved organization for current request', { userId, orgId: resolvedOrgId })
+
+      // Persist onto session row if we can (token is returned by signInAnonymous)
+      if (sessionToken) {
+        await db
+          .update(schema.session)
+          .set({ activeOrganizationId: resolvedOrgId })
+          .where(eq(schema.session.token, sessionToken))
+        console.log('[Auth] ✅ Updated session.activeOrganizationId via token', { token: sessionToken, orgId: resolvedOrgId })
+      } else {
+        console.warn('[Auth] No session token returned from signInAnonymous; cannot persist activeOrganizationId on session row')
+      }
+    } else {
+      console.error('[Auth] ❌ Unable to resolve organization for anonymous user', { userId })
     }
 
     return userRecord
   } catch (error) {
-    console.error('[Auth] Failed to create anonymous session', error)
+    console.error('[Auth] ❌ Failed to create anonymous session', error)
     if (error instanceof Error) {
       console.error('[Auth] Error details:', error.message, error.stack)
     }
@@ -931,6 +1116,85 @@ export const requireActiveOrganization = async (
   const organizationId = getSessionOrganizationId(session)
 
   if (!organizationId) {
+    // Fallback: sessions can be created before anonymous org provisioning finishes.
+    // For robustness (and to support anonymous-first flows), derive the org from the user record
+    // or memberships, then persist it back onto the user + session for future requests.
+    try {
+      const userId = session?.user?.id ?? session?.session?.userId ?? session?.data?.session?.userId
+      const sessionToken = session?.session?.token ?? session?.data?.session?.token ?? session?.token
+      const sessionId = session?.session?.id ?? session?.data?.session?.id ?? session?.id
+
+      if (typeof userId === 'string' && userId.length > 0) {
+        const db = getDB()
+
+        const [userRecord] = await db
+          .select({ defaultOrganizationId: schema.user.defaultOrganizationId })
+          .from(schema.user)
+          .where(eq(schema.user.id, userId))
+          .limit(1)
+
+        let resolvedOrgId = userRecord?.defaultOrganizationId?.trim() || ''
+
+        if (!resolvedOrgId) {
+          const [membership] = await db
+            .select({ organizationId: schema.member.organizationId })
+            .from(schema.member)
+            .where(eq(schema.member.userId, userId))
+            .orderBy(asc(schema.member.createdAt))
+            .limit(1)
+
+          if (membership?.organizationId) {
+            resolvedOrgId = membership.organizationId
+            // Persist for future sessions
+            await db
+              .update(schema.user)
+              .set({ defaultOrganizationId: resolvedOrgId })
+              // Avoid redundant writes under concurrency: only set if unset.
+              .where(and(
+                eq(schema.user.id, userId),
+                or(isNull(schema.user.defaultOrganizationId), eq(schema.user.defaultOrganizationId, ''))
+              ))
+          }
+        }
+
+        if (resolvedOrgId) {
+          // Persist onto the current session if we can identify it
+          if (typeof sessionId === 'string' && sessionId.length > 0) {
+            await db
+              .update(schema.session)
+              .set({ activeOrganizationId: resolvedOrgId })
+              // Avoid redundant writes: only update if unset or different.
+              .where(and(
+                eq(schema.session.id, sessionId),
+                or(
+                  isNull(schema.session.activeOrganizationId),
+                  eq(schema.session.activeOrganizationId, ''),
+                  ne(schema.session.activeOrganizationId, resolvedOrgId)
+                )
+              ))
+          } else if (typeof sessionToken === 'string' && sessionToken.length > 0) {
+            await db
+              .update(schema.session)
+              .set({ activeOrganizationId: resolvedOrgId })
+              // Avoid redundant writes: only update if unset or different.
+              .where(and(
+                eq(schema.session.token, sessionToken),
+                or(
+                  isNull(schema.session.activeOrganizationId),
+                  eq(schema.session.activeOrganizationId, ''),
+                  ne(schema.session.activeOrganizationId, resolvedOrgId)
+                )
+              ))
+          }
+
+          event.context.organizationId = resolvedOrgId
+          return { organizationId: resolvedOrgId }
+        }
+      }
+    } catch (error) {
+      console.error('[Auth] Failed to recover active organization from user/membership fallback:', error)
+    }
+
     throw createError({
       statusCode: 400,
       statusMessage: 'No active organization found in session'

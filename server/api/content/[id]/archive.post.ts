@@ -8,7 +8,7 @@ import { validateUUID } from '~~/server/utils/validation'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
-  const { organizationId } = await requireActiveOrganization(event, user.id)
+  const { organizationId } = await requireActiveOrganization(event)
   const db = getDB()
 
   const { id } = getRouterParams(event)

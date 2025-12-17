@@ -6,7 +6,7 @@ import * as schema from '~~/server/db/schema'
 import { getPgPool } from './drivers'
 import { runtimeConfig } from './runtimeConfig'
 
-const createDB = (dbSchema?: typeof schema) => {
+const createDB = (dbSchema: typeof schema = schema) => {
   return drizzle({
     client: getPgPool(),
     schema: dbSchema

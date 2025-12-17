@@ -27,8 +27,8 @@ async function findWorkspaceForActiveOrganization(
 
 export default defineEventHandler(async (event) => {
   try {
-    const user = await requireAuth(event)
-    const { organizationId } = await requireActiveOrganization(event, user.id)
+    await requireAuth(event)
+    const { organizationId } = await requireActiveOrganization(event)
     const db = await useDB(event)
 
     const { id } = getRouterParams(event)

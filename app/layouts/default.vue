@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import { useMediaQuery } from '@vueuse/core'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
-import Logo from '~/components/Logo.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
 import SidebarNavigation from '~/components/SidebarNavigation.vue'
 import UserNavigation from '~/components/UserNavigation.vue'
@@ -22,6 +22,35 @@ function openSignInModal(event?: MouseEvent) {
   event?.preventDefault()
   authModalMode.value = 'signin'
   authModalOpen.value = true
+}
+
+function openSignUpModal(event?: MouseEvent) {
+  event?.preventDefault()
+  authModalMode.value = 'signup'
+  authModalOpen.value = true
+}
+
+const newConversationAriaLabel = computed(() => {
+  return loggedIn.value ? t('global.conversations.new') : t('global.conversations.signUpToStart')
+})
+
+function handleNewConversationClick(event?: MouseEvent) {
+  if (loggedIn.value) {
+    newConversation()
+    return
+  }
+
+  openSignUpModal(event)
+}
+
+const { useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
+
+function newConversation() {
+  const slug = activeOrg.value?.data?.slug
+  if (slug && slug !== 't') {
+    router.push(localePath(`/${slug}/conversations`))
+  }
 }
 
 useHead(() => ({
@@ -47,9 +76,6 @@ const pageTitle = computed(() => {
   if (headerTitle.value) {
     return headerTitle.value
   }
-  if (route.path === '/' || route.path === localePath('/')) {
-    return t('global.appName')
-  }
   return null
 })
 
@@ -61,48 +87,31 @@ provide('setHeaderTitle', (title: string | null) => {
 // Determine if we should show workspace header
 const showWorkspaceHeader = computed(() => workspaceHeader.value !== null || workspaceHeaderLoading.value)
 
-const normalizePathForMatch = (value: string) => {
-  if (!value)
-    return ''
-  if (value === '/')
-    return '/'
-  return value.endsWith('/') ? value : `${value}/`
-}
-
-const ensureLeadingSlash = (value: string) => value.startsWith('/') ? value : `/${value}`
-
-const buildRouteCandidates = (pattern: string) => {
-  const normalizedPattern = ensureLeadingSlash(pattern)
-  const candidates = new Set<string>()
-  const localizedPattern = localePath(normalizedPattern)
-
-  candidates.add(normalizePathForMatch(normalizedPattern))
-  if (localizedPattern)
-    candidates.add(normalizePathForMatch(localizedPattern))
-
-  return Array.from(candidates).filter(Boolean)
-}
-
-const isRouteMatch = (pattern: string) => {
-  const currentPath = normalizePathForMatch(route.path)
-  return buildRouteCandidates(pattern).some(candidate => currentPath.startsWith(candidate))
-}
+const isDesktop = useMediaQuery('(min-width: 1024px)')
+// Show navbar on mobile, for guests, or whenever the workspace header is active
+// (workspace header content is rendered inside the navbar).
+const shouldShowTopNav = computed(() => !isDesktop.value || !loggedIn.value || showWorkspaceHeader.value)
 
 // Determine if we should show chat interface - only on conversation routes
 const shouldShowChat = computed(() => {
   if (route.meta?.renderChatWidget === false)
     return false
-  return isRouteMatch('/conversations')
+  // Check for /[slug]/conversations pattern
+  return /\/[^/]+\/conversations/.test(route.path)
 })
 
 // Determine if we should show sidebar - on conversations and content routes
 const shouldShowSidebar = computed(() => {
-  return isRouteMatch('/conversations') || isRouteMatch('/content')
+  const path = route.path
+  // Check for /[slug]/conversations or /[slug]/content patterns
+  return /\/[^/]+\/(?:conversations|content)/.test(path)
 })
 
 // Determine if we should use full-width layout (conversations and content pages)
 const shouldUseFullWidth = computed(() => {
-  return isRouteMatch('/conversations') || isRouteMatch('/content')
+  const path = route.path
+  // Check for /[slug]/conversations or /[slug]/content patterns
+  return /\/[^/]+\/(?:conversations|content)/.test(path)
 })
 
 const primaryActionColor = computed(() => {
@@ -112,41 +121,8 @@ const primaryActionColor = computed(() => {
 
 <template>
   <div class="relative overflow-x-hidden">
-    <!-- Mobile Header - only visible on mobile when sidebar should be shown -->
-    <header
-      v-if="shouldShowSidebar"
-      class="lg:hidden border-b border-neutral-200/70 dark:border-neutral-800/60 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm sticky top-0 z-50"
-    >
-      <div class="px-4 py-2 flex items-center justify-between w-full">
-        <!-- Mobile navigation triggers -->
-        <div class="flex items-center gap-2">
-          <UButton
-            icon="i-lucide-menu"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            aria-label="Menu"
-            @click="mobileSidebarOpen = true"
-          />
-
-          <UButton
-            icon="i-lucide-message-square-plus"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            :aria-label="t('global.conversations.new')"
-            @click="router.push(localePath('/conversations'))"
-          />
-        </div>
-
-        <!-- Right side: User Navigation -->
-        <div class="flex items-center gap-2">
-          <UserNavigation @sign-in="openSignInModal" />
-        </div>
-      </div>
-    </header>
-
     <USlideover
+      v-if="shouldShowSidebar"
       v-model:open="mobileSidebarOpen"
       side="left"
       :handle="false"
@@ -173,15 +149,11 @@ const primaryActionColor = computed(() => {
       </template>
     </USlideover>
 
-    <UDashboardGroup
-      storage-key="dashboard-sidebar"
-      storage="local"
-    >
+    <UDashboardGroup>
       <!-- Sidebar with tabs for conversations and content -->
       <UDashboardSidebar
         v-if="shouldShowSidebar"
         collapsible
-        resizable
         :ui="{
           root: 'bg-neutral-100 dark:bg-neutral-950 border-r border-neutral-200/70 dark:border-neutral-800/60'
         }"
@@ -236,154 +208,231 @@ const primaryActionColor = computed(() => {
 
       <!-- Main content panel -->
       <UDashboardPanel>
-        <template #header>
-          <UDashboardNavbar
-            :class="{ 'hidden lg:flex': shouldShowSidebar }"
-          >
-            <template
-              v-if="showWorkspaceHeader"
-              #left
-            >
-              <div class="flex items-center gap-3 w-full">
-                <div
-                  v-if="workspaceHeaderLoading"
-                  class="flex items-start gap-3 w-full"
-                >
-                  <div class="flex-shrink-0 pt-1.5">
-                    <USkeleton class="h-10 w-10 rounded-full" />
-                  </div>
-                  <div class="min-w-0 flex-1 space-y-1">
-                    <div class="flex items-center gap-2 min-w-0">
-                      <USkeleton class="h-4 w-40 max-w-full rounded-md" />
-                      <USkeleton class="h-4 w-12 rounded-full" />
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <USkeleton class="h-3 w-20 rounded" />
-                      <USkeleton class="h-3 w-16 rounded" />
-                      <USkeleton class="h-3 w-28 rounded" />
-                    </div>
-                  </div>
-                </div>
+        <UDashboardNavbar v-if="shouldShowTopNav">
+          <!-- Replace built-in sidebar toggle (non-sidebar routes) -->
+          <template #toggle>
+            <UButton
+              v-if="!shouldShowSidebar"
+              icon="i-lucide-message-square-plus"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              :aria-label="newConversationAriaLabel"
+              @click="handleNewConversationClick"
+            />
+          </template>
 
-                <div
-                  v-else-if="workspaceHeader"
-                  class="flex items-start gap-3 w-full"
-                >
-                  <div class="flex-shrink-0 pt-1.5">
-                    <UButton
-                      v-if="workspaceHeader.showBackButton"
-                      icon="i-lucide-arrow-left"
-                      variant="ghost"
-                      size="sm"
-                      :aria-label="t('global.back')"
-                      class="h-10 w-10 rounded-full p-0 flex items-center justify-center"
-                      @click="workspaceHeader.onBack?.()"
-                    />
+          <template
+            v-if="showWorkspaceHeader"
+            #left
+          >
+            <div class="flex items-center gap-3 w-full">
+              <!-- Mobile controls for sidebar routes -->
+              <div
+                v-if="shouldShowSidebar"
+                class="flex items-center gap-2 lg:hidden"
+              >
+                <UButton
+                  icon="i-lucide-menu"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Menu"
+                  @click="mobileSidebarOpen = true"
+                />
+                <UButton
+                  icon="i-lucide-message-square-plus"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  :aria-label="t('global.conversations.new')"
+                  @click="newConversation"
+                />
+              </div>
+
+              <div
+                v-if="workspaceHeaderLoading"
+                class="flex items-start gap-3 w-full"
+              >
+                <div class="flex-shrink-0 pt-1.5">
+                  <USkeleton class="h-10 w-10 rounded-full" />
+                </div>
+                <div class="min-w-0 flex-1 space-y-1">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <USkeleton class="h-4 w-40 max-w-full rounded-md" />
+                    <USkeleton class="h-4 w-12 rounded-full" />
                   </div>
-                  <div class="min-w-0 flex-1 space-y-1">
-                    <div class="flex items-center gap-2 min-w-0">
-                      <p class="text-base font-semibold truncate">
-                        {{ workspaceHeader.title }}
-                      </p>
-                      <UBadge
-                        v-if="workspaceHeader.status"
-                        color="neutral"
-                        variant="soft"
-                        size="xs"
-                        class="capitalize"
-                      >
-                        {{ workspaceHeader.status }}
-                      </UBadge>
-                    </div>
-                    <div class="text-xs text-muted-500 flex flex-wrap items-center gap-1">
-                      <span>{{ workspaceHeader.updatedAtLabel || '—' }}</span>
-                      <template v-if="workspaceHeader.contentType">
-                        <span>·</span>
-                        <span class="capitalize">
-                          {{ workspaceHeader.contentType }}
-                        </span>
-                      </template>
-                      <template v-if="workspaceHeader.contentId">
-                        <span>·</span>
-                        <span class="font-mono text-[11px] text-muted-600 truncate">
-                          {{ workspaceHeader.contentId }}
-                        </span>
-                      </template>
-                      <template v-if="workspaceHeader.contentType || workspaceHeader.contentId">
-                        <span>·</span>
-                      </template>
-                      <span class="text-emerald-500 dark:text-emerald-400">
-                        +{{ workspaceHeader.additions ?? 0 }}
-                      </span>
-                      <span class="text-rose-500 dark:text-rose-400">
-                        -{{ workspaceHeader.deletions ?? 0 }}
-                      </span>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-2 flex-wrap justify-end">
-                    <UButton
-                      v-if="workspaceHeader.onShare"
-                      icon="i-lucide-copy"
-                      size="sm"
-                      color="neutral"
-                      variant="ghost"
-                      @click="workspaceHeader.onShare?.()"
-                    >
-                      {{ t('content.copyMdx') }}
-                    </UButton>
-                    <UButton
-                      v-if="workspaceHeader.onArchive"
-                      icon="i-lucide-archive"
-                      size="sm"
-                      color="neutral"
-                      variant="ghost"
-                      @click="workspaceHeader.onArchive?.()"
-                    >
-                      {{ t('content.archive') }}
-                    </UButton>
-                    <UButton
-                      v-if="workspaceHeader.onPrimaryAction"
-                      :color="primaryActionColor"
-                      :icon="workspaceHeader.primaryActionIcon ?? 'i-lucide-arrow-right'"
-                      size="sm"
-                      :disabled="workspaceHeader.primaryActionDisabled"
-                      @click="workspaceHeader.onPrimaryAction?.()"
-                    >
-                      {{ workspaceHeader.primaryActionLabel || t('global.continue') }}
-                    </UButton>
+                  <div class="flex items-center gap-2">
+                    <USkeleton class="h-3 w-20 rounded" />
+                    <USkeleton class="h-3 w-16 rounded" />
+                    <USkeleton class="h-3 w-28 rounded" />
                   </div>
                 </div>
               </div>
-            </template>
 
-            <template
-              v-else
-              #left
-            >
-              <NuxtLink
-                :to="localePath('/')"
-                class="flex items-center gap-2 hover:opacity-80 transition-opacity mr-4"
+              <div
+                v-else-if="workspaceHeader"
+                class="flex items-start gap-3 w-full"
               >
-                <Logo class="h-6 w-6" />
-              </NuxtLink>
-              <slot name="header-title">
-                <h1
-                  v-if="pageTitle"
-                  class="text-lg font-semibold text-left truncate"
-                >
-                  {{ pageTitle }}
-                </h1>
-              </slot>
-            </template>
+                <div class="flex-shrink-0 pt-1.5">
+                  <UButton
+                    v-if="workspaceHeader.showBackButton"
+                    icon="i-lucide-arrow-left"
+                    variant="ghost"
+                    size="sm"
+                    :aria-label="t('global.back')"
+                    class="h-10 w-10 rounded-full p-0 flex items-center justify-center"
+                    @click="workspaceHeader.onBack?.()"
+                  />
+                </div>
+                <div class="min-w-0 flex-1 space-y-1">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <p class="text-base font-semibold truncate">
+                      {{ workspaceHeader.title }}
+                    </p>
+                    <UBadge
+                      v-if="workspaceHeader.status"
+                      color="neutral"
+                      variant="soft"
+                      size="xs"
+                      class="capitalize"
+                    >
+                      {{ workspaceHeader.status }}
+                    </UBadge>
+                  </div>
+                  <div class="text-xs text-muted-500 flex flex-wrap items-center gap-1">
+                    <span>{{ workspaceHeader.updatedAtLabel || '—' }}</span>
+                    <template v-if="workspaceHeader.contentType">
+                      <span>·</span>
+                      <span class="capitalize">
+                        {{ workspaceHeader.contentType }}
+                      </span>
+                    </template>
+                    <template v-if="workspaceHeader.contentId">
+                      <span>·</span>
+                      <span class="font-mono text-[11px] text-muted-600 truncate">
+                        {{ workspaceHeader.contentId }}
+                      </span>
+                    </template>
+                    <template v-if="workspaceHeader.contentType || workspaceHeader.contentId">
+                      <span>·</span>
+                    </template>
+                    <span class="text-emerald-500 dark:text-emerald-400">
+                      +{{ workspaceHeader.additions ?? 0 }}
+                    </span>
+                    <span class="text-rose-500 dark:text-rose-400">
+                      -{{ workspaceHeader.deletions ?? 0 }}
+                    </span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap justify-end">
+                  <UButton
+                    v-if="workspaceHeader.onShare"
+                    icon="i-lucide-copy"
+                    size="sm"
+                    color="neutral"
+                    variant="ghost"
+                    @click="workspaceHeader.onShare?.()"
+                  >
+                    {{ t('content.copyMdx') }}
+                  </UButton>
+                  <UButton
+                    v-if="workspaceHeader.onArchive"
+                    icon="i-lucide-archive"
+                    size="sm"
+                    color="neutral"
+                    variant="ghost"
+                    @click="workspaceHeader.onArchive?.()"
+                  >
+                    {{ t('content.archive') }}
+                  </UButton>
+                  <UButton
+                    v-if="workspaceHeader.onPrimaryAction"
+                    :color="primaryActionColor"
+                    :icon="workspaceHeader.primaryActionIcon ?? 'i-lucide-arrow-right'"
+                    size="sm"
+                    :disabled="workspaceHeader.primaryActionDisabled"
+                    @click="workspaceHeader.onPrimaryAction?.()"
+                  >
+                    {{ workspaceHeader.primaryActionLabel || t('global.continue') }}
+                  </UButton>
+                </div>
+              </div>
+            </div>
+          </template>
 
-            <template #right>
-              <UserNavigation
-                v-if="!shouldShowSidebar"
-                @sign-in="openSignInModal"
+          <template
+            v-else
+            #left
+          >
+            <!-- Mobile controls for sidebar routes -->
+            <div
+              v-if="shouldShowSidebar"
+              class="flex items-center gap-2 lg:hidden"
+            >
+              <UButton
+                icon="i-lucide-menu"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Menu"
+                @click="mobileSidebarOpen = true"
               />
-            </template>
-          </UDashboardNavbar>
-        </template>
+              <UButton
+                icon="i-lucide-message-square-plus"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                :aria-label="t('global.conversations.new')"
+                @click="newConversation"
+              />
+            </div>
+
+            <NuxtLink
+              :to="localePath('/')"
+              class="flex items-center gap-2 hover:opacity-80 transition-opacity mr-4"
+            >
+              <span class="text-sm font-semibold">
+                {{ t('global.appName') }}
+              </span>
+            </NuxtLink>
+            <slot name="header-title">
+              <h1
+                v-if="pageTitle"
+                class="text-lg font-semibold text-left truncate"
+              >
+                {{ pageTitle }}
+              </h1>
+            </slot>
+          </template>
+
+          <template #right>
+            <UserNavigation
+              v-if="loggedIn"
+              @sign-in="openSignInModal"
+            />
+            <div
+              v-else
+              class="flex items-center gap-2"
+            >
+              <UButton
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                @click="openSignInModal"
+              >
+                {{ t('global.auth.signIn') }}
+              </UButton>
+              <UButton
+                color="primary"
+                size="sm"
+                @click="openSignUpModal"
+              >
+                {{ t('global.auth.signUp') }}
+              </UButton>
+            </div>
+          </template>
+        </UDashboardNavbar>
 
         <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
           <div
@@ -399,35 +448,6 @@ const primaryActionColor = computed(() => {
               <slot />
             </div>
           </div>
-        </div>
-
-        <!-- Legal Disclaimer - Only for anonymous/guest users (desktop only, mobile is in QuillioWidget) -->
-        <div
-          v-if="!loggedIn && shouldShowChat"
-          class="bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm px-4 py-2 hidden lg:block"
-        >
-          <i18n-t
-            keypath="global.legal.chatDisclaimer"
-            tag="p"
-            class="text-xs text-muted-600 dark:text-muted-400 text-center"
-          >
-            <template #terms>
-              <NuxtLink
-                :to="localePath('/terms')"
-                class="underline hover:text-primary-600 dark:hover:text-primary-400"
-              >
-                {{ t('global.legal.terms') }}
-              </NuxtLink>
-            </template>
-            <template #privacy>
-              <NuxtLink
-                :to="localePath('/privacy')"
-                class="underline hover:text-primary-600 dark:hover:text-primary-400"
-              >
-                {{ t('global.legal.privacyPolicy') }}
-              </NuxtLink>
-            </template>
-          </i18n-t>
         </div>
       </UDashboardPanel>
     </UDashboardGroup>
