@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 import { useMediaQuery } from '@vueuse/core'
+import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
@@ -10,6 +11,9 @@ import UserNavigation from '~/components/UserNavigation.vue'
 const { t } = useI18n()
 const localePath = useLocalePath()
 const { loggedIn } = useAuth()
+
+// Keep in sync with `app/middleware/auth.global.ts`
+const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
 
 const i18nHead = useLocaleHead()
 const route = useRoute()
@@ -69,26 +73,27 @@ const shouldShowTopNav = computed(() => !isDesktop.value || !loggedIn.value || s
 const shouldShowChat = computed(() => {
   if (route.meta?.renderChatWidget === false)
     return false
-  // Check for /[slug]/conversations pattern
-  return /\/[^/]+\/conversations/.test(route.path)
+  const path = stripLocalePrefix(route.path, KNOWN_LOCALES)
+  // Check for /[slug]/conversations pattern (locale stripped)
+  return /^\/[^/]+\/conversations(?:\/|$)/.test(path)
 })
 
 // Determine if we should show sidebar - on conversations and content routes
 const shouldShowSidebar = computed(() => {
-  const path = route.path
+  const path = stripLocalePrefix(route.path, KNOWN_LOCALES)
   if (!loggedIn.value)
     return false
   if (showWorkspaceHeader.value)
     return false
-  // Check for /[slug]/conversations or /[slug]/content patterns
-  return /\/[^/]+\/(?:conversations|content)/.test(path)
+  // Check for /[slug]/conversations or /[slug]/content patterns (locale stripped)
+  return /^\/[^/]+\/(?:conversations|content)(?:\/|$)/.test(path)
 })
 
 // Determine if we should use full-width layout (conversations and content pages)
 const shouldUseFullWidth = computed(() => {
-  const path = route.path
-  // Check for /[slug]/conversations or /[slug]/content patterns
-  return /\/[^/]+\/(?:conversations|content)/.test(path)
+  const path = stripLocalePrefix(route.path, KNOWN_LOCALES)
+  // Check for /[slug]/conversations or /[slug]/content patterns (locale stripped)
+  return /^\/[^/]+\/(?:conversations|content)(?:\/|$)/.test(path)
 })
 
 const primaryActionColor = computed(() => {
