@@ -21,7 +21,7 @@ export async function getDBStats() {
     FROM pg_stat_database
     WHERE datname = current_database()
   `)
-  const dbStats = Array.isArray(dbStatsResult) ? dbStatsResult[0] : dbStatsResult.rows?.[0]
+  const dbStats = dbStatsResult[0]
   if (!dbStats)
     throw new Error('Database statistics are unavailable')
   const totalBlocks = Number(dbStats.blks_read) + Number(dbStats.blks_hit)

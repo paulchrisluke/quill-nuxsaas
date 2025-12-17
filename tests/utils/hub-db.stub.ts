@@ -23,6 +23,6 @@ const cleanup = async () => {
   }
 }
 
-process.once('exit', cleanup)
+process.once('beforeExit', cleanup)
 process.once('SIGTERM', cleanup)
 process.once('SIGINT', cleanup)
