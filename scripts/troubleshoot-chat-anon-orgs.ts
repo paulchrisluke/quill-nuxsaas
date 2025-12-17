@@ -751,11 +751,13 @@ async function main() {
       return
     }
 
-    if (args.conversationId && !args.userId && !args.sessionToken && !args.orgId) {
+    if (args.conversationId) {
       await inspectConversation(client, args.conversationId, !!args.conversationDeep)
       printSection('Done')
       console.log('Conversation inspection complete.')
-      return
+      if (!args.userId && !args.sessionToken && !args.orgId) {
+        return
+      }
     }
 
     if (!args.userId && !args.sessionToken) {
