@@ -57,6 +57,7 @@
         "features": "功能特性",
         "pricing": "定价方案",
         "docs": "文档",
+        "dashboard": "仪表盘",
         "settings": "设置"
       },
       "auth": {
@@ -101,6 +102,7 @@
         "features": "機能",
         "pricing": "料金",
         "docs": "ドキュメント",
+        "dashboard": "ダッシュボード",
         "settings": "設定"
       },
       "auth": {
@@ -145,6 +147,7 @@
         "features": "Fonctionnalités",
         "pricing": "Tarification",
         "docs": "Documentation",
+        "dashboard": "Tableau de bord",
         "settings": "Paramètres"
       },
       "auth": {
