@@ -22,20 +22,37 @@ function parseArgs(argv: string[]): Args {
   const out: Args = { scanLimit: 50 }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
+
+    const requireValue = (flag: string) => {
+      if (i + 1 >= argv.length) {
+        console.error(`❌ Missing value for ${flag}`)
+        console.error('Run with --help to see usage.')
+        process.exit(2)
+      }
+      i++
+      return argv[i]
+    }
+
     if (a === '--userId') {
-      out.userId = argv[++i]
+      out.userId = requireValue(a)
     } else if (a === '--sessionToken') {
-      out.sessionToken = argv[++i]
+      out.sessionToken = requireValue(a)
     } else if (a === '--orgId') {
-      out.orgId = argv[++i]
+      out.orgId = requireValue(a)
     } else if (a === '--scan') {
       out.scan = true
     } else if (a === '--scanLimit') {
-      out.scanLimit = Number.parseInt(argv[++i] || '', 10)
+      const raw = requireValue(a)
+      const parsed = Number.parseInt(raw, 10)
+      if (!Number.isFinite(parsed)) {
+        console.error(`❌ Invalid value for --scanLimit: "${raw}" (expected an integer)`)
+        process.exit(2)
+      }
+      out.scanLimit = parsed
     } else if (a === '--fixDefaultOrg') {
-      out.fixDefaultOrg = argv[++i]
+      out.fixDefaultOrg = requireValue(a)
     } else if (a === '--fixActiveOrg') {
-      out.fixActiveOrg = argv[++i]
+      out.fixActiveOrg = requireValue(a)
     } else if (a === '--apply') {
       out.apply = true
     } else if (a === '--help' || a === '-h') {

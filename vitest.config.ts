@@ -16,13 +16,6 @@ export default defineVitestConfig({
             alias: {
               'hub:kv': fileURLToPath(new URL('./tests/utils/hub-kv.stub.ts', import.meta.url))
             }
-          },
-          vite: {
-            resolve: {
-              alias: {
-                'hub:kv': fileURLToPath(new URL('./tests/utils/hub-kv.stub.ts', import.meta.url))
-              }
-            }
           }
         }
       }

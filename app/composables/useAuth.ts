@@ -65,11 +65,11 @@ export function useAuth() {
   const user = useState<User | null>('auth:user', () => null)
   const sessionFetching = import.meta.server ? ref(false) : useState('auth:sessionFetching', () => false)
   const sharedActiveOrganization = useState<any>('auth:active-organization:data', () => null)
+  const hasProcessEnv = typeof process !== 'undefined' && typeof process.env !== 'undefined'
   const isTestEnv = Boolean(
     (globalThis as any)?.__NUXT_TESTING__ ||
     (import.meta as any)?.env?.VITEST ||
-    process.env.VITEST ||
-    process.env.NUXT_TESTING
+    (hasProcessEnv && (process.env.VITEST || process.env.NUXT_TESTING))
   )
   const activeOrgWatcherInitialized = import.meta.client
     ? useState<boolean>('auth:active-organization:watcher-initialized', () => false)

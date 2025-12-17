@@ -6,7 +6,7 @@ import {
   Request as UndiciRequest,
   Response as UndiciResponse
 } from 'undici'
-import { afterAll, beforeAll } from 'vitest'
+import { afterAll, afterEach, beforeAll } from 'vitest'
 import { closeSharedDbPool } from './utils/dbPool'
 
 // Ensure global fetch APIs exist in Vitest (Node) environment
@@ -65,6 +65,13 @@ if (!process.env.__STATIC_CONTENT_MANIFEST) {
 
 // Provide a test-friendly handler for /api/auth/get-session so client composables don't 404 during Vitest runs
 const originalFetch = globalThis.fetch
+const defaultMockSession = { session: null, user: null }
+let mockSessionResponse = { ...defaultMockSession }
+
+export function setMockSession(response: { session: any, user: any } | null) {
+  mockSessionResponse = response ? { ...response } : { ...defaultMockSession }
+}
+
 globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string'
     ? input
@@ -75,7 +82,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
         : ''
 
   if (url.endsWith('/api/auth/get-session')) {
-    return new Response(JSON.stringify({ session: null, user: null }), {
+    return new Response(JSON.stringify(mockSessionResponse), {
       status: 200,
       headers: { 'content-type': 'application/json' }
     })
@@ -91,4 +98,8 @@ beforeAll(() => {
 // Clean up shared database pool after all tests
 afterAll(async () => {
   await closeSharedDbPool()
+})
+
+afterEach(() => {
+  mockSessionResponse = { ...defaultMockSession }
 })
