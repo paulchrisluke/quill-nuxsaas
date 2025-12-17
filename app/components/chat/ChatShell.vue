@@ -442,7 +442,7 @@ if (import.meta.client) {
   <div
     ref="chatContainerRef"
     class="w-full min-h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4 overflow-x-hidden"
-    :class="showWelcomeState ? 'lg:justify-center' : ''"
+    :class="showWelcomeState ? 'lg:min-h-[calc(100vh-4rem)] lg:justify-center' : ''"
   >
     <div
       class="w-full flex-1 flex flex-col justify-end lg:justify-start"
