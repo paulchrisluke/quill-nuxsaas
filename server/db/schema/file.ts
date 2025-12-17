@@ -14,7 +14,7 @@ export const file = pgTable('file', {
   path: text('path').notNull(),
   url: text('url'),
   storageProvider: text('storage_provider').notNull(),
-  uploadedBy: uuid('uploaded_by').references(() => user.id, { onDelete: 'set null' }),
+  uploadedBy: text('uploaded_by').references(() => user.id, { onDelete: 'set null' }),
   contentId: uuid('content_id').references(() => content.id, { onDelete: 'set null' }),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),

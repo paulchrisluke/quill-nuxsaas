@@ -248,8 +248,7 @@ describe('organization creation after sign out/in', async () => {
     // Step 9: Invite another user as a regular org member and ensure they cannot read tokens
     console.log('Step 9: Verifying integrations are restricted to owner/admin...')
     if (!betterAuthSecret) {
-      console.warn('Skipping test because NUXT_BETTER_AUTH_SECRET is not set.')
-      return
+      throw new Error('NUXT_BETTER_AUTH_SECRET required for security verification')
     }
     const invitedEmail = `member-${Date.now()}@example.com`
     const invitedPassword = `TestPass-${Date.now()}!`

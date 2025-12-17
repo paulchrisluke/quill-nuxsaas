@@ -11,8 +11,6 @@ const { t } = useI18n()
 const localePath = useLocalePath()
 const router = useRouter()
 const { loggedIn } = useAuth()
-const isDesktop = useMediaQuery('(min-width: 1024px)')
-const shouldShowTopNav = computed(() => !isDesktop.value || !loggedIn.value)
 
 const i18nHead = useLocaleHead()
 const route = useRoute()
@@ -88,6 +86,11 @@ provide('setHeaderTitle', (title: string | null) => {
 
 // Determine if we should show workspace header
 const showWorkspaceHeader = computed(() => workspaceHeader.value !== null || workspaceHeaderLoading.value)
+
+const isDesktop = useMediaQuery('(min-width: 1024px)')
+// Show navbar on mobile, for guests, or whenever the workspace header is active
+// (workspace header content is rendered inside the navbar).
+const shouldShowTopNav = computed(() => !isDesktop.value || !loggedIn.value || showWorkspaceHeader.value)
 
 // Determine if we should show chat interface - only on conversation routes
 const shouldShowChat = computed(() => {

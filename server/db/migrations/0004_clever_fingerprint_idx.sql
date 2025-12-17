@@ -11,16 +11,20 @@ END $$;
 CREATE INDEX IF NOT EXISTS "organization_device_fingerprint_idx"
   ON "organization" ("device_fingerprint");
 
-WITH fingerprint_matches AS (
+WITH organization_metadata AS (
   SELECT
     id,
-    COALESCE(
-      (regexp_match(metadata, '"deviceFingerprint":"([^"]+)"'))[1],
-      (regexp_match(metadata, '''deviceFingerprint'':''([^'']+)'''))[1]
-    ) AS fingerprint
+    metadata::jsonb AS metadata_json
   FROM "organization"
   WHERE metadata IS NOT NULL
-    AND metadata LIKE '%deviceFingerprint%'
+),
+fingerprint_matches AS (
+  SELECT
+    id,
+    metadata_json ->> 'deviceFingerprint' AS fingerprint
+  FROM organization_metadata
+  WHERE metadata_json ? 'deviceFingerprint'
+    AND metadata_json ->> 'deviceFingerprint' IS NOT NULL
 )
 UPDATE "organization" AS o
 SET device_fingerprint = fingerprint_matches.fingerprint

@@ -154,7 +154,7 @@ CREATE TABLE "conversation" (
 	"source_content_id" uuid,
 	"created_by_user_id" text,
 	"status" "conversation_status" DEFAULT 'active' NOT NULL,
-	"metadata" jsonb DEFAULT 'null'::jsonb,
+	"metadata" jsonb DEFAULT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -165,7 +165,7 @@ CREATE TABLE "conversation_log" (
 	"organization_id" text NOT NULL,
 	"type" "conversation_log_type" DEFAULT 'info' NOT NULL,
 	"message" text NOT NULL,
-	"payload" jsonb DEFAULT 'null'::jsonb,
+	"payload" jsonb DEFAULT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -175,7 +175,7 @@ CREATE TABLE "conversation_message" (
 	"organization_id" text NOT NULL,
 	"role" "conversation_role" NOT NULL,
 	"content" text NOT NULL,
-	"payload" jsonb DEFAULT 'null'::jsonb,
+	"payload" jsonb DEFAULT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -188,8 +188,8 @@ CREATE TABLE "chunk" (
 	"end_char" integer NOT NULL,
 	"text" text NOT NULL,
 	"text_preview" text,
-	"embedding" jsonb DEFAULT 'null'::jsonb,
-	"metadata" jsonb DEFAULT 'null'::jsonb,
+	"embedding" jsonb DEFAULT NULL,
+	"metadata" jsonb DEFAULT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "uq_chunk_source_content_chunk_index" UNIQUE("source_content_id","chunk_index")
 );
@@ -220,12 +220,12 @@ CREATE TABLE "content_version" (
 	"version" integer NOT NULL,
 	"created_by_user_id" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"frontmatter" jsonb DEFAULT 'null'::jsonb,
+	"frontmatter" jsonb DEFAULT NULL,
 	"body_mdx" text NOT NULL,
 	"body_html" text,
-	"sections" jsonb DEFAULT 'null'::jsonb,
-	"assets" jsonb DEFAULT 'null'::jsonb,
-	"seo_snapshot" jsonb DEFAULT 'null'::jsonb
+	"sections" jsonb DEFAULT NULL,
+	"assets" jsonb DEFAULT NULL,
+	"seo_snapshot" jsonb DEFAULT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "publication" (
@@ -237,8 +237,8 @@ CREATE TABLE "publication" (
 	"external_id" text,
 	"status" "publication_status" DEFAULT 'pending' NOT NULL,
 	"published_at" timestamp,
-	"payload_snapshot" jsonb DEFAULT 'null'::jsonb,
-	"response_snapshot" jsonb DEFAULT 'null'::jsonb,
+	"payload_snapshot" jsonb DEFAULT NULL,
+	"response_snapshot" jsonb DEFAULT NULL,
 	"error_message" text,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
@@ -253,7 +253,7 @@ CREATE TABLE "file" (
 	"path" text NOT NULL,
 	"url" text,
 	"storage_provider" text NOT NULL,
-	"uploaded_by" uuid,
+	"uploaded_by" text,
 	"content_id" uuid,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
@@ -280,7 +280,7 @@ CREATE TABLE "source_content" (
 	"external_id" text,
 	"title" text,
 	"source_text" text,
-	"metadata" jsonb DEFAULT 'null'::jsonb,
+	"metadata" jsonb DEFAULT NULL,
 	"ingest_status" "ingest_status" DEFAULT 'pending' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
