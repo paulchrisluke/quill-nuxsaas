@@ -11,7 +11,7 @@ if (isTestEnv) {
 const nitroPreset = process.env.NUXT_NITRO_PRESET
 
 const hyperdriveId = process.env.NUXT_CF_HYPERDRIVE_ID
-const hyperdriveBindings = hyperdriveId && process.env.NODE_ENV === 'production'
+const hyperdriveBindings = hyperdriveId
   ? [{
       binding: 'HYPERDRIVE',
       id: hyperdriveId

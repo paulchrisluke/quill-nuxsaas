@@ -24,7 +24,8 @@ export async function getDBStats() {
   const dbStats = Array.isArray(dbStatsResult) ? dbStatsResult[0] : dbStatsResult.rows?.[0]
   if (!dbStats)
     throw new Error('Database statistics are unavailable')
-  const cacheHitRatio = dbStats.blks_hit / (dbStats.blks_read + dbStats.blks_hit) * 100
+  const totalBlocks = Number(dbStats.blks_read) + Number(dbStats.blks_hit)
+  const cacheHitRatio = totalBlocks > 0 ? (Number(dbStats.blks_hit) / totalBlocks * 100) : 0
 
   return {
     activeBackends: Number(dbStats.active_backends),

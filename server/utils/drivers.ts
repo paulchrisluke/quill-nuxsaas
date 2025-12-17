@@ -23,10 +23,10 @@ export const cacheClient = {
       return value
     }
 
-    const value = await kv.get(key)
+    const value = await kv.get<string>(key)
     if (!value)
       return null
-    return JSON.stringify(value)
+    return value
   },
   set: async (key: string, value: string, ttl: number | undefined) => {
     const client = getRedisClient()

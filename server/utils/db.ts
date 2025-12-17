@@ -6,7 +6,14 @@ import * as schema from '~~/server/db/schema'
 
 type DatabaseInstance = NodePgDatabase<typeof schema>
 
-const database = hubDb as unknown as DatabaseInstance
+const isDatabaseInstance = (value: unknown): value is DatabaseInstance => {
+  return !!value && typeof value === 'object' && typeof (value as any).execute === 'function'
+}
+
+if (!isDatabaseInstance(hubDb))
+  throw new Error('Invalid database instance returned from hub:db binding')
+
+const database: DatabaseInstance = hubDb
 
 export const getDB = (): DatabaseInstance => database
 

@@ -15,6 +15,14 @@ const client = postgres(connectionString, {
 export const db = drizzle(client, { schema })
 export { schema }
 
-process.once('beforeExit', async () => {
-  await client.end({ timeout: 5 })
-})
+const cleanup = async () => {
+  try {
+    await client.end({ timeout: 5 })
+  } catch (error) {
+    console.error('Error closing database connection:', error)
+  }
+}
+
+process.once('exit', cleanup)
+process.once('SIGTERM', cleanup)
+process.once('SIGINT', cleanup)
