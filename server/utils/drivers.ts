@@ -14,6 +14,7 @@ const DB_QUERY_TIMEOUT_MS = 15000
 const DB_POOL_WAIT_WARNING_MS = 3000
 const DB_POOL_BACKPRESSURE_LOG_INTERVAL_MS = 10_000
 const DB_QUERY_START_LOG_INTERVAL_MS = 10_000
+const DB_COLD_POOL_LOG_INTERVAL_MS = 10_000
 
 const poolStats = (pool: pg.Pool) => ({
   total: pool.totalCount,
@@ -47,6 +48,7 @@ const instrumentPool = (pool: pg.Pool) => {
   (pool as any)[marker] = true
 
   let lastBackpressureLogAt = 0
+  let lastColdPoolLogAt = 0
   const maybeLogBackpressure = (reason: string, extra?: Record<string, unknown>) => {
     // Only log if there's actually backpressure, and throttle.
     if (pool.waitingCount <= 0) {
@@ -64,6 +66,23 @@ const instrumentPool = (pool: pg.Pool) => {
     })
   }
 
+  const maybeLogColdPool = (reason: string, extra?: Record<string, unknown>) => {
+    // Cold pool = no connections have been established yet in this isolate.
+    if (pool.totalCount > 0) {
+      return
+    }
+    const now = Date.now()
+    if (now - lastColdPoolLogAt < DB_COLD_POOL_LOG_INTERVAL_MS) {
+      return
+    }
+    lastColdPoolLogAt = now
+    console.warn('[DB] Cold pool detected (no connections yet)', {
+      reason,
+      pool: poolStats(pool),
+      ...extra
+    })
+  }
+
   pool.on('error', (error) => {
     console.error('[DB] Pool error detected', { error })
   })
@@ -73,6 +92,7 @@ const instrumentPool = (pool: pg.Pool) => {
     const start = Date.now()
     // If something is already queued waiting for a connection, surface it early.
     maybeLogBackpressure('before connect')
+    maybeLogColdPool('before connect')
     try {
       const client = await (originalConnect as any)(...args)
       const wait = Date.now() - start
@@ -81,10 +101,22 @@ const instrumentPool = (pool: pg.Pool) => {
           waitMs: wait,
           pool: poolStats(pool)
         })
+      } else if (pool.totalCount <= 1) {
+        // Helpful signal for cold starts / newly created pools without spamming.
+        // totalCount <= 1 is a strong hint this is early in the pool lifecycle.
+        console.log('[DB] pool.connect ok', {
+          waitMs: wait,
+          pool: poolStats(pool)
+        })
       }
       return client
     } catch (error) {
-      console.error('[DB] pool.connect failed', error)
+      const wait = Date.now() - start
+      console.error('[DB] pool.connect failed', {
+        waitMs: wait,
+        pool: poolStats(pool),
+        error
+      })
       throw error
     }
   }) as any
@@ -97,6 +129,7 @@ const instrumentPool = (pool: pg.Pool) => {
     const startPoolSnapshot = poolStats(pool)
 
     maybeLogBackpressure('before query', { query: queryPreview })
+    maybeLogColdPool('before query', { query: queryPreview })
 
     // Low-volume "query start" trace to correlate with timeouts in prod without spamming.
     const now = Date.now()
