@@ -20,12 +20,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // Check if we need to switch organization
   const activeOrgId = (session.value as any)?.activeOrganizationId
 
-  // Use cached org list to avoid fetching on every navigation
+  // Always fetch a fresh org list (disable useAsyncData caching).
   const { data: orgs } = await useAsyncData('user-organizations', async () => {
     const { data } = await organization.list()
     return data
   }, {
-    // Ensure fresh data on each full page load (but still cache per navigation)
+    // Returning `undefined` opts out of cached data so this fetch runs on every call.
     getCachedData: () => undefined
   })
 
