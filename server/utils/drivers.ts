@@ -19,6 +19,23 @@ const DB_CONNECT_OK_LOG_INTERVAL_MS = 10_000
 const DB_BYPASS_HYPERDRIVE_ENV = 'NUXT_DB_BYPASS_HYPERDRIVE'
 const DB_HOST_LOGGED_KEY = '__quillio_dbHostLogged'
 
+function tryExtractDbHost(url: string): { host: string, isPooler: boolean } | null {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname
+    return { host, isPooler: host.includes('-pooler.') }
+  } catch {
+    // Fallback for non-standard URL parsing environments.
+    // Example: postgresql://user:pass@host/db?params
+    const match = url.match(/^[a-z]+:\/\/[^@]+@([^/]+)\//i)
+    const host = match?.[1]
+    if (!host) {
+      return null
+    }
+    return { host, isPooler: host.includes('-pooler.') }
+  }
+}
+
 const poolStats = (pool: pg.Pool) => ({
   total: pool.totalCount,
   idle: pool.idleCount,
@@ -35,18 +52,6 @@ const getDatabaseUrl = () => {
   if (!url) {
     console.error('[DB] No database URL available - Hyperdrive:', !!hyperdrive, 'DATABASE_URL:', !!runtimeConfig.databaseUrl)
     throw new Error('Database connection string is not available')
-  }
-  // Log selected host (safe) once per isolate/process for diagnostics.
-  if (!(globalThis as any)[DB_HOST_LOGGED_KEY]) {
-    ;(globalThis as any)[DB_HOST_LOGGED_KEY] = true
-    try {
-      const parsed = new URL(url)
-      const host = parsed.hostname
-      const isPooler = host.includes('-pooler.')
-      console.log('[DB] Database host selected', { host, isPooler })
-    } catch {
-      console.warn('[DB] Database host selected (unparseable URL)')
-    }
   }
   // Log connection source (but not the actual URL for security)
   if (hyperdrive?.connectionString && !bypassHyperdrive) {
@@ -222,6 +227,17 @@ function extractQueryPreview(args: any[]): string {
 
 const createPgPool = () => {
   const connectionString = getDatabaseUrl()
+  // Log selected host (safe) once per isolate/process for diagnostics.
+  // We log here (pool creation) because we already know this code path runs in prod.
+  if (!(globalThis as any)[DB_HOST_LOGGED_KEY]) {
+    ;(globalThis as any)[DB_HOST_LOGGED_KEY] = true
+    const info = tryExtractDbHost(connectionString)
+    if (info) {
+      console.log('[DB] Database host selected', info)
+    } else {
+      console.warn('[DB] Database host selected (unparseable URL)')
+    }
+  }
   console.log('[DB] Creating PostgreSQL pool with timeout settings')
   const pool = new pg.Pool({
     connectionString,
