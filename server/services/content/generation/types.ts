@@ -171,3 +171,14 @@ export interface ContentSection {
   wordCount: number
   meta?: Record<string, any>
 }
+
+export interface ImageSuggestion {
+  sectionId: string
+  position: number
+  altText: string
+  reason: string
+  priority: 'high' | 'medium' | 'low'
+  type?: 'generated' | 'screencap'
+  videoId?: string
+  estimatedTimestamp?: number
+}

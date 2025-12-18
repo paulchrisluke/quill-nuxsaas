@@ -5,7 +5,7 @@ import type {
 
 export type ToolKind = 'read' | 'write' | 'ingest'
 
-export type ChatToolName = 'content_write' | 'edit_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary'
+export type ChatToolName = 'content_write' | 'edit_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images'
 
 export type ChatToolArguments<TName extends ChatToolName> =
   TName extends 'content_write'
@@ -88,7 +88,11 @@ export type ChatToolArguments<TName extends ChatToolName> =
                       ? {
                           contentId: string
                         }
-                      : never
+                      : TName extends 'analyze_content_images'
+                        ? {
+                            contentId: string
+                          }
+                        : never
 
 export interface ChatToolInvocation<TName extends ChatToolName = ChatToolName> {
   name: TName
@@ -210,6 +214,17 @@ const chatToolDefinitions: Record<ChatToolName, ToolDefinition> = {
         name: 'read_workspace_summary',
         description: 'Get a formatted summary of a content workspace. Returns a human-readable summary of the content, its version, sections, and source. This is a read-only operation.',
         parameters: buildReadWorkspaceSummaryParameters()
+      }
+    }
+  },
+  analyze_content_images: {
+    kind: 'read',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'analyze_content_images',
+        description: 'Analyze a content item to propose where images would improve clarity and engagement. Returns suggestions with sectionId, line position, alt text, reason, and priority without modifying content.',
+        parameters: buildAnalyzeContentImagesParameters()
       }
     }
   }
@@ -512,6 +527,19 @@ function buildReadWorkspaceSummaryParameters(): ParameterSchema {
   }
 }
 
+function buildAnalyzeContentImagesParameters(): ParameterSchema {
+  return {
+    type: 'object',
+    properties: {
+      contentId: {
+        type: 'string',
+        description: 'Content ID (UUID format) of the content item to analyze for image opportunities. Use read_content_list to find IDs.'
+      }
+    },
+    required: ['contentId']
+  }
+}
+
 function safeParseArguments(input: string): Record<string, any> | null {
   try {
     return input ? JSON.parse(input) : {}
@@ -671,6 +699,14 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
     return {
       name: 'read_workspace_summary',
       arguments: rest as ChatToolInvocation<'read_workspace_summary'>['arguments']
+    }
+  }
+
+  if (toolCall.function.name === 'analyze_content_images') {
+    const { type: _omit, ...rest } = args
+    return {
+      name: 'analyze_content_images',
+      arguments: rest as ChatToolInvocation<'analyze_content_images'>['arguments']
     }
   }
 

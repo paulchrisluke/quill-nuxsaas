@@ -46,6 +46,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent'): string {
   - read_content_list: List content items with optional filtering
   - read_source_list: List source content items with optional filtering
   - read_workspace_summary: Get a formatted summary of a content workspace
+  - analyze_content_images: Suggest where images would strengthen a content item
 - You MUST NOT perform actions that modify content or ingest new data.
 - If the user asks you to make changes, explain what you would do and suggest switching to agent mode for actual changes.
 - Keep replies concise (2-4 sentences) and helpful.`

@@ -7,6 +7,7 @@ import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
 import { generateContentFromSource, updateContentSection } from '~~/server/services/content/generation'
+import { suggestImagesForContent } from '~~/server/services/content/generation/imageSuggestions'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
 import {
@@ -997,6 +998,80 @@ async function executeChatTool(
     }
   }
 
+  if (toolInvocation.name === 'analyze_content_images') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'analyze_content_images'>['arguments']
+    const contentId = validateUUID(args.contentId, 'contentId')
+
+    try {
+      const rows = await db
+        .select({
+          content: schema.content,
+          currentVersion: schema.contentVersion,
+          sourceContent: schema.sourceContent
+        })
+        .from(schema.content)
+        .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
+        .leftJoin(schema.sourceContent, eq(schema.sourceContent.id, schema.content.sourceContentId))
+        .where(and(
+          eq(schema.content.organizationId, organizationId),
+          eq(schema.content.id, contentId)
+        ))
+        .limit(1)
+
+      const record = rows[0]
+
+      if (!record || !record.content) {
+        return {
+          success: false,
+          error: 'Content not found'
+        }
+      }
+
+      if (!record.currentVersion) {
+        return {
+          success: false,
+          error: 'Content has no version to analyze'
+        }
+      }
+
+      const frontmatter = (record.currentVersion.frontmatter ?? null) as Record<string, any> | null
+      const sourceContentForSuggestions = record.sourceContent
+        ? {
+            sourceType: record.sourceContent.sourceType,
+            externalId: record.sourceContent.externalId,
+            metadata: record.sourceContent.metadata
+          }
+        : null
+      const suggestions = await suggestImagesForContent({
+        markdown: record.currentVersion.bodyMdx || record.currentVersion.bodyHtml || '',
+        sections: Array.isArray(record.currentVersion.sections)
+          ? record.currentVersion.sections as any[]
+          : [],
+        frontmatter: {
+          title: record.content.title,
+          contentType: record.content.contentType,
+          primaryKeyword: record.content.primaryKeyword ?? (frontmatter?.primaryKeyword ?? null),
+          targetLocale: record.content.targetLocale ?? (frontmatter?.targetLocale ?? null)
+        },
+        sourceContent: sourceContentForSuggestions
+      })
+
+      return {
+        success: true,
+        result: {
+          contentId: record.content.id,
+          versionId: record.currentVersion.id,
+          suggestions
+        }
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to analyze content for images'
+      }
+    }
+  }
+
   if (toolInvocation.name === 'read_section') {
     const args = toolInvocation.arguments as ChatToolInvocation<'read_section'>['arguments']
     const contentId = validateUUID(args.contentId, 'contentId')
@@ -1417,12 +1492,12 @@ async function executeChatTool(
  * - Error handling - automatic retries with configurable limits
  *
  * **Modes:**
- * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`) to inspect content
+ * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`) to inspect content
  *   but cannot modify content or ingest new data. Write/ingest tools are filtered out at both the tool selection and execution layers.
  * - `agent` (read+write): Full toolset available including write and ingest operations.
  *
  * **Available Tools:**
- * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`
+ * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`
  * - Write tools (agent mode only): `content_write` (with action="create" or action="enrich"), `edit_section`, `edit_metadata`
  * - Ingest tools (agent mode only): `source_ingest` (with sourceType="youtube" or sourceType="context")
  *
