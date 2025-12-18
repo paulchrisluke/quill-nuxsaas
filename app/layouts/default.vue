@@ -126,6 +126,44 @@ const contentId = computed(() => {
   return id || contentRouteMatch.value[1]
 })
 
+const isDownloading = ref(false)
+const toast = useToast()
+
+const handleDownloadContent = async () => {
+  if (!contentId.value || isDownloading.value)
+    return
+
+  try {
+    isDownloading.value = true
+
+    const contentData = await $fetch(`/api/content/${contentId.value}`)
+    const slug = (contentData as any)?.workspace?.content?.slug?.trim?.() || `content-${contentId.value}`
+
+    const response = await $fetch(`/api/content/${contentId.value}/download`, {
+      method: 'GET',
+      responseType: 'blob'
+    })
+
+    const blob = response instanceof Blob ? response : new Blob([response], { type: 'text/markdown' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${slug}.mdx`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+  } catch (error: any) {
+    toast.add({
+      title: 'Download failed',
+      description: error?.data?.statusMessage || error?.message || 'Could not download content',
+      color: 'error'
+    })
+  } finally {
+    isDownloading.value = false
+  }
+}
+
 const {
   items: conversationItems,
   pending: conversationPending,
@@ -142,8 +180,6 @@ const {
 const chatView = ref<'chat' | 'list'>('chat')
 const archivingConversationId = ref<string | null>(null)
 const conversationsExpanded = ref(false)
-
-const toast = useToast()
 
 watch(() => shouldShowChatPanel.value, (next) => {
   if (!next) {
@@ -373,6 +409,17 @@ const canExpandConversationList = computed(() => {
           <p class="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
             {{ chatTitle }}
           </p>
+          <UButton
+            v-if="contentId"
+            aria-label="Download content"
+            variant="ghost"
+            color="neutral"
+            size="xs"
+            icon="i-lucide-download"
+            :loading="isDownloading"
+            :disabled="isDownloading"
+            @click="handleDownloadContent"
+          />
           <UDropdownMenu
             v-if="loggedIn"
             :items="userMenuItems"
