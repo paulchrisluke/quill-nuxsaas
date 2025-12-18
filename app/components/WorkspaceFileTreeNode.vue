@@ -20,7 +20,6 @@ const props = defineProps<{
   node: FileTreeNode
   depth?: number
   expandedPaths: Set<string>
-  collapsed?: boolean
   activeContentId?: string | null
   activeSourceId?: string | null
 }>()

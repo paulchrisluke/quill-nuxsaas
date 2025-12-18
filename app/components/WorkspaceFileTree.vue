@@ -107,6 +107,12 @@ const buildTreeFromEntries = (entries: { path: string, metadata?: FileTreeNode['
         continue
       }
 
+      if (existing) {
+        // Existing file node conflicts with folder path - skip this entry
+        console.warn(`Path conflict: "${currentPath}" exists as file but needed as folder`)
+        break
+      }
+
       const folderNode: FileTreeNode = {
         type: 'folder',
         name: segment,
@@ -283,12 +289,19 @@ const isEmptyState = computed(() => {
 
       <div
         v-if="contentError || sourceError"
-        class="px-3"
+        class="px-3 space-y-2"
       >
         <UAlert
+          v-if="contentError"
           color="error"
           variant="soft"
-          :title="contentError || sourceError"
+          :title="contentError"
+        />
+        <UAlert
+          v-if="sourceError"
+          color="error"
+          variant="soft"
+          :title="sourceError"
         />
       </div>
     </div>
