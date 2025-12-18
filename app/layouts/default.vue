@@ -171,6 +171,10 @@ watch(loggedIn, (value, previous) => {
   if (value === previous)
     return
   resetConversationList()
+  if (!value) {
+    // Clear conversationId from localStorage on sign-out to prevent session leakage
+    conversation.resetConversation()
+  }
   if (!import.meta.client)
     return
   if (value && shouldShowChatPanel.value)

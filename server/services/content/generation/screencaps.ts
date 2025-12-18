@@ -54,13 +54,13 @@ const ensureBinaryAvailable = async (binary: string) => {
     const stdout = typeof (error as any)?.stdout === 'string'
       ? (error as any).stdout
       : (error as any)?.stdout
-        ? String((error as any).stdout)
-        : ''
+          ? String((error as any).stdout)
+          : ''
     const stderr = typeof (error as any)?.stderr === 'string'
       ? (error as any).stderr
       : (error as any)?.stderr
-        ? String((error as any).stderr)
-        : ''
+          ? String((error as any).stderr)
+          : ''
     const combinedOutput = [stdout, stderr].filter(Boolean).join('\n').trim().toLowerCase()
     const exitCode = (error as any)?.code
     const errno = (error as any)?.errno
@@ -99,10 +99,20 @@ export const extractScreencapFromYouTube = async (params: {
 }) => {
   const { videoId, timestampSeconds, variant = 'full', timeoutMs } = params
 
-  if (!videoId || !videoId.trim()) {
+  // Validate videoId format: YouTube IDs are 11 chars, allowed A-Z a-z 0-9 _ and -
+  const trimmedVideoId = videoId?.trim()
+  if (!trimmedVideoId) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Video ID is required for screencap extraction'
+    })
+  }
+
+  const youtubeIdRegex = /^[A-Za-z0-9_-]{11}$/
+  if (!youtubeIdRegex.test(trimmedVideoId)) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Invalid video ID format. YouTube video IDs must be exactly 11 characters and contain only letters, numbers, underscores, and hyphens.'
     })
   }
 
@@ -114,11 +124,11 @@ export const extractScreencapFromYouTube = async (params: {
     : 0
 
   const tempDir = await mkdtemp(join(tmpdir(), 'screencap-'))
-  const videoPath = join(tempDir, `${videoId}-${randomUUID()}.mp4`)
+  const videoPath = join(tempDir, `${trimmedVideoId}-${randomUUID()}.mp4`)
   const imagePath = join(tempDir, `${variant}-frame.jpg`)
 
   try {
-    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+    const videoUrl = `https://www.youtube.com/watch?v=${trimmedVideoId}`
 
     await runCommand('yt-dlp', [
       '--no-playlist',

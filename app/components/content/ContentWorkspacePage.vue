@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 
-const { formatDateRelative } = useDate()
 const route = useRoute()
-const router = useRouter()
-const localePath = useLocalePath()
 
 interface ContentEntry {
   id: string
@@ -59,20 +56,6 @@ interface ContentApiResponse {
 const contentId = computed(() => {
   const param = route.params.id
   return Array.isArray(param) ? param[0] : param || ''
-})
-
-const routeSlug = computed(() => {
-  const param = route.params.slug
-  if (Array.isArray(param))
-    return param[0] || null
-  if (typeof param === 'string' && param.trim().length > 0 && param !== 't')
-    return param
-  return null
-})
-
-const contentListPath = computed(() => {
-  const slug = routeSlug.value
-  return slug ? `/${slug}/content` : '/content'
 })
 
 // Set workspace header state

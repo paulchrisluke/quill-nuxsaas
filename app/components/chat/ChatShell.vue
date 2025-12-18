@@ -76,10 +76,6 @@ const conversationLoadToken = ref(0)
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
 
-const showWelcomeState = computed(() =>
-  !messages.value.length && !conversationId.value && !isBusy.value && !promptSubmitting.value
-)
-
 const handleAgentModeGoogleSignup = () => {
   showAgentModeLoginModal.value = false
   if (typeof window === 'undefined')
@@ -156,6 +152,11 @@ const routeConversationId = computed(() => {
 const conversationId = computed(() => {
   return props.conversationId || routeConversationId.value || activeConversationId.value
 })
+
+const showWelcomeState = computed(() =>
+  !messages.value.length && !conversationId.value && !isBusy.value && !promptSubmitting.value
+)
+
 const routeNewConversation = computed(() => {
   const flag = route.query.new
   if (Array.isArray(flag))
@@ -520,7 +521,10 @@ if (import.meta.client) {
       class="w-full flex flex-col justify-center overflow-x-hidden"
       :class="props.embedded ? 'mt-auto border-t border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2' : 'fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6'"
     >
-      <div class="w-full" :class="props.embedded ? '' : 'max-w-3xl mx-auto'">
+      <div
+        class="w-full"
+        :class="props.embedded ? '' : 'max-w-3xl mx-auto'"
+      >
         <PromptComposer
           v-model="prompt"
           placeholder="Paste a transcript or describe what you need..."

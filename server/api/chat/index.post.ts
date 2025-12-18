@@ -2475,19 +2475,37 @@ export default defineEventHandler(async (event) => {
                         const frontmatter = versionRecord.frontmatter as Frontmatter | null | undefined
                         const frontmatterDiff = frontmatter?.diffStats
                         if (frontmatterDiff && (frontmatterDiff.additions !== undefined || frontmatterDiff.deletions !== undefined)) {
-                          return {
-                            additions: frontmatterDiff.additions !== undefined ? Number(frontmatterDiff.additions) : 0,
-                            deletions: frontmatterDiff.deletions !== undefined ? Number(frontmatterDiff.deletions) : 0
-                          }
+                          const additions = frontmatterDiff.additions !== undefined
+                            ? (() => {
+                                const a = Number(frontmatterDiff.additions)
+                                return Number.isFinite(a) ? a : 0
+                              })()
+                            : 0
+                          const deletions = frontmatterDiff.deletions !== undefined
+                            ? (() => {
+                                const d = Number(frontmatterDiff.deletions)
+                                return Number.isFinite(d) ? d : 0
+                              })()
+                            : 0
+                          return { additions, deletions }
                         }
                         const toolResult = toolExec.result as ToolResultWithFileEdits | undefined
                         const fileEdits = toolResult?.result?.fileEdits || toolResult?.fileEdits
                         const firstEdit = Array.isArray(fileEdits) ? fileEdits[0] : null
                         if (firstEdit && (firstEdit.additions !== undefined || firstEdit.deletions !== undefined)) {
-                          return {
-                            additions: firstEdit.additions !== undefined ? Number(firstEdit.additions) : 0,
-                            deletions: firstEdit.deletions !== undefined ? Number(firstEdit.deletions) : 0
-                          }
+                          const additions = firstEdit.additions !== undefined
+                            ? (() => {
+                                const a = Number(firstEdit.additions)
+                                return Number.isFinite(a) ? a : 0
+                              })()
+                            : 0
+                          const deletions = firstEdit.deletions !== undefined
+                            ? (() => {
+                                const d = Number(firstEdit.deletions)
+                                return Number.isFinite(d) ? d : 0
+                              })()
+                            : 0
+                          return { additions, deletions }
                         }
                         return null
                       })(),
