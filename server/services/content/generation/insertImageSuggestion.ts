@@ -149,8 +149,9 @@ export const insertImageSuggestion = async (
       uploadedFileId = file.id
     } else if (suggestion.fullSizeUrl) {
       // If we have a URL but no fileId, use the URL directly
+      // External URLs won't have a file ID in our system
       imageUrl = suggestion.fullSizeUrl
-      uploadedFileId = suggestion.fullSizeFileId || ''
+      uploadedFileId = '' // No file ID for external URLs
     } else {
       throw createError({
         statusCode: 400,
