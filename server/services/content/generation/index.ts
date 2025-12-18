@@ -1363,6 +1363,10 @@ export {
 } from './insertImageSuggestion'
 
 export {
+  insertUploadedImage
+} from './insertUploadedImage'
+
+export {
   createGenerationMetadata,
   createSectionUpdateMetadata
 } from './metadata'

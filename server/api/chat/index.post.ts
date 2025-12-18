@@ -6,7 +6,7 @@ import { and, asc, count, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
-import { generateContentFromSource, updateContentSection } from '~~/server/services/content/generation'
+import { generateContentFromSource, insertUploadedImage, updateContentSection } from '~~/server/services/content/generation'
 import { suggestImagesForContent } from '~~/server/services/content/generation/imageSuggestions'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
@@ -116,6 +116,33 @@ async function composeWorkspaceCompletionMessages(
   const filesPayload = buildWorkspaceFilesPayload(content, version, sourceContent)
   const filesText = ['**Files**', ...filesPayload.map(file => `- ${file.filename}`)].join('\n')
 
+  const recentUploads = await db
+    .select({
+      id: schema.file.id,
+      originalName: schema.file.originalName,
+      fileName: schema.file.fileName,
+      fileType: schema.file.fileType,
+      mimeType: schema.file.mimeType,
+      contentId: schema.file.contentId,
+      updatedAt: schema.file.updatedAt
+    })
+    .from(schema.file)
+    .where(and(
+      eq(schema.file.organizationId, organizationId),
+      eq(schema.file.isActive, true),
+      eq(schema.file.contentId, content.id)
+    ))
+    .orderBy(desc(schema.file.updatedAt), desc(schema.file.id))
+    .limit(5)
+
+  const uploadsText = recentUploads.length
+    ? ['**Recent Uploads**', ...recentUploads.map((file) => {
+        const name = file.originalName || file.fileName
+        const typeLabel = file.fileType || file.mimeType
+        return `- ${name}${typeLabel ? ` (${typeLabel})` : ''}`
+      })].join('\n')
+    : null
+
   return {
     summary: {
       content: summaryText,
@@ -130,7 +157,23 @@ async function composeWorkspaceCompletionMessages(
         type: 'workspace_files',
         files: filesPayload
       }
-    }
+    },
+    uploads: uploadsText
+      ? {
+          content: uploadsText,
+          payload: {
+            type: 'uploaded_files',
+            files: recentUploads.map(file => ({
+              id: file.id,
+              name: file.originalName || file.fileName,
+              fileType: file.fileType,
+              mimeType: file.mimeType,
+              contentId: file.contentId,
+              updatedAt: file.updatedAt instanceof Date ? file.updatedAt.toISOString() : file.updatedAt
+            }))
+          }
+        }
+      : null
   }
 }
 
@@ -260,6 +303,80 @@ async function executeChatTool(
     return {
       success: false,
       error: getModeEnforcementError(toolInvocation.name)
+    }
+  }
+
+  if (toolInvocation.name === 'read_files') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'read_files'>['arguments']
+
+    try {
+      const DEFAULT_LIMIT = 20
+      const MAX_LIMIT = 100
+
+      const limit = args.limit !== undefined && args.limit !== null
+        ? validateNumber(args.limit, 'limit', 1, MAX_LIMIT)
+        : DEFAULT_LIMIT
+
+      const whereClauses = [
+        eq(schema.file.organizationId, organizationId),
+        eq(schema.file.isActive, true)
+      ]
+
+      if (args.contentId) {
+        const contentId = validateUUID(args.contentId, 'contentId')
+        whereClauses.push(eq(schema.file.contentId, contentId))
+      }
+
+      if (args.fileType) {
+        const fileType = validateRequiredString(args.fileType, 'fileType')
+        whereClauses.push(eq(schema.file.fileType, fileType))
+      }
+
+      const whereClause = whereClauses.length > 1 ? and(...whereClauses) : whereClauses[0]
+
+      const files = await db
+        .select({
+          id: schema.file.id,
+          originalName: schema.file.originalName,
+          fileName: schema.file.fileName,
+          mimeType: schema.file.mimeType,
+          fileType: schema.file.fileType,
+          size: schema.file.size,
+          path: schema.file.path,
+          url: schema.file.url,
+          contentId: schema.file.contentId,
+          createdAt: schema.file.createdAt,
+          updatedAt: schema.file.updatedAt
+        })
+        .from(schema.file)
+        .where(whereClause)
+        .orderBy(desc(schema.file.updatedAt), desc(schema.file.id))
+        .limit(limit)
+
+      return {
+        success: true,
+        result: {
+          files: files.map(file => ({
+            id: file.id,
+            originalName: file.originalName,
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+            fileType: file.fileType,
+            size: file.size,
+            path: file.path,
+            url: file.url,
+            contentId: file.contentId,
+            createdAt: file.createdAt instanceof Date ? file.createdAt.toISOString() : file.createdAt,
+            updatedAt: file.updatedAt instanceof Date ? file.updatedAt.toISOString() : file.updatedAt
+          })),
+          limit
+        }
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || 'Failed to list files'
+      }
     }
   }
 
@@ -952,6 +1069,42 @@ async function executeChatTool(
     }
   }
 
+  if (toolInvocation.name === 'insert_image') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'insert_image'>['arguments']
+
+    try {
+      const contentId = validateUUID(args.contentId, 'contentId')
+      const fileId = validateUUID(args.fileId, 'fileId')
+      const position = args.position ?? null
+      const altText = args.altText ? validateOptionalString(args.altText, 'altText') : null
+
+      const insertionResult = await insertUploadedImage(db, {
+        organizationId,
+        userId,
+        contentId,
+        fileId,
+        position,
+        altText
+      })
+
+      return {
+        success: true,
+        result: {
+          contentId: insertionResult.content.id,
+          versionId: insertionResult.version.id,
+          suggestion: insertionResult.suggestion,
+          markdown: insertionResult.markdown
+        },
+        contentId: insertionResult.content.id
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message || error?.statusMessage || 'Failed to insert uploaded image'
+      }
+    }
+  }
+
   if (toolInvocation.name === 'read_content') {
     const args = toolInvocation.arguments as ChatToolInvocation<'read_content'>['arguments']
     const contentId = validateUUID(args.contentId, 'contentId')
@@ -1516,13 +1669,13 @@ async function executeChatTool(
  * - Error handling - automatic retries with configurable limits
  *
  * **Modes:**
- * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`) to inspect content
+ * - `chat` (read-only): Can use read tools (`read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`, `read_files`) to inspect content
  *   but cannot modify content or ingest new data. Write/ingest tools are filtered out at both the tool selection and execution layers.
  * - `agent` (read+write): Full toolset available including write and ingest operations.
  *
  * **Available Tools:**
- * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`
- * - Write tools (agent mode only): `content_write` (with action="create" or action="enrich"), `edit_section`, `edit_metadata`
+ * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`, `read_files`
+ * - Write tools (agent mode only): `content_write` (with action="create" or action="enrich"), `edit_section`, `edit_metadata`, `insert_image`
  * - Ingest tools (agent mode only): `source_ingest` (with sourceType="youtube" or sourceType="context")
  *
  * @contract
@@ -2541,6 +2694,13 @@ export default defineEventHandler(async (event) => {
           await persistAssistantMessage(
             completionMessages.files.content,
             completionMessages.files.payload ?? null
+          )
+        }
+
+        if (completionMessages?.uploads) {
+          await persistAssistantMessage(
+            completionMessages.uploads.content,
+            completionMessages.uploads.payload ?? null
           )
         }
 

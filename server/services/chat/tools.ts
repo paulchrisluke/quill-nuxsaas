@@ -5,7 +5,7 @@ import type {
 
 export type ToolKind = 'read' | 'write' | 'ingest'
 
-export type ChatToolName = 'content_write' | 'edit_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images'
+export type ChatToolName = 'content_write' | 'edit_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images' | 'read_files' | 'insert_image'
 
 export type ChatToolArguments<TName extends ChatToolName> =
   TName extends 'content_write'
@@ -92,7 +92,20 @@ export type ChatToolArguments<TName extends ChatToolName> =
                         ? {
                             contentId: string
                           }
-                        : never
+                        : TName extends 'read_files'
+                          ? {
+                              contentId?: string | null
+                              fileType?: string | null
+                              limit?: number | null
+                            }
+                          : TName extends 'insert_image'
+                            ? {
+                                contentId: string
+                                fileId: string
+                                position?: string | number | null
+                                altText?: string | null
+                              }
+                            : never
 
 export interface ChatToolInvocation<TName extends ChatToolName = ChatToolName> {
   name: TName
@@ -225,6 +238,28 @@ const chatToolDefinitions: Record<ChatToolName, ToolDefinition> = {
         name: 'analyze_content_images',
         description: 'Analyze a content item to propose where images would improve clarity and engagement. Returns suggestions with sectionId, line position, alt text, reason, and priority without modifying content.',
         parameters: buildAnalyzeContentImagesParameters()
+      }
+    }
+  },
+  read_files: {
+    kind: 'read',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'read_files',
+        description: 'List uploaded files for the current organization so you can reference user-provided assets. Use this to find file IDs by filename or filter by contentId or fileType.',
+        parameters: buildReadFilesParameters()
+      }
+    }
+  },
+  insert_image: {
+    kind: 'write',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'insert_image',
+        description: 'Insert an uploaded image into a content item at a specified position. Provide the contentId, fileId, and optionally a position (line number, sectionId, or natural language like "above the conclusion") plus alt text.',
+        parameters: buildInsertImageParameters()
       }
     }
   }
@@ -540,6 +575,53 @@ function buildAnalyzeContentImagesParameters(): ParameterSchema {
   }
 }
 
+function buildReadFilesParameters(): ParameterSchema {
+  return {
+    type: 'object',
+    properties: {
+      contentId: {
+        type: ['string', 'null'],
+        description: 'Optional content ID (UUID) to filter files linked to a specific content item.'
+      },
+      fileType: {
+        type: ['string', 'null'],
+        description: 'Optional file type filter (e.g., "image").'
+      },
+      limit: {
+        type: ['number', 'null'],
+        minimum: 1,
+        maximum: 100,
+        description: 'Maximum number of files to return (default: 20, max: 100).'
+      }
+    }
+  }
+}
+
+function buildInsertImageParameters(): ParameterSchema {
+  return {
+    type: 'object',
+    properties: {
+      contentId: {
+        type: 'string',
+        description: 'Content ID (UUID format) where the image should be inserted.'
+      },
+      fileId: {
+        type: 'string',
+        description: 'File ID of the uploaded image to insert.'
+      },
+      position: {
+        type: ['string', 'number', 'null'],
+        description: 'Where to insert the image: a line number, a sectionId, or natural language like "above the conclusion" or "as the featured image".'
+      },
+      altText: {
+        type: ['string', 'null'],
+        description: 'Optional alt text for the image.'
+      }
+    },
+    required: ['contentId', 'fileId']
+  }
+}
+
 function safeParseArguments(input: string): Record<string, any> | null {
   try {
     return input ? JSON.parse(input) : {}
@@ -707,6 +789,22 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
     return {
       name: 'analyze_content_images',
       arguments: rest as ChatToolInvocation<'analyze_content_images'>['arguments']
+    }
+  }
+
+  if (toolCall.function.name === 'read_files') {
+    const { type: _omit, ...rest } = args
+    return {
+      name: 'read_files',
+      arguments: rest as ChatToolInvocation<'read_files'>['arguments']
+    }
+  }
+
+  if (toolCall.function.name === 'insert_image') {
+    const { type: _omit, ...rest } = args
+    return {
+      name: 'insert_image',
+      arguments: rest as ChatToolInvocation<'insert_image'>['arguments']
     }
   }
 
