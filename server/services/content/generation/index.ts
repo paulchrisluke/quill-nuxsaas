@@ -3,6 +3,7 @@ import type { ConversationIntentSnapshot } from '~~/shared/utils/intent'
 import type {
   ContentGenerationInput,
   ContentGenerationResult,
+  ImageSuggestion,
   SectionUpdateInput,
   SectionUpdateResult
 } from './types'
@@ -37,6 +38,7 @@ import {
   enrichFrontmatterWithMetadata,
   extractFrontmatterFromVersion
 } from './frontmatter'
+import { suggestImagesForContent } from './imageSuggestions'
 import { createGenerationMetadata, createSectionUpdateMetadata } from './metadata'
 import { generateContentOutline } from './planning'
 import { deriveSchemaMetadata, validateSchemaMetadata } from './schemaMetadata'
@@ -480,6 +482,34 @@ export const generateContentDraftFromSource = async (
   pipelineStages.push('assembly')
   await emitProgress('Content assembled.')
 
+  let imageSuggestions: ImageSuggestion[] = []
+  try {
+    imageSuggestions = await suggestImagesForContent({
+      markdown: assembled.markdown,
+      sections: assembled.sections,
+      frontmatter: {
+        title: frontmatter.title,
+        contentType,
+        primaryKeyword: frontmatter.primaryKeyword,
+        targetLocale: frontmatter.targetLocale
+      },
+      sourceContent: sourceContent
+        ? {
+            sourceType: sourceContent.sourceType,
+            externalId: sourceContent.externalId,
+            metadata: sourceContent.metadata
+          }
+        : null
+    })
+    await emitProgress(imageSuggestions.length
+      ? `Generated ${imageSuggestions.length} image suggestion${imageSuggestions.length === 1 ? '' : 's'}.`
+      : 'No image suggestions generated.')
+  } catch (error) {
+    safeWarn('[generateContentDraftFromSource] Image suggestion generation failed', { error })
+    await emitProgress('Image suggestion analysis skipped due to an error.')
+  }
+  pipelineStages.push('image_suggestions')
+
   frontmatter = deriveSchemaMetadata(frontmatter, assembled.sections)
   const schemaValidation = validateSchemaMetadata(frontmatter)
   await emitProgress(schemaValidation.errors.length
@@ -495,7 +525,7 @@ export const generateContentDraftFromSource = async (
   // SEO snapshot is created, so SEO stage is complete
   pipelineStages.push('seo')
 
-  const assets = createGenerationMetadata(sourceContent, pipelineStages)
+  const assets = createGenerationMetadata(sourceContent, pipelineStages, { imageSuggestions })
   const seoSnapshot = {
     plan: plan.seo,
     primaryKeyword,

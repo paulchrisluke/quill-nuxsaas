@@ -370,6 +370,7 @@ async function fetchTranscriptViaOfficialAPI(
       language: selectedTrack.snippet?.language,
       track_kind: selectedTrack.snippet?.trackKind,
       track_name: selectedTrack.snippet?.name,
+      vttContent,
       available_tracks: captionTracks.map(track => ({
         id: track.id,
         language: track.snippet?.language,
@@ -636,7 +637,10 @@ export async function ingestYouTubeVideoAsSourceContent(options: IngestYouTubeOp
     ...baseMetadata,
     title: resolvedTitle ?? null,
     ingestMethod,
-    youtube: youtubeMetadata
+    youtube: {
+      ...youtubeMetadata,
+      vttContent: transcriptResult?.metadata?.vttContent ?? null
+    }
   }
 
   const [processing] = await db
