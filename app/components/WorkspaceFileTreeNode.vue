@@ -63,7 +63,7 @@ const paddingStyle = computed(() => ({
   paddingLeft: `${Math.max(depth.value - 0.25, 0) * 0.875}rem`
 }))
 
-const label = computed(() => props.node.name || props.node.metadata?.displayLabel || '')
+const label = computed(() => props.node.name || props.node.metadata?.displayLabel || 'Untitled')
 
 const toggleFolder = () => {
   if (!isFolder.value)
@@ -104,6 +104,7 @@ const handleKeydown = (event: KeyboardEvent) => {
       <button
         v-if="isFolder"
         type="button"
+        tabindex="-1"
         class="flex items-center justify-center flex-shrink-0"
         aria-label="Toggle folder"
         @click.stop="toggleFolder"

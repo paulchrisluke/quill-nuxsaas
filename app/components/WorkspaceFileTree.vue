@@ -7,13 +7,15 @@ import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
 
 type SourceContentItem = typeof schema.sourceContent.$inferSelect
 
-defineProps<{
+const props = defineProps<{
   collapsed?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
 }>()
+
+const isCollapsed = computed(() => Boolean(props.collapsed))
 
 const { useActiveOrganization } = useAuth()
 const router = useRouter()
@@ -149,7 +151,7 @@ const contentEntries = computed(() => {
 
 const sourceEntries = computed(() => {
   return sourceItems.value.map(source => ({
-    path: ['sources', normalizeSegment(source.sourceType) || 'sources', buildSourceName(source.title, source.id)].join('/'),
+    path: ['sources', normalizeSegment(source.sourceType) || 'other', buildSourceName(source.title, source.id)].join('/'),
     metadata: {
       sourceId: source.id,
       sourceType: source.sourceType || undefined,
@@ -209,9 +211,8 @@ const openNode = (node: FileTreeNode) => {
     if (path) {
       // Try to navigate, but if route doesn't exist, emit event for parent to handle
       router.push(localePath(path)).catch(() => {
-        // Route doesn't exist yet, emit event for parent to handle
-        // This allows embedding scenarios to handle source clicks differently
-        console.log('Source navigation:', metadata.sourceId)
+        // Route doesn't exist yet - parent already received 'open' event above
+        // to handle source display in embedding scenarios
       })
     }
   }
@@ -250,7 +251,23 @@ const isEmptyState = computed(() => {
     class="h-full flex flex-col space-y-3"
     role="tree"
   >
-    <div class="flex-1 overflow-y-auto px-1 pb-4">
+    <div
+      v-if="isCollapsed"
+      class="flex flex-col items-center gap-2 py-4"
+    >
+      <UIcon
+        name="i-lucide-folder"
+        class="h-5 w-5 text-muted-500"
+      />
+      <UIcon
+        name="i-lucide-file-text"
+        class="h-5 w-5 text-muted-500"
+      />
+    </div>
+    <div
+      v-else
+      class="flex-1 overflow-y-auto px-1 pb-4"
+    >
       <div v-if="contentPending || sourcePending">
         <div
           v-for="n in 6"
