@@ -196,7 +196,6 @@ WITH account_integration_map AS (
     JOIN "integration" i
       ON i.account_id = p.integration_id
      AND i.organization_id = p.organization_id
-     AND i.type = 'youtube'
     WHERE p.integration_id IS NOT NULL
     GROUP BY p.integration_id, p.organization_id
 )
