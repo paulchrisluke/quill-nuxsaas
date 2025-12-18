@@ -11,8 +11,27 @@ export default defineEventHandler(async (event) => {
   const { organizationId } = await requireActiveOrganization(event)
 
   // Get contentId from query params if provided
+  // Handle both string and string[] inputs (use first element if array)
   const contentId = getQuery(event).contentId
-  const validatedContentId = typeof contentId === 'string' && contentId.trim() ? contentId.trim() : null
+  let validatedContentId: string | null = null
+
+  if (Array.isArray(contentId)) {
+    // If array, use first element
+    const firstValue = contentId[0]
+    if (typeof firstValue === 'string' && firstValue.trim()) {
+      validatedContentId = firstValue.trim()
+    }
+  } else if (typeof contentId === 'string' && contentId.trim()) {
+    validatedContentId = contentId.trim()
+  }
+
+  // Enforce max length (255 chars) and reject values exceeding it
+  if (validatedContentId && validatedContentId.length > 255) {
+    validatedContentId = null
+  }
+
+  // NOTE: contentId should be validated/sanitized before passing to fileService.uploadFile
+  // or the storage layer (or validate again in those layers) to prevent injection or path traversal
 
   const formData = await readMultipartFormData(event)
   if (!formData) {
@@ -86,7 +105,7 @@ export default defineEventHandler(async (event) => {
       getHeader(event, 'user-agent'),
       {
         organizationId,
-        contentId: validatedContentId
+        contentId: validatedContentId ?? undefined
       }
     )
     return {

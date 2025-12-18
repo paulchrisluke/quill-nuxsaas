@@ -24,6 +24,7 @@ export const integration = pgTable('integration', {
 }, table => ({
   organizationIdx: index('integration_org_idx').on(table.organizationId),
   typeIdx: index('integration_type_idx').on(table.type),
+  orgTypeUnique: uniqueIndex('integration_org_type_unique_idx').on(table.organizationId, table.type),
   orgTypeAccountUnique: uniqueIndex('integration_org_type_account_not_null_idx')
     .on(table.organizationId, table.type, table.accountId)
     .where(sql`${table.accountId} IS NOT NULL`),

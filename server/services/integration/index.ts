@@ -142,40 +142,27 @@ export const syncOrganizationOAuthIntegrations = async (
       })
 
       try {
-        // Check if integration already exists (with or without accountId)
-        const existing = await db.query.integration.findFirst({
-          where: and(
-            eq(schema.integration.organizationId, organizationId),
-            eq(schema.integration.type, integrationDef.type)
-          )
-        })
-
-        if (existing) {
-          // Update existing integration
-          await db
-            .update(schema.integration)
-            .set({
+        // Use atomic upsert to avoid race conditions
+        await db
+          .insert(schema.integration)
+          .values({
+            organizationId,
+            type: integrationDef.type,
+            name: integrationDef.name,
+            authType: 'oauth',
+            accountId: account.id,
+            capabilities: integrationDef.capabilities ?? null,
+            isActive: true
+          })
+          .onConflictDoUpdate({
+            target: [schema.integration.organizationId, schema.integration.type],
+            set: {
               accountId: account.id,
               isActive: true,
               updatedAt: new Date()
-            })
-            .where(eq(schema.integration.id, existing.id))
-          console.log('[integration] Successfully updated existing integration:', integrationDef.type)
-        } else {
-          // Insert new integration
-          await db
-            .insert(schema.integration)
-            .values({
-              organizationId,
-              type: integrationDef.type,
-              name: integrationDef.name,
-              authType: 'oauth',
-              accountId: account.id,
-              capabilities: integrationDef.capabilities ?? null,
-              isActive: true
-            })
-          console.log('[integration] Successfully created new integration:', integrationDef.type)
-        }
+            }
+          })
+        console.log('[integration] Successfully upserted integration:', integrationDef.type)
       } catch (error) {
         console.error('[integration] Failed to create/update integration:', {
           type: integrationDef.type,

@@ -46,6 +46,27 @@ const deriveAltText = (preferredAlt?: string | null, fallbackName?: string | nul
 
 const isUuidLike = (value: string) => UUID_REGEX.test(value.trim())
 
+/**
+ * Escapes special characters in markdown alt text that would break the syntax
+ * Escapes: '[', ']', and backslashes
+ */
+const escapeMarkdownAltText = (altText: string): string => {
+  return altText
+    .replace(/\\/g, '\\\\') // Escape backslashes first
+    .replace(/\[/g, '\\[') // Escape opening brackets
+    .replace(/\]/g, '\\]') // Escape closing brackets
+}
+
+/**
+ * Sanitizes a URL for use in markdown image syntax
+ * Wraps the URL in angle brackets to prevent issues with special characters like ')'
+ * This is the most reliable approach for markdown URLs
+ */
+const sanitizeMarkdownUrl = (url: string): string => {
+  // Use angle brackets to safely handle any special characters in the URL
+  return `<${url}>`
+}
+
 const resolveSectionByKeyword = (keyword: string, sections: ContentSection[]) => {
   const lowerKeyword = keyword.toLowerCase()
   return sections.find((section) => {
@@ -69,7 +90,7 @@ const resolveSectionByPhrase = (phrase: string, sections: ContentSection[]) => {
     if (exactMatch) {
       return section
     }
-    const overlap = normalizedTitle.split(/\s+/).filter(word => lowerPhrase.includes(word)).length
+    const overlap = normalizedTitle.split(/\s+/).filter((word: string) => lowerPhrase.includes(word)).length
     if (overlap > bestScore) {
       bestScore = overlap
       bestMatch = section
@@ -215,6 +236,14 @@ export const insertUploadedImage = async (
     })
   }
 
+  // Validate file ownership: if file has a contentId, it must match the target contentId
+  if (fileRecord.contentId && fileRecord.contentId !== contentId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'File belongs to a different content and cannot be inserted here'
+    })
+  }
+
   if (fileRecord.fileType !== 'image' || !fileRecord.mimeType?.startsWith('image/')) {
     throw createError({
       statusCode: 400,
@@ -277,7 +306,10 @@ export const insertUploadedImage = async (
     updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)
   } else {
     // Insert Markdown image syntax for MDX content
-    const markdownImage = `![${suggestion.altText}](${imageUrl})`
+    // Escape alt text and sanitize URL to prevent markdown syntax breaking
+    const escapedAltText = escapeMarkdownAltText(suggestion.altText)
+    const sanitizedUrl = sanitizeMarkdownUrl(imageUrl)
+    const markdownImage = `![${escapedAltText}](${sanitizedUrl})`
     updatedBody = insertMarkdownAtLine(contentBody, resolvedPosition.lineNumber, markdownImage)
   }
 
@@ -331,8 +363,8 @@ export const insertUploadedImage = async (
         version: nextVersionNumber,
         createdByUserId: userId,
         frontmatter: version.frontmatter,
-        bodyMdx: isHtmlFormat ? null : updatedBody,
-        bodyHtml: isHtmlFormat ? updatedBody : null,
+        bodyMdx: isHtmlFormat ? version.bodyMdx : updatedBody,
+        bodyHtml: isHtmlFormat ? updatedBody : version.bodyHtml,
         sections: version.sections,
         assets: updatedAssets,
         seoSnapshot: version.seoSnapshot

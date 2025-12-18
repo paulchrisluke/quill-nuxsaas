@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage } from '#shared/utils/types'
 import { useClipboard, useElementVisibility } from '@vueuse/core'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
@@ -36,11 +36,18 @@ const activeOrg = useActiveOrganization()
 
 // Check for Google Drive integration
 const organizationIdForIntegrations = computed(() => activeOrg.value?.data?.id)
-const { data: integrationsResponse } = useFetch('/api/organization/integrations', {
+const { data: integrationsResponse, refresh: refreshIntegrations } = useFetch('/api/organization/integrations', {
   key: () => `chat-shell-integrations-${organizationIdForIntegrations.value || 'none'}`,
   watch: [organizationIdForIntegrations],
   default: () => ({ data: [] }),
   immediate: false
+})
+
+// Fetch integrations on mount if organization ID is already available
+onMounted(() => {
+  if (organizationIdForIntegrations.value) {
+    refreshIntegrations()
+  }
 })
 
 const hasGoogleDrive = computed(() => {
@@ -153,13 +160,13 @@ const handleStopStreaming = () => {
   }
 }
 
-const handleImageUploadClick = (event?: Event) => {
-  if (event) {
-    event.preventDefault()
-    event.stopPropagation()
-  }
+const handleImageUploadClick = () => {
   console.log('[ChatShell] Image upload clicked, fileInputRef:', fileInputRef.value)
-  fileInputRef.value?.click()
+  if (fileInputRef.value) {
+    fileInputRef.value.click()
+  } else {
+    console.error('[ChatShell] fileInputRef is null!')
+  }
 }
 
 const handleGoogleDriveClick = () => {
@@ -180,6 +187,20 @@ const handleGoogleDriveClick = () => {
     icon: 'i-lucide-info'
   })
 }
+
+const uploadMenuItems = computed(() => [
+  {
+    label: 'Upload Image',
+    icon: 'i-lucide-upload',
+    onSelect: handleImageUploadClick
+  },
+  {
+    label: hasGoogleDrive.value ? 'Import from Google Drive' : 'Google Drive (Connect in Settings)',
+    icon: 'i-simple-icons-googledrive',
+    disabled: !hasGoogleDrive.value,
+    onSelect: handleGoogleDriveClick
+  }
+])
 
 const { uploading: _fileUploading, uploadToServer } = useFileManager({
   maxSize: 10 * 1024 * 1024, // 10MB
@@ -214,6 +235,10 @@ const handleFileSelect = async (event: Event) => {
     return
 
   const file = files[0]
+  if (!file) {
+    return
+  }
+
   if (!file.type.startsWith('image/')) {
     toast.add({
       title: 'Invalid file type',
@@ -632,6 +657,7 @@ if (import.meta.client) {
             <div class="flex items-center gap-2">
               <UDropdownMenu
                 v-if="props.contentId && !isBusy && !promptSubmitting"
+                :items="uploadMenuItems"
               >
                 <UButton
                   type="button"
@@ -640,35 +666,6 @@ if (import.meta.client) {
                   variant="ghost"
                   color="neutral"
                 />
-                <template #content>
-                  <button
-                    type="button"
-                    class="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
-                    @click.stop="handleImageUploadClick"
-                  >
-                    <UIcon
-                      name="i-lucide-upload"
-                      class="w-4 h-4"
-                    />
-                    <span>Upload Image</span>
-                  </button>
-                  <USeparator />
-                  <button
-                    type="button"
-                    class="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    :disabled="!hasGoogleDrive"
-                    @click.stop="handleGoogleDriveClick"
-                  >
-                    <UIcon
-                      name="i-simple-icons-googledrive"
-                      class="w-4 h-4"
-                      :class="{ 'opacity-50': !hasGoogleDrive }"
-                    />
-                    <span :class="{ 'opacity-50': !hasGoogleDrive }">
-                      {{ hasGoogleDrive ? 'Import from Google Drive' : 'Google Drive (Connect in Settings)' }}
-                    </span>
-                  </button>
-                </template>
               </UDropdownMenu>
               <input
                 ref="fileInputRef"

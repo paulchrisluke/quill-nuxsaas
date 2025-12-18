@@ -1075,7 +1075,20 @@ async function executeChatTool(
     try {
       const contentId = validateUUID(args.contentId, 'contentId')
       const fileId = validateUUID(args.fileId, 'fileId')
-      const position = args.position ?? null
+
+      // Validate position parameter: must be string, number, or null/undefined
+      let position: string | number | null = null
+      if (args.position !== null && args.position !== undefined) {
+        if (typeof args.position === 'string' || typeof args.position === 'number') {
+          position = args.position
+        } else {
+          throw createError({
+            statusCode: 400,
+            statusMessage: 'position must be a string, number, or null'
+          })
+        }
+      }
+
       const altText = args.altText ? validateOptionalString(args.altText, 'altText') : null
 
       const insertionResult = await insertUploadedImage(db, {
