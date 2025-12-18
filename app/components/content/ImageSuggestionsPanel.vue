@@ -29,7 +29,8 @@ const pendingSuggestions = computed(() => {
 })
 
 const formatTimestamp = (seconds?: number | null): string => {
-  if (seconds === null || seconds === undefined) return 'N/A'
+  if (seconds === null || seconds === undefined)
+    return 'N/A'
   const mins = Math.floor(seconds / 60)
   const secs = Math.floor(seconds % 60)
   return `${mins}:${secs.toString().padStart(2, '0')}`
@@ -37,7 +38,8 @@ const formatTimestamp = (seconds?: number | null): string => {
 
 const getYouTubeUrl = (suggestion: ImageSuggestion): string | null => {
   const videoId = suggestion.videoId || props.videoId
-  if (!videoId) return null
+  if (!videoId)
+    return null
 
   const baseUrl = `https://www.youtube.com/watch?v=${videoId}`
   if (suggestion.estimatedTimestamp !== null && suggestion.estimatedTimestamp !== undefined) {
@@ -63,12 +65,24 @@ const priorityLabel = (priority: string): string => {
       <div
         v-for="(suggestion, idx) in pendingSuggestions"
         :key="`${suggestion.sectionId}-${suggestion.position}-${idx}`"
-        class="space-y-4"
+        class="space-y-4 pb-4 border-b border-neutral-200/60 dark:border-neutral-800/60 last:border-0 last:pb-0"
       >
-        <div class="flex items-center gap-2 text-xs text-muted-500">
-          <span>{{ priorityLabel(suggestion.priority) }}</span>
-          <span>•</span>
-          <span>Line {{ suggestion.position }}</span>
+        <div>
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            Priority
+          </p>
+          <p class="text-sm">
+            {{ priorityLabel(suggestion.priority) }}
+          </p>
+        </div>
+
+        <div>
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            Line
+          </p>
+          <p class="text-sm">
+            {{ suggestion.position }}
+          </p>
         </div>
 
         <div>
@@ -105,7 +119,10 @@ const priorityLabel = (priority: string): string => {
             >
               {{ formatTimestamp(suggestion.estimatedTimestamp) }}
             </a>
-            <span v-else class="text-muted-500">
+            <span
+              v-else
+              class="text-muted-500"
+            >
               {{ formatTimestamp(suggestion.estimatedTimestamp) }}
             </span>
           </div>

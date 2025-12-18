@@ -754,11 +754,11 @@ export const generateContentDraftFromSource = async (
       })
 
       // Mark screencap suggestions as failed with a user-friendly message
-      const failedSuggestions = imageSuggestions.map(suggestion => {
+      const failedSuggestions = imageSuggestions.map((suggestion) => {
         if (suggestion.type === 'screencap' && suggestion.status !== 'thumbnail_ready') {
           // Check if it's a DRM error
-          const isDRMError = errorMessage.toLowerCase().includes('drm') ||
-                            errorMessage.toLowerCase().includes('protected')
+          const isDRMError = errorMessage.toLowerCase().includes('drm')
+            || errorMessage.toLowerCase().includes('protected')
 
           return {
             ...suggestion,

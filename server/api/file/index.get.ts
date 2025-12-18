@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, desc, eq, lt, or } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
@@ -158,7 +158,7 @@ export default defineEventHandler(async (event) => {
     }
 
     return {
-      files: files.map((file) => ({
+      files: files.map(file => ({
         id: file.id,
         originalName: file.originalName,
         fileName: file.fileName,
@@ -176,14 +176,25 @@ export default defineEventHandler(async (event) => {
       limit: query.limit
     }
   } catch (error) {
-    console.error('[File API] Error:', error)
+    // Log detailed error information server-side
+    console.error('[File API] Error caught:', error)
+    if (error instanceof Error) {
+      console.error('[File API] Error name:', error.name)
+      console.error('[File API] Error message:', error.message)
+      console.error('[File API] Error stack:', error.stack)
+    } else {
+      console.error('[File API] Error type:', typeof error)
+      console.error('[File API] Error value:', JSON.stringify(error, Object.getOwnPropertyNames(error)))
+    }
+    // Re-throw H3 errors as-is, wrap others
     if (error && typeof error === 'object' && 'statusCode' in error) {
       throw error
     }
+    // Return generic error message to client (never expose internal error details)
     throw createError({
       statusCode: 500,
       statusMessage: 'Internal Server Error',
-      message: error instanceof Error ? error.message : 'An unexpected error occurred'
+      message: 'Internal Server Error'
     })
   }
 })

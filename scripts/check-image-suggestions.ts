@@ -6,8 +6,8 @@
  *   pnpm dlx tsx scripts/check-image-suggestions.ts <content-slug-or-id>
  */
 
-import { config } from 'dotenv'
 import { resolve } from 'path'
+import { config } from 'dotenv'
 import { Pool } from 'pg'
 
 try {
@@ -41,7 +41,7 @@ async function checkBinaries() {
   try {
     const ytdlpVersion = execSync('yt-dlp --version', { encoding: 'utf-8', stdio: 'pipe' }).trim()
     console.log(`✅ yt-dlp: Installed (version: ${ytdlpVersion})`)
-  } catch (error) {
+  } catch {
     console.log('❌ yt-dlp: NOT INSTALLED')
     console.log('   Install with: brew install yt-dlp (macOS) or pip install yt-dlp')
   }
@@ -50,7 +50,7 @@ async function checkBinaries() {
   try {
     const ffmpegVersion = execSync('ffmpeg -version', { encoding: 'utf-8', stdio: 'pipe' }).split('\n')[0]
     console.log(`✅ ffmpeg: Installed (${ffmpegVersion})`)
-  } catch (error) {
+  } catch {
     console.log('❌ ffmpeg: NOT INSTALLED')
     console.log('   Install with: brew install ffmpeg (macOS) or apt-get install ffmpeg (Linux)')
   }
@@ -102,7 +102,7 @@ async function checkImageSuggestions() {
     console.log(`Image Suggestions Count: ${content.suggestion_count || 0}`)
 
     // Check source content if it exists
-    if (content.sourceContentId) {
+    if (content.source_content_id || content.sourceContentId) {
       const sourceQuery = `
         SELECT
           id,
@@ -180,9 +180,7 @@ async function checkImageSuggestions() {
       console.log(`Has image_suggestions stage: ${stages.includes('image_suggestions') ? 'Yes ✅' : 'No ❌'}`)
       console.log(`Has image_thumbnails stage: ${stages.includes('image_thumbnails') ? 'Yes ✅' : 'No ❌'}`)
     }
-
-    console.log('\n' + '='.repeat(60))
-
+    console.log(`\n${'='.repeat(60)}`)
   } catch (error: any) {
     console.error('❌ Error:', error.message)
     console.error(error.stack)

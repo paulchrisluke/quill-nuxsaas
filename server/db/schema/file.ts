@@ -20,7 +20,7 @@ export const file = pgTable('file', {
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
-}, (table) => ({
+}, table => ({
   organizationIdx: index('file_organization_idx').on(table.organizationId),
   organizationActiveIdx: index('file_organization_active_idx').on(table.organizationId, table.isActive)
 }))

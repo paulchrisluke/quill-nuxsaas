@@ -1,4 +1,4 @@
-import type { ContentFrontmatter, ContentSection } from './types'
+import type { ContentFrontmatter, ContentSection, ImageSuggestion } from './types'
 import { formatFrontmatterAsYaml } from './frontmatter'
 import { generateStructuredDataJsonLd } from './structured-data'
 
@@ -81,8 +81,6 @@ export const enrichMarkdownWithMetadata = (params: {
   return parts.filter(part => part.trim().length > 0).join('\n\n')
 }
 
-import type { ImageSuggestion } from './types'
-
 /**
  * Inserts image suggestion comments into markdown at their specified positions
  * Skips suggestions that are already inserted (status === 'added')
@@ -117,7 +115,7 @@ export const insertImageSuggestionComments = (
   const lines = markdown.split('\n')
 
   for (const suggestion of sortedSuggestions) {
-    const position = Math.max(1, Math.min(suggestion.position || 1, lines.length))
+    const position = Math.max(1, Math.min(suggestion.position || 1, lines.length + 1))
     const insertIndex = position - 1 // Convert to 0-based index
 
     // Build comment with suggestion details

@@ -242,9 +242,11 @@ export const attachThumbnailsToSuggestions = async (params: {
       const errorMessage = errorObj.message || 'Unknown error'
 
       // Check if it's a DRM error
-      const isDRMError = errorMessage.toLowerCase().includes('drm') ||
-                        errorMessage.toLowerCase().includes('protected') ||
-                        errorMessage.toLowerCase().includes('copyright')
+      const msg = errorMessage.toLowerCase()
+      const isDRMError = msg.includes('drm')
+        || msg.includes('copyright')
+        || msg.includes('drm protected')
+        || msg.includes('content protected')
 
       safeWarn('[screencaps] Failed to prepare thumbnail', {
         videoId: suggestion.videoId,
