@@ -2,6 +2,7 @@
 import type { zodLocales } from './utils/types'
 import { useStorage } from '@vueuse/core'
 import { z } from 'zod'
+import WorkspaceFileTree from '~/components/WorkspaceFileTree.vue'
 
 const { t } = useI18n()
 
@@ -37,6 +38,8 @@ watch(user, (u) => {
 
 const isImpersonating = computed(() => !!(session.value as any)?.impersonatedBy)
 const stoppingImpersonation = ref(false)
+
+const shouldRenderSidebar = computed(() => route.meta?.renderSidebar !== false)
 
 const stopImpersonating = async () => {
   stoppingImpersonation.value = true
@@ -74,6 +77,12 @@ useSeoMeta({
 <template>
   <UApp>
     <NuxtLayout>
+      <template #sidebar="{ collapsed }">
+        <WorkspaceFileTree
+          v-if="shouldRenderSidebar"
+          :collapsed="collapsed"
+        />
+      </template>
       <NuxtPage />
     </NuxtLayout>
     <div

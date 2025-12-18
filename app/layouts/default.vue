@@ -5,7 +5,6 @@ import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
-import SidebarNavigation from '~/components/SidebarNavigation.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
@@ -299,20 +298,10 @@ const canExpandConversationList = computed(() => {
         </template>
 
         <template #default="{ collapsed }">
-          <SidebarNavigation v-if="!collapsed" />
-          <div
-            v-else
-            class="flex flex-col items-center gap-2 py-4"
-          >
-            <UIcon
-              name="i-lucide-file-text"
-              class="w-5 h-5 text-muted-500"
-            />
-            <UIcon
-              name="i-lucide-message-circle"
-              class="w-5 h-5 text-muted-500"
-            />
-          </div>
+          <slot
+            name="sidebar"
+            :collapsed="collapsed"
+          />
         </template>
 
         <template #footer />
