@@ -8,6 +8,10 @@ export interface FileTreeNode {
     contentId?: string
     sourceId?: string
     sourceType?: string
+    fileId?: string
+    fileType?: string
+    mimeType?: string
+    url?: string
     displayLabel?: string
   }
 }
@@ -49,10 +53,24 @@ const iconName = computed(() => {
   if (isFolder.value)
     return isExpanded.value ? 'i-lucide-folder-open' : 'i-lucide-folder'
 
-  const sourceType = props.node.metadata?.sourceType
-  if (sourceType === 'youtube')
+  const meta = props.node.metadata || {}
+
+  // File type icons
+  if (meta.fileType) {
+    if (meta.fileType === 'image')
+      return 'i-lucide-image'
+    if (meta.fileType === 'video')
+      return 'i-lucide-video'
+    if (meta.fileType === 'audio')
+      return 'i-lucide-music'
+    if (meta.fileType === 'text')
+      return 'i-lucide-file-text'
+  }
+
+  // Source type icons
+  if (meta.sourceType === 'youtube')
     return 'i-lucide-youtube'
-  if (sourceType === 'context')
+  if (meta.sourceType === 'context')
     return 'i-lucide-notebook'
 
   return 'i-lucide-file-text'

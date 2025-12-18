@@ -115,10 +115,16 @@ export async function getContentWorkspacePayload(
     }) || null
   }
 
+  // Extract image suggestions from assets
+  const imageSuggestions = currentVersion?.assets && typeof currentVersion.assets === 'object'
+    ? (currentVersion.assets as any).imageSuggestions || []
+    : []
+
   const currentVersionWithDerived = currentVersion
     ? {
         ...currentVersion,
-        structuredData
+        structuredData,
+        imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : []
       }
     : null
 

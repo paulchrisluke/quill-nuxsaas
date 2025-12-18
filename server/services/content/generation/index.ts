@@ -484,6 +484,7 @@ export const generateContentDraftFromSource = async (
   await emitProgress('Content assembled.')
 
   let imageSuggestions: ImageSuggestion[] = []
+  let imageGenerationError: Error | null = null
   try {
     imageSuggestions = await suggestImagesForContent({
       markdown: assembled.markdown,
@@ -506,8 +507,23 @@ export const generateContentDraftFromSource = async (
       ? `Generated ${imageSuggestions.length} image suggestion${imageSuggestions.length === 1 ? '' : 's'}.`
       : 'No image suggestions generated.')
   } catch (error) {
-    safeWarn('[generateContentDraftFromSource] Image suggestion generation failed', { error })
-    await emitProgress('Image suggestion analysis skipped due to an error.')
+    imageGenerationError = error instanceof Error ? error : new Error(String(error))
+    const errorMessage = imageGenerationError.message || 'Unknown error'
+    safeWarn('[generateContentDraftFromSource] Image suggestion generation failed', {
+      error: imageGenerationError,
+      message: errorMessage,
+      stack: imageGenerationError.stack
+    })
+    await emitProgress(`Image generation is currently unavailable. This feature is coming soon.`)
+
+    // Mark any existing suggestions as failed if we had a critical error
+    if (imageSuggestions.length > 0) {
+      imageSuggestions = imageSuggestions.map(s => ({
+        ...s,
+        status: 'failed' as const,
+        errorMessage: 'Image generation service unavailable'
+      }))
+    }
   }
   pipelineStages.push('image_suggestions')
 
@@ -536,7 +552,12 @@ export const generateContentDraftFromSource = async (
     schemaValidation
   }
 
-  const markdown = assembled.markdown
+  // Insert image suggestion comments into markdown
+  let markdown = assembled.markdown
+  if (imageSuggestions.length > 0) {
+    const { insertImageSuggestionComments } = await import('./assembly')
+    markdown = insertImageSuggestionComments(markdown, imageSuggestions)
+  }
   pipelineStages.push('markdown')
 
   const result = await db.transaction(async (tx) => {
@@ -722,7 +743,44 @@ export const generateContentDraftFromSource = async (
         result.version = updatedVersion
       }
     } catch (error) {
-      safeWarn('[generateContentDraftFromSource] Screencap thumbnail preparation failed', { error })
+      const errorObj = error instanceof Error ? error : new Error(String(error))
+      const errorMessage = errorObj.message || 'Unknown error'
+
+      safeWarn('[generateContentDraftFromSource] Screencap thumbnail preparation failed', {
+        error: errorObj,
+        message: errorMessage,
+        stack: errorObj.stack,
+        contentId: result.content.id
+      })
+
+      // Mark screencap suggestions as failed with a user-friendly message
+      const failedSuggestions = imageSuggestions.map(suggestion => {
+        if (suggestion.type === 'screencap' && suggestion.status !== 'thumbnail_ready') {
+          // Check if it's a DRM error
+          const isDRMError = errorMessage.toLowerCase().includes('drm') ||
+                            errorMessage.toLowerCase().includes('protected')
+
+          return {
+            ...suggestion,
+            status: 'failed' as const,
+            errorMessage: isDRMError
+              ? 'This video is DRM protected. Image generation is coming soon for protected content.'
+              : 'Image generation is currently unavailable. This feature is coming soon.'
+          }
+        }
+        return suggestion
+      })
+
+      imageSuggestions = failedSuggestions
+
+      // Update assets with failed status
+      const updatedAssets = createGenerationMetadata(sourceContent, pipelineStages, { imageSuggestions: failedSuggestions })
+      await db
+        .update(schema.contentVersion)
+        .set({ assets: updatedAssets })
+        .where(eq(schema.contentVersion.id, result.version.id))
+
+      await emitProgress('Image generation is currently unavailable. This feature is coming soon.')
     }
   }
 

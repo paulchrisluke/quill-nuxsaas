@@ -185,5 +185,6 @@ export interface ImageSuggestion {
   thumbnailUrl?: string
   fullSizeFileId?: string
   fullSizeUrl?: string
-  status?: 'pending' | 'thumbnail_ready' | 'added'
+  status?: 'pending' | 'thumbnail_ready' | 'added' | 'failed'
+  errorMessage?: string
 }

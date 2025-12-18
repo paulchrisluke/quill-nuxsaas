@@ -1,7 +1,7 @@
 import { relations } from 'drizzle-orm'
-import { bigint, boolean, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { v7 as uuidv7 } from 'uuid'
-import { user } from './auth'
+import { organization, user } from './auth'
 import { content } from './content'
 
 export const file = pgTable('file', {
@@ -14,14 +14,22 @@ export const file = pgTable('file', {
   path: text('path').notNull(),
   url: text('url'),
   storageProvider: text('storage_provider').notNull(),
+  organizationId: text('organization_id').references(() => organization.id, { onDelete: 'cascade' }),
   uploadedBy: text('uploaded_by').references(() => user.id, { onDelete: 'set null' }),
   contentId: uuid('content_id').references(() => content.id, { onDelete: 'set null' }),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
-})
+}, (table) => ({
+  organizationIdx: index('file_organization_idx').on(table.organizationId),
+  organizationActiveIdx: index('file_organization_active_idx').on(table.organizationId, table.isActive)
+}))
 
 export const fileRelations = relations(file, ({ one }) => ({
+  organization: one(organization, {
+    fields: [file.organizationId],
+    references: [organization.id]
+  }),
   uploadedByUser: one(user, {
     fields: [file.uploadedBy],
     references: [user.id]

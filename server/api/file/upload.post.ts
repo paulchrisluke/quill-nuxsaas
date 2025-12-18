@@ -2,11 +2,13 @@ import { readMultipartFormData } from 'h3'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { UploadRateLimiter } from '~~/server/services/file/rateLimiter'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
+import { requireActiveOrganization } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
   const config = useFileManagerConfig()
 
   const user = await requireAuth(event)
+  const { organizationId } = await requireActiveOrganization(event)
 
   const formData = await readMultipartFormData(event)
   if (!formData) {
@@ -77,7 +79,10 @@ export default defineEventHandler(async (event) => {
       mimeType,
       user.id,
       getRequestIP(event),
-      getHeader(event, 'user-agent')
+      getHeader(event, 'user-agent'),
+      {
+        organizationId
+      }
     )
     return {
       success: true,

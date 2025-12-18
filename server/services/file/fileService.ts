@@ -62,6 +62,7 @@ export class FileService {
       fileName?: string
       overrideOriginalName?: string
       contentId?: string
+      organizationId?: string
     }
   ): Promise<FileRecord> {
     const db = await useDB()
@@ -97,6 +98,7 @@ export class FileService {
         path,
         url,
         storageProvider: this.storage.name,
+        organizationId: options?.organizationId ?? null,
         uploadedBy,
         contentId: options?.contentId ?? null,
         isActive: true

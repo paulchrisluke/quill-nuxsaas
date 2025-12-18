@@ -3,6 +3,7 @@ import type * as schema from '~~/server/db/schema'
 import type { FileTreeNode } from './WorkspaceFileTreeNode.vue'
 import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { useContentList } from '~/composables/useContentList'
+import { useFileList } from '~/composables/useFileList'
 import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
 
 type SourceContentItem = typeof schema.sourceContent.$inferSelect
@@ -32,12 +33,20 @@ const {
   loadInitial: loadContentInitial
 } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
+const {
+  items: fileItems,
+  pending: filePending,
+  error: fileError,
+  initialized: fileInitialized,
+  loadInitial: loadFileInitial
+} = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+
 const sourceItems = ref<SourceContentItem[]>([])
 const sourcePending = ref(false)
 const sourceError = ref<string | null>(null)
 const sourceInitialized = ref(false)
 
-const expandedPaths = ref<Set<string>>(new Set(['content', 'sources']))
+const expandedPaths = ref<Set<string>>(new Set(['files', 'content', 'sources']))
 
 const activeContentId = computed(() => {
   const path = route.path
@@ -150,6 +159,20 @@ const contentEntries = computed(() => {
   }))
 })
 
+const fileEntries = computed(() => {
+  return fileItems.value.map(file => ({
+    path: ['files', file.fileName].join('/'),
+    metadata: {
+      fileId: file.id,
+      fileType: file.fileType,
+      mimeType: file.mimeType,
+      displayLabel: file.originalName,
+      url: file.url,
+      contentId: file.contentId || undefined
+    }
+  }))
+})
+
 const sourceEntries = computed(() => {
   return sourceItems.value.map(source => ({
     path: ['sources', normalizeSegment(source.sourceType) || 'other', buildSourceName(source.title, source.id)].join('/'),
@@ -162,11 +185,33 @@ const sourceEntries = computed(() => {
 })
 
 const tree = computed<FileTreeNode[]>(() => {
-  const entries = [...contentEntries.value, ...sourceEntries.value]
-  if (!entries.length) {
-    return []
+  const entries = [...fileEntries.value, ...contentEntries.value, ...sourceEntries.value]
+  const builtTree = buildTreeFromEntries(entries)
+
+  // Always ensure root folders exist, even if empty
+  const rootFolders = ['files', 'content', 'sources']
+  const existingRootPaths = new Set(builtTree.map(node => node.path))
+
+  for (const folderName of rootFolders) {
+    if (!existingRootPaths.has(folderName)) {
+      builtTree.push({
+        type: 'folder',
+        name: folderName,
+        path: folderName,
+        children: []
+      })
+    }
   }
-  return buildTreeFromEntries(entries)
+
+  // Sort to ensure consistent order: content, files, sources
+  builtTree.sort((a, b) => {
+    const order = { content: 0, files: 1, sources: 2 }
+    const aOrder = order[a.path as keyof typeof order] ?? 999
+    const bOrder = order[b.path as keyof typeof order] ?? 999
+    return aOrder - bOrder
+  })
+
+  return builtTree
 })
 
 const toggleFolder = (path: string) => {
@@ -201,7 +246,10 @@ const openNode = (node: FileTreeNode) => {
     return
 
   const metadata = node.metadata || {}
-  if (metadata.contentId) {
+  if (metadata.fileId && metadata.url) {
+    // For files, open the URL in a new tab
+    window.open(metadata.url, '_blank')
+  } else if (metadata.contentId) {
     const path = resolveContentPath(metadata.contentId)
     if (path)
       router.push(localePath(path))
@@ -241,12 +289,20 @@ const fetchSources = async () => {
 
 onMounted(() => {
   loadContentInitial().catch(() => {})
+  loadFileInitial().catch(() => {})
   fetchSources()
 })
 
 const isEmptyState = computed(() => {
-  return contentInitialized.value && sourceInitialized.value && !contentItems.value.length && !sourceItems.value.length
+  return contentInitialized.value && fileInitialized.value && sourceInitialized.value && !contentItems.value.length && !fileItems.value.length && !sourceItems.value.length
 })
+
+// Debug: log file count for troubleshooting
+watch([fileItems, fileInitialized], () => {
+  if (fileInitialized.value) {
+    console.log('[WorkspaceFileTree] Files loaded:', fileItems.value.length, fileItems.value)
+  }
+}, { immediate: true })
 </script>
 
 <template>
@@ -255,7 +311,7 @@ const isEmptyState = computed(() => {
     role="tree"
   >
     <div class="flex-1 overflow-y-auto px-1 pb-4">
-      <div v-if="contentPending || sourcePending">
+      <div v-if="contentPending || filePending || sourcePending">
         <div
           v-for="n in 6"
           :key="n"
@@ -288,7 +344,7 @@ const isEmptyState = computed(() => {
       </div>
 
       <div
-        v-if="contentError || sourceError"
+        v-if="contentError || fileError || sourceError"
         class="px-3 space-y-2"
       >
         <UAlert
@@ -296,6 +352,12 @@ const isEmptyState = computed(() => {
           color="error"
           variant="soft"
           :title="contentError"
+        />
+        <UAlert
+          v-if="fileError"
+          color="error"
+          variant="soft"
+          :title="fileError"
         />
         <UAlert
           v-if="sourceError"
