@@ -1,5 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 --> statement-breakpoint
+CREATE EXTENSION IF NOT EXISTS "pg_uuidv7";
+--> statement-breakpoint
 CREATE TABLE "integration" (
     "id" uuid PRIMARY KEY NOT NULL,
     "organization_id" text NOT NULL,
@@ -23,7 +25,13 @@ CREATE INDEX "integration_org_idx" ON "integration" ("organization_id");
 --> statement-breakpoint
 CREATE INDEX "integration_type_idx" ON "integration" ("type");
 --> statement-breakpoint
-CREATE UNIQUE INDEX "integration_org_type_account_idx" ON "integration" ("organization_id", "type", "account_id");
+CREATE UNIQUE INDEX "integration_org_type_account_not_null_idx"
+  ON "integration" ("organization_id", "type", "account_id")
+  WHERE "account_id" IS NOT NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "integration_org_type_null_account_idx"
+  ON "integration" ("organization_id", "type")
+  WHERE "account_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "publication" ADD COLUMN "integration_id_v2" uuid;
 --> statement-breakpoint
@@ -42,7 +50,7 @@ INSERT INTO "integration" (
     "updated_at"
 )
 SELECT
-    gen_random_uuid() AS id,
+    uuid_generate_v7() AS id,
     m.organization_id,
     'youtube' AS type,
     'YouTube' AS name,
@@ -58,7 +66,7 @@ FROM "account" a
 JOIN "member" m ON m.user_id = a.user_id
 WHERE a.provider_id = 'google'
   AND regexp_split_to_array(coalesce(a.scope, ''), '[, ]+') @> ARRAY['https://www.googleapis.com/auth/youtube', 'https://www.googleapis.com/auth/youtube.force-ssl']
-ON CONFLICT ("organization_id", "type", "account_id") DO NOTHING;
+ON CONFLICT ON CONSTRAINT "integration_org_type_account_not_null_idx" DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "integration" (
     "id",
@@ -75,7 +83,7 @@ INSERT INTO "integration" (
     "updated_at"
 )
 SELECT
-    gen_random_uuid() AS id,
+    uuid_generate_v7() AS id,
     m.organization_id,
     'google_drive' AS type,
     'Google Drive' AS name,
@@ -91,7 +99,7 @@ FROM "account" a
 JOIN "member" m ON m.user_id = a.user_id
 WHERE a.provider_id = 'google'
   AND regexp_split_to_array(coalesce(a.scope, ''), '[, ]+') @> ARRAY['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/documents.readonly']
-ON CONFLICT ("organization_id", "type", "account_id") DO NOTHING;
+ON CONFLICT ON CONSTRAINT "integration_org_type_account_not_null_idx" DO NOTHING;
 --> statement-breakpoint
 INSERT INTO "integration" (
     "id",
@@ -108,7 +116,7 @@ INSERT INTO "integration" (
     "updated_at"
 )
 SELECT
-    gen_random_uuid() AS id,
+    uuid_generate_v7() AS id,
     m.organization_id,
     'github' AS type,
     'GitHub' AS name,
@@ -124,7 +132,60 @@ FROM "account" a
 JOIN "member" m ON m.user_id = a.user_id
 WHERE a.provider_id = 'github'
   AND regexp_split_to_array(coalesce(a.scope, ''), '[, ]+') @> ARRAY['repo']
-ON CONFLICT ("organization_id", "type", "account_id") DO NOTHING;
+ON CONFLICT ON CONSTRAINT "integration_org_type_account_not_null_idx" DO NOTHING;
+--> statement-breakpoint
+WITH missing_account_integration AS (
+    SELECT DISTINCT
+        p.organization_id,
+        sc.source_type
+    FROM "publication" p
+    JOIN "content" c ON c.id = p.content_id
+    JOIN "source_content" sc ON sc.id = c.source_content_id
+    LEFT JOIN "account" a ON a.id = p.integration_id
+    WHERE p.integration_id IS NOT NULL
+      AND a.id IS NULL
+      AND sc.source_type IN ('youtube', 'google_drive', 'github', 'github_repo')
+)
+INSERT INTO "integration" (
+    "id",
+    "organization_id",
+    "type",
+    "name",
+    "auth_type",
+    "account_id",
+    "base_url",
+    "config",
+    "capabilities",
+    "is_active",
+    "created_at",
+    "updated_at"
+)
+SELECT
+    uuid_generate_v7() AS id,
+    missing.organization_id,
+    CASE
+        WHEN missing.source_type = 'youtube' THEN 'youtube'
+        WHEN missing.source_type = 'google_drive' THEN 'google_drive'
+        ELSE 'github'
+    END AS type,
+    CASE
+        WHEN missing.source_type = 'youtube' THEN 'YouTube'
+        WHEN missing.source_type = 'google_drive' THEN 'Google Drive'
+        ELSE 'GitHub'
+    END AS name,
+    'oauth' AS auth_type,
+    NULL::text AS account_id,
+    NULL::text AS base_url,
+    NULL::jsonb AS config,
+    CASE
+        WHEN missing.source_type IN ('github', 'github_repo') THEN jsonb_build_object('sync', true)
+        ELSE jsonb_build_object('ingest', true)
+    END AS capabilities,
+    true AS is_active,
+    now() AS created_at,
+    now() AS updated_at
+FROM missing_account_integration missing
+ON CONFLICT ON CONSTRAINT "integration_org_type_null_account_idx" DO NOTHING;
 --> statement-breakpoint
 WITH account_integration_map AS (
     SELECT

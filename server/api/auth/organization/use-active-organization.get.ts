@@ -53,7 +53,7 @@ export default defineEventHandler(async (event) => {
 
     // Fetch the current user's membership for this organization
     // getAuthSession returns { session, user } - access user directly
-    const userId = (session as any)?.user?.id
+    const userId = session?.user?.id
     let currentUserMembership = null
     if (userId) {
       const [membership] = await db

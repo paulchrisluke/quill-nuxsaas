@@ -204,7 +204,7 @@ export const getOrganizationIntegrationSyncMetadata = async (
   organizationId: string
 ) => {
   const organizationRecord = await db.query.organization.findFirst({
-    columns: { lastSyncedAt: schema.organization.lastSyncedAt },
+    columns: { lastSyncedAt: true },
     where: eq(schema.organization.id, organizationId)
   })
 
