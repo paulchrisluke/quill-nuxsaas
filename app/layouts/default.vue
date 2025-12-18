@@ -144,6 +144,8 @@ const chatView = ref<'chat' | 'list'>('chat')
 const archivingConversationId = ref<string | null>(null)
 const conversationsExpanded = ref(false)
 
+const toast = useToast()
+
 watch(() => shouldShowChatPanel.value, (next) => {
   if (!next) {
     chatView.value = 'chat'
@@ -154,7 +156,13 @@ watch(() => shouldShowChatPanel.value, (next) => {
     return
   if (conversationPending.value && !conversationInitialized.value)
     resetConversationList()
-  loadConversationInitial().catch(() => {})
+  loadConversationInitial().catch((err) => {
+    console.error('Failed to load initial conversations:', err)
+    toast.add({
+      title: 'Failed to load conversations',
+      color: 'error'
+    })
+  })
 })
 
 onMounted(() => {
@@ -162,7 +170,13 @@ onMounted(() => {
     return
   if (conversationPending.value && !conversationInitialized.value)
     resetConversationList()
-  loadConversationInitial().catch(() => {})
+  loadConversationInitial().catch((err) => {
+    console.error('Failed to load initial conversations:', err)
+    toast.add({
+      title: 'Failed to load conversations',
+      color: 'error'
+    })
+  })
 })
 
 watch(loggedIn, (value, previous) => {
@@ -175,8 +189,15 @@ watch(loggedIn, (value, previous) => {
   }
   if (!import.meta.client)
     return
-  if (value && shouldShowChatPanel.value)
-    loadConversationInitial().catch(() => {})
+  if (value && shouldShowChatPanel.value) {
+    loadConversationInitial().catch((err) => {
+      console.error('Failed to load initial conversations:', err)
+      toast.add({
+        title: 'Failed to load conversations',
+        color: 'error'
+      })
+    })
+  }
 })
 
 const toggleChatView = () => {
@@ -219,9 +240,16 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
     if (conversation.conversationId.value === conversationId)
       startNewChat()
 
-    await refreshConversation().catch(() => {})
+    await refreshConversation().catch((err) => {
+      console.error('refreshConversation failed', err)
+    })
   } catch (error) {
     console.error('Failed to archive conversation', error)
+    toast.add({
+      title: 'Failed to archive conversation',
+      description: error instanceof Error ? error.message : 'Please try again.',
+      color: 'error'
+    })
   } finally {
     archivingConversationId.value = null
   }

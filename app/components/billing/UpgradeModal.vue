@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import type { PlanInterval, PlanKey } from '~~/shared/utils/plans'
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { getTierForInterval, PLAN_TIERS } from '~~/shared/utils/plans'
 
 const props = defineProps<{

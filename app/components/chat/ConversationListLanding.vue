@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+
 const router = useRouter()
 const localePath = useLocalePath()
 const { useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
-
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 
 const {
   items,

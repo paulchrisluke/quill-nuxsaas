@@ -50,8 +50,6 @@ const isContentActive = (id: string) => {
   return activeContentId.value === id
 }
 
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
-
 const resolveContentPath = (contentId?: string | null) => {
   const slug = activeOrg.value?.data?.slug
   if (!slug || slug === NON_ORG_SLUG)

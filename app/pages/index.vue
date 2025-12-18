@@ -23,11 +23,15 @@ onMounted(async () => {
   }
 })
 
-// Watch for when session becomes ready and user logs in, then navigate once
-watch([sessionReady, loggedIn], () => {
+// Watch for when session becomes ready, user logs in, and org data loads, then navigate once
+watch([sessionReady, loggedIn, activeOrg], () => {
   if (sessionReady.value && loggedIn.value && !hasNavigated.value) {
+    // Wait for organization data to be available before navigating
+    if (!activeOrg.value?.data) {
+      return
+    }
     hasNavigated.value = true
-    const slug = activeOrg.value?.data?.slug
+    const slug = activeOrg.value.data.slug
     const target = slug && slug !== NON_ORG_SLUG ? `/${slug}/conversations` : `/${NON_ORG_SLUG}/conversations`
     navigateTo(localePath(target))
   }
