@@ -469,7 +469,7 @@ const canExpandConversationList = computed(() => {
                   </button>
                   <UButton
                     icon="i-lucide-archive"
-                    size="2xs"
+                    size="xs"
                     color="neutral"
                     variant="ghost"
                     :loading="archivingConversationId === entry.id"

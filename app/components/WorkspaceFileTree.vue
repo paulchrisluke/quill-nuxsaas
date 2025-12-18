@@ -1,27 +1,19 @@
 <script setup lang="ts">
+import type * as schema from '~~/server/db/schema'
 import type { FileTreeNode } from './WorkspaceFileTreeNode.vue'
 import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { useContentList } from '~/composables/useContentList'
 import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
 
-interface SourceContentItem {
-  id: string
-  title: string | null
-  sourceType: string | null
-  ingestStatus?: string | null
-  createdAt?: string | null
-  updatedAt?: string | null
-}
+type SourceContentItem = typeof schema.sourceContent.$inferSelect
 
-const props = defineProps<{
+defineProps<{
   collapsed?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
 }>()
-
-const isCollapsed = computed(() => Boolean(props.collapsed))
 
 const { useActiveOrganization } = useAuth()
 const router = useRouter()
@@ -42,13 +34,13 @@ const {
   error: contentError,
   initialized: contentInitialized,
   loadInitial: loadContentInitial
-} = useContentList({ pageSize: 200, stateKey: 'workspace-file-tree' })
+} = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const sourceItems = ref<SourceContentItem[]>([])
 const sourcePending = ref(false)
 const sourceError = ref<string | null>(null)
 
-const expandedPaths = ref<Set<string>>(new Set(['workspace', 'workspace/content', 'workspace/sources']))
+const expandedPaths = ref<Set<string>>(new Set(['content', 'sources']))
 
 const activeContentId = computed(() => {
   const path = route.path
@@ -60,8 +52,6 @@ const activeContentId = computed(() => {
   }
   return null
 })
-
-const workspaceRootLabel = computed(() => orgSlug.value || 'workspace')
 
 const normalizeSegment = (value: string | null | undefined) => {
   if (!value)
@@ -148,9 +138,8 @@ const buildTreeFromEntries = (entries: { path: string, metadata?: FileTreeNode['
 }
 
 const contentEntries = computed(() => {
-  const orgSegment = normalizeSegment(orgSlug.value) || 'workspace'
   return contentItems.value.map(content => ({
-    path: ['workspace', 'content', orgSegment, buildContentFilename(content.displayLabel, content.id)].join('/'),
+    path: ['content', buildContentFilename(content.displayLabel, content.id)].join('/'),
     metadata: {
       contentId: content.id,
       displayLabel: content.displayLabel
@@ -160,7 +149,7 @@ const contentEntries = computed(() => {
 
 const sourceEntries = computed(() => {
   return sourceItems.value.map(source => ({
-    path: ['workspace', 'sources', normalizeSegment(source.sourceType) || 'sources', buildSourceName(source.title, source.id)].join('/'),
+    path: ['sources', normalizeSegment(source.sourceType) || 'sources', buildSourceName(source.title, source.id)].join('/'),
     metadata: {
       sourceId: source.id,
       sourceType: source.sourceType || undefined,
@@ -193,6 +182,15 @@ const resolveContentPath = (contentId: string | null | undefined) => {
   return `/${slug}/content/${contentId}`
 }
 
+const resolveSourcePath = (sourceId: string | null | undefined) => {
+  const slug = orgSlug.value
+  if (!slug)
+    return null
+  // Navigate to source content route (can be created later if needed)
+  // For now, we'll use a query parameter approach or emit event
+  return `/${slug}/sources/${sourceId}`
+}
+
 const openNode = (node: FileTreeNode) => {
   emit('open', node)
 
@@ -204,6 +202,18 @@ const openNode = (node: FileTreeNode) => {
     const path = resolveContentPath(metadata.contentId)
     if (path)
       router.push(localePath(path))
+  } else if (metadata.sourceId) {
+    // For sources, we can navigate to a route or show in a modal
+    // For now, navigate to a route pattern that could be created
+    const path = resolveSourcePath(metadata.sourceId)
+    if (path) {
+      // Try to navigate, but if route doesn't exist, emit event for parent to handle
+      router.push(localePath(path)).catch(() => {
+        // Route doesn't exist yet, emit event for parent to handle
+        // This allows embedding scenarios to handle source clicks differently
+        console.log('Source navigation:', metadata.sourceId)
+      })
+    }
   }
 }
 
@@ -213,7 +223,7 @@ const fetchSources = async () => {
   try {
     const response = await $fetch<{ data: SourceContentItem[] }>('/api/source-content', {
       query: {
-        limit: 200
+        limit: 100
       }
     })
     sourceItems.value = response?.data || []
@@ -240,24 +250,6 @@ const isEmptyState = computed(() => {
     class="h-full flex flex-col space-y-3"
     role="tree"
   >
-    <div
-      v-if="!isCollapsed"
-      class="px-2 pt-3"
-    >
-      <p class="text-xs uppercase tracking-wide text-muted-foreground">
-        {{ workspaceRootLabel }}
-      </p>
-    </div>
-    <div
-      v-else
-      class="px-2 pt-3 flex justify-center text-muted-foreground"
-    >
-      <UIcon
-        name="i-lucide-folders"
-        class="h-5 w-5"
-      />
-    </div>
-
     <div class="flex-1 overflow-y-auto px-1 pb-4">
       <div v-if="contentPending || sourcePending">
         <div

@@ -104,23 +104,23 @@ const handleKeydown = (event: KeyboardEvent) => {
       <button
         v-if="isFolder"
         type="button"
-        class="flex items-center justify-center"
+        class="flex items-center justify-center flex-shrink-0"
         aria-label="Toggle folder"
         @click.stop="toggleFolder"
       >
         <UIcon
           :name="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
-          class="h-4 w-4 text-muted-500"
+          class="h-4 w-4 text-muted-500 flex-shrink-0"
         />
       </button>
       <span
         v-else
-        class="w-4"
+        class="w-4 flex-shrink-0"
       />
 
       <UIcon
         :name="iconName"
-        class="h-4 w-4 text-muted-500"
+        class="h-4 w-4 text-muted-500 flex-shrink-0"
       />
       <span class="truncate">{{ label }}</span>
     </div>
