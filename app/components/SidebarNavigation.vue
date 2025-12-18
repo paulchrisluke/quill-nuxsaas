@@ -277,9 +277,6 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
               <p class="text-sm font-medium truncate pr-8">
                 {{ conversation.displayLabel }}
               </p>
-              <p class="text-xs text-muted-foreground">
-                {{ conversation.updatedAgo }}
-              </p>
             </button>
             <UButton
               icon="i-lucide-archive"
@@ -302,7 +299,6 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
             class="rounded-md border border-neutral-200/60 dark:border-neutral-800/60 px-3 py-2"
           >
             <USkeleton class="h-4 w-3/4" />
-            <USkeleton class="h-3 w-1/2 mt-2" />
           </div>
         </template>
 

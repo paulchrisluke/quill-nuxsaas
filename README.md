@@ -80,6 +80,10 @@ pnpm run db:migrate
 pnpm run dev -o
 ```
 
+### Integrations API Behavior
+
+`GET /api/organization/integrations` now returns cached integration records immediately. The expensive OAuth sync only runs when you explicitly append `?force_sync=true` (for example right after the user comes back from an OAuth callback). The forced sync is rate-limited to once per minute per organization and the last sync time is persisted on the organization record, so the experience stays consistent even across multiple server instances.
+
 **Deploy to production:**
 
 ```bash

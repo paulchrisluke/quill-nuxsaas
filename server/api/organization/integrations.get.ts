@@ -1,116 +1,127 @@
-import type { GithubIntegrationProvider } from '~~/shared/constants/githubScopes'
-import type { GoogleIntegrationProvider } from '~~/shared/constants/googleScopes'
-import { and, eq, inArray } from 'drizzle-orm'
-import { createError } from 'h3'
-import * as schema from '~~/server/db/schema'
+import { createError, getQuery } from 'h3'
+import {
+  assertIntegrationManager,
+  getOrganizationIntegrationSyncMetadata,
+  listOrganizationIntegrationsWithAccounts,
+  syncOrganizationOAuthIntegrations,
+  updateOrganizationIntegrationSyncMetadata
+} from '~~/server/services/integration'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
-import { GITHUB_INTEGRATION_MATCH_SCOPES } from '~~/shared/constants/githubScopes'
-import { GOOGLE_INTEGRATION_MATCH_SCOPES } from '~~/shared/constants/googleScopes'
 
-function parseScopes(scope: string | null | undefined): string[] {
-  return scope?.split(/[, ]+/).map(scopeEntry => scopeEntry.trim()).filter(Boolean) ?? []
-}
+/**
+ * GET /api/organization/integrations
+ *
+ * Returns the list of integrations for the active organization.
+ *
+ * Sync Behavior:
+ * - By default this endpoint returns the latest cached integrations immediately.
+ * - Use the `force_sync=true` query parameter to explicitly run the OAuth sync,
+ *   no more than once per minute per organization. This should be done sparingly
+ *   (e.g. right after a user links an account) because the sync performs heavier
+ *   database work.
+ *
+ * Query Parameters:
+ * - `force_sync` (optional): Set to "true" to force a sync. If omitted the
+ *   endpoint simply returns cached integration records.
+ *
+ * Response Format:
+ * {
+ *   data: Integration[],           // Array of integration objects
+ *   syncStatus: 'cached' | 'synced' | 'skipped' | 'error',  // Sync operation status
+ *   lastSyncedAt: string | null    // ISO timestamp of last sync, or null if never synced
+ * }
+ *
+ * Sync Status Values:
+ * - 'cached': Cached data returned (a previous sync was completed)
+ * - 'synced': Sync was performed for this request (force_sync=true)
+ * - 'skipped': No sync has run yet for this org
+ * - 'error': A forced sync was attempted but failed. Cached data was returned.
+ *
+ * Authentication:
+ * - Requires authenticated user
+ * - Requires active organization
+ * - Requires organization owner or admin role
+ */
 
-function hasGoogleIntegrationScopes(scope: string | null | undefined, provider: GoogleIntegrationProvider): boolean {
-  const parsedScopes = parseScopes(scope)
-  const requiredScopes = GOOGLE_INTEGRATION_MATCH_SCOPES[provider]
-  return requiredScopes.every(required => parsedScopes.includes(required))
-}
+const FORCE_SYNC_MIN_INTERVAL_MS = 60 * 1000
 
-function hasGithubIntegrationScopes(scope: string | null | undefined, provider: GithubIntegrationProvider): boolean {
-  const parsedScopes = parseScopes(scope)
-  const requiredScopes = GITHUB_INTEGRATION_MATCH_SCOPES[provider]
-  return requiredScopes.every(required => parsedScopes.includes(required))
-}
+export async function handleGetIntegrations(
+  event: any,
+  options: {
+    getQuery: (event: any) => any
+    requireAuth: (event: any) => Promise<any>
+    requireActiveOrganization: (event: any) => Promise<{ organizationId: string }>
+    getDB: () => any
+    assertIntegrationManager: (db: any, userId: string, organizationId: string) => Promise<void>
+    getOrganizationIntegrationSyncMetadata: (db: any, organizationId: string) => Promise<Date | null>
+    listOrganizationIntegrationsWithAccounts: (db: any, organizationId: string) => Promise<any[]>
+    syncOrganizationOAuthIntegrations: (db: any, organizationId: string) => Promise<void>
+    updateOrganizationIntegrationSyncMetadata: (db: any, organizationId: string, date: Date) => Promise<void>
+    createError: (options: { statusCode: number, statusMessage: string, message: string }) => any
+  }
+) {
+  const user = await options.requireAuth(event)
+  const { organizationId } = await options.requireActiveOrganization(event)
+  const db = options.getDB()
 
-export default defineEventHandler(async (event) => {
-  const user = await requireAuth(event)
+  await options.assertIntegrationManager(db, user.id, organizationId)
 
-  // Get organizationId from Better Auth session
-  const { organizationId } = await requireActiveOrganization(event)
+  const query = options.getQuery(event)
+  const forceSync = query.force_sync === 'true' || query.force_sync === true
+  const lastSyncedAt = await options.getOrganizationIntegrationSyncMetadata(db, organizationId)
+  const lastSyncTime = lastSyncedAt?.getTime() ?? null
 
-  const db = getDB()
+  let syncStatus: 'cached' | 'synced' | 'skipped' | 'error' = lastSyncTime ? 'cached' : 'skipped'
+  let newLastSyncTime = lastSyncTime
 
-  // Only organization owners/admins may read integration OAuth tokens.
-  const [membership] = await db
-    .select({ role: schema.member.role })
-    .from(schema.member)
-    .where(and(
-      eq(schema.member.organizationId, organizationId),
-      eq(schema.member.userId, user.id)
-    ))
-    .limit(1)
+  if (forceSync) {
+    const now = Date.now()
+    if (lastSyncTime && now - lastSyncTime < FORCE_SYNC_MIN_INTERVAL_MS) {
+      throw options.createError({
+        statusCode: 429,
+        statusMessage: 'Too Many Requests',
+        message: 'Integrations were just synced. Please wait a moment before forcing another sync.'
+      })
+    }
 
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
-    throw createError({
-      statusCode: 403,
-      statusMessage: 'Forbidden',
-      message: 'Organization owner or admin access required'
-    })
+    try {
+      await options.syncOrganizationOAuthIntegrations(db, organizationId)
+      newLastSyncTime = now
+      await options.updateOrganizationIntegrationSyncMetadata(db, organizationId, new Date(newLastSyncTime))
+      syncStatus = 'synced'
+    } catch (error) {
+      console.error('[integrations] Sync failed', error)
+      syncStatus = 'error'
+    }
   }
 
-  // Get all members of this organization
-  const orgMembers = await db.select().from(schema.member).where(eq(schema.member.organizationId, organizationId))
+  const integrations = await options.listOrganizationIntegrationsWithAccounts(db, organizationId)
 
-  if (orgMembers.length === 0) {
-    return []
+  // Return data with sync status metadata
+  // The 'data' field contains the integrations array for backward compatibility
+  return {
+    data: integrations,
+    syncStatus,
+    lastSyncedAt: newLastSyncTime ? new Date(newLastSyncTime).toISOString() : null
   }
+}
 
-  const userIds = orgMembers.map(m => m.userId)
-
-  // Find Google accounts that have granted integration scopes for these users
-  const googleAccounts = await db.select().from(schema.account).where(and(
-    inArray(schema.account.userId, userIds),
-    eq(schema.account.providerId, 'google')
-  ))
-
-  // Find GitHub accounts for these users
-  const githubAccounts = await db.select().from(schema.account).where(and(
-    inArray(schema.account.userId, userIds),
-    eq(schema.account.providerId, 'github')
-  ))
-
-  // Filter by scopes and transform to integration format
-  const now = new Date()
-
-  const googleIntegrations = googleAccounts.flatMap((acc) => {
-    const matchingProviders = (Object.keys(GOOGLE_INTEGRATION_MATCH_SCOPES) as GoogleIntegrationProvider[])
-      .filter(provider => hasGoogleIntegrationScopes(acc.scope, provider))
-
-    return matchingProviders.map(provider => ({
-      id: acc.id,
-      provider,
-      type: 'oauth',
-      status: !acc.accessTokenExpiresAt || new Date(acc.accessTokenExpiresAt) > now ? 'connected' : 'expired',
-      accessToken: acc.accessToken,
-      refreshToken: acc.refreshToken,
-      expiresAt: acc.accessTokenExpiresAt,
-      scopes: acc.scope,
-      connectedByUserId: acc.userId,
-      createdAt: acc.createdAt,
-      updatedAt: acc.updatedAt
-    }))
+// Export the event handler
+// In test environments, defineEventHandler is mocked to return the handler directly
+const eventHandler = defineEventHandler(async (event) => {
+  return handleGetIntegrations(event, {
+    getQuery,
+    requireAuth,
+    requireActiveOrganization,
+    getDB,
+    assertIntegrationManager,
+    getOrganizationIntegrationSyncMetadata,
+    listOrganizationIntegrationsWithAccounts,
+    syncOrganizationOAuthIntegrations,
+    updateOrganizationIntegrationSyncMetadata,
+    createError
   })
-
-  const githubIntegrations = githubAccounts.flatMap((acc) => {
-    const matchingProviders = (Object.keys(GITHUB_INTEGRATION_MATCH_SCOPES) as GithubIntegrationProvider[])
-      .filter(provider => hasGithubIntegrationScopes(acc.scope, provider))
-
-    return matchingProviders.map(provider => ({
-      id: acc.id,
-      provider,
-      type: 'oauth',
-      status: !acc.accessTokenExpiresAt || new Date(acc.accessTokenExpiresAt) > now ? 'connected' : 'expired',
-      accessToken: acc.accessToken,
-      refreshToken: acc.refreshToken,
-      expiresAt: acc.accessTokenExpiresAt,
-      scopes: acc.scope,
-      connectedByUserId: acc.userId,
-      createdAt: acc.createdAt,
-      updatedAt: acc.updatedAt
-    }))
-  })
-
-  return [...googleIntegrations, ...githubIntegrations]
 })
+
+export default eventHandler
