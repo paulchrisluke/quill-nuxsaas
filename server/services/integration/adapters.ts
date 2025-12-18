@@ -30,7 +30,7 @@ const defaultAdapter: IntegrationAdapter = {
   type: 'default',
   async testConnection(integration) {
     return {
-      success: true,
+      success: false,
       message: `No adapter registered for integration type "${integration.type}"`
     }
   }

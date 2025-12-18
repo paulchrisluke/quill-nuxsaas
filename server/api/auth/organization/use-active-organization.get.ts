@@ -6,7 +6,7 @@
  * client-side composable may try to fetch from it. We check the session and
  * return the active organization if available, or null if not.
  */
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import * as schema from '~~/server/db/schema'
 import { getAuthSession } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
@@ -21,6 +21,9 @@ interface BetterAuthSession {
     }
   }
   activeOrganizationId?: string
+  user?: {
+    id: string
+  }
 }
 
 export default defineEventHandler(async (event) => {
@@ -48,8 +51,34 @@ export default defineEventHandler(async (event) => {
       return null
     }
 
+    // Fetch the current user's membership for this organization
+    // getAuthSession returns { session, user } - access user directly
+    const userId = (session as any)?.user?.id
+    let currentUserMembership = null
+    if (userId) {
+      const [membership] = await db
+        .select()
+        .from(schema.member)
+        .where(
+          and(
+            eq(schema.member.organizationId, activeOrganizationId),
+            eq(schema.member.userId, userId)
+          )
+        )
+        .limit(1)
+
+      if (membership) {
+        currentUserMembership = membership
+      }
+    }
+
+    // Return organization with members array containing only the current user's membership
+    // This matches the expected structure: activeOrg.value?.data?.members
     return {
-      data: organization
+      data: {
+        ...organization,
+        members: currentUserMembership ? [currentUserMembership] : []
+      }
     }
   }
   catch (err) {

@@ -49,13 +49,28 @@ const canManageIntegrations = computed(() => {
 })
 
 const {
-  data: integrations,
+  data: integrationsResponse,
   pending,
   error,
   refresh
 } = await useFetch(() => '/api/organization/integrations', {
   key: () => `org-integrations-${organizationId.value || 'none'}`,
   watch: [organizationId]
+})
+
+// Handle both array (legacy) and object (new) response formats
+const integrations = computed(() => {
+  const value = integrationsResponse.value
+  if (!value) {
+    return []
+  }
+  if (Array.isArray(value)) {
+    return value
+  }
+  if (value && typeof value === 'object' && 'data' in value) {
+    return Array.isArray(value.data) ? value.data : []
+  }
+  return []
 })
 
 const youtubeIntegration = computed(() => {
@@ -433,6 +448,18 @@ if (import.meta.client) {
           title: message.title,
           description: message.description,
           color: 'success'
+        })
+        // Force refresh integrations data with sync to show the newly connected integration
+        // Use force_sync=true to bypass cooldown and immediately sync the new connection
+        $fetch('/api/organization/integrations', {
+          query: { force_sync: 'true' }
+        }).then((response) => {
+          // Update the integrationsResponse with the new data
+          integrationsResponse.value = response as any
+        }).catch((error) => {
+          console.warn('[integrations] Failed to refresh after connection', error)
+          // Fallback to regular refresh if force sync fails
+          refresh()
         })
         stripConnectedQuery()
       },

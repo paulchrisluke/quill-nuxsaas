@@ -9,7 +9,8 @@ import UserNavigation from '~/components/UserNavigation.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { loggedIn } = useAuth()
+const { loggedIn, useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
 
 // Keep in sync with `app/middleware/auth.global.ts`
 const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
@@ -82,13 +83,17 @@ const shouldShowChat = computed(() => {
   return /^\/[^/]+\/conversations(?:\/|$)/.test(path)
 })
 
-// Determine if we should show sidebar - on conversations and content routes
+// Determine if we should show sidebar - on conversations and content routes, or home page when logged in with active org
 const shouldShowSidebar = computed(() => {
   const path = pathWithoutLocale.value
   if (!loggedIn.value)
     return false
   if (showWorkspaceHeader.value)
     return false
+  // Show on home page if user has an active organization
+  if (path === '/' && activeOrg.value?.data?.id) {
+    return true
+  }
   // Check for /[slug]/conversations or /[slug]/content patterns (locale stripped)
   return /^\/[^/]+\/(?:conversations|content)(?:\/|$)/.test(path)
 })
