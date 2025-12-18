@@ -159,7 +159,7 @@ export const listOrganizationIntegrationsWithAccounts = async (
     : []
 
   const accountById = new Map(accounts.map(acc => [acc.id, acc]))
-  const userIds = Array.from(new Set(accounts.map(acc => acc.userId)))
+  const userIds = Array.from(new Set(accounts.map(acc => acc.userId).filter((u): u is string => u != null)))
 
   const users = userIds.length
     ? await db
