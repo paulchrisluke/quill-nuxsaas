@@ -5,7 +5,6 @@ import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
-import SidebarNavigation from '~/components/SidebarNavigation.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
@@ -271,48 +270,22 @@ const canExpandConversationList = computed(() => {
     <div class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row">
       <UDashboardSidebar
         v-if="shouldRenderAppShell"
-        class="flex-shrink-0 w-full border-b border-neutral-200/70 dark:border-neutral-800/60 lg:h-full lg:w-64 lg:border-b-0 lg:border-r xl:w-72"
-        collapsible
+        class="flex-shrink-0 w-full border-b border-neutral-200/70 dark:border-neutral-800/60 lg:h-full lg:w-64 lg:border-b-0 lg:border-r border-neutral-200/70 dark:border-neutral-800/60 xl:w-72"
         :ui="{
           root: 'h-full bg-neutral-100 dark:bg-neutral-950 border-none'
         }"
       >
-        <template #header="{ collapsed }">
+        <template #header>
           <NuxtLink
-            v-if="!collapsed"
             :to="localePath('/')"
             class="flex items-center gap-2 hover:opacity-80 transition-opacity"
           >
             <span class="text-sm font-semibold">{{ t('global.appName') }}</span>
           </NuxtLink>
-          <NuxtLink
-            v-else
-            :to="localePath('/')"
-            class="flex items-center justify-center hover:opacity-80 transition-opacity"
-            aria-label="Home"
-          >
-            <UIcon
-              name="i-simple-icons-nuxtdotjs"
-              class="size-5 text-primary"
-            />
-          </NuxtLink>
         </template>
 
-        <template #default="{ collapsed }">
-          <SidebarNavigation v-if="!collapsed" />
-          <div
-            v-else
-            class="flex flex-col items-center gap-2 py-4"
-          >
-            <UIcon
-              name="i-lucide-file-text"
-              class="w-5 h-5 text-muted-500"
-            />
-            <UIcon
-              name="i-lucide-message-circle"
-              class="w-5 h-5 text-muted-500"
-            />
-          </div>
+        <template #default>
+          <slot name="sidebar" />
         </template>
 
         <template #footer />
@@ -325,11 +298,8 @@ const canExpandConversationList = computed(() => {
             #left
           >
             <slot name="workspace-header">
-              <p
-                v-if="workspaceHeader"
-                class="text-base font-semibold truncate"
-              >
-                {{ workspaceHeader.title }}
+              <p class="text-base font-semibold truncate">
+                {{ workspaceHeader?.title || '' }}
               </p>
             </slot>
           </template>
@@ -480,7 +450,7 @@ const canExpandConversationList = computed(() => {
                   </button>
                   <UButton
                     icon="i-lucide-archive"
-                    size="2xs"
+                    size="xs"
                     color="neutral"
                     variant="ghost"
                     :loading="archivingConversationId === entry.id"

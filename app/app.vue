@@ -2,6 +2,7 @@
 import type { zodLocales } from './utils/types'
 import { useStorage } from '@vueuse/core'
 import { z } from 'zod'
+import WorkspaceFileTree from '~/components/WorkspaceFileTree.vue'
 
 const { t } = useI18n()
 
@@ -74,6 +75,9 @@ useSeoMeta({
 <template>
   <UApp>
     <NuxtLayout>
+      <template #sidebar>
+        <WorkspaceFileTree />
+      </template>
       <NuxtPage />
     </NuxtLayout>
     <div
