@@ -2,7 +2,7 @@ import { readMultipartFormData } from 'h3'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { UploadRateLimiter } from '~~/server/services/file/rateLimiter'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
-import { requireActiveOrganization } from '~~/server/utils/auth'
+import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
   const config = useFileManagerConfig()

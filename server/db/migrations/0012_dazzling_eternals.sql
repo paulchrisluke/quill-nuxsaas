@@ -43,21 +43,35 @@ WHERE f."content_id" IS NULL
   AND f."uploaded_by" IS NOT NULL
   AND mp."user_id" = f."uploaded_by";
 --> statement-breakpoint
--- Ensure no orphaned files remain before making the column required
+-- Ensure no orphaned files remain before making the column required.
+-- Run during a low-traffic or maintenance window since this block acquires a write-preventing lock.
 DO $$
 DECLARE
   missing_count bigint;
+  sample_ids text[];
 BEGIN
-  -- Block concurrent inserts/updates for the rest of the migration.
-  -- This avoids a race where new NULL records appear after validation.
-  LOCK TABLE "file" IN ACCESS EXCLUSIVE MODE;
+  -- Block concurrent writes while we validate, but allow reads. Fails fast if lock cannot be acquired.
+  PERFORM set_config('lock_timeout', '5s', true);
+  LOCK TABLE "file" IN SHARE ROW EXCLUSIVE MODE;
 
   SELECT COUNT(*) INTO missing_count
   FROM "file"
   WHERE "organization_id" IS NULL;
 
   IF missing_count > 0 THEN
-    RAISE EXCEPTION 'Found % file records without organization_id after backfill', missing_count;
+    SELECT ARRAY_AGG(id ORDER BY created_at DESC, id) INTO sample_ids
+    FROM (
+      SELECT id, created_at
+      FROM "file"
+      WHERE "organization_id" IS NULL
+      ORDER BY created_at DESC, id
+      LIMIT 20
+    ) AS samples;
+
+    RAISE EXCEPTION
+      'Found % file records without organization_id after backfill. Example ids: %',
+      missing_count,
+      COALESCE(sample_ids, ARRAY[]::text[]);
   END IF;
 END $$;
 --> statement-breakpoint

@@ -178,7 +178,7 @@ export interface ImageSuggestion {
   altText: string
   reason: string
   priority: 'high' | 'medium' | 'low'
-  type?: 'generated' | 'screencap'
+  type?: 'generated' | 'screencap' | 'uploaded'
   videoId?: string
   estimatedTimestamp?: number
   thumbnailFileId?: string

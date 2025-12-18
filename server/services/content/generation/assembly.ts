@@ -133,6 +133,13 @@ export const insertImageSuggestionComments = (
         const seconds = Math.floor(suggestion.estimatedTimestamp % 60)
         commentParts.push(`  Timestamp: ${minutes}:${seconds.toString().padStart(2, '0')}`)
       }
+    } else if (suggestion.type === 'uploaded') {
+      commentParts.push(`  Type: Uploaded image`)
+      if (suggestion.fullSizeFileId) {
+        commentParts.push(`  File ID: ${suggestion.fullSizeFileId}`)
+      }
+    } else if (suggestion.type === 'generated') {
+      commentParts.push(`  Type: Generated image`)
     }
     commentParts.push(`-->`)
 

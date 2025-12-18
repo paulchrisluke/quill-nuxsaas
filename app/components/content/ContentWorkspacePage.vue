@@ -32,14 +32,14 @@ interface ImageSuggestion {
   altText: string
   reason: string
   priority: 'high' | 'medium' | 'low'
-  type?: 'generated' | 'screencap'
+  type?: 'generated' | 'screencap' | 'uploaded'
   videoId?: string
   estimatedTimestamp?: number
   thumbnailFileId?: string
   thumbnailUrl?: string
   fullSizeFileId?: string
   fullSizeUrl?: string
-  status?: 'pending' | 'thumbnail_ready' | 'added'
+  status?: 'pending' | 'thumbnail_ready' | 'added' | 'failed'
 }
 
 interface ContentApiResponse {
