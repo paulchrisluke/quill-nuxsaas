@@ -51,9 +51,7 @@ const tierBadgeLabel = computed(() => {
 
 <template>
   <template v-if="loggedIn">
-    <UDropdownMenu
-      :items="menuItems"
-    >
+    <UDropdownMenu>
       <UButton
         variant="ghost"
         color="neutral"
@@ -73,6 +71,46 @@ const tierBadgeLabel = computed(() => {
           />
         </span>
       </UButton>
+      <template #content>
+        <div
+          v-if="user?.email"
+          class="px-2 py-1.5"
+        >
+          <div class="text-sm text-gray-600 dark:text-gray-400 truncate">
+            {{ user.email }}
+          </div>
+        </div>
+        <USeparator v-if="user?.email" />
+        <template
+          v-for="(item, index) in menuItems"
+          :key="index"
+        >
+          <NuxtLink
+            v-if="item.to"
+            :to="item.to"
+            class="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+          >
+            <UIcon
+              v-if="item.icon"
+              :name="item.icon"
+              class="w-4 h-4"
+            />
+            <span>{{ item.label }}</span>
+          </NuxtLink>
+          <button
+            v-else
+            class="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+            @click="item.onSelect ? item.onSelect() : undefined"
+          >
+            <UIcon
+              v-if="item.icon"
+              :name="item.icon"
+              class="w-4 h-4"
+            />
+            <span>{{ item.label }}</span>
+          </button>
+        </template>
+      </template>
     </UDropdownMenu>
     <UButton
       v-if="user?.role == 'admin'"
