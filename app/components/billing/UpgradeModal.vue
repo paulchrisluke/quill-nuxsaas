@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { PlanInterval, PlanKey } from '~~/shared/utils/plans'
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { getTierForInterval, PLAN_TIERS } from '~~/shared/utils/plans'
 
 const props = defineProps<{
@@ -88,7 +89,7 @@ async function handleUpgrade() {
   try {
     const { useActiveOrganization, client } = useAuth()
     const activeOrg = useActiveOrganization()
-    const orgSlug = activeOrg.value?.data?.slug || props.teamSlug || 't'
+    const orgSlug = activeOrg.value?.data?.slug || props.teamSlug || NON_ORG_SLUG
 
     // Use Better Auth subscription.upgrade with selected tier
     let planId = selectedPlanConfig.value.id

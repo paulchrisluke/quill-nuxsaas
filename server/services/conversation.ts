@@ -232,6 +232,7 @@ export interface ConversationPreviewMetadataPatch {
     updatedAt?: Date | string | null
   }
   artifactCount?: number
+  diffStats?: { additions: number, deletions: number } | null
 }
 
 export const patchConversationPreviewMetadata = async (
@@ -273,6 +274,25 @@ export const patchConversationPreviewMetadata = async (
     hasUpdates = true
     // Cast to integer explicitly so PostgreSQL can determine the type
     patch = sql`${patch} || jsonb_build_object('artifactCount', ${updates.artifactCount}::integer)`
+  }
+
+  // Require both additions and deletions to be present, finite, safe integers, and non-negative
+  if (updates.diffStats) {
+    const additions = updates.diffStats.additions
+    const deletions = updates.diffStats.deletions
+    const additionsValid = Number.isSafeInteger(additions) && additions >= 0
+    const deletionsValid = Number.isSafeInteger(deletions) && deletions >= 0
+
+    if (additionsValid && deletionsValid) {
+      hasUpdates = true
+      patch = sql`${patch} || jsonb_build_object(
+        'diffStats',
+        jsonb_build_object(
+          'additions', ${additions}::integer,
+          'deletions', ${deletions}::integer
+        )
+      )`
+    }
   }
 
   if (!hasUpdates) {

@@ -156,7 +156,9 @@ export function useConversation() {
   const messages = useState<ChatMessage[]>('chat/messages', () => [])
   const status = useState<ChatStatus>('chat/status', () => 'ready')
   const errorMessage = useState<string | null>('chat/error', () => null)
-  const conversationId = useState<string | null>('chat/conversation-id', () => null)
+  const conversationId = useLocalStorage<string | null>('chat/conversation-id', null, {
+    initOnMounted: true
+  })
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
   const prompt = useState<string>('chat/prompt', () => '')

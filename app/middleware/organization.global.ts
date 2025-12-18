@@ -1,3 +1,5 @@
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+
 export default defineNuxtRouteMiddleware(async (to) => {
   const { loggedIn, organization, fetchSession, session } = useAuth()
 
@@ -5,7 +7,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return
 
   const routeSlug = to.params.slug as string
-  if (!routeSlug || routeSlug === 't')
+  if (!routeSlug || routeSlug === NON_ORG_SLUG)
     return
 
   // Only run on organization-scoped routes (Nuxt pages under `app/pages/[slug]/...`).

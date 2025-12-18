@@ -3,7 +3,8 @@ import type { ChatMessage } from '#shared/utils/types'
 import { useClipboard, useElementVisibility } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 
-import { useConversationList } from '~/composables/useConversationList'
+import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
+import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
 
@@ -11,10 +12,18 @@ const props = withDefaults(defineProps<{
   contentId?: string | null
   conversationId?: string | null
   initialMode?: 'chat' | 'agent'
+  syncRoute?: boolean
+  embedded?: boolean
+  useRouteConversationId?: boolean
+  showMessages?: boolean
 }>(), {
   contentId: null,
   conversationId: null,
-  initialMode: 'chat'
+  initialMode: 'chat',
+  syncRoute: true,
+  embedded: false,
+  useRouteConversationId: true,
+  showMessages: true
 })
 
 const router = useRouter()
@@ -22,7 +31,6 @@ const route = useRoute()
 const localePath = useLocalePath()
 const { loggedIn, signIn, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
-const NON_ORG_SLUG = 't'
 
 const {
   messages,
@@ -35,7 +43,8 @@ const {
   prompt,
   mode,
   hydrateConversation,
-  getCachedMessagesMeta
+  getCachedMessagesMeta,
+  stopResponse
 } = useConversation()
 
 if (props.initialMode)
@@ -57,12 +66,10 @@ const promptSubmitting = ref(false)
 const showAgentModeLoginModal = ref(false)
 const { copy } = useClipboard()
 const toast = useToast()
-const conversationList = useConversationList({ pageSize: 40 })
 const chatContainerRef = ref<HTMLElement | null>(null)
 const chatVisible = useElementVisibility(chatContainerRef)
 const pendingConversationLoad = ref<string | null>(null)
 const conversationLoadToken = ref(0)
-conversationList.loadInitial().catch(() => {})
 
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
@@ -119,9 +126,25 @@ const handlePromptSubmit = async (value?: string) => {
   }
 }
 
+const handleStopStreaming = () => {
+  const stopped = stopResponse()
+  if (stopped) {
+    promptSubmitting.value = false
+  }
+}
+
 const routeConversationId = computed(() => {
+  if (!props.useRouteConversationId)
+    return null
+  const path = stripLocalePrefix(route.path, KNOWN_LOCALES)
+  const match = path.match(/^\/[^/]+\/conversations\/([^/]+)(?:\/|$)/)
+  if (!match)
+    return null
+
   const id = route.params.id
-  return Array.isArray(id) ? (id[0] || null) : (id || null)
+  if (Array.isArray(id))
+    return id[0] || match[1] || null
+  return id || match[1] || null
 })
 
 const conversationId = computed(() => {
@@ -222,7 +245,9 @@ const requestConversationMessages = async (conversationId: string, options?: { f
     hydrateConversation({ conversationId, messages: cached.messages }, { skipCache: true })
   }
 
-  if (!chatVisible.value) {
+  // In embedded mode (right-panel shell), avoid deferring loads behind element-visibility;
+  // it can be flaky with nested overflow containers and causes stale conversations to stick.
+  if (!props.embedded && !chatVisible.value) {
     // Only update if not already pending or if it's a different conversation
     if (!pendingConversationLoad.value || pendingConversationLoad.value !== conversationId) {
       pendingConversationLoad.value = conversationId
@@ -238,26 +263,49 @@ const requestConversationMessages = async (conversationId: string, options?: { f
   await loadConversationMessages(conversationId, options)
 }
 
-watch([() => props.conversationId, routeConversationId], async ([propId, routeId]) => {
-  const targetId = propId || routeId
+const switchingConversation = ref(false)
 
-  if (targetId && targetId !== activeConversationId.value) {
-    if (isValidUUID(targetId)) {
-      // Reset conversation state immediately when switching to a new conversation
-      // This clears any "thinking" state from the previous conversation
+const loadConversationById = async (targetId: string | null) => {
+  if (switchingConversation.value)
+    return
+
+  if (!targetId) {
+    if (activeConversationId.value) {
+      pendingConversationLoad.value = null
+      activeConversationId.value = null
       resetConversation()
-      activeConversationId.value = targetId
-      try {
-        await requestConversationMessages(targetId)
-      } catch (error) {
-        console.error('Failed to load conversation history', error)
-      }
     }
-  } else if (!targetId && activeConversationId.value) {
-    pendingConversationLoad.value = null
-    activeConversationId.value = null
-    resetConversation()
+    return
   }
+
+  if (!isValidUUID(targetId))
+    return
+
+  switchingConversation.value = true
+  try {
+    pendingConversationLoad.value = null
+    resetConversation()
+    activeConversationId.value = targetId
+    await requestConversationMessages(targetId, { force: true })
+  } catch (error) {
+    console.error('Failed to load conversation history', error)
+  } finally {
+    switchingConversation.value = false
+  }
+}
+
+watch(() => props.conversationId, (next, previous) => {
+  if (next === previous)
+    return
+  loadConversationById(next ?? null)
+}, { immediate: true })
+
+watch(routeConversationId, (next, previous) => {
+  if (next === previous)
+    return
+  if (props.conversationId)
+    return
+  loadConversationById(next)
 }, { immediate: true })
 
 watch(routeNewConversation, (isNew) => {
@@ -284,7 +332,7 @@ watch(activeConversationId, (value, previous) => {
   if (!value || value === previous)
     return
 
-  if (!props.contentId && value !== routeConversationId.value) {
+  if (props.syncRoute && !props.contentId && value !== routeConversationId.value) {
     const slug = activeOrg.value?.data?.slug
     if (slug && slug !== NON_ORG_SLUG) {
       router.push(localePath(`/${slug}/conversations/${value}`))
@@ -293,9 +341,6 @@ watch(activeConversationId, (value, previous) => {
       router.push(localePath(`/${NON_ORG_SLUG}/conversations/${value}`))
     }
   }
-
-  if (!conversationList.hasConversation(value))
-    conversationList.refresh().catch(() => {})
 })
 
 const getMessageText = (message: ChatMessage) => {
@@ -422,13 +467,6 @@ async function handleShare(message: ChatMessage) {
 }
 
 if (import.meta.client) {
-  watch(loggedIn, (value, previous) => {
-    if (value === previous)
-      return
-    conversationList.reset()
-    conversationList.loadInitial().catch(() => {})
-  })
-
   watch(mode, (newMode) => {
     if (newMode === 'agent' && !loggedIn.value) {
       mode.value = 'chat'
@@ -441,19 +479,20 @@ if (import.meta.client) {
 <template>
   <div
     ref="chatContainerRef"
-    class="w-full min-h-full flex flex-col py-4 px-4 sm:px-6 pb-40 lg:pb-4 overflow-x-hidden"
-    :class="showWelcomeState ? 'lg:min-h-[calc(100vh-4rem)] lg:justify-center' : ''"
+    class="w-full flex flex-col overflow-x-hidden"
+    :class="props.embedded ? 'h-full min-h-0 overflow-hidden' : 'min-h-full py-4 px-4 sm:px-6 pb-40 lg:pb-4'"
   >
     <div
-      class="w-full flex-1 flex flex-col justify-end lg:justify-start"
-      :class="showWelcomeState ? 'lg:flex-none' : ''"
+      v-if="props.showMessages"
+      class="w-full flex-1 min-h-0"
+      :class="props.embedded ? 'flex flex-col overflow-y-auto overscroll-contain px-3 py-3' : 'flex flex-col justify-end lg:justify-start'"
     >
       <div
-        class="space-y-8 w-full max-w-3xl mx-auto"
-        :class="showWelcomeState ? 'lg:space-y-10' : ''"
+        class="w-full"
+        :class="props.embedded ? '' : 'space-y-8 max-w-3xl mx-auto'"
       >
         <h1
-          v-if="showWelcomeState"
+          v-if="showWelcomeState && !props.embedded"
           class="hidden lg:block text-3xl font-semibold text-center px-4"
         >
           What would you like to write today?
@@ -477,15 +516,20 @@ if (import.meta.client) {
     </div>
 
     <div
-      class="w-full flex flex-col justify-center fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6 overflow-x-hidden"
+      class="w-full flex flex-col justify-center overflow-x-hidden"
+      :class="props.embedded ? 'mt-auto border-t border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2' : 'fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6'"
     >
-      <div class="w-full max-w-3xl mx-auto">
+      <div
+        class="w-full"
+        :class="props.embedded ? '' : 'max-w-3xl mx-auto'"
+      >
         <PromptComposer
           v-model="prompt"
           placeholder="Paste a transcript or describe what you need..."
           :disabled="isBusy || promptSubmitting"
           :status="promptSubmitting ? 'submitted' : uiStatus"
           @submit="handlePromptSubmit"
+          @stop="handleStopStreaming"
         >
           <template #footer>
             <component

@@ -1,9 +1,7 @@
 import { useLocalePath } from '#i18n'
 import { defu } from 'defu'
+import { KNOWN_LOCALES } from '~~/shared/constants/routing'
 import { isAnonymousWorkspaceConversationRoute, stripLocalePrefix } from '~~/shared/utils/routeMatching'
-
-// Known locale codes from nuxt.config.ts (keep in sync with `organization.global.ts`)
-const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
 
 type MiddlewareOptions = false | {
   /**

@@ -1,9 +1,21 @@
 <script setup lang="ts">
 import { defineAsyncComponent, onBeforeUnmount, onErrorCaptured } from 'vue'
 
-const props = defineProps<{
+defineOptions({ inheritAttrs: false })
+
+const props = withDefaults(defineProps<{
   conversationId?: string | null
-}>()
+  contentId?: string | null
+  syncRoute?: boolean
+  embedded?: boolean
+  useRouteConversationId?: boolean
+  showMessages?: boolean
+}>(), {
+  syncRoute: true,
+  embedded: false,
+  useRouteConversationId: true,
+  showMessages: true
+})
 
 const emit = defineEmits<{
   (e: 'loading'): void
@@ -58,43 +70,55 @@ const reloadPage = () => {
 </script>
 
 <template>
-  <ClientOnly>
-    <NuxtErrorBoundary>
-      <template #error="{ error, resetError }">
-        <div class="flex flex-col items-center gap-3 rounded-md border border-neutral-200/70 dark:border-neutral-800/60 p-4 text-center">
-          <p class="text-sm text-muted-foreground">
-            Failed to load the chat experience. {{ error?.message || 'Please try again.' }}
-          </p>
-          <div class="flex flex-wrap items-center justify-center gap-2">
-            <UButton
-              size="sm"
-              color="primary"
-              @click="handleResetError(resetError)"
-            >
-              Try again
-            </UButton>
-            <UButton
-              size="sm"
-              color="neutral"
-              variant="ghost"
-              @click="reloadPage"
-            >
-              Reload page
-            </UButton>
-          </div>
-        </div>
-      </template>
-      <Suspense
-        @pending="handleShellLoading"
-        @resolve="handleShellReady"
-      >
-        <template #fallback>
-          <div class="text-sm text-muted-foreground">
-            Loading chat...
+  <div
+    class="h-full min-h-0 w-full"
+    v-bind="$attrs"
+  >
+    <ClientOnly>
+      <NuxtErrorBoundary>
+        <template #error="{ error, resetError }">
+          <div class="flex flex-col items-center gap-3 rounded-md border border-neutral-200/70 dark:border-neutral-800/60 p-4 text-center">
+            <p class="text-sm text-muted-foreground">
+              Failed to load the chat experience. {{ error?.message || 'Please try again.' }}
+            </p>
+            <div class="flex flex-wrap items-center justify-center gap-2">
+              <UButton
+                size="sm"
+                color="primary"
+                @click="handleResetError(resetError)"
+              >
+                Try again
+              </UButton>
+              <UButton
+                size="sm"
+                color="neutral"
+                variant="ghost"
+                @click="reloadPage"
+              >
+                Reload page
+              </UButton>
+            </div>
           </div>
         </template>
-        <ChatShell :conversation-id="props.conversationId" />
-      </Suspense>
-    </NuxtErrorBoundary>
-  </ClientOnly>
+        <Suspense
+          @pending="handleShellLoading"
+          @resolve="handleShellReady"
+        >
+          <template #fallback>
+            <div class="text-sm text-muted-foreground">
+              Loading chat...
+            </div>
+          </template>
+          <ChatShell
+            :conversation-id="props.conversationId"
+            :content-id="props.contentId"
+            :sync-route="props.syncRoute"
+            :embedded="props.embedded"
+            :use-route-conversation-id="props.useRouteConversationId"
+            :show-messages="props.showMessages"
+          />
+        </Suspense>
+      </NuxtErrorBoundary>
+    </ClientOnly>
+  </div>
 </template>

@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 
-const { formatDateRelative } = useDate()
 const route = useRoute()
-const router = useRouter()
-const localePath = useLocalePath()
 
 interface ContentEntry {
   id: string
@@ -61,42 +58,13 @@ const contentId = computed(() => {
   return Array.isArray(param) ? param[0] : param || ''
 })
 
-const routeSlug = computed(() => {
-  const param = route.params.slug
-  if (Array.isArray(param))
-    return param[0] || null
-  if (typeof param === 'string' && param.trim().length > 0 && param !== 't')
-    return param
-  return null
-})
-
-const contentListPath = computed(() => {
-  const slug = routeSlug.value
-  return slug ? `/${slug}/content` : '/content'
-})
-
 // Set workspace header state
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => true)
 
 const setShellHeader = () => {
   workspaceHeader.value = {
-    title: 'Loading content…',
-    status: null,
-    contentType: null,
-    updatedAtLabel: null,
-    versionId: null,
-    additions: 0,
-    deletions: 0,
-    contentId: contentId.value || undefined,
-    showBackButton: true,
-    onBack: null,
-    onArchive: null,
-    onShare: null,
-    onPrimaryAction: null,
-    primaryActionLabel: '',
-    primaryActionColor: '',
-    primaryActionDisabled: false
+    title: 'Loading content…'
   }
 }
 
@@ -184,24 +152,10 @@ const structuredDataSnippet = computed(() => {
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 
-const isMounted = ref(false)
 const clearWorkspaceHeader = () => {
   workspaceHeader.value = null
   workspaceHeaderLoading.value = false
 }
-
-const setOnBackCallback = () => {
-  if (workspaceHeader.value) {
-    workspaceHeader.value.onBack = () => {
-      router.push(localePath(contentListPath.value))
-    }
-  }
-}
-
-onMounted(() => {
-  isMounted.value = true
-  setOnBackCallback()
-})
 
 onBeforeRouteLeave(() => {
   clearWorkspaceHeader()
@@ -213,29 +167,8 @@ onUnmounted(() => {
 
 watch(contentEntry, (entry) => {
   if (entry) {
-    const updatedAtLabel = formatDateRelative(entry.updatedAt, { includeTime: true })
-
     workspaceHeader.value = {
-      title: entry.title,
-      status: entry.status,
-      contentType: entry.contentType,
-      updatedAtLabel,
-      versionId: null,
-      additions: entry.additions ?? 0,
-      deletions: entry.deletions ?? 0,
-      contentId: entry.id,
-      showBackButton: true,
-      onBack: null,
-      onArchive: null,
-      onShare: null,
-      onPrimaryAction: null,
-      primaryActionLabel: '',
-      primaryActionColor: '',
-      primaryActionDisabled: false
-    }
-
-    if (isMounted.value) {
-      setOnBackCallback()
+      title: entry.title
     }
 
     workspaceHeaderLoading.value = false

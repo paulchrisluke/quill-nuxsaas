@@ -168,6 +168,30 @@ interface ToolExecutionResult {
   contentId?: string | null
 }
 
+interface DiffStats {
+  additions?: number
+  deletions?: number
+}
+
+interface FileEdit {
+  filePath?: string
+  additions?: number
+  deletions?: number
+  lineRange?: unknown
+}
+
+interface Frontmatter {
+  diffStats?: DiffStats
+  [key: string]: unknown
+}
+
+interface ToolResultWithFileEdits {
+  result?: {
+    fileEdits?: FileEdit[]
+  }
+  fileEdits?: FileEdit[]
+}
+
 async function logToolEvent(
   db: Awaited<ReturnType<typeof useDB>>,
   conversationId: string,
@@ -2447,6 +2471,44 @@ export default defineEventHandler(async (event) => {
                         title: contentRecord.title,
                         updatedAt: contentRecord.updatedAt ?? contentRecord.createdAt ?? new Date()
                       },
+                      diffStats: (() => {
+                        const frontmatter = versionRecord.frontmatter as Frontmatter | null | undefined
+                        const frontmatterDiff = frontmatter?.diffStats
+                        if (frontmatterDiff && (frontmatterDiff.additions !== undefined || frontmatterDiff.deletions !== undefined)) {
+                          const additions = frontmatterDiff.additions !== undefined
+                            ? (() => {
+                                const a = Number(frontmatterDiff.additions)
+                                return Number.isFinite(a) ? a : 0
+                              })()
+                            : 0
+                          const deletions = frontmatterDiff.deletions !== undefined
+                            ? (() => {
+                                const d = Number(frontmatterDiff.deletions)
+                                return Number.isFinite(d) ? d : 0
+                              })()
+                            : 0
+                          return { additions, deletions }
+                        }
+                        const toolResult = toolExec.result as ToolResultWithFileEdits | undefined
+                        const fileEdits = toolResult?.result?.fileEdits || toolResult?.fileEdits
+                        const firstEdit = Array.isArray(fileEdits) ? fileEdits[0] : null
+                        if (firstEdit && (firstEdit.additions !== undefined || firstEdit.deletions !== undefined)) {
+                          const additions = firstEdit.additions !== undefined
+                            ? (() => {
+                                const a = Number(firstEdit.additions)
+                                return Number.isFinite(a) ? a : 0
+                              })()
+                            : 0
+                          const deletions = firstEdit.deletions !== undefined
+                            ? (() => {
+                                const d = Number(firstEdit.deletions)
+                                return Number.isFinite(d) ? d : 0
+                              })()
+                            : 0
+                          return { additions, deletions }
+                        }
+                        return null
+                      })(),
                       artifactCount: Number(artifactCountResult?.total ?? 0)
                     })
                     break // Use first successful result

@@ -1,19 +1,17 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
 import SidebarNavigation from '~/components/SidebarNavigation.vue'
-import UserNavigation from '~/components/UserNavigation.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { loggedIn, useActiveOrganization } = useAuth()
+const { loggedIn, signOut, useActiveOrganization } = useAuth()
+const conversation = useConversation()
 const activeOrg = useActiveOrganization()
-
-// Keep in sync with `app/middleware/auth.global.ts`
-const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
 
 const i18nHead = useLocaleHead()
 const route = useRoute()
@@ -39,7 +37,6 @@ useHead(() => ({
 
 // Workspace header state
 const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
-const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => false)
 
 // Page title state - pages can set this via provide
 const headerTitle = useState<string | null>('page-header-title', () => null)
@@ -74,51 +71,210 @@ const isWorkspaceHeaderRoute = computed(() => {
 // structure divergence (hydration mismatches) and ensures the top header is visible.
 const showWorkspaceHeader = computed(() => isWorkspaceHeaderRoute.value)
 
-// Determine if we should show chat interface - only on conversation routes
-const shouldShowChat = computed(() => {
-  if (route.meta?.renderChatWidget === false)
-    return false
+const authRoutePrefixes = ['/signin', '/signup', '/forgot-password', '/reset-password']
+
+const isAuthPage = computed(() => {
   const path = pathWithoutLocale.value
-  // Check for /[slug]/conversations pattern (locale stripped)
-  return /^\/[^/]+\/conversations(?:\/|$)/.test(path)
+  return authRoutePrefixes.some(prefix => path === prefix || path.startsWith(`${prefix}/`))
 })
 
-// Determine if we should show sidebar - on conversations and content routes, or home page when logged in with active org
-const shouldShowSidebar = computed(() => {
-  const path = pathWithoutLocale.value
-  if (!loggedIn.value)
-    return false
-  if (showWorkspaceHeader.value)
-    return false
-  // Show on home page if user has an active organization
-  if (path === '/' && activeOrg.value?.data?.id) {
-    return true
+const isPublicPage = computed(() => route.meta?.auth === false)
+
+const shouldRenderAppShell = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value)
+
+const shouldShowChatPanel = computed(() => shouldRenderAppShell.value && route.meta?.renderChatWidget !== false)
+
+const contentRouteMatch = computed(() => pathWithoutLocale.value.match(/^\/[^/]+\/content\/([^/]+)(?:\/|$)/))
+
+const normalizeRouteParam = (param?: string | string[]) => {
+  if (Array.isArray(param))
+    return param[0]
+  if (typeof param === 'string')
+    return param
+  return undefined
+}
+
+const orgSlug = computed(() => {
+  const param = route.params.slug
+  const routeSlug = Array.isArray(param) ? param[0] : param
+  if (routeSlug && routeSlug !== NON_ORG_SLUG)
+    return routeSlug
+  const fallback = activeOrg.value?.data?.slug
+  return fallback && fallback !== NON_ORG_SLUG ? fallback : null
+})
+
+const userMenuItems = computed(() => {
+  const items: any[] = []
+  if (orgSlug.value) {
+    items.push({
+      label: t('global.nav.settings'),
+      icon: 'i-lucide-settings',
+      to: localePath(`/${orgSlug.value}/settings`)
+    })
   }
-  // Check for /[slug]/conversations or /[slug]/content patterns (locale stripped)
-  return /^\/[^/]+\/(?:conversations|content)(?:\/|$)/.test(path)
+  items.push({
+    label: t('global.auth.signOut'),
+    icon: 'i-lucide-log-out',
+    onSelect: () => signOut()
+  })
+  return items
 })
 
-// Determine if we should use full-width layout (conversations and content pages)
-const shouldUseFullWidth = computed(() => {
-  const path = pathWithoutLocale.value
-  // Check for /[slug]/conversations or /[slug]/content patterns (locale stripped)
-  return /^\/[^/]+\/(?:conversations|content)(?:\/|$)/.test(path)
+const contentId = computed(() => {
+  if (!contentRouteMatch.value)
+    return undefined
+  const id = normalizeRouteParam(route.params.id)
+  return id || contentRouteMatch.value[1]
 })
 
-const primaryActionColor = computed(() => {
-  return (workspaceHeader.value?.primaryActionColor ?? 'primary') as 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
+const {
+  items: conversationItems,
+  pending: conversationPending,
+  error: conversationError,
+  hasMore: conversationHasMore,
+  initialized: conversationInitialized,
+  loadInitial: loadConversationInitial,
+  loadMore: loadConversationMore,
+  remove: removeConversation,
+  refresh: refreshConversation,
+  reset: resetConversationList
+} = useConversationList({ pageSize: 40, stateKey: 'shell' })
+
+const chatView = ref<'chat' | 'list'>('chat')
+const archivingConversationId = ref<string | null>(null)
+const conversationsExpanded = ref(false)
+
+const toast = useToast()
+
+watch(() => shouldShowChatPanel.value, (next) => {
+  if (!next) {
+    chatView.value = 'chat'
+    conversationsExpanded.value = false
+    return
+  }
+  if (!import.meta.client)
+    return
+  if (conversationPending.value && !conversationInitialized.value)
+    resetConversationList()
+  loadConversationInitial().catch((err) => {
+    console.error('Failed to load initial conversations:', err)
+    toast.add({
+      title: 'Failed to load conversations',
+      color: 'error'
+    })
+  })
+})
+
+onMounted(() => {
+  if (!shouldShowChatPanel.value)
+    return
+  if (conversationPending.value && !conversationInitialized.value)
+    resetConversationList()
+  loadConversationInitial().catch((err) => {
+    console.error('Failed to load initial conversations:', err)
+    toast.add({
+      title: 'Failed to load conversations',
+      color: 'error'
+    })
+  })
+})
+
+watch(loggedIn, (value, previous) => {
+  if (value === previous)
+    return
+  resetConversationList()
+  if (!value) {
+    // Clear conversationId from localStorage on sign-out to prevent session leakage
+    conversation.resetConversation()
+  }
+  if (!import.meta.client)
+    return
+  if (value && shouldShowChatPanel.value) {
+    loadConversationInitial().catch((err) => {
+      console.error('Failed to load initial conversations:', err)
+      toast.add({
+        title: 'Failed to load conversations',
+        color: 'error'
+      })
+    })
+  }
+})
+
+const toggleChatView = () => {
+  chatView.value = chatView.value === 'chat' ? 'list' : 'chat'
+  conversationsExpanded.value = false
+}
+
+const startNewChat = () => {
+  chatView.value = 'chat'
+  conversation.conversationId.value = null
+  conversation.resetConversation()
+  conversation.prompt.value = ''
+}
+
+const selectConversation = (id: string) => {
+  chatView.value = 'chat'
+  conversation.conversationId.value = id
+}
+
+const chatTitle = computed(() => {
+  if (chatView.value === 'list')
+    return 'Conversations'
+  const id = conversation.conversationId.value
+  if (!id)
+    return 'New chat'
+  const match = conversationItems.value.find(item => item.id === id)
+  return match?.displayLabel || 'Chat'
+})
+
+const archiveConversation = async (conversationId: string, event?: Event) => {
+  event?.stopPropagation()
+  if (!conversationId || archivingConversationId.value === conversationId)
+    return
+
+  archivingConversationId.value = conversationId
+  try {
+    await $fetch(`/api/conversations/${conversationId}`, { method: 'DELETE' })
+    removeConversation(conversationId)
+
+    if (conversation.conversationId.value === conversationId)
+      startNewChat()
+
+    await refreshConversation().catch((err) => {
+      console.error('refreshConversation failed', err)
+    })
+  } catch (error) {
+    console.error('Failed to archive conversation', error)
+    toast.add({
+      title: 'Failed to archive conversation',
+      description: error instanceof Error ? error.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    archivingConversationId.value = null
+  }
+}
+
+const visibleConversationItems = computed(() => {
+  if (conversationsExpanded.value)
+    return conversationItems.value
+  return conversationItems.value.slice(0, 3)
+})
+
+const canExpandConversationList = computed(() => {
+  return !conversationsExpanded.value && (conversationItems.value.length > 3 || conversationHasMore.value)
 })
 </script>
 
 <template>
-  <div class="relative overflow-x-hidden">
-    <UDashboardGroup>
-      <!-- Sidebar with tabs for conversations and content -->
+  <div class="relative min-h-screen bg-white dark:bg-neutral-950 lg:h-screen lg:overflow-hidden">
+    <div class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row">
       <UDashboardSidebar
-        v-if="shouldShowSidebar"
+        v-if="shouldRenderAppShell"
+        class="flex-shrink-0 w-full border-b border-neutral-200/70 dark:border-neutral-800/60 lg:h-full lg:w-64 lg:border-b-0 lg:border-r xl:w-72"
         collapsible
         :ui="{
-          root: 'bg-neutral-100 dark:bg-neutral-950 border-r border-neutral-200/70 dark:border-neutral-800/60'
+          root: 'h-full bg-neutral-100 dark:bg-neutral-950 border-none'
         }"
       >
         <template #header="{ collapsed }">
@@ -159,130 +315,23 @@ const primaryActionColor = computed(() => {
           </div>
         </template>
 
-        <template #footer="{ collapsed }">
-          <div
-            v-if="!collapsed"
-            class="w-full"
-          >
-            <UserNavigation @sign-in="openSignInModal" />
-          </div>
-        </template>
+        <template #footer />
       </UDashboardSidebar>
 
-      <!-- Main content panel -->
-      <UDashboardPanel>
-        <UDashboardNavbar
-          :toggle="shouldShowSidebar"
-          :class="loggedIn && !showWorkspaceHeader ? 'lg:hidden' : ''"
-        >
+      <div class="flex min-h-0 flex-1 flex-col">
+        <UDashboardNavbar :toggle="shouldRenderAppShell">
           <template
             v-if="showWorkspaceHeader"
             #left
           >
-            <div class="flex flex-col gap-3 w-full lg:flex-row lg:items-center lg:justify-between">
-              <div
-                v-if="workspaceHeaderLoading || !workspaceHeader"
-                class="flex items-center gap-3 w-full"
+            <slot name="workspace-header">
+              <p
+                v-if="workspaceHeader"
+                class="text-base font-semibold truncate"
               >
-                <USkeleton class="h-10 w-10 rounded-full flex-shrink-0" />
-                <div class="min-w-0 flex-1 space-y-1">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <USkeleton class="h-4 w-40 max-w-full rounded-md" />
-                    <USkeleton class="h-4 w-12 rounded-full" />
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <USkeleton class="h-3 w-20 rounded" />
-                    <USkeleton class="h-3 w-16 rounded" />
-                    <USkeleton class="h-3 w-28 rounded" />
-                  </div>
-                </div>
-              </div>
-
-              <div
-                v-else
-                class="flex flex-col gap-3 w-full lg:flex-row lg:items-center lg:justify-between"
-              >
-                <div class="flex items-center gap-2 w-full lg:w-auto">
-                  <UButton
-                    v-if="workspaceHeader.showBackButton"
-                    icon="i-lucide-arrow-left"
-                    variant="ghost"
-                    size="sm"
-                    :aria-label="t('global.back')"
-                    class="rounded-full p-0 h-10 w-10 flex items-center justify-center"
-                    @click="workspaceHeader.onBack?.()"
-                  />
-                  <p class="text-base font-semibold truncate">
-                    {{ workspaceHeader.title }}
-                  </p>
-                  <UBadge
-                    v-if="workspaceHeader.status"
-                    color="neutral"
-                    variant="soft"
-                    size="xs"
-                    class="capitalize hidden lg:inline-flex"
-                  >
-                    {{ workspaceHeader.status }}
-                  </UBadge>
-                </div>
-                <div class="text-xs text-muted-500 hidden lg:flex flex-wrap items-center gap-1">
-                  <span>{{ workspaceHeader.updatedAtLabel || '—' }}</span>
-                  <template v-if="workspaceHeader.contentType">
-                    <span>·</span>
-                    <span class="capitalize">
-                      {{ workspaceHeader.contentType }}
-                    </span>
-                  </template>
-                  <template v-if="workspaceHeader.contentId">
-                    <span>·</span>
-                    <span class="font-mono text-[11px] text-muted-600 truncate">
-                      {{ workspaceHeader.contentId }}
-                    </span>
-                  </template>
-                  <template v-if="workspaceHeader.contentType || workspaceHeader.contentId">
-                    <span>·</span>
-                  </template>
-                  <span class="text-emerald-500 dark:text-emerald-400">
-                    +{{ workspaceHeader.additions ?? 0 }}
-                  </span>
-                  <span class="text-rose-500 dark:text-rose-400">
-                    -{{ workspaceHeader.deletions ?? 0 }}
-                  </span>
-                </div>
-                <div class="hidden lg:flex flex-wrap gap-2 justify-end">
-                  <UButton
-                    v-if="workspaceHeader.onShare"
-                    icon="i-lucide-copy"
-                    size="sm"
-                    color="neutral"
-                    variant="ghost"
-                    @click="workspaceHeader.onShare?.()"
-                  >
-                    {{ t('content.copyMdx') }}
-                  </UButton>
-                  <UButton
-                    v-if="workspaceHeader.onArchive"
-                    icon="i-lucide-archive"
-                    size="sm"
-                    color="neutral"
-                    variant="ghost"
-                    @click="workspaceHeader.onArchive?.()"
-                  >
-                    {{ t('content.archive') }}
-                  </UButton>
-                  <UButton
-                    v-if="workspaceHeader.onPrimaryAction"
-                    :color="primaryActionColor"
-                    :icon="workspaceHeader.primaryActionIcon ?? 'i-lucide-arrow-right'"
-                    size="sm"
-                    :disabled="workspaceHeader.primaryActionDisabled"
-                    @click="workspaceHeader.onPrimaryAction?.()"
-                  >
-                    {{ workspaceHeader.primaryActionLabel || t('global.continue') }}
-                  </UButton>
-                </div>
-              </div>
-            </div>
+                {{ workspaceHeader.title }}
+              </p>
+            </slot>
           </template>
 
           <template
@@ -291,7 +340,7 @@ const primaryActionColor = computed(() => {
           >
             <NuxtLink
               :to="localePath('/')"
-              class="flex items-center gap-2 hover:opacity-80 transition-opacity mr-4"
+              class="mr-4 flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
               <span class="text-sm font-semibold">
                 {{ t('global.appName') }}
@@ -332,22 +381,183 @@ const primaryActionColor = computed(() => {
         </UDashboardNavbar>
 
         <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-          <div
-            class="w-full mx-auto"
-            :class="shouldUseFullWidth ? '' : 'max-w-3xl px-4 py-6'"
-          >
-            <!-- Chat interface - only on conversation routes -->
-            <ClientOnly>
-              <QuillioWidget v-if="shouldShowChat" />
-            </ClientOnly>
-            <!-- Show page content for all other routes -->
-            <div v-if="!shouldShowChat">
-              <slot />
-            </div>
+          <div class="h-full w-full">
+            <slot />
           </div>
         </div>
-      </UDashboardPanel>
-    </UDashboardGroup>
+      </div>
+
+      <aside
+        v-if="shouldShowChatPanel"
+        class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-[60vh] lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l"
+      >
+        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 py-2 dark:border-neutral-800/60">
+          <UButton
+            aria-label="Back"
+            variant="ghost"
+            color="neutral"
+            size="xs"
+            icon="i-lucide-arrow-left"
+            @click="toggleChatView"
+          />
+          <p class="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+            {{ chatTitle }}
+          </p>
+          <UDropdownMenu
+            v-if="loggedIn"
+            :items="userMenuItems"
+          >
+            <UButton
+              aria-label="Settings"
+              variant="ghost"
+              color="neutral"
+              size="xs"
+              icon="i-lucide-settings"
+            />
+          </UDropdownMenu>
+          <UButton
+            aria-label="New chat"
+            variant="ghost"
+            color="neutral"
+            size="xs"
+            icon="i-lucide-square-pen"
+            @click="startNewChat"
+          />
+        </div>
+
+        <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div
+            v-if="chatView === 'list'"
+            class="flex-1 min-h-0 overflow-y-auto"
+          >
+            <div class="p-3">
+              <UAlert
+                v-if="conversationError"
+                color="error"
+                variant="soft"
+                title="Failed to load conversations"
+                :description="conversationError"
+              />
+            </div>
+
+            <div class="space-y-1 px-2 pb-2">
+              <template v-if="conversationInitialized && visibleConversationItems.length">
+                <div
+                  v-for="entry in visibleConversationItems"
+                  :key="entry.id"
+                  class="group relative w-full rounded-md border border-transparent transition-colors"
+                  :class="conversation.conversationId.value === entry.id
+                    ? 'bg-neutral-100/80 dark:bg-neutral-800/60'
+                    : 'hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40'"
+                >
+                  <button
+                    type="button"
+                    class="w-full rounded-md px-3 py-2 text-left"
+                    @click="selectConversation(entry.id)"
+                  >
+                    <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                      <p class="text-sm font-semibold truncate">
+                        {{ entry.displayLabel }}
+                      </p>
+                      <div class="flex items-center justify-end gap-2 font-mono text-xs tabular-nums">
+                        <span
+                          v-if="(entry.additions || 0) > 0"
+                          class="text-emerald-500 dark:text-emerald-400"
+                        >
+                          +{{ entry.additions }}
+                        </span>
+                        <span
+                          v-if="(entry.deletions || 0) > 0"
+                          class="text-rose-500 dark:text-rose-400"
+                        >
+                          -{{ entry.deletions }}
+                        </span>
+                      </div>
+                      <p class="text-xs text-muted-foreground text-right">
+                        {{ entry.updatedAgo }}
+                      </p>
+                    </div>
+                  </button>
+                  <UButton
+                    icon="i-lucide-archive"
+                    size="2xs"
+                    color="neutral"
+                    variant="ghost"
+                    :loading="archivingConversationId === entry.id"
+                    :disabled="archivingConversationId === entry.id"
+                    class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Archive conversation"
+                    @click="archiveConversation(entry.id, $event)"
+                  />
+                </div>
+              </template>
+
+              <template v-else-if="conversationPending && !conversationInitialized">
+                <div
+                  v-for="n in 8"
+                  :key="n"
+                  class="rounded-md border border-neutral-200/60 dark:border-neutral-800/60 px-3 py-2"
+                >
+                  <USkeleton class="h-4 w-3/4" />
+                  <USkeleton class="h-3 w-1/3 mt-2" />
+                </div>
+              </template>
+
+              <p
+                v-else
+                class="text-sm text-muted-foreground px-3 py-6 text-center"
+              >
+                No conversations yet.
+              </p>
+            </div>
+
+            <div class="flex justify-center px-3 pb-2">
+              <UButton
+                v-if="canExpandConversationList"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                @click="conversationsExpanded = true"
+              >
+                View all
+              </UButton>
+              <UButton
+                v-else-if="conversationsExpanded && conversationItems.length > 3"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                @click="conversationsExpanded = false"
+              >
+                Show less
+              </UButton>
+            </div>
+
+            <div class="flex justify-center px-3 pb-4">
+              <UButton
+                v-if="conversationsExpanded && conversationHasMore"
+                color="neutral"
+                variant="outline"
+                size="sm"
+                :loading="conversationPending"
+                @click="loadConversationMore()"
+              >
+                Load more
+              </UButton>
+            </div>
+          </div>
+
+          <QuillioWidget
+            class="flex-1 min-h-0"
+            :content-id="contentId"
+            :conversation-id="conversation.conversationId.value"
+            :sync-route="false"
+            :use-route-conversation-id="false"
+            :show-messages="chatView !== 'list'"
+            embedded
+          />
+        </div>
+      </aside>
+    </div>
     <OnboardingModal />
     <AuthModal
       v-model:open="authModalOpen"

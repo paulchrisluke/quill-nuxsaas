@@ -323,7 +323,8 @@ async function fetchTranscriptViaOfficialAPI(
       },
       query: {
         tfmt: 'vtt'
-      }
+      },
+      responseType: 'text'
     })
   } catch (error) {
     const fetchError = error as FetchError
