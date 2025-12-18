@@ -10,6 +10,10 @@ export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event)
 
+  // Get contentId from query params if provided
+  const contentId = getQuery(event).contentId
+  const validatedContentId = typeof contentId === 'string' && contentId.trim() ? contentId.trim() : null
+
   const formData = await readMultipartFormData(event)
   if (!formData) {
     throw createError({
@@ -81,7 +85,8 @@ export default defineEventHandler(async (event) => {
       getRequestIP(event),
       getHeader(event, 'user-agent'),
       {
-        organizationId
+        organizationId,
+        contentId: validatedContentId
       }
     )
     return {

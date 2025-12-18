@@ -32,6 +32,21 @@ const localePath = useLocalePath()
 const { loggedIn, signIn, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
 
+// Check for Google Drive integration
+const organizationIdForIntegrations = computed(() => activeOrg.value?.data?.id)
+const { data: integrationsResponse } = useFetch('/api/organization/integrations', {
+  key: () => `chat-shell-integrations-${organizationIdForIntegrations.value || 'none'}`,
+  watch: [organizationIdForIntegrations],
+  default: () => ({ data: [] }),
+  immediate: false
+})
+
+const hasGoogleDrive = computed(() => {
+  if (!integrationsResponse.value) return false
+  const list = integrationsResponse.value?.data || []
+  return list.some((item: any) => item.type === 'google_drive' && item.isActive)
+})
+
 const {
   messages,
   status,
@@ -70,6 +85,7 @@ const chatContainerRef = ref<HTMLElement | null>(null)
 const chatVisible = useElementVisibility(chatContainerRef)
 const pendingConversationLoad = ref<string | null>(null)
 const conversationLoadToken = ref(0)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
@@ -130,6 +146,83 @@ const handleStopStreaming = () => {
   const stopped = stopResponse()
   if (stopped) {
     promptSubmitting.value = false
+  }
+}
+
+const handleImageUploadClick = (event?: Event) => {
+  if (event) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  console.log('[ChatShell] Image upload clicked, fileInputRef:', fileInputRef.value)
+  fileInputRef.value?.click()
+}
+
+const handleGoogleDriveClick = () => {
+  if (!hasGoogleDrive.value) {
+    toast.add({
+      title: 'Google Drive not connected',
+      description: 'Please connect Google Drive in your organization settings first.',
+      color: 'warning',
+      icon: 'i-lucide-alert-circle'
+    })
+    return
+  }
+  // TODO: Implement Google Drive file picker
+  toast.add({
+    title: 'Coming soon',
+    description: 'Google Drive file import is coming soon.',
+    color: 'info',
+    icon: 'i-lucide-info'
+  })
+}
+
+const { uploading: fileUploading, uploadToServer } = useFileManager({
+  maxSize: 10 * 1024 * 1024, // 10MB
+  allowedTypes: ['image/*'],
+  contentId: props.contentId || null,
+  onSuccess: (file) => {
+    toast.add({
+      title: 'Image uploaded',
+      description: `"${file.originalName || file.fileName}" has been uploaded successfully.`,
+      color: 'success',
+      icon: 'i-lucide-check-circle'
+    })
+    // Reset file input
+    if (fileInputRef.value) {
+      fileInputRef.value.value = ''
+    }
+  },
+  onError: (error) => {
+    toast.add({
+      title: 'Upload failed',
+      description: error.message,
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+  }
+})
+
+const handleFileSelect = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const files = target.files
+  if (!files || files.length === 0)
+    return
+
+  const file = files[0]
+  if (!file.type.startsWith('image/')) {
+    toast.add({
+      title: 'Invalid file type',
+      description: 'Please select an image file.',
+      color: 'error'
+    })
+    return
+  }
+
+  try {
+    await uploadToServer(file)
+  } catch (error) {
+    console.error('File upload failed:', error)
   }
 }
 
@@ -532,30 +625,78 @@ if (import.meta.client) {
           @stop="handleStopStreaming"
         >
           <template #footer>
-            <component
-              :is="!loggedIn ? 'UTooltip' : 'div'"
-              v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
-            >
-              <UInputMenu
-                v-model="mode"
-                :items="modeItems"
-                value-key="value"
-                label-key="label"
-                variant="ghost"
-                size="sm"
-                ignore-filter
-                readonly
-                open-on-click
+            <div class="flex items-center gap-2">
+              <UDropdownMenu
+                v-if="props.contentId && !isBusy && !promptSubmitting"
               >
-                <template #leading>
-                  <UIcon
-                    :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
-                    class="w-4 h-4"
-                    :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
-                  />
+                <UButton
+                  icon="i-lucide-plus"
+                  size="sm"
+                  variant="ghost"
+                  color="neutral"
+                />
+                <template #content>
+                  <button
+                    type="button"
+                    class="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2"
+                    @click.stop="handleImageUploadClick"
+                  >
+                    <UIcon
+                      name="i-lucide-upload"
+                      class="w-4 h-4"
+                    />
+                    <span>Upload Image</span>
+                  </button>
+                  <USeparator />
+                  <button
+                    type="button"
+                    class="w-full text-left px-2 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    :disabled="!hasGoogleDrive"
+                    @click.stop="handleGoogleDriveClick"
+                  >
+                    <UIcon
+                      name="i-simple-icons-googledrive"
+                      class="w-4 h-4"
+                      :class="{ 'opacity-50': !hasGoogleDrive }"
+                    />
+                    <span :class="{ 'opacity-50': !hasGoogleDrive }">
+                      {{ hasGoogleDrive ? 'Import from Google Drive' : 'Google Drive (Connect in Settings)' }}
+                    </span>
+                  </button>
                 </template>
-              </UInputMenu>
-            </component>
+              </UDropdownMenu>
+              <input
+                ref="fileInputRef"
+                type="file"
+                accept="image/*"
+                class="hidden"
+                @change="handleFileSelect"
+              >
+              <component
+                :is="!loggedIn ? 'UTooltip' : 'div'"
+                v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
+              >
+                <UInputMenu
+                  v-model="mode"
+                  :items="modeItems"
+                  value-key="value"
+                  label-key="label"
+                  variant="ghost"
+                  size="sm"
+                  ignore-filter
+                  readonly
+                  open-on-click
+                >
+                  <template #leading>
+                    <UIcon
+                      :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
+                      class="w-4 h-4"
+                      :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
+                    />
+                  </template>
+                </UInputMenu>
+              </component>
+            </div>
           </template>
         </PromptComposer>
 

@@ -1,6 +1,7 @@
 export interface FileManagerConfig {
   maxSize?: number
   allowedTypes?: string[]
+  contentId?: string | null
   onProgress?: (progress: number) => void
   onSuccess?: (file: any) => void
   onError?: (error: Error) => void
@@ -34,7 +35,16 @@ export function useFileManager(config: FileManagerConfig = {}) {
     error.value = null
 
     try {
-      const response = await $fetch('/api/file/upload', {
+      const queryParams: Record<string, string> = {}
+      if (config.contentId) {
+        queryParams.contentId = config.contentId
+      }
+
+      const url = queryParams.contentId
+        ? `/api/file/upload?${new URLSearchParams(queryParams).toString()}`
+        : '/api/file/upload'
+
+      const response = await $fetch(url, {
         method: 'POST',
         body: formData
       })
