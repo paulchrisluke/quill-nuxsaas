@@ -78,6 +78,7 @@ const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
 const { refresh: refreshWorkspaceFiles, initialized: workspaceFilesInitialized } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 const { uploadToServer, uploading } = useFileManager({
+  maxSize: 10 * 1024 * 1024, // 10MB
   onSuccess: (file) => {
     toast.add({
       title: 'File uploaded',
@@ -86,6 +87,7 @@ const { uploadToServer, uploading } = useFileManager({
       icon: 'i-lucide-check-circle'
     })
 
+    // Refresh workspace files if the list has been initialized, otherwise it will refresh when initialized
     if (workspaceFilesInitialized.value) {
       refreshWorkspaceFiles().catch((error) => {
         console.error('Failed to refresh workspace files after upload', error)
@@ -114,11 +116,14 @@ const handleFileInputChange = async (event: Event) => {
   if (!file)
     return
 
+  // Note: Error handling is done via useFileManager's onError callback
   try {
     await uploadToServer(file)
   } catch (error) {
-    console.error('Failed to upload file', error)
+    // Error is already handled by onError callback, just log for debugging
+    console.error('File upload error:', error)
   } finally {
+    // Reset input to allow selecting the same file again
     if (target)
       target.value = ''
   }
@@ -652,6 +657,7 @@ if (import.meta.client) {
                 ref="uploadInputRef"
                 type="file"
                 class="hidden"
+                accept="*/*"
                 @change="handleFileInputChange"
               >
             </div>
