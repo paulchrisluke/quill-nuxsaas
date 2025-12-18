@@ -130,7 +130,8 @@ export async function publishContentVersion(
       {
         fileName: filePayload.filename,
         overrideOriginalName: filePayload.filename,
-        contentId: contentRecord.id
+        contentId: contentRecord.id,
+        organizationId
       }
     )
 

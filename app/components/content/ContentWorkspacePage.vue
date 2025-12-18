@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 
 const route = useRoute()
 
@@ -21,6 +22,24 @@ interface ContentEntry {
     errors: string[]
     warnings: string[]
   } | null
+  imageSuggestions: ImageSuggestion[]
+  videoId: string | null
+}
+
+interface ImageSuggestion {
+  sectionId: string
+  position: number
+  altText: string
+  reason: string
+  priority: 'high' | 'medium' | 'low'
+  type?: 'generated' | 'screencap' | 'uploaded'
+  videoId?: string
+  estimatedTimestamp?: number
+  thumbnailFileId?: string
+  thumbnailUrl?: string
+  fullSizeFileId?: string
+  fullSizeUrl?: string
+  status?: 'pending' | 'thumbnail_ready' | 'added' | 'failed'
 }
 
 interface ContentApiResponse {
@@ -34,9 +53,14 @@ interface ContentApiResponse {
       contentType?: string
       conversationId?: string | null
     }
+    sourceContent?: {
+      sourceType?: string
+      externalId?: string
+    } | null
     currentVersion?: {
       bodyMdx?: string
       structuredData?: string | null
+      imageSuggestions?: ImageSuggestion[]
       diffStats?: {
         additions?: number
         deletions?: number
@@ -78,6 +102,7 @@ const contentEntry = computed<ContentEntry | null>(() => {
   const workspace = entry.workspace
   const content = workspace?.content
   const currentVersion = workspace?.currentVersion
+  const sourceContent = workspace?.sourceContent
 
   if (!content)
     return null
@@ -107,6 +132,15 @@ const contentEntry = computed<ContentEntry | null>(() => {
       }
     : null
 
+  const imageSuggestions = Array.isArray(currentVersion?.imageSuggestions)
+    ? currentVersion.imageSuggestions as ImageSuggestion[]
+    : []
+
+  // Extract videoId from sourceContent for YouTube links
+  const videoId = sourceContent?.sourceType === 'youtube' && sourceContent.externalId
+    ? sourceContent.externalId
+    : null
+
   return {
     id: content?.id || '',
     title: content?.title || 'Untitled content',
@@ -121,7 +155,9 @@ const contentEntry = computed<ContentEntry | null>(() => {
     frontmatter,
     schemaTypes,
     jsonLd: jsonLd?.trim() || null,
-    schemaValidation
+    schemaValidation,
+    imageSuggestions,
+    videoId
   }
 })
 
@@ -338,6 +374,14 @@ watchEffect(() => {
           class="w-full"
         />
       </UCard>
+
+      <ImageSuggestionsPanel
+        v-if="contentEntry.imageSuggestions && contentEntry.imageSuggestions.length > 0"
+        :suggestions="contentEntry.imageSuggestions"
+        :content-id="contentEntry.id"
+        :video-id="contentEntry.videoId || undefined"
+        class="mb-4"
+      />
     </template>
 
     <UAlert

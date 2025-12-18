@@ -95,46 +95,94 @@ export const insertImageSuggestion = async (
       statusMessage: 'This image suggestion has already been inserted'
     })
   }
-  if (suggestion.type !== 'screencap') {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Only screencap suggestions can be inserted automatically'
-    })
-  }
-
-  const videoId = suggestion.videoId || record.sourceContent?.externalId
-  if (!videoId) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Video ID is required to extract the screencap'
-    })
-  }
-
-  const extraction = await extractScreencapFromYouTube({
-    videoId,
-    timestampSeconds: suggestion.estimatedTimestamp ?? 0,
-    variant: 'full'
-  })
 
   const storageConfig = useFileManagerConfig()
   const storageProvider = await createStorageProvider(storageConfig.storage)
   const fileService = new FileService(storageProvider)
 
-  const uploaded = await fileService.uploadFile(
-    extraction.buffer,
-    extraction.fileName,
-    extraction.mimeType,
-    userId,
-    undefined,
-    undefined,
-    {
-      fileName: extraction.fileName,
-      overrideOriginalName: extraction.fileName,
-      contentId: record.content.id
-    }
-  )
+  let imageUrl: string
+  let uploadedFileId: string
 
-  const imageUrl = uploaded.url || uploaded.path
+  // Handle different suggestion types
+  if (suggestion.type === 'screencap') {
+    const videoId = suggestion.videoId || record.sourceContent?.externalId
+    if (!videoId) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Video ID is required to extract the screencap'
+      })
+    }
+
+    const extraction = await extractScreencapFromYouTube({
+      videoId,
+      timestampSeconds: suggestion.estimatedTimestamp ?? 0,
+      variant: 'full'
+    })
+
+    const uploaded = await fileService.uploadFile(
+      extraction.buffer,
+      extraction.fileName,
+      extraction.mimeType,
+      userId,
+      undefined,
+      undefined,
+      {
+        fileName: extraction.fileName,
+        overrideOriginalName: extraction.fileName,
+        contentId: record.content.id
+      }
+    )
+
+    imageUrl = uploaded.url || uploaded.path
+    uploadedFileId = uploaded.id
+  } else if (suggestion.type === 'uploaded') {
+    // For uploaded type, the file should already exist
+    if (suggestion.fullSizeFileId) {
+      const file = await fileService.getFile(suggestion.fullSizeFileId)
+      if (!file) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: 'Referenced file not found'
+        })
+      }
+      imageUrl = file.url || file.path
+      uploadedFileId = file.id
+    } else if (suggestion.fullSizeUrl) {
+      // If we have a URL but no fileId, use the URL directly
+      // External URLs won't have a file ID in our system
+      imageUrl = suggestion.fullSizeUrl
+      uploadedFileId = '' // No file ID for external URLs
+    } else {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Uploaded image suggestion requires fullSizeFileId or fullSizeUrl'
+      })
+    }
+  } else if (suggestion.type === 'generated') {
+    // For generated type, we can't auto-generate images yet
+    // But if they provide a fileId, we can use it
+    if (suggestion.fullSizeFileId) {
+      const file = await fileService.getFile(suggestion.fullSizeFileId)
+      if (!file) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: 'Referenced file not found'
+        })
+      }
+      imageUrl = file.url || file.path
+      uploadedFileId = file.id
+    } else {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Generated image suggestions require fullSizeFileId. Image generation is coming soon.'
+      })
+    }
+  } else {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Unsupported image suggestion type'
+    })
+  }
   const markdownImage = `![${suggestion.altText || 'Image'}](${imageUrl})`
   const existingMarkdown = record.version.bodyMdx || ''
   const targetLine = typeof suggestion.position === 'number' && Number.isFinite(suggestion.position)
@@ -145,7 +193,7 @@ export const insertImageSuggestion = async (
   const updatedSuggestions = [...imageSuggestions]
   const updatedSuggestion: ImageSuggestion = {
     ...suggestion,
-    fullSizeFileId: uploaded.id,
+    fullSizeFileId: uploadedFileId || suggestion.fullSizeFileId,
     fullSizeUrl: imageUrl,
     status: 'added'
   }

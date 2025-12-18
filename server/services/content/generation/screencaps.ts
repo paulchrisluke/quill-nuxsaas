@@ -238,13 +238,30 @@ export const attachThumbnailsToSuggestions = async (params: {
         status: 'thumbnail_ready'
       })
     } catch (error) {
+      const errorObj = error instanceof Error ? error : new Error(String(error))
+      const errorMessage = errorObj.message || 'Unknown error'
+
+      // Check if it's a DRM error
+      const msg = errorMessage.toLowerCase()
+      const isDRMError = msg.includes('drm')
+        || msg.includes('copyright')
+        || msg.includes('drm protected')
+        || msg.includes('content protected')
+
       safeWarn('[screencaps] Failed to prepare thumbnail', {
         videoId: suggestion.videoId,
-        error
+        error: errorObj,
+        message: errorMessage,
+        stack: errorObj.stack,
+        isDRMError
       })
+
       results.push({
         ...suggestion,
-        status: baseStatus
+        status: 'failed' as const,
+        errorMessage: isDRMError
+          ? 'This video is DRM protected. Image generation is coming soon for protected content.'
+          : 'Image generation is currently unavailable. This feature is coming soon.'
       })
     }
   }
