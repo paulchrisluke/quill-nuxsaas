@@ -4,26 +4,9 @@ import type { ContentSection, ImageSuggestion } from './types'
 import { and, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
+import { clamp, insertMarkdownAtLine } from './utils'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
-
-const insertMarkdownAtLine = (markdown: string, lineNumber: number, block: string) => {
-  const normalized = markdown || ''
-  const lines = normalized.split('\n')
-  const insertAt = clamp(Math.floor(lineNumber - 1), 0, lines.length)
-  const blockLines = block.includes('\n') ? block.split('\n') : [block]
-
-  const updated = [
-    ...lines.slice(0, insertAt),
-    ...blockLines,
-    '',
-    ...lines.slice(insertAt)
-  ]
-
-  return `${updated.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
-}
 
 const findHeadingLine = (markdown: string, sectionTitle: string | null | undefined): number | null => {
   if (!sectionTitle) {
@@ -232,7 +215,7 @@ export const insertUploadedImage = async (
     })
   }
 
-  if (fileRecord.fileType !== 'image') {
+  if (fileRecord.fileType !== 'image' || !fileRecord.mimeType?.startsWith('image/')) {
     throw createError({
       statusCode: 400,
       statusMessage: 'Only image files can be inserted'

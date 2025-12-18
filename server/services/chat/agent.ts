@@ -158,6 +158,14 @@ function generateSummaryFromToolHistory(
     } else if (toolName === 'source_ingest' && result.result) {
       const sourceType = invocation.arguments.sourceType === 'youtube' ? 'YouTube video' : 'source content'
       summaries.push(`Ingested ${sourceType}`)
+    } else if (toolName === 'insert_image' && result.result) {
+      const contentTitle = result.result.content?.title || 'content'
+      const fileName = invocation.arguments.fileId ? 'image' : 'an image'
+      summaries.push(`Inserted ${fileName} into "${contentTitle}"`)
+    } else if (toolName === 'read_files' && result.result) {
+      const files = Array.isArray(result.result.files) ? result.result.files : []
+      const count = files.length
+      summaries.push(`Found ${count} uploaded file${count !== 1 ? 's' : ''}`)
     } else {
       summaries.push(`Completed ${toolName.replace(/_/g, ' ')}`)
     }
