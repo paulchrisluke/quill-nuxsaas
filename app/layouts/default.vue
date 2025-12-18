@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
+import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
@@ -11,9 +12,6 @@ const localePath = useLocalePath()
 const { loggedIn, signOut, useActiveOrganization } = useAuth()
 const conversation = useConversation()
 const activeOrg = useActiveOrganization()
-
-// Keep in sync with `app/middleware/auth.global.ts`
-const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
 
 const i18nHead = useLocaleHead()
 const route = useRoute()
@@ -99,10 +97,10 @@ const normalizeRouteParam = (param?: string | string[]) => {
 const orgSlug = computed(() => {
   const param = route.params.slug
   const routeSlug = Array.isArray(param) ? param[0] : param
-  if (routeSlug && routeSlug !== 't')
+  if (routeSlug && routeSlug !== NON_ORG_SLUG)
     return routeSlug
   const fallback = activeOrg.value?.data?.slug
-  return fallback && fallback !== 't' ? fallback : null
+  return fallback && fallback !== NON_ORG_SLUG ? fallback : null
 })
 
 const userMenuItems = computed(() => {

@@ -276,23 +276,20 @@ export const patchConversationPreviewMetadata = async (
     patch = sql`${patch} || jsonb_build_object('artifactCount', ${updates.artifactCount}::integer)`
   }
 
-  // Require both additions and deletions to be present and finite before setting diffStats
+  // Require both additions and deletions to be present, finite, safe integers, and non-negative
   if (updates.diffStats) {
     const additions = updates.diffStats.additions
     const deletions = updates.diffStats.deletions
-    const additionsValid = typeof additions === 'number' && Number.isFinite(additions)
-    const deletionsValid = typeof deletions === 'number' && Number.isFinite(deletions)
+    const additionsValid = Number.isSafeInteger(additions) && additions >= 0
+    const deletionsValid = Number.isSafeInteger(deletions) && deletions >= 0
 
     if (additionsValid && deletionsValid) {
       hasUpdates = true
-      // Convert to safe integers (truncate to ensure integer values)
-      const safeAdditions = Math.trunc(additions)
-      const safeDeletions = Math.trunc(deletions)
       patch = sql`${patch} || jsonb_build_object(
         'diffStats',
         jsonb_build_object(
-          'additions', ${safeAdditions}::integer,
-          'deletions', ${safeDeletions}::integer
+          'additions', ${additions}::integer,
+          'deletions', ${deletions}::integer
         )
       )`
     }

@@ -4,10 +4,7 @@ const localePath = useLocalePath()
 const { useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
 
-// Special organization slug used for a non-org / tenant-less context.
-// When the active org slug is missing or equals this value, we must fall back
-// to the reserved non-organization conversation routes.
-const NON_ORG_SLUG = 't'
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 
 const {
   items,

@@ -108,7 +108,7 @@ export const extractScreencapFromYouTube = async (params: {
     })
   }
 
-  const youtubeIdRegex = /^[A-Za-z0-9_-]{11}$/
+  const youtubeIdRegex = /^[\w-]{11}$/
   if (!youtubeIdRegex.test(trimmedVideoId)) {
     throw createError({
       statusCode: 400,
@@ -163,7 +163,7 @@ export const extractScreencapFromYouTube = async (params: {
     ], timeoutMs)
 
     const buffer = await readFile(imagePath)
-    const fileName = buildScreencapFileName(videoId, timestamp, variant === 'thumbnail')
+    const fileName = buildScreencapFileName(trimmedVideoId, timestamp, variant === 'thumbnail')
 
     return {
       buffer,

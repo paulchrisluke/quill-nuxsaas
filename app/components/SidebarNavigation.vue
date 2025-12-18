@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { useContentList } from '~/composables/useContentList'
 
 const router = useRouter()
@@ -49,9 +50,11 @@ const isContentActive = (id: string) => {
   return activeContentId.value === id
 }
 
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+
 const resolveContentPath = (contentId?: string | null) => {
   const slug = activeOrg.value?.data?.slug
-  if (!slug || slug === 't')
+  if (!slug || slug === NON_ORG_SLUG)
     return null
   const base = `/${slug}/content`
   return contentId ? `${base}/${contentId}` : base

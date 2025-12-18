@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 
 definePageMeta({
@@ -27,7 +28,7 @@ watch([sessionReady, loggedIn], () => {
   if (sessionReady.value && loggedIn.value && !hasNavigated.value) {
     hasNavigated.value = true
     const slug = activeOrg.value?.data?.slug
-    const target = slug && slug !== 't' ? `/${slug}/conversations` : '/t/conversations'
+    const target = slug && slug !== NON_ORG_SLUG ? `/${slug}/conversations` : `/${NON_ORG_SLUG}/conversations`
     navigateTo(localePath(target))
   }
 })

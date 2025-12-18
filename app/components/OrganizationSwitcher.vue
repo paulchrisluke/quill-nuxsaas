@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { getPlanKeyFromId, PLAN_TIERS } from '~~/shared/utils/plans'
 
 const { session, useActiveOrganization, user } = useAuth()
@@ -30,7 +31,7 @@ const route = useRoute()
 const activeOrgId = computed(() => {
   // Use route slug first for immediate reactivity
   const routeSlug = route.params.slug as string
-  if (routeSlug && routeSlug !== 't' && organizations.value) {
+  if (routeSlug && routeSlug !== NON_ORG_SLUG && organizations.value) {
     const org = organizations.value.find((o: any) => o.slug === routeSlug)
     if (org?.id)
       return org.id
@@ -75,7 +76,7 @@ const tierBadgeLabel = computed(() => {
   return PLAN_TIERS[tierKey]?.name || 'Pro'
 })
 
-const activeOrgSlug = computed(() => activeOrg.value?.data?.slug || 't')
+const activeOrgSlug = computed(() => activeOrg.value?.data?.slug || NON_ORG_SLUG)
 const switching = ref(false)
 const { start, finish } = useLoadingIndicator()
 

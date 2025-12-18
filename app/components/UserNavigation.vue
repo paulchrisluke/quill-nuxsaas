@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { getPlanKeyFromId, PLAN_TIERS } from '~~/shared/utils/plans'
 
 const emit = defineEmits<{
@@ -14,10 +15,10 @@ const activeOrg = useActiveOrganization()
 const orgSlug = computed(() => {
   const param = route.params.slug
   const routeSlug = Array.isArray(param) ? param[0] : param
-  if (routeSlug && routeSlug !== 't')
+  if (routeSlug && routeSlug !== NON_ORG_SLUG)
     return routeSlug
   const fallback = activeOrg.value?.data?.slug
-  return fallback && fallback !== 't' ? fallback : null
+  return fallback && fallback !== NON_ORG_SLUG ? fallback : null
 })
 
 const menuItems = computed(() => {

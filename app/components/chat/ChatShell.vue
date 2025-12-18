@@ -3,6 +3,7 @@ import type { ChatMessage } from '#shared/utils/types'
 import { useClipboard, useElementVisibility } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 
+import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
@@ -24,9 +25,6 @@ const props = withDefaults(defineProps<{
   useRouteConversationId: true,
   showMessages: true
 })
-
-const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
-const NON_ORG_SLUG = 't'
 
 const router = useRouter()
 const route = useRoute()
