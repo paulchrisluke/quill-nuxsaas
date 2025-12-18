@@ -102,7 +102,7 @@ async function checkImageSuggestions() {
     console.log(`Image Suggestions Count: ${content.suggestion_count || 0}`)
 
     // Check source content if it exists
-    if (content.source_content_id || content.sourceContentId) {
+    if (content.source_content_id) {
       const sourceQuery = `
         SELECT
           id,

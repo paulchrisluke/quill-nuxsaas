@@ -48,6 +48,10 @@ DO $$
 DECLARE
   missing_count bigint;
 BEGIN
+  -- Block concurrent inserts/updates for the rest of the migration.
+  -- This avoids a race where new NULL records appear after validation.
+  LOCK TABLE "file" IN ACCESS EXCLUSIVE MODE;
+
   SELECT COUNT(*) INTO missing_count
   FROM "file"
   WHERE "organization_id" IS NULL;
