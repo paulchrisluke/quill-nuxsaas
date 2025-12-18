@@ -39,8 +39,6 @@ watch(user, (u) => {
 const isImpersonating = computed(() => !!(session.value as any)?.impersonatedBy)
 const stoppingImpersonation = ref(false)
 
-const shouldRenderSidebar = computed(() => route.meta?.renderSidebar !== false)
-
 const stopImpersonating = async () => {
   stoppingImpersonation.value = true
   try {
@@ -77,11 +75,8 @@ useSeoMeta({
 <template>
   <UApp>
     <NuxtLayout>
-      <template #sidebar="{ collapsed }">
-        <WorkspaceFileTree
-          v-if="shouldRenderSidebar"
-          :collapsed="collapsed"
-        />
+      <template #sidebar>
+        <WorkspaceFileTree />
       </template>
       <NuxtPage />
     </NuxtLayout>

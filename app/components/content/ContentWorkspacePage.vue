@@ -59,16 +59,10 @@ const contentId = computed(() => {
 })
 
 // Set workspace header state
-const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
+const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => ({
+  title: 'Loading content…'
+}))
 const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => true)
-
-const setShellHeader = () => {
-  workspaceHeader.value = {
-    title: 'Loading content…'
-  }
-}
-
-setShellHeader()
 
 const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),

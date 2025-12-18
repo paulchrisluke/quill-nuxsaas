@@ -7,15 +7,9 @@ import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
 
 type SourceContentItem = typeof schema.sourceContent.$inferSelect
 
-const props = defineProps<{
-  collapsed?: boolean
-}>()
-
 const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
 }>()
-
-const isCollapsed = computed(() => Boolean(props.collapsed))
 
 const { useActiveOrganization } = useAuth()
 const router = useRouter()
@@ -41,6 +35,7 @@ const {
 const sourceItems = ref<SourceContentItem[]>([])
 const sourcePending = ref(false)
 const sourceError = ref<string | null>(null)
+const sourceInitialized = ref(false)
 
 const expandedPaths = ref<Set<string>>(new Set(['content', 'sources']))
 
@@ -228,9 +223,11 @@ const fetchSources = async () => {
       }
     })
     sourceItems.value = response?.data || []
+    sourceInitialized.value = true
   } catch (error) {
     console.error('Failed to fetch sources', error)
     sourceError.value = error instanceof Error ? error.message : 'Failed to load sources'
+    sourceInitialized.value = true
   } finally {
     sourcePending.value = false
   }
@@ -242,7 +239,7 @@ onMounted(() => {
 })
 
 const isEmptyState = computed(() => {
-  return contentInitialized.value && !contentItems.value.length && !sourceItems.value.length
+  return contentInitialized.value && sourceInitialized.value && !contentItems.value.length && !sourceItems.value.length
 })
 </script>
 
@@ -251,23 +248,7 @@ const isEmptyState = computed(() => {
     class="h-full flex flex-col space-y-3"
     role="tree"
   >
-    <div
-      v-if="isCollapsed"
-      class="flex flex-col items-center gap-2 py-4"
-    >
-      <UIcon
-        name="i-lucide-folder"
-        class="h-5 w-5 text-muted-500"
-      />
-      <UIcon
-        name="i-lucide-file-text"
-        class="h-5 w-5 text-muted-500"
-      />
-    </div>
-    <div
-      v-else
-      class="flex-1 overflow-y-auto px-1 pb-4"
-    >
+    <div class="flex-1 overflow-y-auto px-1 pb-4">
       <div v-if="contentPending || sourcePending">
         <div
           v-for="n in 6"
