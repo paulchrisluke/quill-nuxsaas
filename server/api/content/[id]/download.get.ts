@@ -98,7 +98,10 @@ export default defineEventHandler(async (event) => {
   const slug = (content.slug || '').trim() || `content-${contentId}`
   const filename = `${slug}.mdx`
 
-  setHeader(event, 'Content-Disposition', `attachment; filename="${filename}"`)
+  // Sanitize filename to prevent header injection and use RFC 5987 encoding for Unicode support
+  const sanitizedFilename = filename.replace(/[^\w.-]/g, '_')
+  const encodedFilename = encodeURIComponent(filename)
+  setHeader(event, 'Content-Disposition', `attachment; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`)
   setHeader(event, 'Content-Type', 'text/markdown')
 
   return filePayload.fullMdx
