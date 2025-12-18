@@ -91,6 +91,12 @@ const { uploadToServer, uploading } = useFileManager({
     if (workspaceFilesInitialized.value) {
       refreshWorkspaceFiles().catch((error) => {
         console.error('Failed to refresh workspace files after upload', error)
+        toast.add({
+          title: 'File uploaded',
+          description: `Your file was uploaded successfully, but the workspace refresh failed. ${error instanceof Error ? error.message : 'Please try refreshing manually.'}`,
+          color: 'warning',
+          icon: 'i-lucide-alert-triangle'
+        })
       })
     }
   },
