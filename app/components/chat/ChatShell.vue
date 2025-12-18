@@ -5,6 +5,8 @@ import { computed, ref, watch } from 'vue'
 
 import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
+import { useFileList } from '~/composables/useFileList'
+import { useFileManager } from '~/composables/useFileManager'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
 
@@ -70,9 +72,82 @@ const chatContainerRef = ref<HTMLElement | null>(null)
 const chatVisible = useElementVisibility(chatContainerRef)
 const pendingConversationLoad = ref<string | null>(null)
 const conversationLoadToken = ref(0)
+const uploadInputRef = ref<HTMLInputElement | null>(null)
 
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
+const { refresh: refreshWorkspaceFiles, initialized: workspaceFilesInitialized } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+const { uploadToServer, uploading } = useFileManager({
+  onSuccess: (file) => {
+    toast.add({
+      title: 'File uploaded',
+      description: file?.originalName || 'Your file was uploaded successfully.',
+      color: 'success',
+      icon: 'i-lucide-check-circle'
+    })
+
+    if (workspaceFilesInitialized.value) {
+      refreshWorkspaceFiles().catch((error) => {
+        console.error('Failed to refresh workspace files after upload', error)
+      })
+    }
+  },
+  onError: (error) => {
+    toast.add({
+      title: 'Upload failed',
+      description: error?.message || 'Unable to upload file. Please try again.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+  }
+})
+
+const triggerFilePicker = () => {
+  if (uploading.value)
+    return
+  uploadInputRef.value?.click()
+}
+
+const handleFileInputChange = async (event: Event) => {
+  const target = event.target as HTMLInputElement | null
+  const file = target?.files?.[0]
+  if (!file)
+    return
+
+  try {
+    await uploadToServer(file)
+  } catch (error) {
+    console.error('Failed to upload file', error)
+  } finally {
+    if (target)
+      target.value = ''
+  }
+}
+
+const handleUploadFromDrive = () => {
+  const slug = activeOrg.value?.data?.slug || NON_ORG_SLUG
+  const integrationsPath = localePath({
+    path: `/${slug}/integrations`,
+    query: { connect: 'google_drive' }
+  })
+
+  router.push(integrationsPath)
+}
+
+const uploadMenuItems = computed(() => [
+  {
+    label: 'Upload from device',
+    icon: 'i-lucide-upload',
+    onSelect: () => triggerFilePicker(),
+    disabled: uploading.value
+  },
+  {
+    label: 'Upload from Drive',
+    icon: 'i-simple-icons-googledrive',
+    onSelect: () => handleUploadFromDrive(),
+    disabled: uploading.value
+  }
+])
 
 const handleAgentModeGoogleSignup = () => {
   showAgentModeLoginModal.value = false
@@ -532,30 +607,54 @@ if (import.meta.client) {
           @stop="handleStopStreaming"
         >
           <template #footer>
-            <component
-              :is="!loggedIn ? 'UTooltip' : 'div'"
-              v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
-            >
-              <UInputMenu
-                v-model="mode"
-                :items="modeItems"
-                value-key="value"
-                label-key="label"
-                variant="ghost"
-                size="sm"
-                ignore-filter
-                readonly
-                open-on-click
-              >
-                <template #leading>
-                  <UIcon
-                    :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
-                    class="w-4 h-4"
-                    :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
+            <div class="flex items-center gap-2">
+              <UDropdownMenu :items="uploadMenuItems">
+                <UTooltip text="Upload files">
+                  <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="sm"
+                    class="h-11 w-11"
+                    icon="i-lucide-upload"
+                    :loading="uploading"
+                    :disabled="uploading"
+                    aria-label="Upload files"
                   />
-                </template>
-              </UInputMenu>
-            </component>
+                </UTooltip>
+              </UDropdownMenu>
+
+              <component
+                :is="!loggedIn ? 'UTooltip' : 'div'"
+                v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
+              >
+                <UInputMenu
+                  v-model="mode"
+                  :items="modeItems"
+                  value-key="value"
+                  label-key="label"
+                  variant="ghost"
+                  size="sm"
+                  ignore-filter
+                  readonly
+                  open-on-click
+                >
+                  <template #leading>
+                    <UIcon
+                      :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
+                      class="w-4 h-4"
+                      :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
+                    />
+                  </template>
+                </UInputMenu>
+              </component>
+
+              <input
+                ref="uploadInputRef"
+                type="file"
+                class="hidden"
+                @change="handleFileInputChange"
+              >
+            </div>
           </template>
         </PromptComposer>
 
