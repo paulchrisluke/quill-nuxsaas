@@ -217,3 +217,27 @@ export const insertMarkdownAtLine = (markdown: string, lineNumber: number, block
 
   return `${updated.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
 }
+
+/**
+ * Inserts an HTML block at a specific line number in HTML content
+ *
+ * @param html - The original HTML content
+ * @param lineNumber - The line number (1-indexed) where to insert
+ * @param block - The HTML block to insert
+ * @returns The updated HTML with the block inserted
+ */
+export const insertHtmlAtLine = (html: string, lineNumber: number, block: string): string => {
+  const normalized = html || ''
+  const lines = normalized.split('\n')
+  const insertAt = clamp(lineNumber - 1, 0, lines.length)
+  const blockLines = block.includes('\n') ? block.split('\n') : [block]
+
+  const updated = [
+    ...lines.slice(0, insertAt),
+    ...blockLines,
+    '',
+    ...lines.slice(insertAt)
+  ]
+
+  return updated.join('\n')
+}

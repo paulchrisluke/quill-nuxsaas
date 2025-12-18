@@ -1093,7 +1093,8 @@ async function executeChatTool(
           contentId: insertionResult.content.id,
           versionId: insertionResult.version.id,
           suggestion: insertionResult.suggestion,
-          markdown: insertionResult.markdown
+          markdown: insertionResult.markdown,
+          html: insertionResult.html
         },
         contentId: insertionResult.content.id
       }

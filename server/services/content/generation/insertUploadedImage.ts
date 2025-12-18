@@ -1,10 +1,10 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import type * as schema from '~~/server/db/schema'
 import type { ContentSection, ImageSuggestion } from './types'
 import { and, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
-import { clamp, insertMarkdownAtLine } from './utils'
+import * as schema from '~~/server/db/schema'
+import { clamp, insertHtmlAtLine, insertMarkdownAtLine } from './utils'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -230,10 +230,22 @@ export const insertUploadedImage = async (
     ? version.sections as ContentSection[]
     : []
 
-  const markdown = version.bodyMdx || version.bodyHtml || ''
+  // Detect content format: prefer MDX, fall back to HTML
+  const hasMdx = !!version.bodyMdx
+  const hasHtml = !!version.bodyHtml
+  const contentBody = version.bodyMdx || version.bodyHtml || ''
+  const isHtmlFormat = !hasMdx && hasHtml
+
+  if (!contentBody) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Content has no body content to insert image into'
+    })
+  }
+
   const resolvedPosition = resolvePosition({
     position: position ?? null,
-    markdown,
+    markdown: contentBody, // resolvePosition works with both MDX and HTML (line-based)
     sections
   })
 
@@ -257,8 +269,18 @@ export const insertUploadedImage = async (
     status: 'added'
   }
 
-  const markdownImage = `![${suggestion.altText}](${imageUrl})`
-  const updatedMarkdown = insertMarkdownAtLine(markdown, resolvedPosition.lineNumber, markdownImage)
+  // Insert image using appropriate format
+  let updatedBody: string
+  if (isHtmlFormat) {
+    // Insert HTML <img> tag for HTML content
+    const htmlImage = `<img src="${imageUrl}" alt="${suggestion.altText.replace(/"/g, '&quot;')}" />`
+    updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)
+  } else {
+    // Insert Markdown image syntax for MDX content
+    const markdownImage = `![${suggestion.altText}](${imageUrl})`
+    updatedBody = insertMarkdownAtLine(contentBody, resolvedPosition.lineNumber, markdownImage)
+  }
+
   const updatedSuggestions = [...imageSuggestions, suggestion]
 
   const updatedAssets = {
@@ -309,8 +331,8 @@ export const insertUploadedImage = async (
         version: nextVersionNumber,
         createdByUserId: userId,
         frontmatter: version.frontmatter,
-        bodyMdx: updatedMarkdown,
-        bodyHtml: null,
+        bodyMdx: isHtmlFormat ? null : updatedBody,
+        bodyHtml: isHtmlFormat ? updatedBody : null,
         sections: version.sections,
         assets: updatedAssets,
         seoSnapshot: version.seoSnapshot
@@ -349,7 +371,8 @@ export const insertUploadedImage = async (
   return {
     content: result.content,
     version: result.version,
-    markdown: updatedMarkdown,
+    markdown: isHtmlFormat ? null : updatedBody,
+    html: isHtmlFormat ? updatedBody : null,
     suggestion
   }
 }
