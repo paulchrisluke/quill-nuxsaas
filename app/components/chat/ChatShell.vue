@@ -5,6 +5,8 @@ import { computed, ref, watch } from 'vue'
 
 import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
+import { useFileList } from '~/composables/useFileList'
+import { useFileManager } from '~/composables/useFileManager'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
 
@@ -42,7 +44,8 @@ const { data: integrationsResponse } = useFetch('/api/organization/integrations'
 })
 
 const hasGoogleDrive = computed(() => {
-  if (!integrationsResponse.value) return false
+  if (!integrationsResponse.value)
+    return false
   const list = integrationsResponse.value?.data || []
   return list.some((item: any) => item.type === 'google_drive' && item.isActive)
 })
@@ -89,6 +92,7 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
+const { refresh: _refreshWorkspaceFiles, initialized: _workspaceFilesInitialized } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const handleAgentModeGoogleSignup = () => {
   showAgentModeLoginModal.value = false
@@ -177,7 +181,7 @@ const handleGoogleDriveClick = () => {
   })
 }
 
-const { uploading: fileUploading, uploadToServer } = useFileManager({
+const { uploading: _fileUploading, uploadToServer } = useFileManager({
   maxSize: 10 * 1024 * 1024, // 10MB
   allowedTypes: ['image/*'],
   contentId: props.contentId || null,
@@ -630,6 +634,7 @@ if (import.meta.client) {
                 v-if="props.contentId && !isBusy && !promptSubmitting"
               >
                 <UButton
+                  type="button"
                   icon="i-lucide-plus"
                   size="sm"
                   variant="ghost"
