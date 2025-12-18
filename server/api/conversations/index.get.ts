@@ -151,7 +151,8 @@ export default defineEventHandler(async (event) => {
       .select({
         id: schema.conversation.id,
         updatedAt: schema.conversation.updatedAt,
-        title: sql<string | null>`NULLIF(${schema.conversation.metadata}->>'title', '')`
+        title: sql<string | null>`NULLIF(${schema.conversation.metadata}->>'title', '')`,
+        previewDiffStats: sql<{ additions?: number, deletions?: number } | null>`${schema.conversation.metadata}->'preview'->'diffStats'`
       })
       .from(schema.conversation)
       .where(whereClause)
@@ -188,10 +189,15 @@ export default defineEventHandler(async (event) => {
       conversations: conversations.map((conv) => {
         const updatedAtDate = conv.updatedAt instanceof Date ? conv.updatedAt : new Date(conv.updatedAt)
         const rawTitle = typeof conv.title === 'string' ? conv.title.trim() : ''
+        const diffStats = conv.previewDiffStats as any
+        const additions = typeof diffStats?.additions === 'number' ? diffStats.additions : Number(diffStats?.additions) || 0
+        const deletions = typeof diffStats?.deletions === 'number' ? diffStats.deletions : Number(diffStats?.deletions) || 0
         return {
           id: conv.id,
           displayLabel: rawTitle || 'Untitled conversation',
-          updatedAgo: formatUpdatedAgo(updatedAtDate)
+          updatedAgo: formatUpdatedAgo(updatedAtDate),
+          additions,
+          deletions
         }
       }),
       nextCursor,

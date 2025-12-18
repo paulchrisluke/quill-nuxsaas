@@ -5,12 +5,12 @@ import AuthModal from '~/components/AuthModal.vue'
 import QuillioWidget from '~/components/chat/QuillioWidget.vue'
 import OnboardingModal from '~/components/OnboardingModal.vue'
 import SidebarNavigation from '~/components/SidebarNavigation.vue'
-import UserNavigation from '~/components/UserNavigation.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { loggedIn, useActiveOrganization } = useAuth()
-const _activeOrg = useActiveOrganization()
+const { loggedIn, signOut, user, useActiveOrganization } = useAuth()
+const conversation = useConversation()
+const activeOrg = useActiveOrganization()
 
 // Keep in sync with `app/middleware/auth.global.ts`
 const KNOWN_LOCALES = ['en', 'zh-CN', 'ja', 'fr']
@@ -88,7 +88,6 @@ const shouldRenderAppShell = computed(() => loggedIn.value && !isAuthPage.value 
 const shouldShowChatPanel = computed(() => shouldRenderAppShell.value && route.meta?.renderChatWidget !== false)
 
 const contentRouteMatch = computed(() => pathWithoutLocale.value.match(/^\/[^/]+\/content\/([^/]+)(?:\/|$)/))
-const conversationRouteMatch = computed(() => pathWithoutLocale.value.match(/^\/[^/]+\/conversations\/([^/]+)(?:\/|$)/))
 
 const normalizeRouteParam = (param?: string | string[]) => {
   if (Array.isArray(param))
@@ -98,30 +97,144 @@ const normalizeRouteParam = (param?: string | string[]) => {
   return undefined
 }
 
-const _contentId = computed(() => {
+const orgSlug = computed(() => {
+  const param = route.params.slug
+  const routeSlug = Array.isArray(param) ? param[0] : param
+  if (routeSlug && routeSlug !== 't')
+    return routeSlug
+  const fallback = activeOrg.value?.data?.slug
+  return fallback && fallback !== 't' ? fallback : null
+})
+
+const userMenuItems = computed(() => {
+  const items: any[] = []
+  if (orgSlug.value) {
+    items.push({
+      label: t('global.nav.settings'),
+      icon: 'i-lucide-settings',
+      to: localePath(`/${orgSlug.value}/settings`)
+    })
+  }
+  items.push({
+    label: t('global.auth.signOut'),
+    icon: 'i-lucide-log-out',
+    onSelect: () => signOut()
+  })
+  return items
+})
+
+const contentId = computed(() => {
   if (!contentRouteMatch.value)
     return undefined
   const id = normalizeRouteParam(route.params.id)
   return id || contentRouteMatch.value[1]
 })
 
-const _conversationId = computed(() => {
-  if (!conversationRouteMatch.value)
-    return undefined
-  const id = normalizeRouteParam(route.params.id)
-  return id || conversationRouteMatch.value[1]
-})
+const {
+  items: conversationItems,
+  pending: conversationPending,
+  error: conversationError,
+  hasMore: conversationHasMore,
+  initialized: conversationInitialized,
+  loadInitial: loadConversationInitial,
+  loadMore: loadConversationMore,
+  remove: removeConversation,
+  refresh: refreshConversation,
+  reset: resetConversationList
+} = useConversationList({ pageSize: 40, stateKey: 'shell' })
 
-const chatCollapsed = ref(false)
+const chatView = ref<'chat' | 'list'>('chat')
+const archivingConversationId = ref<string | null>(null)
+const conversationsExpanded = ref(false)
 
 watch(() => shouldShowChatPanel.value, (next) => {
-  if (!next)
-    chatCollapsed.value = false
+  if (!next) {
+    chatView.value = 'chat'
+    conversationsExpanded.value = false
+    return
+  }
+  if (!import.meta.client)
+    return
+  if (conversationPending.value && !conversationInitialized.value)
+    resetConversationList()
+  loadConversationInitial().catch(() => {})
 })
 
-const _toggleChatPanel = () => {
-  chatCollapsed.value = !chatCollapsed.value
+onMounted(() => {
+  if (!shouldShowChatPanel.value)
+    return
+  if (conversationPending.value && !conversationInitialized.value)
+    resetConversationList()
+  loadConversationInitial().catch(() => {})
+})
+
+watch(loggedIn, (value, previous) => {
+  if (value === previous)
+    return
+  resetConversationList()
+  if (!import.meta.client)
+    return
+  if (value && shouldShowChatPanel.value)
+    loadConversationInitial().catch(() => {})
+})
+
+const toggleChatView = () => {
+  chatView.value = chatView.value === 'chat' ? 'list' : 'chat'
+  conversationsExpanded.value = false
 }
+
+const startNewChat = () => {
+  chatView.value = 'chat'
+  conversation.conversationId.value = null
+  conversation.resetConversation()
+  conversation.prompt.value = ''
+}
+
+const selectConversation = (id: string) => {
+  chatView.value = 'chat'
+  conversation.conversationId.value = id
+}
+
+const chatTitle = computed(() => {
+  if (chatView.value === 'list')
+    return 'Conversations'
+  const id = conversation.conversationId.value
+  if (!id)
+    return 'New chat'
+  const match = conversationItems.value.find(item => item.id === id)
+  return match?.displayLabel || 'Chat'
+})
+
+const archiveConversation = async (conversationId: string, event?: Event) => {
+  event?.stopPropagation()
+  if (!conversationId || archivingConversationId.value === conversationId)
+    return
+
+  archivingConversationId.value = conversationId
+  try {
+    await $fetch(`/api/conversations/${conversationId}`, { method: 'DELETE' })
+    removeConversation(conversationId)
+
+    if (conversation.conversationId.value === conversationId)
+      startNewChat()
+
+    await refreshConversation().catch(() => {})
+  } catch (error) {
+    console.error('Failed to archive conversation', error)
+  } finally {
+    archivingConversationId.value = null
+  }
+}
+
+const visibleConversationItems = computed(() => {
+  if (conversationsExpanded.value)
+    return conversationItems.value
+  return conversationItems.value.slice(0, 3)
+})
+
+const canExpandConversationList = computed(() => {
+  return !conversationsExpanded.value && (conversationItems.value.length > 3 || conversationHasMore.value)
+})
 
 const primaryActionColor = computed(() => {
   return (workspaceHeader.value?.primaryActionColor ?? 'primary') as 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info' | 'neutral'
@@ -129,14 +242,14 @@ const primaryActionColor = computed(() => {
 </script>
 
 <template>
-  <div class="relative overflow-x-hidden">
-    <UDashboardGroup>
-      <!-- Sidebar with tabs for conversations and content -->
+  <div class="relative h-screen overflow-hidden bg-white dark:bg-neutral-950">
+    <div class="flex h-full min-h-0 flex-col lg:flex-row">
       <UDashboardSidebar
-        v-if="shouldShowSidebar"
+        v-if="shouldRenderAppShell"
+        class="h-full flex-shrink-0 w-full border-b border-neutral-200/70 dark:border-neutral-800/60 lg:w-64 lg:border-b-0 lg:border-r xl:w-72"
         collapsible
         :ui="{
-          root: 'bg-neutral-100 dark:bg-neutral-950 border-r border-neutral-200/70 dark:border-neutral-800/60'
+          root: 'h-full bg-neutral-100 dark:bg-neutral-950 border-none'
         }"
       >
         <template #header="{ collapsed }">
@@ -177,34 +290,23 @@ const primaryActionColor = computed(() => {
           </div>
         </template>
 
-        <template #footer="{ collapsed }">
-          <div
-            v-if="!collapsed"
-            class="w-full"
-          >
-            <UserNavigation @sign-in="openSignInModal" />
-          </div>
-        </template>
+        <template #footer />
       </UDashboardSidebar>
 
-      <!-- Main content panel -->
-      <UDashboardPanel>
-        <UDashboardNavbar
-          :toggle="shouldShowSidebar"
-          :class="loggedIn && !showWorkspaceHeader ? 'lg:hidden' : ''"
-        >
+      <div class="flex min-h-0 flex-1 flex-col">
+        <UDashboardNavbar :toggle="shouldRenderAppShell">
           <template
             v-if="showWorkspaceHeader"
             #left
           >
-            <div class="flex flex-col gap-3 w-full lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div
                 v-if="workspaceHeaderLoading || !workspaceHeader"
-                class="flex items-center gap-3 w-full"
+                class="flex w-full items-center gap-3"
               >
-                <USkeleton class="h-10 w-10 rounded-full flex-shrink-0" />
+                <USkeleton class="h-10 w-10 flex-shrink-0 rounded-full" />
                 <div class="min-w-0 flex-1 space-y-1">
-                  <div class="flex items-center gap-2 min-w-0">
+                  <div class="flex min-w-0 items-center gap-2">
                     <USkeleton class="h-4 w-40 max-w-full rounded-md" />
                     <USkeleton class="h-4 w-12 rounded-full" />
                   </div>
@@ -218,16 +320,16 @@ const primaryActionColor = computed(() => {
 
               <div
                 v-else
-                class="flex flex-col gap-3 w-full lg:flex-row lg:items-center lg:justify-between"
+                class="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"
               >
-                <div class="flex items-center gap-2 w-full lg:w-auto">
+                <div class="flex w-full items-center gap-2 lg:w-auto">
                   <UButton
                     v-if="workspaceHeader.showBackButton"
                     icon="i-lucide-arrow-left"
                     variant="ghost"
                     size="sm"
                     :aria-label="t('global.back')"
-                    class="rounded-full p-0 h-10 w-10 flex items-center justify-center"
+                    class="flex h-10 w-10 items-center justify-center rounded-full p-0"
                     @click="workspaceHeader.onBack?.()"
                   />
                   <p class="text-base font-semibold truncate">
@@ -238,12 +340,12 @@ const primaryActionColor = computed(() => {
                     color="neutral"
                     variant="soft"
                     size="xs"
-                    class="capitalize hidden lg:inline-flex"
+                    class="hidden capitalize lg:inline-flex"
                   >
                     {{ workspaceHeader.status }}
                   </UBadge>
                 </div>
-                <div class="text-xs text-muted-500 hidden lg:flex flex-wrap items-center gap-1">
+                <div class="hidden flex-wrap items-center gap-1 text-xs text-muted-500 lg:flex">
                   <span>{{ workspaceHeader.updatedAtLabel || '—' }}</span>
                   <template v-if="workspaceHeader.contentType">
                     <span>·</span>
@@ -267,7 +369,7 @@ const primaryActionColor = computed(() => {
                     -{{ workspaceHeader.deletions ?? 0 }}
                   </span>
                 </div>
-                <div class="hidden lg:flex flex-wrap gap-2 justify-end">
+                <div class="hidden flex-wrap justify-end gap-2 lg:flex">
                   <UButton
                     v-if="workspaceHeader.onShare"
                     icon="i-lucide-copy"
@@ -309,7 +411,7 @@ const primaryActionColor = computed(() => {
           >
             <NuxtLink
               :to="localePath('/')"
-              class="flex items-center gap-2 hover:opacity-80 transition-opacity mr-4"
+              class="mr-4 flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
               <span class="text-sm font-semibold">
                 {{ t('global.appName') }}
@@ -350,22 +452,183 @@ const primaryActionColor = computed(() => {
         </UDashboardNavbar>
 
         <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-          <div
-            class="w-full mx-auto"
-            :class="shouldUseFullWidth ? '' : 'max-w-3xl px-4 py-6'"
-          >
-            <!-- Chat interface - only on conversation routes -->
-            <ClientOnly>
-              <QuillioWidget v-if="shouldShowChat" />
-            </ClientOnly>
-            <!-- Show page content for all other routes -->
-            <div v-if="!shouldShowChat">
-              <slot />
-            </div>
+          <div class="h-full w-full">
+            <slot />
           </div>
         </div>
-      </UDashboardPanel>
-    </UDashboardGroup>
+      </div>
+
+      <aside
+        v-if="shouldShowChatPanel"
+        class="flex h-full w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 lg:w-[400px] lg:border-t-0 lg:border-l"
+      >
+        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 py-2 dark:border-neutral-800/60">
+          <UButton
+            aria-label="Back"
+            variant="ghost"
+            color="neutral"
+            size="xs"
+            icon="i-lucide-arrow-left"
+            @click="toggleChatView"
+          />
+          <p class="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+            {{ chatTitle }}
+          </p>
+          <UDropdownMenu
+            v-if="loggedIn"
+            :items="userMenuItems"
+          >
+            <UButton
+              aria-label="Settings"
+              variant="ghost"
+              color="neutral"
+              size="xs"
+              icon="i-lucide-settings"
+            />
+          </UDropdownMenu>
+          <UButton
+            aria-label="New chat"
+            variant="ghost"
+            color="neutral"
+            size="xs"
+            icon="i-lucide-square-pen"
+            @click="startNewChat"
+          />
+        </div>
+
+        <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div
+            v-if="chatView === 'list'"
+            class="flex-1 min-h-0 overflow-y-auto"
+          >
+            <div class="p-3">
+              <UAlert
+                v-if="conversationError"
+                color="error"
+                variant="soft"
+                title="Failed to load conversations"
+                :description="conversationError"
+              />
+            </div>
+
+            <div class="space-y-1 px-2 pb-2">
+              <template v-if="conversationInitialized && visibleConversationItems.length">
+                <div
+                  v-for="entry in visibleConversationItems"
+                  :key="entry.id"
+                  class="group relative w-full rounded-md border border-transparent transition-colors"
+                  :class="conversation.conversationId.value === entry.id
+                    ? 'bg-neutral-100/80 dark:bg-neutral-800/60'
+                    : 'hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40'"
+                >
+                  <button
+                    type="button"
+                    class="w-full rounded-md px-3 py-2 text-left"
+                    @click="selectConversation(entry.id)"
+                  >
+                    <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                      <p class="text-sm font-semibold truncate">
+                        {{ entry.displayLabel }}
+                      </p>
+                      <div class="flex items-center justify-end gap-2 font-mono text-xs tabular-nums">
+                        <span
+                          v-if="(entry.additions || 0) > 0"
+                          class="text-emerald-500 dark:text-emerald-400"
+                        >
+                          +{{ entry.additions }}
+                        </span>
+                        <span
+                          v-if="(entry.deletions || 0) > 0"
+                          class="text-rose-500 dark:text-rose-400"
+                        >
+                          -{{ entry.deletions }}
+                        </span>
+                      </div>
+                      <p class="text-xs text-muted-foreground text-right">
+                        {{ entry.updatedAgo }}
+                      </p>
+                    </div>
+                  </button>
+                  <UButton
+                    icon="i-lucide-archive"
+                    size="2xs"
+                    color="neutral"
+                    variant="ghost"
+                    :loading="archivingConversationId === entry.id"
+                    :disabled="archivingConversationId === entry.id"
+                    class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Archive conversation"
+                    @click="archiveConversation(entry.id, $event)"
+                  />
+                </div>
+              </template>
+
+              <template v-else-if="conversationPending && !conversationInitialized">
+                <div
+                  v-for="n in 8"
+                  :key="n"
+                  class="rounded-md border border-neutral-200/60 dark:border-neutral-800/60 px-3 py-2"
+                >
+                  <USkeleton class="h-4 w-3/4" />
+                  <USkeleton class="h-3 w-1/3 mt-2" />
+                </div>
+              </template>
+
+              <p
+                v-else
+                class="text-sm text-muted-foreground px-3 py-6 text-center"
+              >
+                No conversations yet.
+              </p>
+            </div>
+
+            <div class="flex justify-center px-3 pb-2">
+              <UButton
+                v-if="canExpandConversationList"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                @click="conversationsExpanded = true"
+              >
+                View all
+              </UButton>
+              <UButton
+                v-else-if="conversationsExpanded && conversationItems.length > 3"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                @click="conversationsExpanded = false"
+              >
+                Show less
+              </UButton>
+            </div>
+
+            <div class="flex justify-center px-3 pb-4">
+              <UButton
+                v-if="conversationsExpanded && conversationHasMore"
+                color="neutral"
+                variant="outline"
+                size="sm"
+                :loading="conversationPending"
+                @click="loadConversationMore()"
+              >
+                Load more
+              </UButton>
+            </div>
+          </div>
+
+          <QuillioWidget
+            class="flex-1 min-h-0"
+            :content-id="contentId"
+            :conversation-id="conversation.conversationId.value"
+            :sync-route="false"
+            :use-route-conversation-id="false"
+            :show-messages="chatView !== 'list'"
+            embedded
+          />
+        </div>
+      </aside>
+    </div>
     <OnboardingModal />
     <AuthModal
       v-model:open="authModalOpen"

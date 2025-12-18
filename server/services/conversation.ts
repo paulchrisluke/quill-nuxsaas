@@ -232,6 +232,7 @@ export interface ConversationPreviewMetadataPatch {
     updatedAt?: Date | string | null
   }
   artifactCount?: number
+  diffStats?: { additions: number, deletions: number } | null
 }
 
 export const patchConversationPreviewMetadata = async (
@@ -273,6 +274,17 @@ export const patchConversationPreviewMetadata = async (
     hasUpdates = true
     // Cast to integer explicitly so PostgreSQL can determine the type
     patch = sql`${patch} || jsonb_build_object('artifactCount', ${updates.artifactCount}::integer)`
+  }
+
+  if (updates.diffStats && (updates.diffStats.additions || updates.diffStats.deletions)) {
+    hasUpdates = true
+    patch = sql`${patch} || jsonb_build_object(
+      'diffStats',
+      jsonb_build_object(
+        'additions', ${updates.diffStats.additions}::integer,
+        'deletions', ${updates.diffStats.deletions}::integer
+      )
+    )`
   }
 
   if (!hasUpdates) {

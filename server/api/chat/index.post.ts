@@ -2447,6 +2447,26 @@ export default defineEventHandler(async (event) => {
                         title: contentRecord.title,
                         updatedAt: contentRecord.updatedAt ?? contentRecord.createdAt ?? new Date()
                       },
+                      diffStats: (() => {
+                        const frontmatter = versionRecord.frontmatter as any
+                        const frontmatterDiff = frontmatter?.diffStats
+                        if (frontmatterDiff && (frontmatterDiff.additions || frontmatterDiff.deletions)) {
+                          return {
+                            additions: Number(frontmatterDiff.additions) || 0,
+                            deletions: Number(frontmatterDiff.deletions) || 0
+                          }
+                        }
+                        const toolResult: any = (toolExec as any)?.result
+                        const fileEdits = toolResult?.result?.fileEdits || toolResult?.fileEdits
+                        const firstEdit = Array.isArray(fileEdits) ? fileEdits[0] : null
+                        if (firstEdit && (firstEdit.additions || firstEdit.deletions)) {
+                          return {
+                            additions: Number(firstEdit.additions) || 0,
+                            deletions: Number(firstEdit.deletions) || 0
+                          }
+                        }
+                        return null
+                      })(),
                       artifactCount: Number(artifactCountResult?.total ?? 0)
                     })
                     break // Use first successful result

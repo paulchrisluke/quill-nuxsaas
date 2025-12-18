@@ -4,6 +4,8 @@ export interface ConversationListItem {
   id: string
   displayLabel: string
   updatedAgo: string
+  additions?: number
+  deletions?: number
 }
 
 interface FetchResponse {
@@ -88,7 +90,9 @@ export function useConversationList(options?: { pageSize?: number, stateKey?: st
     const normalized: ConversationListItem = {
       id: entry.id,
       displayLabel: entry.displayLabel || 'Untitled conversation',
-      updatedAgo: entry.updatedAgo || 'Just now'
+      updatedAgo: entry.updatedAgo || 'Just now',
+      additions: typeof entry.additions === 'number' ? entry.additions : undefined,
+      deletions: typeof entry.deletions === 'number' ? entry.deletions : undefined
     }
     const next = itemsState.value.filter(item => item.id !== normalized.id)
     itemsState.value = [normalized, ...next]
