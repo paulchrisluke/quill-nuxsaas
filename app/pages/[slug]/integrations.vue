@@ -451,13 +451,13 @@ if (import.meta.client) {
         })
         // Force refresh integrations data with sync to show the newly connected integration
         // Use force_sync=true to bypass cooldown and immediately sync the new connection
-        $fetch('/api/organization/integrations', {
-          query: { force_sync: 'true' }
-        }).then((response) => {
+        console.log('[integrations] Triggering force sync for provider:', provider)
+        $fetch('/api/organization/integrations?force_sync=true').then((response) => {
+          console.log('[integrations] Force sync response:', response)
           // Update the integrationsResponse with the new data
           integrationsResponse.value = response as any
         }).catch((error) => {
-          console.warn('[integrations] Failed to refresh after connection', error)
+          console.error('[integrations] Failed to refresh after connection', error)
           // Fallback to regular refresh if force sync fails
           refresh()
         })

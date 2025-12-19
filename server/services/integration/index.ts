@@ -79,10 +79,14 @@ export const syncOrganizationOAuthIntegrations = async (
   db: NodePgDatabase<typeof schema>,
   organizationId: string
 ) => {
+  console.log('[integration] Starting sync for organization:', organizationId)
+
   const members = await db
     .select({ userId: schema.member.userId })
     .from(schema.member)
     .where(eq(schema.member.organizationId, organizationId))
+
+  console.log('[integration] Found members:', members.length)
 
   if (members.length === 0) {
     return [] as typeof schema.integration.$inferSelect[]
@@ -95,38 +99,84 @@ export const syncOrganizationOAuthIntegrations = async (
     .from(schema.account)
     .where(inArray(schema.account.userId, userIds))
 
+  console.log('[integration] Found accounts:', accounts.length, 'for user IDs:', userIds)
+
   for (const account of accounts) {
     const scopes = parseScopes(account.scope)
+    console.log('[integration] Processing account:', {
+      id: account.id,
+      providerId: account.providerId,
+      userId: account.userId,
+      scopes: scopes.length,
+      hasAccessToken: !!account.accessToken,
+      hasRefreshToken: !!account.refreshToken
+    })
 
     for (const integrationDef of OAUTH_INTEGRATIONS) {
       if (account.providerId !== integrationDef.providerId)
         continue
 
-      if (!hasRequiredScopes(scopes, integrationDef.requiredScopes))
-        continue
+      const hasScopes = hasRequiredScopes(scopes, integrationDef.requiredScopes)
 
-      await db
-        .insert(schema.integration)
-        .values({
-          organizationId,
-          type: integrationDef.type,
-          name: integrationDef.name,
-          authType: 'oauth',
+      // Debug logging for Google Drive
+      if (integrationDef.type === 'google_drive') {
+        console.log('[integration] Google Drive sync check:', {
           accountId: account.id,
-          capabilities: integrationDef.capabilities ?? null,
-          isActive: true
+          accountScopes: scopes,
+          requiredScopes: integrationDef.requiredScopes,
+          hasRequiredScopes: hasScopes
         })
-        .onConflictDoNothing({
-          target: [
-            schema.integration.organizationId,
-            schema.integration.type,
-            schema.integration.accountId
-          ]
+      }
+
+      if (!hasScopes) {
+        if (integrationDef.type === 'google_drive') {
+          console.log('[integration] Google Drive account missing required scopes, skipping')
+        }
+        continue
+      }
+
+      console.log('[integration] Creating/updating integration:', {
+        organizationId,
+        type: integrationDef.type,
+        accountId: account.id
+      })
+
+      try {
+        // Use atomic upsert to avoid race conditions
+        await db
+          .insert(schema.integration)
+          .values({
+            organizationId,
+            type: integrationDef.type,
+            name: integrationDef.name,
+            authType: 'oauth',
+            accountId: account.id,
+            capabilities: integrationDef.capabilities ?? null,
+            isActive: true
+          })
+          .onConflictDoUpdate({
+            target: [schema.integration.organizationId, schema.integration.type],
+            set: {
+              accountId: account.id,
+              isActive: true,
+              updatedAt: new Date()
+            }
+          })
+        console.log('[integration] Successfully upserted integration:', integrationDef.type)
+      } catch (error) {
+        console.error('[integration] Failed to create/update integration:', {
+          type: integrationDef.type,
+          accountId: account.id,
+          error
         })
+        throw error
+      }
     }
   }
 
-  return listOrganizationIntegrations(db, organizationId)
+  const result = await listOrganizationIntegrations(db, organizationId)
+  console.log('[integration] Sync complete, found integrations:', result.length)
+  return result
 }
 
 export const listOrganizationIntegrationsWithAccounts = async (
@@ -179,6 +229,18 @@ export const listOrganizationIntegrationsWithAccounts = async (
     const account = integration.accountId ? accountById.get(integration.accountId) : null
     const connectedUser = account?.userId ? userById.get(account.userId) : null
     const isExpired = account?.accessTokenExpiresAt ? account.accessTokenExpiresAt < now : false
+
+    // Debug logging for Google Drive integration issues
+    if (integration.type === 'google_drive') {
+      console.log('[integration] Google Drive integration:', {
+        integrationId: integration.id,
+        accountId: integration.accountId,
+        accountFound: !!account,
+        accountProviderId: account?.providerId,
+        accountScopes: account?.scope,
+        isActive: integration.isActive
+      })
+    }
 
     const status = integration.authType === 'oauth'
       ? account

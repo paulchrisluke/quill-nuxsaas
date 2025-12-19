@@ -47,6 +47,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent'): string {
   - read_source_list: List source content items with optional filtering
   - read_workspace_summary: Get a formatted summary of a content workspace
   - analyze_content_images: Suggest where images would strengthen a content item
+  - read_files: Discover uploaded files (filter by contentId or fileType)
 - You MUST NOT perform actions that modify content or ingest new data.
 - If the user asks you to make changes, explain what you would do and suggest switching to agent mode for actual changes.
 - Keep replies concise (2-4 sentences) and helpful.`
@@ -55,6 +56,8 @@ function buildSystemPrompt(mode: 'chat' | 'agent'): string {
   return `${basePrompt}
 
 - Always analyze the user's intent from natural language.
+- When users reference uploaded files by name, use read_files to find the matching fileId before taking action.
+- Use insert_image to place uploaded images in content; map natural-language placement (e.g., "featured image", "above the conclusion") to a specific section heading or line number.
 - When the user asks you to create content, update sections, or otherwise modify workspace artifacts, prefer calling the appropriate tool instead of replying with text.
 - Only respond with text when the user is chatting, asking questions, or when no tool action is required.
 - Keep replies concise (2-4 sentences) and actionable.
@@ -65,6 +68,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent'): string {
 - For creating new content items from source content (context, YouTube video, etc.), use content_write with action="create". This tool only creates new content - it cannot update existing content.
 - For refreshing an existing content item's frontmatter and JSON-LD structured data, use content_write with action="enrich".
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".
+- For inserting uploaded images into content at specific spots, find the file with read_files and then call insert_image with a clear position (line number, sectionId, or natural language description).
 - Never use content_write with action="create" for editing existing content - use edit_metadata or edit_section instead.`
 }
 
@@ -154,6 +158,14 @@ function generateSummaryFromToolHistory(
     } else if (toolName === 'source_ingest' && result.result) {
       const sourceType = invocation.arguments.sourceType === 'youtube' ? 'YouTube video' : 'source content'
       summaries.push(`Ingested ${sourceType}`)
+    } else if (toolName === 'insert_image' && result.result) {
+      const contentTitle = result.result.content?.title || result.result.contentTitle || 'content'
+      const fileName = invocation.arguments.fileId ? 'image' : 'an image'
+      summaries.push(`Inserted ${fileName} into "${contentTitle}"`)
+    } else if (toolName === 'read_files' && result.result) {
+      const files = Array.isArray(result.result.files) ? result.result.files : []
+      const count = files.length
+      summaries.push(`Found ${count} uploaded file${count !== 1 ? 's' : ''}`)
     } else {
       summaries.push(`Completed ${toolName.replace(/_/g, ' ')}`)
     }

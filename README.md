@@ -122,6 +122,22 @@ export const createBetterAuth = () => betterAuth({
 
 Your `NUXT_APP_URL` is automatically added to `trustedOrigins` via `runtimeConfig.public.baseURL`.
 
+#### Google Drive Picker API Key
+
+For Google Drive file picker functionality, set `NUXT_GOOGLE_PICKER_API_KEY`:
+
+```bash
+# .env
+NUXT_GOOGLE_PICKER_API_KEY=your-google-picker-api-key
+```
+
+**Important security requirements:**
+- This key is exposed to the browser (in `runtimeConfig.public`)
+- The API key must be **browser-restricted** in Google Cloud Console
+- Configure HTTP referrer restrictions to only allow your domain(s)
+- **Do not use** a server-side API key or any key without browser restrictions
+- This key is separate from `NUXT_GOOGLE_CLIENT_ID` and `NUXT_GOOGLE_CLIENT_SECRET` (OAuth credentials)
+
 ### Recommended Hosting
 
 **Recommended stack:**

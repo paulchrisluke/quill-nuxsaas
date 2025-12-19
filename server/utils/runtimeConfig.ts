@@ -105,6 +105,14 @@ export const generateRuntimeConfig = () => ({
   // Google
   googleClientId: process.env.NUXT_GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.NUXT_GOOGLE_CLIENT_SECRET,
+  googleOAuthTokenTimeout: (() => {
+    const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_TIMEOUT_MS ?? '', 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30000 // Default 30 seconds
+  })(),
+  googleOAuthTokenMaxRetries: (() => {
+    const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_MAX_RETRIES ?? '', 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 3 // Default 3 retries
+  })(),
   // Worker API
   workerApiUrl: process.env.WORKER_API_URL || 'https://api-service.getquillio.com',
   // DB
@@ -139,6 +147,7 @@ export const generateRuntimeConfig = () => ({
     appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
     appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
     payment: process.env.NUXT_PAYMENT || 'stripe',
+    googlePickerApiKey: process.env.NUXT_GOOGLE_PICKER_API_KEY || '',
     auth: {
       redirectUserTo: '/',
       redirectGuestTo: '/signin'

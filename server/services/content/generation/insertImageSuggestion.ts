@@ -7,32 +7,13 @@ import { v7 as uuidv7 } from 'uuid'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { extractScreencapFromYouTube } from './screencaps'
+import { insertMarkdownAtLine } from './utils'
 
 const normalizeIndex = (value: number) => {
   if (!Number.isFinite(value) || value < 0) {
     return 0
   }
   return Math.floor(value)
-}
-
-const clamp = (value: number, min: number, max: number) => {
-  return Math.min(Math.max(value, min), max)
-}
-
-const insertMarkdownAtLine = (markdown: string, lineNumber: number, block: string) => {
-  const normalized = markdown || ''
-  const lines = normalized.split('\n')
-  const insertAt = clamp(lineNumber - 1, 0, lines.length)
-  const blockLines = block.includes('\n') ? block.split('\n') : [block]
-
-  const updated = [
-    ...lines.slice(0, insertAt),
-    ...blockLines,
-    '',
-    ...lines.slice(insertAt)
-  ]
-
-  return `${updated.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
 }
 
 export const insertImageSuggestion = async (

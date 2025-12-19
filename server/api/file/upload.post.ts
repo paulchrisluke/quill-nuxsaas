@@ -1,7 +1,10 @@
+import { Buffer } from 'node:buffer'
 import { readMultipartFormData } from 'h3'
+import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { UploadRateLimiter } from '~~/server/services/file/rateLimiter'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
+import { sanitizeSVG } from '~~/server/services/file/svgSanitizer'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
@@ -9,6 +12,34 @@ export default defineEventHandler(async (event) => {
 
   const user = await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event)
+
+  // Get contentId from query params if provided
+  // Handle both string and string[] inputs (use first element if array)
+  const contentId = getQuery(event).contentId
+  let validatedContentId: string | null = null
+
+  // Select first element if array, otherwise use the value directly
+  const contentIdValue = Array.isArray(contentId) ? contentId[0] : contentId
+
+  if (contentIdValue && typeof contentIdValue === 'string') {
+    const trimmed = contentIdValue.trim()
+    if (trimmed) {
+      // Validate as UUID using Zod (consistent with file/index.get.ts)
+      const uuidSchema = z.string().uuid()
+      const result = uuidSchema.safeParse(trimmed)
+      if (result.success) {
+        validatedContentId = result.data
+      } else {
+        // Return 400 if validation fails
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Invalid contentId format. Expected a valid UUID.'
+        })
+      }
+    }
+  }
+
+  // NOTE: contentId is now validated as UUID before passing to fileService.uploadFile
 
   const formData = await readMultipartFormData(event)
   if (!formData) {
@@ -54,9 +85,79 @@ export default defineEventHandler(async (event) => {
   const fileData = validFiles[0]!
 
   const mimeType = fileData.type || 'application/octet-stream'
-  const fileSize = fileData.data.length
+  const fileName = fileData.filename!
+  const fileExtension = fileName.split('.').pop()?.toLowerCase()
 
-  if (config.maxFileSize && fileSize > config.maxFileSize) {
+  // Check if this is an SVG file (by mime type or extension)
+  const isSVG = mimeType === 'image/svg+xml' || fileExtension === 'svg'
+
+  // Sanitize SVG files to prevent XSS attacks
+  let fileBuffer = fileData.data
+  if (isSVG) {
+    try {
+      const svgContent = fileBuffer.toString('utf-8')
+      const sanitizeResult = sanitizeSVG(svgContent)
+
+      // Log sanitization attempt
+      console.log('[SVG Upload] Sanitization attempt:', {
+        fileName,
+        userId: user.id,
+        organizationId,
+        isValid: sanitizeResult.isValid,
+        warnings: sanitizeResult.warnings,
+        originalSize: fileBuffer.length,
+        sanitizedSize: sanitizeResult.sanitized.length
+      })
+
+      // Reject SVG if sanitization failed
+      if (!sanitizeResult.isValid) {
+        console.error('[SVG Upload] Rejected unsafe SVG:', {
+          fileName,
+          userId: user.id,
+          organizationId,
+          warnings: sanitizeResult.warnings,
+          originalSize: fileBuffer.length,
+          sanitizedSize: sanitizeResult.sanitized.length
+        })
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'SVG file contains unsafe content and cannot be uploaded. Please ensure the SVG does not contain scripts, event handlers, or foreign objects.'
+        })
+      }
+
+      // If sanitization made changes, use the sanitized version
+      if (sanitizeResult.warnings.length > 0) {
+        console.warn('[SVG Upload] SVG sanitized with warnings:', {
+          fileName,
+          userId: user.id,
+          warnings: sanitizeResult.warnings
+        })
+        fileBuffer = Buffer.from(sanitizeResult.sanitized, 'utf-8')
+      } else {
+        console.log('[SVG Upload] SVG passed sanitization checks:', {
+          fileName,
+          userId: user.id
+        })
+      }
+    } catch (error) {
+      // If error is already an H3 error, re-throw it
+      if (error && typeof error === 'object' && 'statusCode' in error) {
+        throw error
+      }
+      // Otherwise, log and reject
+      console.error('[SVG Upload] Error during SVG sanitization:', {
+        fileName,
+        userId: user.id,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      })
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Failed to validate SVG file. The file may be corrupted or contain unsafe content.'
+      })
+    }
+  }
+
+  if (config.maxFileSize && fileBuffer.length > config.maxFileSize) {
     throw createError({
       statusCode: 413,
       statusMessage: `File size exceeds maximum allowed size of ${formatFileSize(config.maxFileSize)}`
@@ -74,14 +175,15 @@ export default defineEventHandler(async (event) => {
 
   try {
     const file = await fileService.uploadFile(
-      fileData.data,
-      fileData.filename!,
+      fileBuffer,
+      fileName,
       mimeType,
       user.id,
       getRequestIP(event),
       getHeader(event, 'user-agent'),
       {
-        organizationId
+        organizationId,
+        contentId: validatedContentId ?? undefined
       }
     )
     return {
