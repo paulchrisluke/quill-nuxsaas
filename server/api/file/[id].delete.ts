@@ -1,3 +1,4 @@
+import { getHeader, getRequestIP } from 'h3'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 
@@ -31,7 +32,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const deleted = await fileService.deleteFile(fileId)
+  const deleted = await fileService.deleteFile(
+    fileId,
+    user.id,
+    getRequestIP(event),
+    getHeader(event, 'user-agent')
+  )
 
   return {
     success: deleted,

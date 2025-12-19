@@ -13,6 +13,7 @@ export interface FileTreeNode {
     mimeType?: string
     url?: string
     displayLabel?: string
+    isArchived?: boolean
   }
 }
 
@@ -26,17 +27,26 @@ const props = defineProps<{
   expandedPaths: Set<string>
   activeContentId?: string | null
   activeSourceId?: string | null
+  archivingFileIds?: Set<string>
+  archivingContentIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
   (e: 'toggle', path: string): void
   (e: 'select', node: FileTreeNode): void
+  (e: 'archiveFile', node: FileTreeNode): void
+  (e: 'archiveContent', node: FileTreeNode): void
 }>()
 
 const depth = computed(() => props.depth ?? 0)
 
 const isFolder = computed(() => props.node.type === 'folder')
 const isExpanded = computed(() => isFolder.value && props.expandedPaths.has(props.node.path))
+const fileId = computed(() => props.node.metadata?.fileId ?? null)
+const contentId = computed(() => props.node.metadata?.contentId ?? null)
+const isFileNode = computed(() => props.node.type === 'file' && Boolean(fileId.value))
+const isContentNode = computed(() => props.node.type === 'file' && Boolean(contentId.value))
+const isArchivableNode = computed(() => isFileNode.value || isContentNode.value)
 
 const isActive = computed(() => {
   if (props.node.type !== 'file')
@@ -80,7 +90,10 @@ const paddingStyle = computed(() => ({
   paddingLeft: `${Math.max(depth.value - 0.25, 0) * 0.875}rem`
 }))
 
-const label = computed(() => props.node.name || props.node.metadata?.displayLabel || 'Untitled')
+const label = computed(() => {
+  // Prefer displayLabel from metadata (for content titles), fallback to node name (for filenames)
+  return props.node.metadata?.displayLabel || props.node.name || 'Untitled'
+})
 
 const toggleFolder = () => {
   if (!isFolder.value)
@@ -96,10 +109,67 @@ const selectNode = () => {
   emit('select', props.node)
 }
 
+const archiveFile = () => {
+  if (!isFileNode.value)
+    return
+  emit('archiveFile', props.node)
+}
+
+const archiveContent = () => {
+  if (!isContentNode.value)
+    return
+  emit('archiveContent', props.node)
+}
+
+const isArchived = computed(() => {
+  // If metadata includes archived status, use it
+  // Otherwise, assume items shown are not archived (when includeArchived: false)
+  return props.node.metadata?.isArchived === true
+})
+
+const isArchiving = computed(() => {
+  if (isFileNode.value && fileId.value) {
+    return props.archivingFileIds?.has(fileId.value) ?? false
+  }
+  if (isContentNode.value && contentId.value) {
+    return props.archivingContentIds?.has(contentId.value) ?? false
+  }
+  return false
+})
+
+const archiveMenuItems = computed(() => {
+  if (!isArchivableNode.value || isArchived.value || isArchiving.value)
+    return []
+  return [
+    {
+      label: 'Archive',
+      icon: 'i-lucide-archive',
+      onSelect: () => {
+        if (isFileNode.value) {
+          archiveFile()
+        } else if (isContentNode.value) {
+          archiveContent()
+        }
+      }
+    }
+  ]
+})
+
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
     selectNode()
+    return
+  }
+  if (event.key === 'Delete' || (event.key === 'Backspace' && (event.metaKey || event.ctrlKey))) {
+    if ((isFileNode.value || isContentNode.value) && !isArchived.value && !isArchiving.value) {
+      event.preventDefault()
+      if (isFileNode.value) {
+        archiveFile()
+      } else if (isContentNode.value) {
+        archiveContent()
+      }
+    }
   }
 }
 </script>
@@ -107,7 +177,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 <template>
   <li>
     <div
-      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors cursor-pointer"
+      class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors cursor-pointer"
       :class="[
         isActive ? 'bg-primary-50 text-primary-900 dark:bg-primary-900/20 dark:text-primary-100' : 'hover:bg-neutral-100/70 dark:hover:bg-neutral-800/70'
       ]"
@@ -140,7 +210,21 @@ const handleKeydown = (event: KeyboardEvent) => {
         :name="iconName"
         class="h-4 w-4 text-muted-500 flex-shrink-0"
       />
-      <span class="truncate">{{ label }}</span>
+      <span class="truncate flex-1">{{ label }}</span>
+      <UDropdownMenu
+        v-if="archiveMenuItems.length > 0"
+        :items="archiveMenuItems"
+      >
+        <UButton
+          :aria-label="isFileNode ? 'Archive file' : 'Archive content'"
+          icon="i-lucide-ellipsis"
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          class="opacity-0 group-hover:opacity-100 focus:opacity-100"
+          @click.stop
+        />
+      </UDropdownMenu>
     </div>
 
     <ul
@@ -158,6 +242,8 @@ const handleKeydown = (event: KeyboardEvent) => {
         :active-source-id="activeSourceId"
         @toggle="emit('toggle', $event)"
         @select="emit('select', $event)"
+        @archive-file="emit('archiveFile', $event)"
+        @archive-content="emit('archiveContent', $event)"
       />
     </ul>
   </li>

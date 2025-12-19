@@ -254,6 +254,10 @@ const archiveConversation = async (conversationId: string, event?: Event) => {
     await refreshConversation().catch((err) => {
       console.error('refreshConversation failed', err)
     })
+    toast.add({
+      title: 'Conversation archived',
+      color: 'success'
+    })
   } catch (error) {
     console.error('Failed to archive conversation', error)
     toast.add({
@@ -435,8 +439,6 @@ const canExpandConversationList = computed(() => {
                     size="xs"
                     color="neutral"
                     variant="ghost"
-                    :loading="archivingConversationId === entry.id"
-                    :disabled="archivingConversationId === entry.id"
                     class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
                     aria-label="Archive conversation"
                     @click="archiveConversation(entry.id, $event)"
@@ -640,8 +642,6 @@ const canExpandConversationList = computed(() => {
                     size="xs"
                     color="neutral"
                     variant="ghost"
-                    :loading="archivingConversationId === entry.id"
-                    :disabled="archivingConversationId === entry.id"
                     class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
                     aria-label="Archive conversation"
                     @click="archiveConversation(entry.id, $event)"
