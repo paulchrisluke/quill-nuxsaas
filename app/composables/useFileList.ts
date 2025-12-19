@@ -23,7 +23,7 @@ interface FetchResponse {
 
 const DEFAULT_PAGE_SIZE = 50
 
-export function useFileList(options?: { pageSize?: number, stateKey?: string, contentId?: string | null, fileType?: string | null }) {
+export function useFileList(options?: { pageSize?: number, stateKey?: string, contentId?: string | null, fileType?: string | null, includeArchived?: boolean }) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE
   const baseKey = options?.stateKey ?? `default:${pageSize}`
   const resolveKey = (segment: string) => `file-list:${baseKey}:${segment}`
@@ -64,6 +64,9 @@ export function useFileList(options?: { pageSize?: number, stateKey?: string, co
       }
       if (options?.fileType) {
         query.fileType = options.fileType
+      }
+      if (options?.includeArchived) {
+        query.includeArchived = true
       }
 
       const response = await $fetch<FetchResponse>('/api/file', {

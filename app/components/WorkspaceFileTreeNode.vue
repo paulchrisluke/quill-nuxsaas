@@ -26,17 +26,22 @@ const props = defineProps<{
   expandedPaths: Set<string>
   activeContentId?: string | null
   activeSourceId?: string | null
+  archivingFileIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
   (e: 'toggle', path: string): void
   (e: 'select', node: FileTreeNode): void
+  (e: 'archiveFile', node: FileTreeNode): void
 }>()
 
 const depth = computed(() => props.depth ?? 0)
 
 const isFolder = computed(() => props.node.type === 'folder')
 const isExpanded = computed(() => isFolder.value && props.expandedPaths.has(props.node.path))
+const fileId = computed(() => props.node.metadata?.fileId ?? null)
+const isFileNode = computed(() => props.node.type === 'file' && Boolean(fileId.value))
+const isArchivingFile = computed(() => Boolean(fileId.value && props.archivingFileIds?.has(fileId.value)))
 
 const isActive = computed(() => {
   if (props.node.type !== 'file')
@@ -96,10 +101,36 @@ const selectNode = () => {
   emit('select', props.node)
 }
 
+const archiveFile = () => {
+  if (!isFileNode.value)
+    return
+  emit('archiveFile', props.node)
+}
+
+const archiveMenuItems = computed(() => {
+  if (!isFileNode.value)
+    return []
+  return [
+    {
+      label: 'Archive',
+      icon: 'i-lucide-archive',
+      disabled: isArchivingFile.value,
+      onSelect: () => archiveFile()
+    }
+  ]
+})
+
 const handleKeydown = (event: KeyboardEvent) => {
   if (event.key === 'Enter' || event.key === ' ') {
     event.preventDefault()
     selectNode()
+    return
+  }
+  if (event.key === 'Delete' || (event.key === 'Backspace' && (event.metaKey || event.ctrlKey))) {
+    if (isFileNode.value) {
+      event.preventDefault()
+      archiveFile()
+    }
   }
 }
 </script>
@@ -107,7 +138,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 <template>
   <li>
     <div
-      class="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors cursor-pointer"
+      class="group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors cursor-pointer"
       :class="[
         isActive ? 'bg-primary-50 text-primary-900 dark:bg-primary-900/20 dark:text-primary-100' : 'hover:bg-neutral-100/70 dark:hover:bg-neutral-800/70'
       ]"
@@ -140,7 +171,23 @@ const handleKeydown = (event: KeyboardEvent) => {
         :name="iconName"
         class="h-4 w-4 text-muted-500 flex-shrink-0"
       />
-      <span class="truncate">{{ label }}</span>
+      <span class="truncate flex-1">{{ label }}</span>
+      <UDropdownMenu
+        v-if="isFileNode"
+        :items="archiveMenuItems"
+      >
+        <UButton
+          aria-label="Archive file"
+          icon="i-lucide-ellipsis"
+          size="xs"
+          color="neutral"
+          variant="ghost"
+          class="opacity-0 group-hover:opacity-100 focus:opacity-100"
+          :loading="isArchivingFile"
+          :disabled="isArchivingFile"
+          @click.stop
+        />
+      </UDropdownMenu>
     </div>
 
     <ul
@@ -156,8 +203,10 @@ const handleKeydown = (event: KeyboardEvent) => {
         :expanded-paths="expandedPaths"
         :active-content-id="activeContentId"
         :active-source-id="activeSourceId"
+        :archiving-file-ids="archivingFileIds"
         @toggle="emit('toggle', $event)"
         @select="emit('select', $event)"
+        @archive-file="emit('archiveFile', $event)"
       />
     </ul>
   </li>

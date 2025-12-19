@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
+import { useContentList } from '~/composables/useContentList'
 
 const route = useRoute()
 
@@ -88,11 +89,15 @@ const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header'
 }))
 const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => true)
 
-const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
+const { data: contentData, pending, error, refresh } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),
   lazy: true,
   default: () => null
 })
+const toast = useToast()
+const archivingContent = ref(false)
+const archiveModalOpen = ref(false)
+const { remove: removeContent } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const contentEntry = computed<ContentEntry | null>(() => {
   if (!contentData.value)
@@ -181,6 +186,40 @@ const structuredDataSnippet = computed(() => {
 
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
+const isArchived = computed(() => contentEntry.value?.status === 'archived')
+const canArchive = computed(() => contentEntry.value?.status === 'draft')
+
+const requestArchiveContent = () => {
+  if (!contentEntry.value || !canArchive.value)
+    return
+  archiveModalOpen.value = true
+}
+
+const confirmArchiveContent = async () => {
+  if (!contentEntry.value || archivingContent.value || !canArchive.value)
+    return
+
+  archivingContent.value = true
+  try {
+    await $fetch(`/api/content/${contentEntry.value.id}/archive`, { method: 'POST' })
+    removeContent(contentEntry.value.id)
+    await refresh().catch(() => {})
+    toast.add({
+      title: 'Content archived',
+      color: 'success'
+    })
+  } catch (err) {
+    console.error('Failed to archive content', err)
+    toast.add({
+      title: 'Failed to archive content',
+      description: err instanceof Error ? err.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    archivingContent.value = false
+    archiveModalOpen.value = false
+  }
+}
 
 const clearWorkspaceHeader = () => {
   workspaceHeader.value = null
@@ -273,9 +312,33 @@ watchEffect(() => {
 
       <UCard class="mb-4">
         <template #header>
-          <p class="text-sm font-medium">
-            Content details
-          </p>
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-sm font-medium">
+              Content details
+            </p>
+            <div class="flex items-center gap-2">
+              <UBadge
+                v-if="isArchived"
+                color="warning"
+                variant="soft"
+                size="xs"
+              >
+                Archived
+              </UBadge>
+              <UButton
+                v-if="canArchive"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-archive"
+                :loading="archivingContent"
+                :disabled="archivingContent"
+                @click="requestArchiveContent"
+              >
+                Archive
+              </UButton>
+            </div>
+          </div>
         </template>
         <div class="space-y-4">
           <div>
@@ -290,9 +353,19 @@ watchEffect(() => {
             <p class="text-xs uppercase tracking-wide text-muted-500">
               Status
             </p>
-            <p class="font-medium capitalize">
-              {{ contentEntry.status }}
-            </p>
+            <div class="flex items-center gap-2">
+              <p class="font-medium capitalize">
+                {{ contentEntry.status }}
+              </p>
+              <UBadge
+                v-if="isArchived"
+                color="warning"
+                variant="soft"
+                size="xs"
+              >
+                Archived
+              </UBadge>
+            </div>
           </div>
           <div>
             <p class="text-xs uppercase tracking-wide text-muted-500">
@@ -344,6 +417,38 @@ watchEffect(() => {
           class="w-full"
         />
       </UCard>
+
+      <UModal v-model:open="archiveModalOpen">
+        <UCard>
+          <template #header>
+            <p class="text-sm font-medium">
+              Archive content
+            </p>
+          </template>
+          <div class="space-y-4">
+            <p class="text-sm text-muted-foreground">
+              Archive this content? You can restore it later from the archive.
+            </p>
+            <div class="flex items-center justify-end gap-2">
+              <UButton
+                color="neutral"
+                variant="ghost"
+                @click="archiveModalOpen = false"
+              >
+                Cancel
+              </UButton>
+              <UButton
+                color="primary"
+                :loading="archivingContent"
+                :disabled="archivingContent"
+                @click="confirmArchiveContent"
+              >
+                Archive
+              </UButton>
+            </div>
+          </div>
+        </UCard>
+      </UModal>
 
       <UCard class="mb-4">
         <template #header>

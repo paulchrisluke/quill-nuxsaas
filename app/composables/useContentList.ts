@@ -15,7 +15,7 @@ interface FetchResponse {
 
 const DEFAULT_PAGE_SIZE = 30
 
-export function useContentList(options?: { pageSize?: number, stateKey?: string }) {
+export function useContentList(options?: { pageSize?: number, stateKey?: string, includeArchived?: boolean }) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE
   const baseKey = options?.stateKey ?? `default:${pageSize}`
   const resolveKey = (segment: string) => `content-list:${baseKey}:${segment}`
@@ -50,7 +50,8 @@ export function useContentList(options?: { pageSize?: number, stateKey?: string 
       const response = await $fetch<FetchResponse>('/api/content', {
         query: {
           limit: pageSize,
-          cursor: opts?.cursor ?? undefined
+          cursor: opts?.cursor ?? undefined,
+          includeArchived: options?.includeArchived || undefined
         }
       })
 

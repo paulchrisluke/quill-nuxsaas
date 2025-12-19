@@ -9,7 +9,8 @@ const querySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   contentId: z.string().uuid().optional(),
-  fileType: z.string().optional()
+  fileType: z.string().optional(),
+  includeArchived: z.coerce.boolean().optional().default(false)
 })
 
 interface CursorPayload {
@@ -100,10 +101,10 @@ export default defineEventHandler(async (event) => {
       cursorDate = parsedDate
     }
 
-    const whereClauses = [
-      eq(schema.file.organizationId, organizationId),
-      eq(schema.file.isActive, true)
-    ]
+    const whereClauses = [eq(schema.file.organizationId, organizationId)]
+    if (!query.includeArchived) {
+      whereClauses.push(eq(schema.file.isActive, true))
+    }
 
     if (query.contentId) {
       whereClauses.push(eq(schema.file.contentId, query.contentId))

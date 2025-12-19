@@ -38,7 +38,9 @@ const {
   pending: filePending,
   error: fileError,
   initialized: fileInitialized,
-  loadInitial: loadFileInitial
+  loadInitial: loadFileInitial,
+  remove: removeFile,
+  refresh: refreshFileList
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const sourceItems = ref<SourceContentItem[]>([])
@@ -47,6 +49,17 @@ const sourceError = ref<string | null>(null)
 const sourceInitialized = ref(false)
 
 const expandedPaths = ref<Set<string>>(new Set(['files', 'content', 'sources']))
+const archivingFileIds = ref<Set<string>>(new Set())
+const archiveTarget = ref<FileTreeNode | null>(null)
+const toast = useToast()
+const isArchiveModalOpen = computed({
+  get: () => Boolean(archiveTarget.value),
+  set: (value) => {
+    if (!value)
+      archiveTarget.value = null
+  }
+})
+const archiveTargetLabel = computed(() => archiveTarget.value?.metadata?.displayLabel || archiveTarget.value?.name || 'this file')
 
 const activeContentId = computed(() => {
   const path = route.path
@@ -267,6 +280,43 @@ const openNode = (node: FileTreeNode) => {
   }
 }
 
+const requestArchiveFile = (node: FileTreeNode) => {
+  const fileId = node.metadata?.fileId
+  if (!fileId || archivingFileIds.value.has(fileId))
+    return
+  archiveTarget.value = node
+}
+
+const confirmArchiveFile = async () => {
+  const target = archiveTarget.value
+  const fileId = target?.metadata?.fileId
+  if (!fileId || archivingFileIds.value.has(fileId))
+    return
+
+  archivingFileIds.value = new Set([...archivingFileIds.value, fileId])
+  try {
+    await $fetch(`/api/file/${fileId}/archive`, { method: 'POST' })
+    removeFile(fileId)
+    await refreshFileList().catch(() => {})
+    toast.add({
+      title: 'File archived',
+      color: 'success'
+    })
+  } catch (error) {
+    console.error('Failed to archive file', error)
+    toast.add({
+      title: 'Failed to archive file',
+      description: error instanceof Error ? error.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    const next = new Set(archivingFileIds.value)
+    next.delete(fileId)
+    archivingFileIds.value = next
+    archiveTarget.value = null
+  }
+}
+
 const fetchSources = async () => {
   sourcePending.value = true
   sourceError.value = null
@@ -331,8 +381,10 @@ watch([fileItems, fileInitialized], () => {
           :node="node"
           :expanded-paths="expandedPaths"
           :active-content-id="activeContentId"
+          :archiving-file-ids="archivingFileIds"
           @toggle="toggleFolder"
           @select="openNode"
+          @archive-file="requestArchiveFile"
         />
       </ul>
 
@@ -367,5 +419,36 @@ watch([fileItems, fileInitialized], () => {
         />
       </div>
     </div>
+    <UModal v-model:open="isArchiveModalOpen">
+      <UCard>
+        <template #header>
+          <p class="text-sm font-medium">
+            Archive file
+          </p>
+        </template>
+        <div class="space-y-4">
+          <p class="text-sm text-muted-foreground">
+            Archive "{{ archiveTargetLabel }}"? You can restore it later from the archive.
+          </p>
+          <div class="flex items-center justify-end gap-2">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              @click="isArchiveModalOpen = false"
+            >
+              Cancel
+            </UButton>
+            <UButton
+              color="primary"
+              :loading="archiveTarget?.metadata?.fileId ? archivingFileIds.has(archiveTarget.metadata.fileId) : false"
+              :disabled="archiveTarget?.metadata?.fileId ? archivingFileIds.has(archiveTarget.metadata.fileId) : false"
+              @click="confirmArchiveFile"
+            >
+              Archive
+            </UButton>
+          </div>
+        </div>
+      </UCard>
+    </UModal>
   </div>
 </template>
