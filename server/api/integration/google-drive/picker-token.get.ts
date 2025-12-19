@@ -2,8 +2,8 @@ import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { ensureGoogleAccessToken } from '~~/server/services/integration/googleAuth'
-import { useDB } from '~~/server/utils/db'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
+import { useDB } from '~~/server/utils/db'
 
 export default defineEventHandler(async (event) => {
   await requireAuth(event)

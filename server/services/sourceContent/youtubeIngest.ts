@@ -2,9 +2,9 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { FetchError } from 'ofetch'
 import { and, eq } from 'drizzle-orm'
 import { createError } from 'h3'
+import { ensureGoogleAccessToken } from '~~/server/services/integration/googleAuth'
 import * as schema from '../../db/schema'
 import { createChunksFromSourceContentText } from './chunkSourceContent'
-import { ensureGoogleAccessToken } from '~~/server/services/integration/googleAuth'
 
 export type TranscriptFailureReason =
   | 'no_captions'
@@ -158,7 +158,7 @@ async function fetchTranscriptViaOfficialAPI(
   // Get access token
   let accessToken: string
   try {
-    accessToken = await ensureAccessToken(db, account)
+    accessToken = await ensureGoogleAccessToken(db, account)
   } catch (error) {
     const errorMessage = (error as Error).message || 'Failed to get access token.'
     throw createTranscriptError({
@@ -415,8 +415,6 @@ async function fetchYoutubePreview(videoId: string): Promise<YoutubeOEmbedRespon
     return null
   }
 }
-
-export const ensureAccessToken = ensureGoogleAccessToken
 
 export async function fetchYouTubeVideoMetadata(accessToken: string, videoId: string): Promise<{ title: string, description: string } | null> {
   try {

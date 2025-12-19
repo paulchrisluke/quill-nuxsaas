@@ -77,11 +77,15 @@ const escapeHtmlAttribute = (value: string): string => {
     .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/\s/g, match => {
-      if (match === ' ') return '&#32;'
-      if (match === '\t') return '&#9;'
-      if (match === '\n') return '&#10;'
-      if (match === '\r') return '&#13;'
+    .replace(/\s/g, (match) => {
+      if (match === ' ')
+        return '&#32;'
+      if (match === '\t')
+        return '&#9;'
+      if (match === '\n')
+        return '&#10;'
+      if (match === '\r')
+        return '&#13;'
       return ''
     })
 }

@@ -2,8 +2,8 @@ import { and, eq } from 'drizzle-orm'
 import { createError, getQuery } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { ensureGoogleAccessToken } from '~~/server/services/integration/googleAuth'
-import { useDB } from '~~/server/utils/db'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
+import { useDB } from '~~/server/utils/db'
 
 const DEFAULT_LIMIT = 25
 const MAX_LIMIT = 100
@@ -63,7 +63,7 @@ export default defineEventHandler(async (event) => {
     pageSize: limit,
     orderBy: 'modifiedTime desc',
     fields: 'files(id,name,mimeType,thumbnailLink,modifiedTime,webViewLink,size),nextPageToken',
-    q: "mimeType contains 'image/' and trashed = false",
+    q: 'mimeType contains \'image/\' and trashed = false',
     supportsAllDrives: true,
     includeItemsFromAllDrives: true
   }
@@ -85,7 +85,7 @@ export default defineEventHandler(async (event) => {
     })
   })
 
-  const files = (response.files ?? []).map((file) => ({
+  const files = (response.files ?? []).map(file => ({
     id: file.id,
     name: file.name,
     mimeType: file.mimeType,
