@@ -433,26 +433,32 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
  * @returns true if the SVG is safe (no dangerous content), false otherwise
  */
 export function isSVGSafe(svgContent: string): boolean {
+  // Reject overly large inputs to prevent ReDoS attacks
+  if (svgContent.length > MAX_SVG_LENGTH) {
+    return false
+  }
+
   // First check if it's a valid SVG
   if (!svgContent.trim().toLowerCase().includes('<svg')) {
     return false
   }
 
   // Check for dangerous patterns in the original content
+  // Use bounded quantifiers to prevent ReDoS attacks
   const dangerousPatterns = [
     /<!\[CDATA\[/i, // CDATA blocks
-    /<script\b[^>]*>[\s\S]*?<\/script>|<script\b[^>]*\/>/i, // Script tags (including self-closing)
-    /<foreignobject\b[^>]*>[\s\S]*?<\/foreignobject>|<foreignobject\b[^>]*\/>/i, // ForeignObject tags (including self-closing)
+    new RegExp(`<script\\b[^>]{0,${MAX_ATTR_VALUE_LENGTH}}>[\\s\\S]{0,${MAX_SVG_LENGTH}}?<\\/script>|<script\\b[^>]{0,${MAX_ATTR_VALUE_LENGTH}}\\/>`, 'i'), // Script tags (including self-closing)
+    new RegExp(`<foreignobject\\b[^>]{0,${MAX_ATTR_VALUE_LENGTH}}>[\\s\\S]{0,${MAX_SVG_LENGTH}}?<\\/foreignobject>|<foreignobject\\b[^>]{0,${MAX_ATTR_VALUE_LENGTH}}\\/>`, 'i'), // ForeignObject tags (including self-closing)
     /\s+on\w+\s*=\s*["']/i, // Event handlers with quotes
-    /\s+on\w+\s*=\s*[^\s>]/i, // Event handlers without quotes
+    new RegExp(`\\s+on\\w+\\s*=\\s*[^\\s>]{0,${MAX_ATTR_VALUE_LENGTH}}`, 'i'), // Event handlers without quotes
     /javascript:/i, // JavaScript protocol
     /data:text\/html/i, // Data URLs with HTML
     /vbscript:/i, // VBScript protocol
     /\s+href\s*=\s*["']?javascript:/i, // href with javascript:
     /\s+xlink:href\s*=\s*["']?javascript:/i, // xlink:href with javascript:
-    /\s+href\s*=\s*["']?data:(image\/svg\+xml|application\/x?html\+xml|text\/xml)(;[^"' >]*)?/i, // href with data: SVG/XML/XHTML
-    /\s+xlink:href\s*=\s*["']?data:(image\/svg\+xml|application\/x?html\+xml|text\/xml)(;[^"' >]*)?/i, // xlink:href with data: SVG/XML/XHTML
-    /data:(image\/svg\+xml|application\/x?html\+xml|text\/xml)(;[^"' >]*)?/i // General data: SVG/XML/XHTML URLs
+    new RegExp(`\\s+href\\s*=\\s*["']?data:(image\\/svg\\+xml|application\\/x?html\\+xml|text\\/xml)(;[^"' >]{0,${MAX_ATTR_VALUE_LENGTH}})?`, 'i'), // href with data: SVG/XML/XHTML
+    new RegExp(`\\s+xlink:href\\s*=\\s*["']?data:(image\\/svg\\+xml|application\\/x?html\\+xml|text\\/xml)(;[^"' >]{0,${MAX_ATTR_VALUE_LENGTH}})?`, 'i'), // xlink:href with data: SVG/XML/XHTML
+    new RegExp(`data:(image\\/svg\\+xml|application\\/x?html\\+xml|text\\/xml)(;[^"' >]{0,${MAX_ATTR_VALUE_LENGTH}})?`, 'i') // General data: SVG/XML/XHTML URLs
   ]
 
   for (const pattern of dangerousPatterns) {
