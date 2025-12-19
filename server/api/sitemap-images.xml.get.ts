@@ -45,17 +45,9 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    if (urls.size === 0) {
-      return ''
-    }
-
     const images = [...urls]
       .map(url => `<image:image><image:loc>${xmlEscape(url)}</image:loc></image:image>`)
       .join('')
-
-    if (!images) {
-      return ''
-    }
 
     const loc = xmlEscape(originalUrl)
     return `<url><loc>${loc}</loc>${images}</url>`

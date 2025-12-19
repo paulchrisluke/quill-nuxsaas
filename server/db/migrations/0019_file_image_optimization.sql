@@ -1,11 +1,11 @@
 DO $$
 BEGIN
-  CREATE TYPE "file_optimization_status" AS ENUM ('pending', 'processing', 'done', 'failed');
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END;
-$$;
---> statement-breakpoint
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'file_optimization_status'
+  ) THEN
+    CREATE TYPE "file_optimization_status" AS ENUM ('pending', 'processing', 'done', 'failed', 'skipped');
+  END IF;
+END $$;--> statement-breakpoint
 
 ALTER TABLE "file"
   ADD COLUMN IF NOT EXISTS "width" integer,
@@ -25,11 +25,12 @@ BEGIN
     WHERE "optimization_status" = 'done'
     LIMIT 1
   ) THEN
+    -- Mark files with NULL dimensions as 'skipped' since they are non-image files
+    -- that don't require image optimization (e.g., PDFs, documents, etc.)
     UPDATE "file"
-    SET "optimization_status" = 'done'
+    SET "optimization_status" = 'skipped'
     WHERE "optimization_status" = 'pending'
       AND "width" IS NULL
       AND "height" IS NULL;
   END IF;
-END;
-$$;
+END $$;--> statement-breakpoint

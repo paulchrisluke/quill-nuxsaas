@@ -44,8 +44,12 @@ export default defineEventHandler(async (event) => {
     // Swallow auth resolution failures to keep proxy functional for public assets.
   }
 
-  if (requesterOrgId && record.organizationId && record.organizationId !== requesterOrgId) {
-    throw createError({ statusCode: 404, statusMessage: 'Image not found' })
+  // If the image belongs to an organization, require authentication and matching organization ID
+  // Images without organizationId are public and accessible to anyone
+  if (record.organizationId) {
+    if (!requesterOrgId || requesterOrgId !== record.organizationId) {
+      throw createError({ statusCode: 404, statusMessage: 'Image not found' })
+    }
   }
 
   const variants = parseImageVariantMap(record.variants)

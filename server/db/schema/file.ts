@@ -4,7 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { organization, user } from './auth'
 import { content } from './content'
 
-export const fileOptimizationStatusEnum = pgEnum('file_optimization_status', ['pending', 'processing', 'done', 'failed'])
+export const fileOptimizationStatusEnum = pgEnum('file_optimization_status', ['pending', 'processing', 'done', 'failed', 'skipped'])
 
 export const file = pgTable('file', {
   id: uuid('id').primaryKey().$default(() => uuidv7()),

@@ -189,7 +189,7 @@ export default defineEventHandler(async (event) => {
       }
     )
 
-    if (file.fileType === 'image' && mimeType.startsWith('image/')) {
+    if (file.fileType === 'image' && mimeType.startsWith('image/') && !isSVG) {
       const waitUntil = await getWaitUntil()
       const optimizePromise = optimizeImageInBackground(file.id)
       if (waitUntil) {

@@ -35,23 +35,15 @@ export class LocalStorageProvider implements StorageProvider {
       if (!isWithinBase(candidate)) {
         throw new Error('Invalid path: path traversal detected')
       }
+      return candidate
     }
 
     try {
       const realPath = await fs.realpath(resolvedPath)
-      verifyOrThrow(realPath)
-      return resolvedPath
+      return verifyOrThrow(realPath)
     } catch (error: any) {
       if (error?.code === 'ENOENT') {
-        const parentDir = dirname(resolvedPath)
-        try {
-          const realParent = await fs.realpath(parentDir)
-          verifyOrThrow(realParent)
-          return resolvedPath
-        } catch {
-          verifyOrThrow(parentDir)
-          return resolvedPath
-        }
+        return verifyOrThrow(resolvedPath)
       }
       throw error
     }

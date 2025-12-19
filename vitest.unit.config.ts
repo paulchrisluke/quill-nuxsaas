@@ -8,6 +8,7 @@ const rootDir = fileURLToPath(new URL('./', import.meta.url))
 const resolvePnpmDepEntry = (packageName: string, entryRelativePath: string) => {
   try {
     const pnpmDir = join(rootDir, 'node_modules/.pnpm')
+    // NOTE: assumes there is only one installed version per package in pnpm store.
     const entries = readdirSync(pnpmDir)
       .filter(name => name.startsWith(`${packageName}@`))
       .sort()

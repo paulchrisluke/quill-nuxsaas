@@ -514,7 +514,7 @@ export async function optimizeImageInBackground(fileId: string) {
         optimizedAt: new Date(),
         optimizationStartedAt: null
       })
-      .where(and(eq(fileTable.id, fileId), eq(fileTable.isActive, true)))
+      .where(eq(fileTable.id, fileId))
   } catch (error) {
     await db.update(fileTable)
       .set({

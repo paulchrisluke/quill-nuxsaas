@@ -113,6 +113,27 @@ export async function transformHtmlImages(html: string, options?: { organization
       return tag
     }
 
+    // Skip raster transformations for SVG files
+    const isSVG = record.mimeType === 'image/svg+xml'
+    if (isSVG) {
+      // For SVGs, just update the src to use the proxy and preserve other attributes
+      const imgAttrs: Record<string, string> = { ...attrs }
+      imgAttrs.src = `/api/images/${record.id}`
+      if (!imgAttrs.loading) {
+        imgAttrs.loading = 'lazy'
+      }
+      if (!imgAttrs.width && record.width) {
+        imgAttrs.width = String(record.width)
+      }
+      if (!imgAttrs.height && record.height) {
+        imgAttrs.height = String(record.height)
+      }
+      const imgAttrString = Object.entries(imgAttrs)
+        .map(([key, value]) => `${key}="${escapeAttribute(value)}"`)
+        .join(' ')
+      return `<img ${imgAttrString}>`
+    }
+
     const proxyBase = `/api/images/${record.id}`
     const resolvedAlt = (attrs.alt || '').trim()
     const sizesAttrValue = (attrs.sizes || '').trim() || (sizes.length > 0 ? '100vw' : '')
