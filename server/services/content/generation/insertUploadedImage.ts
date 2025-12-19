@@ -59,12 +59,19 @@ const escapeMarkdownAltText = (altText: string): string => {
 
 /**
  * Sanitizes a URL for use in markdown image syntax
- * Wraps the URL in angle brackets to prevent issues with special characters like ')'
+ * Escapes any existing angle brackets in the URL, then wraps the URL in angle brackets
+ * to prevent issues with special characters like ')'
  * This is the most reliable approach for markdown URLs
  */
 const sanitizeMarkdownUrl = (url: string): string => {
-  // Use angle brackets to safely handle any special characters in the URL
-  return `<${url}>`
+  // First escape any existing '<' and '>' characters by percent-encoding them
+  // This prevents breaking markdown syntax when URLs contain these characters
+  const escapedUrl = url
+    .replace(/</g, '%3C') // Percent-encode '<'
+    .replace(/>/g, '%3E') // Percent-encode '>'
+
+  // Then wrap in angle brackets to safely handle other special characters
+  return `<${escapedUrl}>`
 }
 
 const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
@@ -363,7 +370,8 @@ export const insertUploadedImage = async (
   let updatedBody: string
   if (isHtmlFormat) {
     // Insert HTML <img> tag for HTML content
-    const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${suggestion.altText.replace(/"/g, '&quot;')}" />`
+    const safeAltText = escapeHtmlAttribute(suggestion.altText ?? '')
+    const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${safeAltText}" />`
     updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)
   } else {
     // Insert Markdown image syntax for MDX content

@@ -250,7 +250,7 @@ const importDriveDocument = async (doc: Record<string, any>) => {
   const docName = doc.name ?? doc?.[googlePicker?.Document?.NAME] ?? 'drive-image'
   const docMimeType = (doc.mimeType ?? doc?.[googlePicker?.Document?.MIME_TYPE] ?? '').toLowerCase()
 
-  if (docMimeType && !docMimeType.startsWith('image/')) {
+  if (!docMimeType || !docMimeType.startsWith('image/')) {
     toast.add({
       title: 'Unsupported file type',
       description: 'Please select an image file from Google Drive.',
@@ -266,7 +266,7 @@ const importDriveDocument = async (doc: Record<string, any>) => {
       body: {
         fileId: docId,
         fileName: docName,
-        mimeType: docMimeType || 'application/octet-stream',
+        mimeType: docMimeType,
         contentId: props.contentId || null
       }
     })
@@ -305,7 +305,10 @@ const openGoogleDrivePickerInstance = (accessToken: string) => {
         const documents = data?.[picker.Response.DOCUMENTS] ?? data?.docs ?? []
         if (!Array.isArray(documents) || !documents.length)
           return
-        await importDriveDocument(documents[0])
+
+        for (const doc of documents) {
+          await importDriveDocument(doc)
+        }
       } catch (error) {
         console.error('[ChatShell] Picker callback failed', error)
         toast.add({
@@ -319,6 +322,7 @@ const openGoogleDrivePickerInstance = (accessToken: string) => {
     .setTitle('Select a Google Drive image')
     .enableFeature(window.google.picker.Feature.SIMPLE_UPLOAD_ENABLED)
     .enableFeature(window.google.picker.Feature.NAV_HIDDEN)
+    .enableFeature(window.google.picker.Feature.MULTISELECT_ENABLED)
 
   if (window.location?.origin) {
     pickerBuilder.setOrigin(window.location.origin)

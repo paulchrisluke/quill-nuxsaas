@@ -7,6 +7,7 @@ import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { ensureGoogleAccessToken } from '~~/server/services/integration/googleAuth'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
+import { formatFileSize } from '~~/shared/utils/format'
 
 interface ImportRequestBody {
   fileId?: string
@@ -57,7 +58,8 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const storageProvider = await createStorageProvider(useFileManagerConfig().storage)
+  const config = useFileManagerConfig()
+  const storageProvider = await createStorageProvider(config.storage)
   const fileService = new FileService(storageProvider)
 
   const contentId = typeof body.contentId === 'string' && body.contentId.trim().length ? body.contentId.trim() : null
@@ -98,6 +100,29 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 415,
       statusMessage: 'Only image files can be imported from Google Drive.'
+    })
+  }
+
+  // Validate file size before downloading
+  if (!metadata.size) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: 'File size information is missing from Google Drive metadata.'
+    })
+  }
+
+  const fileSizeBytes = Number.parseInt(metadata.size, 10)
+  if (Number.isNaN(fileSizeBytes) || fileSizeBytes < 0) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: 'Invalid file size information from Google Drive.'
+    })
+  }
+
+  if (config.maxFileSize && fileSizeBytes > config.maxFileSize) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: `File size exceeds maximum allowed size of ${formatFileSize(config.maxFileSize)}`
     })
   }
 
