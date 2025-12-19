@@ -27,6 +27,8 @@ const props = defineProps<{
   expandedPaths: Set<string>
   activeContentId?: string | null
   activeSourceId?: string | null
+  archivingFileIds?: Set<string>
+  archivingContentIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
@@ -125,8 +127,18 @@ const isArchived = computed(() => {
   return props.node.metadata?.isArchived === true
 })
 
+const isArchiving = computed(() => {
+  if (isFileNode.value && fileId.value) {
+    return props.archivingFileIds?.has(fileId.value) ?? false
+  }
+  if (isContentNode.value && contentId.value) {
+    return props.archivingContentIds?.has(contentId.value) ?? false
+  }
+  return false
+})
+
 const archiveMenuItems = computed(() => {
-  if (!isArchivableNode.value || isArchived.value)
+  if (!isArchivableNode.value || isArchived.value || isArchiving.value)
     return []
   return [
     {
@@ -150,7 +162,7 @@ const handleKeydown = (event: KeyboardEvent) => {
     return
   }
   if (event.key === 'Delete' || (event.key === 'Backspace' && (event.metaKey || event.ctrlKey))) {
-    if ((isFileNode.value || isContentNode.value) && !isArchived.value) {
+    if ((isFileNode.value || isContentNode.value) && !isArchived.value && !isArchiving.value) {
       event.preventDefault()
       if (isFileNode.value) {
         archiveFile()
@@ -200,7 +212,7 @@ const handleKeydown = (event: KeyboardEvent) => {
       />
       <span class="truncate flex-1">{{ label }}</span>
       <UDropdownMenu
-        v-if="isArchivableNode"
+        v-if="archiveMenuItems.length > 0"
         :items="archiveMenuItems"
       >
         <UButton

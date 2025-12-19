@@ -26,10 +26,7 @@ export default defineEventHandler(async (event) => {
       isActive: schema.file.isActive
     })
     .from(schema.file)
-    .where(and(
-      eq(schema.file.id, fileId),
-      eq(schema.file.organizationId, organizationId)
-    ))
+    .where(eq(schema.file.id, fileId))
     .limit(1)
 
   if (!file) {
@@ -39,7 +36,31 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  if (file.uploadedBy !== user.id && user.role !== 'admin') {
+  // Verify the file belongs to the active organization
+  if (file.organizationId !== organizationId) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Access denied'
+    })
+  }
+
+  // Fetch the caller's organization member record to check their role in this organization
+  const [membership] = await db
+    .select({
+      role: schema.member.role
+    })
+    .from(schema.member)
+    .where(and(
+      eq(schema.member.organizationId, organizationId),
+      eq(schema.member.userId, user.id)
+    ))
+    .limit(1)
+
+  // Check permissions: user must be the uploader OR an organization admin/owner
+  const isUploader = file.uploadedBy === user.id
+  const isOrgAdmin = membership?.role === 'admin' || membership?.role === 'owner'
+
+  if (!isUploader && !isOrgAdmin) {
     throw createError({
       statusCode: 403,
       statusMessage: 'Access denied'

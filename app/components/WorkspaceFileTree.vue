@@ -44,6 +44,9 @@ const {
 
 const expandedPaths = ref<Set<string>>(new Set(['files', 'content']))
 const toast = useToast()
+// Track in-flight archive operations to prevent concurrent invocations
+const archivingFiles = ref<Set<string>>(new Set())
+const archivingContent = ref<Set<string>>(new Set())
 
 const activeContentId = computed(() => {
   const path = route.path
@@ -237,12 +240,20 @@ const archiveFile = async (node: FileTreeNode) => {
   if (!fileId)
     return
 
+  // Prevent concurrent invocations for the same file
+  if (archivingFiles.value.has(fileId))
+    return
+
+  // Mark as in-flight
+  archivingFiles.value.add(fileId)
+
   // Optimistically remove from UI
   removeFile(fileId)
 
   try {
     await $fetch(`/api/file/${fileId}/archive`, { method: 'POST' })
     toast.add({
+      id: `archive-file-${fileId}`,
       title: 'File archived',
       color: 'success'
     })
@@ -251,10 +262,14 @@ const archiveFile = async (node: FileTreeNode) => {
     // On error, refresh to restore correct server state
     await refreshFileList()
     toast.add({
+      id: `archive-file-error-${fileId}`,
       title: 'Failed to archive file',
       description: error instanceof Error ? error.message : 'Please try again.',
       color: 'error'
     })
+  } finally {
+    // Remove from in-flight tracker
+    archivingFiles.value.delete(fileId)
   }
 }
 
@@ -263,12 +278,20 @@ const archiveContent = async (node: FileTreeNode) => {
   if (!contentId)
     return
 
+  // Prevent concurrent invocations for the same content
+  if (archivingContent.value.has(contentId))
+    return
+
+  // Mark as in-flight
+  archivingContent.value.add(contentId)
+
   // Optimistically remove from UI
   removeContent(contentId)
 
   try {
     await $fetch(`/api/content/${contentId}/archive`, { method: 'POST' })
     toast.add({
+      id: `archive-content-${contentId}`,
       title: 'Content archived',
       color: 'success'
     })
@@ -277,10 +300,14 @@ const archiveContent = async (node: FileTreeNode) => {
     // On error, refresh to restore correct server state
     await refreshContent()
     toast.add({
+      id: `archive-content-error-${contentId}`,
       title: 'Failed to archive content',
       description: error instanceof Error ? error.message : 'Please try again.',
       color: 'error'
     })
+  } finally {
+    // Remove from in-flight tracker
+    archivingContent.value.delete(contentId)
   }
 }
 
@@ -327,6 +354,8 @@ watch([fileItems, fileInitialized], () => {
           :node="node"
           :expanded-paths="expandedPaths"
           :active-content-id="activeContentId"
+          :archiving-file-ids="archivingFiles"
+          :archiving-content-ids="archivingContent"
           @toggle="toggleFolder"
           @select="openNode"
           @archive-file="archiveFile"
