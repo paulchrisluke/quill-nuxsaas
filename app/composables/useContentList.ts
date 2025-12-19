@@ -17,7 +17,8 @@ const DEFAULT_PAGE_SIZE = 30
 
 export function useContentList(options?: { pageSize?: number, stateKey?: string, includeArchived?: boolean }) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE
-  const baseKey = options?.stateKey ?? `default:${pageSize}`
+  const includeArchived = options?.includeArchived ?? false
+  const baseKey = options?.stateKey ?? `default:${pageSize}:${includeArchived ? 'archived' : 'active'}`
   const resolveKey = (segment: string) => `content-list:${baseKey}:${segment}`
 
   const itemsState = useState<ContentListItem[]>(resolveKey('items'), () => [])
@@ -51,7 +52,7 @@ export function useContentList(options?: { pageSize?: number, stateKey?: string,
         query: {
           limit: pageSize,
           cursor: opts?.cursor ?? undefined,
-          includeArchived: options?.includeArchived || undefined
+          includeArchived: options?.includeArchived ?? undefined
         }
       })
 

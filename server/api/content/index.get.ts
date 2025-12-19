@@ -1,4 +1,4 @@
-import { and, desc, eq, lt, ne, or } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt, ne, or } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
@@ -136,7 +136,9 @@ export default defineEventHandler(async (event) => {
 
     const whereClauses = [eq(schema.content.organizationId, organizationId)]
     if (!query.includeArchived) {
-      whereClauses.push(ne(schema.content.status, 'archived'))
+      // Explicitly allow NULL status values: ne() excludes NULLs in SQL (NULL != 'archived' evaluates to NULL/falsy).
+      // While the schema enforces NOT NULL with default('draft'), we handle NULLs defensively for edge cases.
+      whereClauses.push(or(isNull(schema.content.status), ne(schema.content.status, 'archived')))
     }
     if (cursorDate && cursorId) {
       whereClauses.push(or(

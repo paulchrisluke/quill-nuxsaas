@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type * as schema from '~~/server/db/schema'
 import type { FileTreeNode } from './WorkspaceFileTreeNode.vue'
+import { useToast } from '@nuxt/ui'
 import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { useContentList } from '~/composables/useContentList'
 import { useFileList } from '~/composables/useFileList'
@@ -39,7 +40,6 @@ const {
   error: fileError,
   initialized: fileInitialized,
   loadInitial: loadFileInitial,
-  remove: removeFile,
   refresh: refreshFileList
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
@@ -296,8 +296,7 @@ const confirmArchiveFile = async () => {
   archivingFileIds.value = new Set([...archivingFileIds.value, fileId])
   try {
     await $fetch(`/api/file/${fileId}/archive`, { method: 'POST' })
-    removeFile(fileId)
-    await refreshFileList().catch(() => {})
+    await refreshFileList()
     toast.add({
       title: 'File archived',
       color: 'success'

@@ -89,7 +89,7 @@ const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header'
 }))
 const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => true)
 
-const { data: contentData, pending, error, refresh } = useFetch(() => `/api/content/${contentId.value}`, {
+const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),
   lazy: true,
   default: () => null
@@ -202,7 +202,8 @@ const confirmArchiveContent = async () => {
   try {
     await $fetch(`/api/content/${contentEntry.value.id}/archive`, { method: 'POST' })
     removeContent(contentEntry.value.id)
-    await refresh().catch(() => {})
+    // Navigate to content list after successful archive
+    await navigateTo('/content')
     toast.add({
       title: 'Content archived',
       color: 'success'
