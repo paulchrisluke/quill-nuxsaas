@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 
 const route = useRoute()
+const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', () => {})
 
 interface ContentEntry {
   id: string
@@ -81,12 +81,6 @@ const contentId = computed(() => {
   const param = route.params.id
   return Array.isArray(param) ? param[0] : param || ''
 })
-
-// Set workspace header state
-const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => ({
-  title: 'Loading content…'
-}))
-const workspaceHeaderLoading = useState<boolean>('workspace/header/loading', () => true)
 
 const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),
@@ -182,34 +176,14 @@ const structuredDataSnippet = computed(() => {
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 
-const clearWorkspaceHeader = () => {
-  workspaceHeader.value = null
-  workspaceHeaderLoading.value = false
-}
-
-onBeforeRouteLeave(() => {
-  clearWorkspaceHeader()
-})
-
-onUnmounted(() => {
-  clearWorkspaceHeader()
-})
-
+// Set header title from content
 watch(contentEntry, (entry) => {
   if (entry) {
-    workspaceHeader.value = {
-      title: entry.title
-    }
-
-    workspaceHeaderLoading.value = false
+    setHeaderTitle?.(entry.title)
+  } else {
+    setHeaderTitle?.('Loading content…')
   }
 }, { immediate: true })
-
-watchEffect(() => {
-  if (!contentEntry.value) {
-    workspaceHeaderLoading.value = pending.value
-  }
-})
 </script>
 
 <template>

@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import type { WorkspaceHeaderState } from '~/components/chat/workspaceHeader'
 import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import AuthModal from '~/components/AuthModal.vue'
@@ -18,24 +17,9 @@ const route = useRoute()
 const authModalOpen = ref(false)
 const authModalMode = ref<'signin' | 'signup'>('signin')
 
-function openSignInModal(event?: MouseEvent) {
-  event?.preventDefault()
-  authModalMode.value = 'signin'
-  authModalOpen.value = true
-}
-
-function openSignUpModal(event?: MouseEvent) {
-  event?.preventDefault()
-  authModalMode.value = 'signup'
-  authModalOpen.value = true
-}
-
 useHead(() => ({
   link: [...(i18nHead.value.link || [])]
 }))
-
-// Workspace header state
-const workspaceHeader = useState<WorkspaceHeaderState | null>('workspace/header', () => null)
 
 // Page title state - pages can set this via provide
 const headerTitle = useState<string | null>('page-header-title', () => null)
@@ -58,17 +42,6 @@ provide('setHeaderTitle', (title: string | null) => {
 })
 
 const pathWithoutLocale = computed(() => stripLocalePrefix(route.path, KNOWN_LOCALES))
-
-// Workspace header routes (content detail pages).
-const isWorkspaceHeaderRoute = computed(() => {
-  return /^\/[^/]+\/content\/[^/]+(?:\/|$)/.test(pathWithoutLocale.value)
-})
-
-// Always show the workspace header shell on content detail routes.
-// The page itself is client-only (`ssr: false`), so we can't rely on the page component
-// to populate `workspaceHeader` during SSR. Rendering the shell avoids SSR/client
-// structure divergence (hydration mismatches) and ensures the top header is visible.
-const showWorkspaceHeader = computed(() => isWorkspaceHeaderRoute.value)
 
 const authRoutePrefixes = ['/signin', '/signup', '/forgot-password', '/reset-password']
 
@@ -147,7 +120,7 @@ const handleDownloadContent = async () => {
       responseType: 'blob'
     })
 
-    const blob = response instanceof Blob ? response : new Blob([response], { type: 'text/markdown' })
+    const blob = (response as any) instanceof Blob ? (response as unknown as Blob) : new Blob([String(response)], { type: 'text/markdown' })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -321,12 +294,14 @@ const canExpandConversationList = computed(() => {
         }"
       >
         <template #header>
-          <NuxtLink
-            :to="localePath('/')"
-            class="flex items-center gap-2 hover:opacity-80 transition-opacity"
-          >
-            <span class="text-sm font-semibold">{{ t('global.appName') }}</span>
-          </NuxtLink>
+          <div class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]">
+            <NuxtLink
+              :to="localePath('/')"
+              class="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            >
+              <span class="text-sm font-semibold">{{ t('global.appName') }}</span>
+            </NuxtLink>
+          </div>
         </template>
 
         <template #default>
@@ -336,64 +311,15 @@ const canExpandConversationList = computed(() => {
         <template #footer />
       </UDashboardSidebar>
 
-      <div class="flex min-h-0 flex-1 flex-col">
-        <UDashboardNavbar :toggle="true">
-          <template
-            v-if="showWorkspaceHeader"
-            #left
-          >
-            <slot name="workspace-header">
-              <p class="text-base font-semibold truncate">
-                {{ workspaceHeader?.title || '' }}
-              </p>
-            </slot>
-          </template>
-
-          <template
-            v-else
-            #left
-          >
-            <NuxtLink
-              :to="localePath('/')"
-              class="mr-4 flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              <span class="text-sm font-semibold">
-                {{ t('global.appName') }}
-              </span>
-            </NuxtLink>
-            <slot name="header-title">
-              <h1
-                v-if="pageTitle"
-                class="text-lg font-semibold text-left truncate"
-              >
-                {{ pageTitle }}
-              </h1>
-            </slot>
-          </template>
-
-          <template #right>
-            <div
-              v-if="!loggedIn"
-              class="flex items-center gap-2"
-            >
-              <UButton
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                @click="openSignInModal"
-              >
-                {{ t('global.auth.signIn') }}
-              </UButton>
-              <UButton
-                color="primary"
-                size="sm"
-                @click="openSignUpModal"
-              >
-                {{ t('global.auth.signUp') }}
-              </UButton>
-            </div>
-          </template>
-        </UDashboardNavbar>
+      <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
+        <div
+          v-if="pageTitle"
+          class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]"
+        >
+          <h1 class="text-sm font-semibold text-left truncate">
+            {{ pageTitle }}
+          </h1>
+        </div>
 
         <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
           <div class="h-full w-full">
@@ -406,7 +332,7 @@ const canExpandConversationList = computed(() => {
         v-if="shouldShowChatPanel"
         class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-[60vh] lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l"
       >
-        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 py-2 dark:border-neutral-800/60">
+        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 h-[40px] dark:border-neutral-800/60">
           <UButton
             aria-label="Back"
             variant="ghost"
@@ -590,64 +516,15 @@ const canExpandConversationList = computed(() => {
       v-else
       class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row"
     >
-      <div class="flex min-h-0 flex-1 flex-col">
-        <UDashboardNavbar :toggle="false">
-          <template
-            v-if="showWorkspaceHeader"
-            #left
-          >
-            <slot name="workspace-header">
-              <p class="text-base font-semibold truncate">
-                {{ workspaceHeader?.title || '' }}
-              </p>
-            </slot>
-          </template>
-
-          <template
-            v-else
-            #left
-          >
-            <NuxtLink
-              :to="localePath('/')"
-              class="mr-4 flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              <span class="text-sm font-semibold">
-                {{ t('global.appName') }}
-              </span>
-            </NuxtLink>
-            <slot name="header-title">
-              <h1
-                v-if="pageTitle"
-                class="text-lg font-semibold text-left truncate"
-              >
-                {{ pageTitle }}
-              </h1>
-            </slot>
-          </template>
-
-          <template #right>
-            <div
-              v-if="!loggedIn"
-              class="flex items-center gap-2"
-            >
-              <UButton
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                @click="openSignInModal"
-              >
-                {{ t('global.auth.signIn') }}
-              </UButton>
-              <UButton
-                color="primary"
-                size="sm"
-                @click="openSignUpModal"
-              >
-                {{ t('global.auth.signUp') }}
-              </UButton>
-            </div>
-          </template>
-        </UDashboardNavbar>
+      <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
+        <div
+          v-if="pageTitle"
+          class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]"
+        >
+          <h1 class="text-sm font-semibold text-left truncate">
+            {{ pageTitle }}
+          </h1>
+        </div>
 
         <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
           <div class="h-full w-full">
@@ -660,7 +537,7 @@ const canExpandConversationList = computed(() => {
         v-if="shouldShowChatPanel"
         class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-[60vh] lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l"
       >
-        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 py-2 dark:border-neutral-800/60">
+        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 h-[40px] dark:border-neutral-800/60">
           <UButton
             aria-label="Back"
             variant="ghost"
