@@ -125,15 +125,31 @@ function decodeEntities(str: string): string {
 /**
  * Canonicalizes a string by decoding URL-encoded sequences and XML/HTML entities
  * This helps prevent bypasses using encoding
+ * Performs iterative canonicalization to handle multi-layer/double-encoded payloads
  *
  * @param str - String to canonicalize
  * @returns Canonicalized string
  */
 function canonicalizeForHrefCheck(str: string): string {
-  // First decode entities, then percent-decode
-  // This order handles cases like &#x6A;avascript: or %6Aavascript:
-  let canonicalized = decodeEntities(str)
-  canonicalized = percentDecode(canonicalized)
+  // Maximum iterations to prevent DoS attacks
+  const MAX_ITERATIONS = 5
+  let canonicalized = str
+  let previous: string
+
+  // Iteratively apply decodeEntities then percentDecode until no change or max iterations
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    previous = canonicalized
+    // First decode entities, then percent-decode
+    // This order handles cases like &#x6A;avascript: or %6Aavascript:
+    canonicalized = decodeEntities(canonicalized)
+    canonicalized = percentDecode(canonicalized)
+
+    // Break early if no change to avoid unnecessary iterations
+    if (canonicalized === previous) {
+      break
+    }
+  }
+
   return canonicalized
 }
 
