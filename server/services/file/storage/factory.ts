@@ -27,15 +27,6 @@ export async function createStorageProvider(config: FileManagerConfig['storage']
       }
       return new LocalStorageProvider(config.local.uploadDir, config.local.publicPath)
 
-    case 's3':
-      if (!config.s3) {
-        throw new Error('S3 storage configuration is required')
-      }
-      return new S3CompatibleStorageProvider({
-        provider: 's3',
-        ...config.s3
-      })
-
     case 'r2':
       if (!config.r2) {
         throw new Error('R2 storage configuration is required')

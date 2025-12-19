@@ -25,7 +25,7 @@ const assertValidProductionUrl = (value: string) => {
 }
 
 const isValidStorageProvider = (value: string | undefined): value is StorageProviderType => {
-  return value === 'local' || value === 's3' || value === 'r2'
+  return value === 'local' || value === 'r2'
 }
 
 const getAppUrl = (): string => {
@@ -229,7 +229,7 @@ export const generateRuntimeConfig = () => {
             return envValue
           }
           if (envValue) {
-            console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 's3', 'r2'. Falling back to 'r2'.`)
+            console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 'r2'. Falling back to 'r2'.`)
           }
           return 'r2' as StorageProviderType
         })(),

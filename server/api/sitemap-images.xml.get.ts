@@ -47,19 +47,12 @@ export default defineEventHandler(async (event) => {
 
     const totalPages = Math.ceil(totalCount / MAX_ITEMS_PER_SITEMAP)
 
-    // Validate page doesn't exceed total pages
-    if (page > totalPages) {
-      throw createError({
-        statusCode: 404,
-        statusMessage: `Page ${page} does not exist. Maximum page is ${totalPages}.`
-      })
-    }
-
     // If total exceeds max items per sitemap and page is 1, return sitemap index
     if (totalCount > MAX_ITEMS_PER_SITEMAP && page === 1) {
       const sitemapIndexEntries = []
 
-      for (let i = 1; i <= totalPages; i++) {
+      // Generate sitemap index entries for pages 2..totalPages (page 1 is index-only)
+      for (let i = 2; i <= totalPages; i++) {
         const sitemapUrl = `${baseUrl}${basePath}?page=${i}`
         sitemapIndexEntries.push(
           `<sitemap><loc>${xmlEscape(sitemapUrl)}</loc></sitemap>`
@@ -74,6 +67,25 @@ ${sitemapIndexEntries.join('')}
       setHeader(event, 'Content-Type', 'application/xml')
       setHeader(event, 'Cache-Control', 'public, max-age=3600, s-maxage=3600')
       return sitemapIndexXml
+    }
+
+    // Validate page bounds based on whether we're using pagination
+    if (totalCount > MAX_ITEMS_PER_SITEMAP) {
+      // When paginated, valid content pages are 2..totalPages (page 1 is index-only)
+      if (page < 2 || page > totalPages) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: `Page ${page} does not exist. Valid pages are 2-${totalPages} (page 1 shows the sitemap index).`
+        })
+      }
+    } else {
+      // When not paginated, valid pages are 1..totalPages
+      if (page > totalPages) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: `Page ${page} does not exist. Maximum page is ${totalPages}.`
+        })
+      }
     }
 
     // Calculate pagination

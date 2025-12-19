@@ -10,7 +10,7 @@ export interface StorageProvider {
   exists: (path: string) => Promise<boolean>
 }
 
-export type StorageProviderType = 'local' | 's3' | 'r2'
+export type StorageProviderType = 'local' | 'r2'
 
 export interface FileManagerConfig {
   storage: {
@@ -18,14 +18,6 @@ export interface FileManagerConfig {
     local?: {
       uploadDir: string
       publicPath: string
-    }
-    s3?: {
-      region: string
-      accessKeyId: string
-      secretAccessKey: string
-      bucketName: string
-      publicUrl?: string
-      endpoint?: string
     }
     r2?: {
       accountId: string

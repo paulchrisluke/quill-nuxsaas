@@ -37,7 +37,9 @@ const resolvePnpmDepEntry = (packageName: string, entryRelativePath: string) => 
       .filter(name => name.startsWith(prefix))
       .map((name) => {
         // Extract version from "packageName@version" format
-        const version = name.slice(prefix.length)
+        // Handle pnpm patterns like "version_peerDep@peerVersion" by taking only the primary version
+        const raw = name.slice(prefix.length)
+        const version = raw.split('_')[0]
         return { name, version }
       })
       .sort((a, b) => compareVersions(b.version, a.version)) // Sort descending (newest first)

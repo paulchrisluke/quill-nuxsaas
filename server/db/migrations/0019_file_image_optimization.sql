@@ -6,8 +6,8 @@ ALTER TABLE "file"
   ADD COLUMN IF NOT EXISTS "variants" jsonb,
   ADD COLUMN IF NOT EXISTS "optimization_status" "public"."file_optimization_status",
   ADD COLUMN IF NOT EXISTS "optimization_error" text,
-  ADD COLUMN IF NOT EXISTS "optimized_at" timestamp,
-  ADD COLUMN IF NOT EXISTS "optimization_started_at" timestamp;
+  ADD COLUMN IF NOT EXISTS "optimized_at" timestamptz,
+  ADD COLUMN IF NOT EXISTS "optimization_started_at" timestamptz;
 --> statement-breakpoint
 UPDATE "file" SET optimization_status = 'skipped' WHERE optimization_status IS NULL;
 --> statement-breakpoint

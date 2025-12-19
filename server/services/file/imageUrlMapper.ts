@@ -10,18 +10,36 @@ const normalizeUrl = (value: string) => {
 }
 
 export const resolveStoragePathFromUrl = (src: string, baseUrls: string[]) => {
-  if (!src || !Array.isArray(baseUrls) || baseUrls.length === 0) {
+  // Verify src is a string before calling trim/normalize
+  if (typeof src !== 'string') {
     return null
   }
+  // Verify baseUrls is an array
+  if (!Array.isArray(baseUrls) || baseUrls.length === 0) {
+    return null
+  }
+  // Normalize src, return null if invalid
   const normalizedSrc = normalizeUrl(src.trim())
   if (!normalizedSrc) {
     return null
   }
+  // Iterate only over string elements in baseUrls
   for (const base of baseUrls) {
-    const normalizedBase = normalizeBaseUrl(base)
+    // Skip non-string elements
+    if (typeof base !== 'string') {
+      continue
+    }
+    // Normalize base, skip if invalid
+    let normalizedBase: string | null = null
+    try {
+      normalizedBase = normalizeBaseUrl(base)
+    } catch {
+      continue
+    }
     if (!normalizedBase) {
       continue
     }
+    // Normalize the base URL, skip if invalid
     const normalizedBaseUrl = normalizeUrl(normalizedBase)
     if (!normalizedBaseUrl) {
       continue

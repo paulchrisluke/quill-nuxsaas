@@ -7,31 +7,23 @@ export class S3CompatibleStorageProvider implements StorageProvider {
   private client: AwsClient | null = null
   private bucketName: string
   private publicUrl?: string
-  private provider: 's3' | 'r2'
+  private provider: 'r2'
   private config: any
   private endpoint = ''
 
   constructor(config: {
-    provider: 's3' | 'r2'
-    region?: string
+    provider: 'r2'
     accountId?: string
     accessKeyId: string
     secretAccessKey: string
     bucketName: string
     publicUrl?: string
-    endpoint?: string
   }) {
     this.provider = config.provider
     this.bucketName = config.bucketName
     this.publicUrl = config.publicUrl
     this.config = config
-    if (this.provider === 'r2') {
-      this.name = 's3-r2'
-    } else if (this.provider === 's3') {
-      this.name = 's3'
-    } else {
-      this.name = 's3-compatible'
-    }
+    this.name = 'r2'
   }
 
   private initializeClient() {
@@ -39,18 +31,11 @@ export class S3CompatibleStorageProvider implements StorageProvider {
       return
     }
 
-    let region: string
-
-    if (this.config.provider === 'r2') {
-      if (!this.config.accountId) {
-        throw new Error('Account ID is required for R2 storage')
-      }
-      this.endpoint = `https://${this.config.accountId}.r2.cloudflarestorage.com`
-      region = 'auto'
-    } else {
-      this.endpoint = this.config.endpoint || 'https://s3.amazonaws.com'
-      region = this.config.region || 'us-east-1'
+    if (!this.config.accountId) {
+      throw new Error('Account ID is required for R2 storage')
     }
+    this.endpoint = `https://${this.config.accountId}.r2.cloudflarestorage.com`
+    const region = 'auto'
 
     this.client = new AwsClient({
       accessKeyId: this.config.accessKeyId,
@@ -73,15 +58,23 @@ export class S3CompatibleStorageProvider implements StorageProvider {
 
   private async getErrorDetails(response: Response): Promise<string> {
     try {
-      const text = await response.text()
-      return text ? ` - ${text.substring(0, 500)}` : ''
-    } catch {
-      try {
-        const arrayBuffer = await response.arrayBuffer()
-        return arrayBuffer.byteLength > 0 ? ` - [${arrayBuffer.byteLength} bytes]` : ''
-      } catch {
+      const arrayBuffer = await response.arrayBuffer()
+      if (arrayBuffer.byteLength === 0) {
         return ''
       }
+
+      // Try to decode as UTF-8 text
+      try {
+        const decoder = new TextDecoder('utf-8', { fatal: false })
+        const text = decoder.decode(arrayBuffer)
+        const trimmed = text.trim()
+        return trimmed ? ` - ${trimmed.substring(0, 500)}` : ` - [${arrayBuffer.byteLength} bytes]`
+      } catch {
+        // If text decoding fails, return byte length
+        return ` - [${arrayBuffer.byteLength} bytes]`
+      }
+    } catch {
+      return ''
     }
   }
 
@@ -181,11 +174,7 @@ export class S3CompatibleStorageProvider implements StorageProvider {
       return `${this.publicUrl}/${path}`
     }
 
-    if (this.provider === 'r2') {
-      return `https://${this.bucketName}.r2.dev/${path}`
-    }
-
-    return `https://${this.bucketName}.s3.amazonaws.com/${path}`
+    return `https://${this.bucketName}.r2.dev/${path}`
   }
 
   async exists(path: string): Promise<boolean> {

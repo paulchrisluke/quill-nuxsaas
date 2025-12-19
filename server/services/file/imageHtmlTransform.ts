@@ -54,18 +54,24 @@ export async function transformHtmlImages(html: string, options?: { organization
     return html
   }
 
-  const storage = await createStorageProvider(config.storage)
+  let storage: Awaited<ReturnType<typeof createStorageProvider>> | null = null
+  try {
+    storage = await createStorageProvider(config.storage)
+  } catch (error) {
+    console.error('Failed to create storage provider in transformHtmlImages:', error)
+    return html
+  }
+
   const baseUrls = new Set<string>()
   if (config.storage.r2?.publicUrl) {
     baseUrls.add(normalizeBaseUrl(config.storage.r2.publicUrl))
   }
-  if (config.storage.s3?.publicUrl) {
-    baseUrls.add(normalizeBaseUrl(config.storage.s3.publicUrl))
-  }
   if (config.storage.local?.publicPath) {
     baseUrls.add(normalizeBaseUrl(config.storage.local.publicPath))
   }
-  baseUrls.add(normalizeBaseUrl(storage.getUrl('')))
+  if (storage) {
+    baseUrls.add(normalizeBaseUrl(storage.getUrl('')))
+  }
 
   const sources = extractImageSourcesFromHtml(html)
   const candidates = sources
@@ -78,14 +84,25 @@ export async function transformHtmlImages(html: string, options?: { organization
 
   const db = await useDB()
   const uniquePaths = [...new Set(candidates)]
-  const records = await db
-    .select()
-    .from(fileTable)
-    .where(and(
-      eq(fileTable.isActive, true),
-      eq(fileTable.organizationId, organizationId),
-      inArray(fileTable.path, uniquePaths)
-    ))
+  let records
+  try {
+    records = await db
+      .select()
+      .from(fileTable)
+      .where(and(
+        eq(fileTable.isActive, true),
+        eq(fileTable.organizationId, organizationId),
+        inArray(fileTable.path, uniquePaths)
+      ))
+  } catch (error) {
+    console.error('Failed to query file records in transformHtmlImages:', {
+      error: error instanceof Error ? error.message : String(error),
+      organizationId,
+      candidateCount: candidates.length,
+      uniquePathCount: uniquePaths.length
+    })
+    return html
+  }
 
   const fileByPath = new Map(records.map(record => [record.path, record]))
   if (fileByPath.size === 0) {
@@ -136,7 +153,19 @@ export async function transformHtmlImages(html: string, options?: { organization
 
     const proxyBase = `/api/images/${record.id}`
     const resolvedAlt = (attrs.alt || '').trim()
-    const sizesAttrValue = (attrs.sizes || '').trim() || (sizes.length > 0 ? '100vw' : '')
+
+    // Determine sizes attribute: use provided value, or infer from image dimensions, or default to 100vw
+    let sizesAttrValue = (attrs.sizes || '').trim()
+    if (!sizesAttrValue && sizes.length > 0) {
+      // For small images (icons, thumbnails), use a more appropriate default than 100vw
+      if (record.width && record.width < 200) {
+        // Small images are likely displayed at or near their natural size
+        sizesAttrValue = `${record.width}px`
+      } else {
+        // Larger images may be responsive, default to viewport width
+        sizesAttrValue = '100vw'
+      }
+    }
 
     const imgAttrs: Record<string, string> = { ...attrs }
     delete imgAttrs.src

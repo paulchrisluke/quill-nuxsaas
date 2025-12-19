@@ -5,7 +5,7 @@ import { useFileManagerConfig } from '~~/server/services/file/fileService'
 import { getCacheControlHeader, parseProxyParams, selectVariant } from '~~/server/services/file/imageProxy'
 import { parseImageVariantMap } from '~~/server/services/file/imageVariantValidation'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
-import { getAuthSession } from '~~/server/utils/auth'
+import { getAuthSession, getSessionOrganizationId } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 import { validateUUID } from '~~/server/utils/validation'
 
@@ -33,15 +33,35 @@ export default defineEventHandler(async (event) => {
   let requesterOrgId: string | null = null
   try {
     const session = await getAuthSession(event)
-    requesterOrgId = session?.session?.activeOrganizationId
-      ?? session?.data?.session?.activeOrganizationId
-      ?? session?.activeOrganizationId
-      ?? null
+    requesterOrgId = getSessionOrganizationId(session)
   } catch (error) {
+    // Handle 404 errors (session not found) - this is expected for unauthenticated requests
+    // accessing public assets (images without organizationId)
     if (error && typeof error === 'object' && 'statusCode' in error && (error as any).statusCode === 404) {
-      throw error
+      // 404 is acceptable: no session exists, requesterOrgId remains null
+      // This allows public assets (record.organizationId === null) to be served
+      // Security: Images with organizationId will be rejected below if requesterOrgId is null
+      requesterOrgId = null
+    } else {
+      // Fail-closed: Re-throw all non-404 errors (auth system failures, network issues, etc.)
+      // These indicate system problems that should not be silently ignored
+      console.error('[Image API] getAuthSession failed with non-404 error:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        error,
+        fileId,
+        targetPath: record.path
+      })
+      // Return 503 Service Unavailable for auth system failures, or re-throw if it's already an H3Error
+      if (error && typeof error === 'object' && 'statusCode' in error) {
+        throw error
+      }
+      throw createError({
+        statusCode: 503,
+        statusMessage: 'Service Unavailable',
+        message: 'Authentication service temporarily unavailable'
+      })
     }
-    // Swallow auth resolution failures to keep proxy functional for public assets.
   }
 
   // If the image belongs to an organization, require authentication and matching organization ID

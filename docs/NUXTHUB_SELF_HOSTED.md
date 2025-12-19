@@ -196,7 +196,7 @@ The `cacheClient` in `server/utils/drivers.ts` automatically selects the appropr
 | Environment | Storage Backend |
 |-------------|-----------------|
 | Cloudflare Workers | R2 Bucket |
-| Node.js hosting | Local filesystem or S3 |
+| Node.js hosting | Local filesystem or R2 |
 
 ---
 

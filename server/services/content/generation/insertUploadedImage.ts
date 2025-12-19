@@ -390,9 +390,40 @@ export const insertUploadedImage = async (
     // Insert HTML <img> tag for HTML content
     const safeAltText = escapeHtmlAttribute(suggestion.altText ?? '')
     // Validate width and height are finite positive integers
-    const width = Number(fileRecord.width)
-    const height = Number(fileRecord.height)
-    const hasValidDimensions = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+    const rawWidth = Number(fileRecord.width)
+    const rawHeight = Number(fileRecord.height)
+    let width: number | null = null
+    let height: number | null = null
+
+    // Parse and validate width
+    if (Number.isFinite(rawWidth)) {
+      if (Number.isInteger(rawWidth)) {
+        width = rawWidth
+      } else {
+        // Coerce to integer if finite but not integer
+        width = Math.round(rawWidth)
+      }
+      // Ensure positive after coercion
+      if (width <= 0) {
+        width = null
+      }
+    }
+
+    // Parse and validate height
+    if (Number.isFinite(rawHeight)) {
+      if (Number.isInteger(rawHeight)) {
+        height = rawHeight
+      } else {
+        // Coerce to integer if finite but not integer
+        height = Math.round(rawHeight)
+      }
+      // Ensure positive after coercion
+      if (height <= 0) {
+        height = null
+      }
+    }
+
+    const hasValidDimensions = width !== null && height !== null && width > 0 && height > 0
     const dimensions = hasValidDimensions
       ? ` width="${width}" height="${height}"`
       : ''
