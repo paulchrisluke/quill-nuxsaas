@@ -4,7 +4,7 @@ import type { FileListItem } from '~/composables/useFileList'
 import { useClipboard, useElementVisibility } from '@vueuse/core'
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { KNOWN_LOCALES, NON_ORG_SLUG } from '~~/shared/constants/routing'
+import { KNOWN_LOCALES } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
 import { useFileList } from '~/composables/useFileList'
 import { useFileManager } from '~/composables/useFileManager'
@@ -541,34 +541,20 @@ const routeConversationId = computed(() => {
 })
 
 const conversationId = computed(() => {
-  return props.conversationId || routeConversationId.value || activeConversationId.value
+  // Props take precedence (for embedded/widget use cases)
+  if (props.conversationId)
+    return props.conversationId
+  // Otherwise, derive from route
+  if (routeConversationId.value)
+    return routeConversationId.value
+  // Fallback to active conversation (e.g., when programmatically created)
+  return activeConversationId.value
 })
 
-const showWelcomeState = computed(() =>
-  !messages.value.length && !conversationId.value && !isBusy.value && !promptSubmitting.value
-)
-
-const routeNewConversation = computed(() => {
-  const flag = route.query.new
-  if (Array.isArray(flag))
-    return flag.length > 0
-  return typeof flag !== 'undefined'
+const showWelcomeState = computed(() => {
+  // Show welcome when at /conversations (no ID) and not busy
+  return !conversationId.value && !isBusy.value && !promptSubmitting.value
 })
-
-const startNewConversation = () => {
-  pendingConversationLoad.value = null
-  activeConversationId.value = null
-  resetConversation()
-  prompt.value = ''
-}
-
-const clearNewConversationFlag = () => {
-  if (!route.query.new)
-    return
-  const nextQuery = { ...route.query }
-  delete nextQuery.new
-  router.replace({ path: route.path, query: nextQuery }).catch(() => {})
-}
 
 const isValidUUID = (id: string | null): boolean => {
   if (!id)
@@ -701,13 +687,6 @@ watch(routeConversationId, (next, previous) => {
   loadConversationById(next)
 }, { immediate: true })
 
-watch(routeNewConversation, (isNew) => {
-  if (!isNew)
-    return
-  startNewConversation()
-  clearNewConversationFlag()
-}, { immediate: true })
-
 watch(chatVisible, (visible) => {
   if (!visible || !pendingConversationLoad.value)
     return
@@ -719,21 +698,6 @@ watch(chatVisible, (visible) => {
   loadConversationMessages(target).catch((error) => {
     console.error('Failed to load conversation after becoming visible', error)
   })
-})
-
-watch(activeConversationId, (value, previous) => {
-  if (!value || value === previous)
-    return
-
-  if (props.syncRoute && !props.contentId && value !== routeConversationId.value) {
-    const slug = activeOrg.value?.data?.slug
-    if (slug && slug !== NON_ORG_SLUG) {
-      router.push(localePath(`/${slug}/conversations/${value}`))
-    }
-    else {
-      router.push(localePath(`/${NON_ORG_SLUG}/conversations/${value}`))
-    }
-  }
 })
 
 const getMessageText = (message: ChatMessage) => {
