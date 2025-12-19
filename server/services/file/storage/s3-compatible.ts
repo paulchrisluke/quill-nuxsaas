@@ -89,6 +89,43 @@ export class S3CompatibleStorageProvider implements StorageProvider {
     }
   }
 
+  async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
+    this.ensureInitialized()
+
+    const url = `${this.endpoint}/${this.bucketName}/${path}`
+    const response = await this.client!.fetch(url)
+
+    if (!response.ok) {
+      throw new Error(`Fetch failed: ${response.status} ${response.statusText}`)
+    }
+
+    const arrayBuffer = await response.arrayBuffer()
+    return {
+      bytes: new Uint8Array(arrayBuffer),
+      contentType: response.headers.get('Content-Type'),
+      cacheControl: response.headers.get('Cache-Control')
+    }
+  }
+
+  async putObject(path: string, bytes: Uint8Array, contentType: string, cacheControl?: string): Promise<void> {
+    this.ensureInitialized()
+
+    const url = `${this.endpoint}/${this.bucketName}/${path}`
+
+    const response = await this.client!.fetch(url, {
+      method: 'PUT',
+      body: bytes,
+      headers: {
+        'Content-Type': contentType,
+        ...(cacheControl ? { 'Cache-Control': cacheControl } : {})
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.status} ${response.statusText}`)
+    }
+  }
+
   async delete(path: string): Promise<void> {
     this.ensureInitialized()
 

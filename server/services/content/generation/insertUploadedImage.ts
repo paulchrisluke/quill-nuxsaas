@@ -4,6 +4,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
+import { useFileManagerConfig } from '~~/server/services/file/fileService'
 import { clamp, insertHtmlAtLine, insertMarkdownAtLine } from './utils'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -256,6 +257,7 @@ export const insertUploadedImage = async (
   }
 ) => {
   const { organizationId, userId, contentId, fileId, position, altText } = params
+  const config = useFileManagerConfig()
 
   const [contentRecord] = await db
     .select({
@@ -354,10 +356,26 @@ export const insertUploadedImage = async (
   }
   const safeImageUrl = validateImageUrl(imageUrl)
 
+  const warnings: string[] = []
+  let resolvedAltText = altText?.trim() || ''
+  if (!resolvedAltText) {
+    if (config.image?.requireAltText) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Alt text is required for uploaded images'
+      })
+    }
+    const placeholder = (config.image?.altTextPlaceholder || '').trim()
+    resolvedAltText = placeholder || deriveAltText(undefined, fileRecord.originalName)
+    if (placeholder) {
+      warnings.push('Alt text was missing; inserted placeholder text.')
+    }
+  }
+
   const suggestion: ImageSuggestion = {
     sectionId: resolvedPosition.sectionId || sections[0]?.id || 'content-body',
     position: resolvedPosition.lineNumber,
-    altText: deriveAltText(altText, fileRecord.originalName),
+    altText: deriveAltText(resolvedAltText, fileRecord.originalName),
     reason: resolvedPosition.reason || 'User requested an uploaded image',
     priority: 'medium',
     type: 'uploaded',
@@ -371,7 +389,10 @@ export const insertUploadedImage = async (
   if (isHtmlFormat) {
     // Insert HTML <img> tag for HTML content
     const safeAltText = escapeHtmlAttribute(suggestion.altText ?? '')
-    const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${safeAltText}" />`
+    const dimensions = fileRecord.width && fileRecord.height
+      ? ` width="${fileRecord.width}" height="${fileRecord.height}"`
+      : ''
+    const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${safeAltText}"${dimensions} loading="lazy" decoding="async" />`
     updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)
   } else {
     // Insert Markdown image syntax for MDX content
@@ -474,6 +495,7 @@ export const insertUploadedImage = async (
     version: result.version,
     markdown: isHtmlFormat ? null : updatedBody,
     html: isHtmlFormat ? updatedBody : null,
-    suggestion
+    suggestion,
+    warnings
   }
 }

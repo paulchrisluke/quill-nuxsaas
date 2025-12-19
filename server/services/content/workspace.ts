@@ -3,6 +3,7 @@ import type { ContentFrontmatter, ContentSection } from './generation/types'
 import { eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
+import { transformHtmlImages } from '~~/server/services/file/imageHtmlTransform'
 import { getConversationById, getConversationLogs, getConversationMessages } from '../conversation'
 import { generateStructuredDataJsonLd } from './generation'
 import { buildWorkspaceSummary } from './workspaceSummary'
@@ -120,11 +121,22 @@ export async function getContentWorkspacePayload(
     ? (currentVersion.assets as any).imageSuggestions || []
     : []
 
+  let renderedHtml: string | null = null
+  if (currentVersion?.bodyHtml) {
+    try {
+      renderedHtml = await transformHtmlImages(currentVersion.bodyHtml)
+    } catch (error) {
+      console.warn('[workspace] Failed to transform images in HTML', { error })
+      renderedHtml = currentVersion.bodyHtml
+    }
+  }
+
   const currentVersionWithDerived = currentVersion
     ? {
         ...currentVersion,
         structuredData,
-        imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : []
+        imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : [],
+        renderedHtml
       }
     : null
 

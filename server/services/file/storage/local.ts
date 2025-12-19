@@ -13,7 +13,7 @@ export class LocalStorageProvider implements StorageProvider {
     this.publicPath = publicPath
   }
 
-  async upload(file: Buffer, fileName: string): Promise<{ path: string, url?: string }> {
+  async upload(file: Buffer, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
     const filePath = join(this.uploadDir, fileName)
     const dir = dirname(filePath)
 
@@ -24,6 +24,19 @@ export class LocalStorageProvider implements StorageProvider {
       path: fileName,
       url: `${this.publicPath}/${fileName}`
     }
+  }
+
+  async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
+    const filePath = join(this.uploadDir, path)
+    const data = await fs.readFile(filePath)
+    return { bytes: new Uint8Array(data), contentType: null, cacheControl: null }
+  }
+
+  async putObject(path: string, bytes: Uint8Array, _contentType: string, _cacheControl?: string): Promise<void> {
+    const filePath = join(this.uploadDir, path)
+    const dir = dirname(filePath)
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(filePath, bytes)
   }
 
   async delete(path: string): Promise<void> {

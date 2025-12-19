@@ -72,88 +72,134 @@ const tryResolveFromNuxt = () => {
   }
 }
 
-export const generateRuntimeConfig = () => ({
-  preset: process.env.NUXT_NITRO_PRESET,
-  betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
-  // Feature Flags
-  enableYoutubeIngestion: process.env.NUXT_ENABLE_YOUTUBE_INGESTION !== 'false',
-  // LLM / Cloudflare AI Gateway
-  cfAccountId: process.env.NUXT_CF_ACCOUNT_ID,
-  cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
-  cfVectorizeIndex: process.env.NUXT_CF_VECTORIZE_INDEX,
-  cfVectorizeApiToken: process.env.NUXT_CF_VECTORIZE_API_TOKEN,
-  cfEmbedModel: process.env.NUXT_CF_EMBED_MODEL || '@cf/baai/bge-base-en-v1.5',
-  openAiApiKey: process.env.NUXT_OPENAI_API_KEY,
-  openAiBlogModel: process.env.NUXT_OPENAI_BLOG_MODEL,
-  openAiBlogTemperature: (() => {
-    const parsed = Number.parseFloat(process.env.NUXT_OPENAI_BLOG_TEMPERATURE ?? '')
-    return Number.isFinite(parsed) ? parsed : 0.7
-  })(),
-  openAiBlogMaxOutputTokens: (() => {
-    const parsed = Number.parseInt(process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS ?? '', 10)
-    return Number.isFinite(parsed) ? parsed : 1000
-  })(),
-  // Stripe
-  stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
-  stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,
+export const generateRuntimeConfig = () => {
+  const parsedAllowedMimeTypes = (process.env.NUXT_FILE_ALLOWED_MIME_TYPES || '')
+    .split(',')
+    .map(entry => entry.trim())
+    .filter(Boolean)
 
-  // Resend
-  resendApiKey: process.env.NUXT_RESEND_API_KEY,
-  // Github
-  githubClientId: process.env.NUXT_GH_CLIENT_ID,
-  githubClientSecret: process.env.NUXT_GH_CLIENT_SECRET,
-  // Google
-  googleClientId: process.env.NUXT_GOOGLE_CLIENT_ID,
-  googleClientSecret: process.env.NUXT_GOOGLE_CLIENT_SECRET,
-  googleOAuthTokenTimeout: (() => {
-    const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_TIMEOUT_MS ?? '', 10)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30000 // Default 30 seconds
-  })(),
-  googleOAuthTokenMaxRetries: (() => {
-    const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_MAX_RETRIES ?? '', 10)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 3 // Default 3 retries
-  })(),
-  // Worker API
-  workerApiUrl: process.env.WORKER_API_URL || 'https://api-service.getquillio.com',
-  // DB
-  redisUrl: process.env.NUXT_REDIS_URL,
-  databaseUrl: process.env.DATABASE_URL,
-  // File
-  fileManager: {
-    storage: {
-      provider: process.env.NUXT_APP_STORAGE as StorageProviderType || 'r2',
-      local: { // provider: 'local'
-        uploadDir: process.env.NUXT_LOCAL_UPLOAD_DIR || './uploads',
-        publicPath: process.env.NUXT_LOCAL_PUBLIC_PATH || '/uploads'
+  const defaultAllowedMimeTypes = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/avif',
+    'image/gif',
+    'image/svg+xml',
+    'application/pdf',
+    'text/plain',
+    'text/markdown',
+    'application/json',
+    'video/mp4',
+    'video/webm',
+    'audio/mpeg',
+    'audio/wav'
+  ]
+
+  const allowedMimeTypes = (parsedAllowedMimeTypes.length > 0 ? parsedAllowedMimeTypes : defaultAllowedMimeTypes)
+    .filter((value, index, array) => array.indexOf(value) === index)
+
+  return {
+    preset: process.env.NUXT_NITRO_PRESET,
+    betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
+    // Feature Flags
+    enableYoutubeIngestion: process.env.NUXT_ENABLE_YOUTUBE_INGESTION !== 'false',
+    // LLM / Cloudflare AI Gateway
+    cfAccountId: process.env.NUXT_CF_ACCOUNT_ID,
+    cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
+    cfVectorizeIndex: process.env.NUXT_CF_VECTORIZE_INDEX,
+    cfVectorizeApiToken: process.env.NUXT_CF_VECTORIZE_API_TOKEN,
+    cfEmbedModel: process.env.NUXT_CF_EMBED_MODEL || '@cf/baai/bge-base-en-v1.5',
+    openAiApiKey: process.env.NUXT_OPENAI_API_KEY,
+    openAiBlogModel: process.env.NUXT_OPENAI_BLOG_MODEL,
+    openAiBlogTemperature: (() => {
+      const parsed = Number.parseFloat(process.env.NUXT_OPENAI_BLOG_TEMPERATURE ?? '')
+      return Number.isFinite(parsed) ? parsed : 0.7
+    })(),
+    openAiBlogMaxOutputTokens: (() => {
+      const parsed = Number.parseInt(process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS ?? '', 10)
+      return Number.isFinite(parsed) ? parsed : 1000
+    })(),
+    // Stripe
+    stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
+    stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,
+
+    // Resend
+    resendApiKey: process.env.NUXT_RESEND_API_KEY,
+    // Github
+    githubClientId: process.env.NUXT_GH_CLIENT_ID,
+    githubClientSecret: process.env.NUXT_GH_CLIENT_SECRET,
+    // Google
+    googleClientId: process.env.NUXT_GOOGLE_CLIENT_ID,
+    googleClientSecret: process.env.NUXT_GOOGLE_CLIENT_SECRET,
+    googleOAuthTokenTimeout: (() => {
+      const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_TIMEOUT_MS ?? '', 10)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 30000 // Default 30 seconds
+    })(),
+    googleOAuthTokenMaxRetries: (() => {
+      const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_MAX_RETRIES ?? '', 10)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 3 // Default 3 retries
+    })(),
+    // Worker API
+    workerApiUrl: process.env.WORKER_API_URL || 'https://api-service.getquillio.com',
+    // DB
+    redisUrl: process.env.NUXT_REDIS_URL,
+    databaseUrl: process.env.DATABASE_URL,
+    // File
+    fileManager: {
+      maxFileSize: Number.parseInt(process.env.NUXT_FILE_MAX_SIZE ?? '', 10) || 10 * 1024 * 1024,
+      allowedMimeTypes,
+      image: {
+        sizes: (process.env.NUXT_IMAGE_SIZES || '150,400,800,1200,1600')
+          .split(',')
+          .map(entry => Number.parseInt(entry.trim(), 10))
+          .filter(value => Number.isFinite(value) && value > 0),
+        formats: (process.env.NUXT_IMAGE_FORMATS || 'webp')
+          .split(',')
+          .map(entry => entry.trim())
+          .filter((value): value is 'webp' | 'avif' => value === 'webp' || value === 'avif'),
+        quality: (() => {
+          const parsed = Number.parseInt(process.env.NUXT_IMAGE_QUALITY ?? '', 10)
+          return Number.isFinite(parsed) ? parsed : 80
+        })(),
+        enableProxy: process.env.NUXT_IMAGE_ENABLE_PROXY !== 'false',
+        requireAltText: process.env.NUXT_IMAGE_REQUIRE_ALT_TEXT === 'true',
+        altTextPlaceholder: process.env.NUXT_IMAGE_ALT_TEXT_PLACEHOLDER || 'TODO: describe image'
       },
-      r2: { // provider: 'r2'
-        accountId: process.env.NUXT_CF_ACCOUNT_ID!,
-        accessKeyId: process.env.NUXT_CF_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.NUXT_CF_SECRET_ACCESS_KEY!,
-        bucketName: process.env.NUXT_CF_R2_BUCKET_NAME!,
-        publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL!
+      storage: {
+        provider: process.env.NUXT_APP_STORAGE as StorageProviderType || 'r2',
+        local: { // provider: 'local'
+          uploadDir: process.env.NUXT_LOCAL_UPLOAD_DIR || './uploads',
+          publicPath: process.env.NUXT_LOCAL_PUBLIC_PATH || '/uploads'
+        },
+        r2: { // provider: 'r2'
+          accountId: process.env.NUXT_CF_ACCOUNT_ID!,
+          accessKeyId: process.env.NUXT_CF_ACCESS_KEY_ID!,
+          secretAccessKey: process.env.NUXT_CF_SECRET_ACCESS_KEY!,
+          bucketName: process.env.NUXT_CF_R2_BUCKET_NAME!,
+          publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL!
+        }
+      },
+      uploadRateLimit: {
+        maxUploadsPerWindow: 100,
+        windowSizeMinutes: 1
       }
-    },
-    uploadRateLimit: {
-      maxUploadsPerWindow: 100,
-      windowSizeMinutes: 1
-    }
-  } satisfies FileManagerConfig,
-  public: {
-    baseURL: getAppUrl(),
-    appName: process.env.NUXT_APP_NAME,
-    appEnv: process.env.NODE_ENV,
-    appRepo: process.env.NUXT_APP_REPO,
-    appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
-    appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
-    payment: process.env.NUXT_PAYMENT || 'stripe',
-    googlePickerApiKey: process.env.NUXT_GOOGLE_PICKER_API_KEY || '',
-    auth: {
-      redirectUserTo: '/',
-      redirectGuestTo: '/signin'
+    } satisfies FileManagerConfig,
+    public: {
+      baseURL: getAppUrl(),
+      appName: process.env.NUXT_APP_NAME,
+      appEnv: process.env.NODE_ENV,
+      appRepo: process.env.NUXT_APP_REPO,
+      appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
+      appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
+      payment: process.env.NUXT_PAYMENT || 'stripe',
+      googlePickerApiKey: process.env.NUXT_GOOGLE_PICKER_API_KEY || '',
+      auth: {
+        redirectUserTo: '/',
+        redirectGuestTo: '/signin'
+      }
     }
   }
-})
+}
 
 const resolveRuntimeConfig = () => {
   if (!runtimeConfigInstance && tryResolveFromNuxt()) {

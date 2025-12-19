@@ -37,6 +37,11 @@
   },
   "dependencies": {
     "@better-auth/stripe": "^1.4.1",
+    "@jsquash/avif": "^1.0.4",
+    "@jsquash/jpeg": "^1.0.4",
+    "@jsquash/png": "^1.0.4",
+    "@jsquash/resize": "^1.0.4",
+    "@jsquash/webp": "^1.0.4",
     "@nuxt/ui": "^4.2.1",
     "@nuxthub/core": "^0.10.0",
     "@nuxtjs/i18n": "^9.5.6",
