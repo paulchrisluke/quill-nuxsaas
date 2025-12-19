@@ -187,16 +187,15 @@ const structuredDataSnippet = computed(() => {
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 const isArchived = computed(() => contentEntry.value?.status === 'archived')
-const canArchive = computed(() => contentEntry.value?.status === 'draft')
 
 const requestArchiveContent = () => {
-  if (!contentEntry.value || !canArchive.value)
+  if (!contentEntry.value)
     return
   archiveModalOpen.value = true
 }
 
 const confirmArchiveContent = async () => {
-  if (!contentEntry.value || archivingContent.value || !canArchive.value)
+  if (!contentEntry.value || archivingContent.value)
     return
 
   archivingContent.value = true
@@ -326,7 +325,6 @@ watchEffect(() => {
                 Archived
               </UBadge>
               <UButton
-                v-if="canArchive"
                 size="xs"
                 color="neutral"
                 variant="ghost"
