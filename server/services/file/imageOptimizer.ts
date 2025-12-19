@@ -398,40 +398,60 @@ export async function optimizeImageInBackground(fileId: string) {
   }
 
   if (record.mimeType === 'image/svg+xml') {
-    const original = await provider.getObject(record.path)
-    const svgText = new TextDecoder().decode(original.bytes)
-    const { width, height } = extractSvgDimensions(svgText)
-    await db.update(fileTable)
-      .set({
-        width,
-        height,
-        optimizationStatus: 'done',
-        optimizationError: null,
-        optimizedAt: new Date(),
-        optimizationStartedAt: null
-      })
-      .where(eq(fileTable.id, fileId))
+    try {
+      const original = await provider.getObject(record.path)
+      const svgText = new TextDecoder().decode(original.bytes)
+      const { width, height } = extractSvgDimensions(svgText)
+      await db.update(fileTable)
+        .set({
+          width,
+          height,
+          optimizationStatus: 'done',
+          optimizationError: null,
+          optimizedAt: new Date(),
+          optimizationStartedAt: null
+        })
+        .where(eq(fileTable.id, fileId))
+    } catch (error) {
+      await db.update(fileTable)
+        .set({
+          optimizationStatus: 'failed',
+          optimizationError: error instanceof Error ? error.message : 'SVG processing failed',
+          optimizationStartedAt: null
+        })
+        .where(eq(fileTable.id, fileId))
+    }
     return
   }
 
   if (record.mimeType === 'image/gif') {
-    const original = await provider.getObject(record.path)
-    const bytes = toUint8Array(original.bytes)
-    const dimensions = parseGifDimensions(bytes)
-    // Always skip GIF optimization for MVP (animated GIFs must not be flattened).
-    // We still detect animation for future observability/feature work.
-    void isAnimatedGif(bytes)
+    try {
+      const original = await provider.getObject(record.path)
+      const bytes = toUint8Array(original.bytes)
+      const dimensions = parseGifDimensions(bytes)
+      // Always skip GIF optimization for MVP (animated GIFs must not be flattened).
+      // We still detect animation for future observability/feature work.
+      void isAnimatedGif(bytes)
 
-    await db.update(fileTable)
-      .set({
-        width: dimensions?.width ?? null,
-        height: dimensions?.height ?? null,
-        optimizationStatus: 'done',
-        optimizationError: null,
-        optimizedAt: new Date(),
-        optimizationStartedAt: null
-      })
-      .where(eq(fileTable.id, fileId))
+      await db.update(fileTable)
+        .set({
+          width: dimensions?.width ?? null,
+          height: dimensions?.height ?? null,
+          optimizationStatus: 'done',
+          optimizationError: null,
+          optimizedAt: new Date(),
+          optimizationStartedAt: null
+        })
+        .where(eq(fileTable.id, fileId))
+    } catch (error) {
+      await db.update(fileTable)
+        .set({
+          optimizationStatus: 'failed',
+          optimizationError: error instanceof Error ? error.message : 'GIF processing failed',
+          optimizationStartedAt: null
+        })
+        .where(eq(fileTable.id, fileId))
+    }
     return
   }
 

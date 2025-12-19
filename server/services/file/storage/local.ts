@@ -16,7 +16,7 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async upload(file: Buffer, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
-    const filePath = this.resolvePathSafe(fileName)
+    const filePath = await this.resolvePathSafe(fileName)
     const dir = dirname(filePath)
 
     await fs.mkdir(dir, { recursive: true })
@@ -28,29 +28,50 @@ export class LocalStorageProvider implements StorageProvider {
     }
   }
 
-  private resolvePathSafe(path: string) {
+  private async resolvePathSafe(path: string) {
     const resolvedPath = resolvePath(this.baseDir, path)
-    if (resolvedPath === this.baseDir || resolvedPath.startsWith(this.baseDirWithSep)) {
-      return resolvedPath
+    const isWithinBase = (candidate: string) => candidate === this.baseDir || candidate.startsWith(this.baseDirWithSep)
+    const verifyOrThrow = (candidate: string) => {
+      if (!isWithinBase(candidate)) {
+        throw new Error('Invalid path: path traversal detected')
+      }
     }
-    throw new Error('Invalid path: path traversal detected')
+
+    try {
+      const realPath = await fs.realpath(resolvedPath)
+      verifyOrThrow(realPath)
+      return resolvedPath
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        const parentDir = dirname(resolvedPath)
+        try {
+          const realParent = await fs.realpath(parentDir)
+          verifyOrThrow(realParent)
+          return resolvedPath
+        } catch {
+          verifyOrThrow(parentDir)
+          return resolvedPath
+        }
+      }
+      throw error
+    }
   }
 
   async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
-    const filePath = this.resolvePathSafe(path)
+    const filePath = await this.resolvePathSafe(path)
     const data = await fs.readFile(filePath)
     return { bytes: new Uint8Array(data), contentType: null, cacheControl: null }
   }
 
   async putObject(path: string, bytes: Uint8Array, _contentType: string, _cacheControl?: string): Promise<void> {
-    const filePath = this.resolvePathSafe(path)
+    const filePath = await this.resolvePathSafe(path)
     const dir = dirname(filePath)
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(filePath, bytes)
   }
 
   async delete(path: string): Promise<void> {
-    const filePath = this.resolvePathSafe(path)
+    const filePath = await this.resolvePathSafe(path)
     try {
       await fs.unlink(filePath)
     } catch (error) {
@@ -66,7 +87,7 @@ export class LocalStorageProvider implements StorageProvider {
 
   async exists(path: string): Promise<boolean> {
     try {
-      const filePath = this.resolvePathSafe(path)
+      const filePath = await this.resolvePathSafe(path)
       await fs.access(filePath)
       return true
     } catch {

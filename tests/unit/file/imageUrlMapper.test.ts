@@ -17,6 +17,17 @@ describe('imageUrlMapper', () => {
     expect(path).toBeNull()
   })
 
+  it('normalizes urls by stripping protocol/query/fragment', () => {
+    const baseUrls = ['https://cdn.example.com']
+    const path = resolveStoragePathFromUrl('http://cdn.example.com/dir/file.png?token=123#hash', baseUrls)
+    expect(path).toBe('dir/file.png')
+  })
+
+  it('returns null for invalid inputs', () => {
+    expect(resolveStoragePathFromUrl('', [])).toBeNull()
+    expect(resolveStoragePathFromUrl('   ', ['https://cdn.example.com'])).toBeNull()
+  })
+
   it('extracts image sources from HTML', () => {
     const html = '<p><img src="https://cdn.example.com/a.jpg" alt="A"><img src="/uploads/b.png"></p>'
     const sources = extractImageSourcesFromHtml(html)

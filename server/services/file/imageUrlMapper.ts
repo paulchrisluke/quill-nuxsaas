@@ -1,17 +1,31 @@
 export const normalizeBaseUrl = (value: string) => value.replace(/\/+$/u, '')
 
+const normalizeUrl = (value: string) => {
+  return value.replace(/^https?:\/\//i, '').split(/[?#]/)[0]?.replace(/\/+$/u, '') || ''
+}
+
 export const resolveStoragePathFromUrl = (src: string, baseUrls: string[]) => {
-  const trimmed = src.trim()
+  if (!src || !Array.isArray(baseUrls) || baseUrls.length === 0) {
+    return null
+  }
+  const normalizedSrc = normalizeUrl(src.trim())
+  if (!normalizedSrc) {
+    return null
+  }
   for (const base of baseUrls) {
     const normalizedBase = normalizeBaseUrl(base)
     if (!normalizedBase) {
       continue
     }
-    if (trimmed === normalizedBase) {
+    const normalizedBaseUrl = normalizeUrl(normalizedBase)
+    if (!normalizedBaseUrl) {
+      continue
+    }
+    if (normalizedSrc === normalizedBaseUrl) {
       return ''
     }
-    if (trimmed.startsWith(`${normalizedBase}/`)) {
-      return trimmed.slice(normalizedBase.length + 1)
+    if (normalizedSrc.startsWith(`${normalizedBaseUrl}/`)) {
+      return normalizedSrc.slice(normalizedBaseUrl.length + 1)
     }
   }
   return null
@@ -19,7 +33,7 @@ export const resolveStoragePathFromUrl = (src: string, baseUrls: string[]) => {
 
 export const extractImageSourcesFromHtml = (html: string) => {
   const sources: string[] = []
-  const regex = /<img[^>]*\ssrc\s*=\s*(["'])(.*?)\1/gi
+  const regex = /<img[^>]+?\bsrc\s*=\s*(["'])(.*?)\1/gi
   for (const match of html.matchAll(regex)) {
     if (match[2]) {
       sources.push(match[2])
