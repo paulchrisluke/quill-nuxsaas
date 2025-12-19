@@ -12,16 +12,30 @@ interface RefreshTokenOptions {
 
 /**
  * Determines if an error should be retried based on network errors or 5xx responses
+ * Timeout errors are excluded from retry logic as retrying with the same timeout will likely fail again
  */
 function shouldRetry(error: unknown): boolean {
-  // Network errors (fetch aborted, connection issues, etc.)
+  // Don't retry timeout errors - they will likely timeout again with the same duration
   if (error instanceof Error) {
-    // AbortController errors
-    if (error.name === 'AbortError' || error.message.includes('aborted')) {
-      return true
+    // Check for AbortError (timeout) - DOMException with name 'AbortError' or Error with name 'AbortError'
+    if (
+      (error.name === 'AbortError')
+      || (error instanceof DOMException && error.name === 'AbortError')
+    ) {
+      return false
     }
-    // Network errors
-    if (error.message.includes('network') || error.message.includes('fetch')) {
+
+    // Retry network errors (connection issues, DNS failures, etc.)
+    // Check for common network error indicators
+    const errorMessage = error.message.toLowerCase()
+    if (
+      errorMessage.includes('network')
+      || errorMessage.includes('fetch')
+      || errorMessage.includes('connection')
+      || errorMessage.includes('econnrefused')
+      || errorMessage.includes('enotfound')
+      || errorMessage.includes('etimedout')
+    ) {
       return true
     }
   }
@@ -95,8 +109,18 @@ export async function refreshGoogleAccessToken(
         signal: AbortSignal.timeout(timeout)
       })
 
+      // Validate and coerce expires_in to a positive number
+      // Parse as number, if NaN or <= 0 replace with default 3600
+      let expiresInSeconds = Number(response.expires_in)
+      if (Number.isNaN(expiresInSeconds) || expiresInSeconds <= 0) {
+        if (response.expires_in !== undefined) {
+          console.warn('[Google Auth] Invalid expires_in value received:', response.expires_in, '- using default 3600 seconds')
+        }
+        expiresInSeconds = 3600
+      }
+
       // Update database with new token
-      const expiresAt = new Date(Date.now() + (response.expires_in || 3600) * 1000)
+      const expiresAt = new Date(Date.now() + expiresInSeconds * 1000)
 
       const [updated] = await db
         .update(schema.account)

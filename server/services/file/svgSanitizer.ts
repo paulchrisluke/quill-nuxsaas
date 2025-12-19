@@ -17,6 +17,7 @@ export interface SanitizeResult {
 
 /**
  * List of dangerous SVG attributes that can execute JavaScript
+ * Note: href and xlink:href are handled separately to only remove dangerous protocols
  */
 const DANGEROUS_ATTRIBUTES = [
   'onabort',
@@ -37,9 +38,7 @@ const DANGEROUS_ATTRIBUTES = [
   'onresize',
   'onscroll',
   'onunload',
-  'onzoom',
-  'href',
-  'xlink:href'
+  'onzoom'
 ]
 
 /**
@@ -61,8 +60,12 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
   const warnings: string[] = []
   let sanitized = svgContent
 
-  // Validate that it's actually an SVG
-  if (!sanitized.trim().toLowerCase().includes('<svg')) {
+  // Validate that it's actually an SVG with robust regex
+  // Match optional XML declaration, comments, whitespace, then <svg tag start
+  // Allows namespaces and attributes in the opening tag
+  const trimmed = sanitized.trim()
+  const svgTagPattern = /^(?:\s*<\?xml[^>]*\?>)?(?:\s*<!--[\s\S]*?-->)*\s*<svg[\s>]/i
+  if (!svgTagPattern.test(trimmed)) {
     return {
       sanitized: '',
       isValid: false,
@@ -100,8 +103,9 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
   // Match attributes with optional whitespace and quotes
   for (const attr of DANGEROUS_ATTRIBUTES) {
     // Match attribute with various quote styles: attr="value", attr='value', attr=value
+    // Use word boundary to prevent partial matches and handle nested opposite quotes correctly
     const attrPattern = new RegExp(
-      `\\s+${attr.replace(':', '\\:')}\\s*=\\s*(["'])(?:[^"']|\\\\["'])*\\1`,
+      `\\b${attr.replace(':', '\\:')}\\s*=\\s*(["'])(?:(?!\\1)[^\\\\]|\\\\.)*\\1`,
       'gi'
     )
     const attrMatches = sanitized.match(attrPattern)
@@ -111,8 +115,9 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
     }
 
     // Also match unquoted attributes: attr=value
+    // Use word boundary to prevent partial matches
     const unquotedPattern = new RegExp(
-      `\\s+${attr.replace(':', '\\:')}\\s*=\\s*[^\\s>]+`,
+      `\\b${attr.replace(':', '\\:')}\\s*=\\s*[^\\s>]+`,
       'gi'
     )
     const unquotedMatches = sanitized.match(unquotedPattern)
@@ -122,11 +127,37 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
     }
   }
 
+  // Remove href and xlink:href attributes only if they contain dangerous protocols
+  // Preserve safe protocols (http:, https:, #) and relative URLs
+  const dangerousHrefPatterns = [
+    // Match href="javascript:..." or href='javascript:...'
+    /\b(href|xlink:href)\s*=\s*(["'])\s*javascript\s*:/gi,
+    // Match href="data:text/html..." or href='data:text/html...'
+    /\b(href|xlink:href)\s*=\s*(["'])\s*data\s*:\s*text\s*\/\s*html/gi,
+    // Match href="vbscript:..." or href='vbscript:...'
+    /\b(href|xlink:href)\s*=\s*(["'])\s*vbscript\s*:/gi,
+    // Match unquoted href=javascript:...
+    /\b(href|xlink:href)\s*=\s*javascript\s*:/gi,
+    // Match unquoted href=data:text/html...
+    /\b(href|xlink:href)\s*=\s*data\s*:\s*text\s*\/\s*html/gi,
+    // Match unquoted href=vbscript:...
+    /\b(href|xlink:href)\s*=\s*vbscript\s*:/gi
+  ]
+
+  for (const pattern of dangerousHrefPatterns) {
+    const matches = sanitized.match(pattern)
+    if (matches && matches.length > 0) {
+      warnings.push(`Removed ${matches.length} instance(s) of href/xlink:href with dangerous protocol`)
+      sanitized = sanitized.replace(pattern, '')
+    }
+  }
+
   // Remove dangerous elements (case-insensitive)
   for (const element of DANGEROUS_ELEMENTS) {
     // Match both opening and self-closing tags
+    // Use word boundary to prevent partial matches (e.g., <scriptlet> matching <script>)
     const elementPattern = new RegExp(
-      `<${element}[^>]*>.*?</${element}>|<${element}[^>]*/>`,
+      `<${element}\\b[^>]*>.*?</${element}>|<${element}\\b[^>]*/>`,
       'gis'
     )
     const elementMatches = sanitized.match(elementPattern)
@@ -157,6 +188,16 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
   for (const pattern of suspiciousPatterns) {
     if (pattern.test(sanitized)) {
       warnings.push(`Found suspicious pattern: ${pattern.toString()}`)
+    }
+  }
+
+  // If suspicious patterns remain, the sanitization failed
+  const hasSuspiciousPatterns = suspiciousPatterns.some(p => p.test(sanitized))
+  if (hasSuspiciousPatterns) {
+    return {
+      sanitized: '',
+      isValid: false,
+      warnings: [...warnings, 'Suspicious patterns remain after sanitization']
     }
   }
 

@@ -1,9 +1,10 @@
 import { Buffer } from 'node:buffer'
 import { readMultipartFormData } from 'h3'
+import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { UploadRateLimiter } from '~~/server/services/file/rateLimiter'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
-import { isSVGSafe, sanitizeSVG } from '~~/server/services/file/svgSanitizer'
+import { sanitizeSVG } from '~~/server/services/file/svgSanitizer'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
@@ -17,23 +18,28 @@ export default defineEventHandler(async (event) => {
   const contentId = getQuery(event).contentId
   let validatedContentId: string | null = null
 
-  if (Array.isArray(contentId)) {
-    // If array, use first element
-    const firstValue = contentId[0]
-    if (typeof firstValue === 'string' && firstValue.trim()) {
-      validatedContentId = firstValue.trim()
+  // Select first element if array, otherwise use the value directly
+  const contentIdValue = Array.isArray(contentId) ? contentId[0] : contentId
+
+  if (contentIdValue && typeof contentIdValue === 'string') {
+    const trimmed = contentIdValue.trim()
+    if (trimmed) {
+      // Validate as UUID using Zod (consistent with file/index.get.ts)
+      const uuidSchema = z.string().uuid()
+      const result = uuidSchema.safeParse(trimmed)
+      if (result.success) {
+        validatedContentId = result.data
+      } else {
+        // Return 400 if validation fails
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Invalid contentId format. Expected a valid UUID.'
+        })
+      }
     }
-  } else if (typeof contentId === 'string' && contentId.trim()) {
-    validatedContentId = contentId.trim()
   }
 
-  // Enforce max length (255 chars) and reject values exceeding it
-  if (validatedContentId && validatedContentId.length > 255) {
-    validatedContentId = null
-  }
-
-  // NOTE: contentId should be validated/sanitized before passing to fileService.uploadFile
-  // or the storage layer (or validate again in those layers) to prevent injection or path traversal
+  // NOTE: contentId is now validated as UUID before passing to fileService.uploadFile
 
   const formData = await readMultipartFormData(event)
   if (!formData) {
@@ -103,13 +109,15 @@ export default defineEventHandler(async (event) => {
         sanitizedSize: sanitizeResult.sanitized.length
       })
 
-      // Reject SVG if sanitization failed or if it's not safe
-      if (!sanitizeResult.isValid || !isSVGSafe(sanitizeResult.sanitized)) {
+      // Reject SVG if sanitization failed
+      if (!sanitizeResult.isValid) {
         console.error('[SVG Upload] Rejected unsafe SVG:', {
           fileName,
           userId: user.id,
           organizationId,
-          warnings: sanitizeResult.warnings
+          warnings: sanitizeResult.warnings,
+          originalSize: fileBuffer.length,
+          sanitizedSize: sanitizeResult.sanitized.length
         })
         throw createError({
           statusCode: 400,
