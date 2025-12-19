@@ -265,31 +265,8 @@ const chatTitle = computed(() => {
   return match?.displayLabel || 'Chat'
 })
 
-const archiveConversationTarget = ref<string | null>(null)
-const isArchiveConversationModalOpen = computed({
-  get: () => Boolean(archiveConversationTarget.value),
-  set: (value) => {
-    if (!value)
-      archiveConversationTarget.value = null
-  }
-})
-const archiveConversationLabel = computed(() => {
-  const id = archiveConversationTarget.value
-  if (!id)
-    return 'this conversation'
-  return conversationItems.value.find(item => item.id === id)?.displayLabel || 'this conversation'
-})
-
-const requestArchiveConversation = (conversationId: string, event?: Event) => {
+const archiveConversation = async (conversationId: string, event?: Event) => {
   event?.stopPropagation()
-  if (!conversationId || archivingConversationId.value === conversationId)
-    return
-
-  archiveConversationTarget.value = conversationId
-}
-
-const confirmArchiveConversation = async () => {
-  const conversationId = archiveConversationTarget.value
   if (!conversationId || archivingConversationId.value === conversationId)
     return
 
@@ -317,7 +294,6 @@ const confirmArchiveConversation = async () => {
     })
   } finally {
     archivingConversationId.value = null
-    archiveConversationTarget.value = null
   }
 }
 
@@ -537,11 +513,9 @@ const canExpandConversationList = computed(() => {
                     size="xs"
                     color="neutral"
                     variant="ghost"
-                    :loading="archivingConversationId === entry.id"
-                    :disabled="archivingConversationId === entry.id"
                     class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
                     aria-label="Archive conversation"
-                    @click="requestArchiveConversation(entry.id, $event)"
+                    @click="archiveConversation(entry.id, $event)"
                   />
                 </div>
               </template>
@@ -791,11 +765,9 @@ const canExpandConversationList = computed(() => {
                     size="xs"
                     color="neutral"
                     variant="ghost"
-                    :loading="archivingConversationId === entry.id"
-                    :disabled="archivingConversationId === entry.id"
                     class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
                     aria-label="Archive conversation"
-                    @click="requestArchiveConversation(entry.id, $event)"
+                    @click="archiveConversation(entry.id, $event)"
                   />
                 </div>
               </template>
@@ -866,37 +838,6 @@ const canExpandConversationList = computed(() => {
         </div>
       </aside>
     </div>
-    <UModal v-model:open="isArchiveConversationModalOpen">
-      <UCard>
-        <template #header>
-          <p class="text-sm font-medium">
-            Archive conversation
-          </p>
-        </template>
-        <div class="space-y-4">
-          <p class="text-sm text-muted-foreground">
-            Archive "{{ archiveConversationLabel }}"? You can restore it later from the archive.
-          </p>
-          <div class="flex items-center justify-end gap-2">
-            <UButton
-              color="neutral"
-              variant="ghost"
-              @click="isArchiveConversationModalOpen = false"
-            >
-              Cancel
-            </UButton>
-            <UButton
-              color="primary"
-              :loading="archivingConversationId === archiveConversationTarget"
-              :disabled="archivingConversationId === archiveConversationTarget"
-              @click="confirmArchiveConversation"
-            >
-              Archive
-            </UButton>
-          </div>
-        </div>
-      </UCard>
-    </UModal>
     <OnboardingModal />
     <AuthModal
       v-model:open="authModalOpen"
