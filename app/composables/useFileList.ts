@@ -25,7 +25,9 @@ const DEFAULT_PAGE_SIZE = 50
 
 export function useFileList(options?: { pageSize?: number, stateKey?: string, contentId?: string | null, fileType?: string | null, includeArchived?: boolean }) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE
-  const baseKey = options?.stateKey ?? `default:${pageSize}`
+  const includeArchived = options?.includeArchived ?? false
+  // Include includeArchived in baseKey to prevent state collisions between archived and non-archived lists
+  const baseKey = options?.stateKey ?? `default:${pageSize}:${includeArchived ? 'archived' : 'active'}`
   const resolveKey = (segment: string) => `file-list:${baseKey}:${segment}`
 
   const itemsState = useState<FileListItem[]>(resolveKey('items'), () => [])

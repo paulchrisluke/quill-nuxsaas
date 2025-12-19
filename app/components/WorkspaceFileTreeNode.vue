@@ -13,6 +13,7 @@ export interface FileTreeNode {
     mimeType?: string
     url?: string
     displayLabel?: string
+    isArchived?: boolean
   }
 }
 
@@ -118,8 +119,14 @@ const archiveContent = () => {
   emit('archiveContent', props.node)
 }
 
+const isArchived = computed(() => {
+  // If metadata includes archived status, use it
+  // Otherwise, assume items shown are not archived (when includeArchived: false)
+  return props.node.metadata?.isArchived === true
+})
+
 const archiveMenuItems = computed(() => {
-  if (!isArchivableNode.value)
+  if (!isArchivableNode.value || isArchived.value)
     return []
   return [
     {
@@ -143,9 +150,13 @@ const handleKeydown = (event: KeyboardEvent) => {
     return
   }
   if (event.key === 'Delete' || (event.key === 'Backspace' && (event.metaKey || event.ctrlKey))) {
-    if (isFileNode.value) {
+    if ((isFileNode.value || isContentNode.value) && !isArchived.value) {
       event.preventDefault()
-      archiveFile()
+      if (isFileNode.value) {
+        archiveFile()
+      } else if (isContentNode.value) {
+        archiveContent()
+      }
     }
   }
 }
@@ -193,7 +204,7 @@ const handleKeydown = (event: KeyboardEvent) => {
         :items="archiveMenuItems"
       >
         <UButton
-          aria-label="Archive file"
+          :aria-label="isFileNode ? 'Archive file' : 'Archive content'"
           icon="i-lucide-ellipsis"
           size="xs"
           color="neutral"

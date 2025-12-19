@@ -28,7 +28,8 @@ const {
   error: contentError,
   initialized: contentInitialized,
   loadInitial: loadContentInitial,
-  remove: removeContent
+  remove: removeContent,
+  refresh: refreshContent
 } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const {
@@ -37,7 +38,8 @@ const {
   error: fileError,
   initialized: fileInitialized,
   loadInitial: loadFileInitial,
-  refresh: refreshFileList
+  refresh: refreshFileList,
+  remove: removeFile
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const expandedPaths = ref<Set<string>>(new Set(['files', 'content']))
@@ -227,20 +229,27 @@ const openNode = (node: FileTreeNode) => {
   }
 }
 
+// Strategy: Use optimistic UI updates (removeFile/removeContent) for immediate feedback,
+// then handle server errors by re-adding or refreshing on failure. This provides better UX
+// than waiting for server refresh, and both archive operations now use the same approach.
 const archiveFile = async (node: FileTreeNode) => {
   const fileId = node.metadata?.fileId
   if (!fileId)
     return
 
+  // Optimistically remove from UI
+  removeFile(fileId)
+
   try {
     await $fetch(`/api/file/${fileId}/archive`, { method: 'POST' })
-    await refreshFileList()
     toast.add({
       title: 'File archived',
       color: 'success'
     })
   } catch (error) {
     console.error('Failed to archive file', error)
+    // On error, refresh to restore correct server state
+    await refreshFileList()
     toast.add({
       title: 'Failed to archive file',
       description: error instanceof Error ? error.message : 'Please try again.',
@@ -254,15 +263,19 @@ const archiveContent = async (node: FileTreeNode) => {
   if (!contentId)
     return
 
+  // Optimistically remove from UI
+  removeContent(contentId)
+
   try {
     await $fetch(`/api/content/${contentId}/archive`, { method: 'POST' })
-    removeContent(contentId)
     toast.add({
       title: 'Content archived',
       color: 'success'
     })
   } catch (error) {
     console.error('Failed to archive content', error)
+    // On error, refresh to restore correct server state
+    await refreshContent()
     toast.add({
       title: 'Failed to archive content',
       description: error instanceof Error ? error.message : 'Please try again.',

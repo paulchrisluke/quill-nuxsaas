@@ -34,17 +34,20 @@ export function useContentList(options?: { pageSize?: number, stateKey?: string,
 
   // Migration: Check for old key format and migrate data if present
   // Old format: `default:${pageSize}` (without version or active/archived suffix)
+  // Always call useState for old keys to ensure identical hook call order between server and client
+  // (prevents SSR hydration mismatches), but only migrate when condition is met
+  const oldBaseKey = `default:${pageSize}`
+  const oldResolveKey = (segment: string) => `content-list:${oldBaseKey}:${segment}`
+
+  // Always initialize old state (unconditional for SSR consistency)
+  const oldItemsState = useState<ContentListItem[]>(oldResolveKey('items'))
+  const oldCursorState = useState<string | null>(oldResolveKey('cursor'))
+  const oldHasMoreState = useState<boolean>(oldResolveKey('has-more'))
+  const oldInitializedState = useState<boolean>(oldResolveKey('initialized'))
+
+  // Only migrate to the 'active' state (includeArchived: false) since old data didn't include archived content
   // Only migrate when using default key (not custom stateKey) and new state is empty
-  if (!options?.stateKey && !initializedState.value && itemsState.value.length === 0) {
-    const oldBaseKey = `default:${pageSize}`
-    const oldResolveKey = (segment: string) => `content-list:${oldBaseKey}:${segment}`
-
-    // Check if old state exists
-    const oldItemsState = useState<ContentListItem[]>(oldResolveKey('items'))
-    const oldCursorState = useState<string | null>(oldResolveKey('cursor'))
-    const oldHasMoreState = useState<boolean>(oldResolveKey('has-more'))
-    const oldInitializedState = useState<boolean>(oldResolveKey('initialized'))
-
+  if (!options?.stateKey && !includeArchived && !initializedState.value && itemsState.value.length === 0) {
     // Migrate if old state has data
     if (oldItemsState.value.length > 0 || oldInitializedState.value) {
       itemsState.value = [...oldItemsState.value]
@@ -84,7 +87,7 @@ export function useContentList(options?: { pageSize?: number, stateKey?: string,
         query: {
           limit: pageSize,
           cursor: opts?.cursor ?? undefined,
-          includeArchived: options?.includeArchived ?? undefined
+          includeArchived: includeArchived || undefined
         }
       })
 

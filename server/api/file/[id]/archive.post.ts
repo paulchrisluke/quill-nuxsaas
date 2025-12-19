@@ -3,13 +3,13 @@ import { createError, getHeader, getRequestIP, getRouterParam } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { logAuditEvent } from '~~/server/utils/auditLogger'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
-import { getDB } from '~~/server/utils/db'
+import { useDB } from '~~/server/utils/db'
 import { validateUUID } from '~~/server/utils/validation'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event)
-  const db = getDB()
+  const db = await useDB(event)
 
   const id = getRouterParam(event, 'id')
   const fileId = validateUUID(id, 'id')
