@@ -67,6 +67,62 @@ const sanitizeMarkdownUrl = (url: string): string => {
   return `<${url}>`
 }
 
+const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
+const DATA_URI_IMAGE_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i
+
+const escapeHtmlAttribute = (value: string): string => {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\s/g, match => {
+      if (match === ' ') return '&#32;'
+      if (match === '\t') return '&#9;'
+      if (match === '\n') return '&#10;'
+      if (match === '\r') return '&#13;'
+      return ''
+    })
+}
+
+const validateImageUrl = (rawUrl: string): string => {
+  const trimmed = (rawUrl || '').trim()
+
+  if (!trimmed) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Image URL is invalid or empty'
+    })
+  }
+
+  if (trimmed.toLowerCase().startsWith('data:')) {
+    if (!DATA_URI_IMAGE_PATTERN.test(trimmed)) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Only data:image/* URLs are allowed for inline images'
+      })
+    }
+    return trimmed
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (!ALLOWED_IMAGE_PROTOCOLS.has(parsed.protocol)) {
+      throw new Error(`Unsupported protocol: ${parsed.protocol}`)
+    }
+    return parsed.toString()
+  } catch {
+    if (trimmed.startsWith('/')) {
+      return trimmed
+    }
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Image URL is invalid or uses an unsupported scheme'
+    })
+  }
+}
+
 const resolveSectionByKeyword = (keyword: string, sections: ContentSection[]) => {
   const lowerKeyword = keyword.toLowerCase()
   return sections.find((section) => {
@@ -285,6 +341,7 @@ export const insertUploadedImage = async (
       statusMessage: 'File is missing a URL or storage path'
     })
   }
+  const safeImageUrl = validateImageUrl(imageUrl)
 
   const suggestion: ImageSuggestion = {
     sectionId: resolvedPosition.sectionId || sections[0]?.id || 'content-body',
@@ -294,7 +351,7 @@ export const insertUploadedImage = async (
     priority: 'medium',
     type: 'uploaded',
     fullSizeFileId: fileRecord.id,
-    fullSizeUrl: imageUrl,
+    fullSizeUrl: safeImageUrl,
     status: 'added'
   }
 
@@ -302,13 +359,13 @@ export const insertUploadedImage = async (
   let updatedBody: string
   if (isHtmlFormat) {
     // Insert HTML <img> tag for HTML content
-    const htmlImage = `<img src="${imageUrl}" alt="${suggestion.altText.replace(/"/g, '&quot;')}" />`
+    const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${suggestion.altText.replace(/"/g, '&quot;')}" />`
     updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)
   } else {
     // Insert Markdown image syntax for MDX content
     // Escape alt text and sanitize URL to prevent markdown syntax breaking
     const escapedAltText = escapeMarkdownAltText(suggestion.altText)
-    const sanitizedUrl = sanitizeMarkdownUrl(imageUrl)
+    const sanitizedUrl = sanitizeMarkdownUrl(safeImageUrl)
     const markdownImage = `![${escapedAltText}](${sanitizedUrl})`
     updatedBody = insertMarkdownAtLine(contentBody, resolvedPosition.lineNumber, markdownImage)
   }

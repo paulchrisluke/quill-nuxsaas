@@ -20,11 +20,40 @@ export function useFileManager(config: FileManagerConfig = {}) {
       throw new Error(errorMsg)
     }
 
-    if (config.allowedTypes && !config.allowedTypes.includes(file.type)) {
-      const errorMsg = 'File type not allowed'
-      error.value = errorMsg
-      config.onError?.(new Error(errorMsg))
-      throw new Error(errorMsg)
+    if (config.allowedTypes && config.allowedTypes.length > 0) {
+      const fileMime = (file.type || '').toLowerCase()
+      const fileExtension = file.name?.split('.').pop()?.toLowerCase()
+
+      const matchesAllowedType = config.allowedTypes.some((allowed) => {
+        if (!allowed)
+          return false
+
+        const normalizedAllowed = allowed.toLowerCase()
+        if (normalizedAllowed === '*/*')
+          return true
+
+        if (normalizedAllowed === fileMime && fileMime)
+          return true
+
+        if (normalizedAllowed.endsWith('/*')) {
+          const baseType = normalizedAllowed.slice(0, -1) // keep trailing slash
+          if (fileMime && fileMime.startsWith(baseType))
+            return true
+          if (!fileMime && baseType === 'image/' && fileExtension) {
+            return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif', 'heic', 'heif'].includes(fileExtension)
+          }
+          return false
+        }
+
+        return false
+      })
+
+      if (!matchesAllowedType) {
+        const errorMsg = 'File type not allowed'
+        error.value = errorMsg
+        config.onError?.(new Error(errorMsg))
+        throw new Error(errorMsg)
+      }
     }
 
     const formData = new FormData()

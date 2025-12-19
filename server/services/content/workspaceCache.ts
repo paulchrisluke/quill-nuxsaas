@@ -60,7 +60,21 @@ export async function getWorkspaceWithCache(
   try {
     const distributed = await cacheClient.get(key)
     if (distributed) {
-      const parsed = JSON.parse(distributed) as WorkspacePayload
+      // Handle case where distributed might already be an object or a string
+      let parsed: WorkspacePayload
+      if (typeof distributed === 'string') {
+        // Check if it's the invalid "[object Object]" string
+        if (distributed === '[object Object]') {
+          throw new Error('Invalid cache value: "[object Object]"')
+        }
+        parsed = JSON.parse(distributed) as WorkspacePayload
+      } else if (typeof distributed === 'object' && distributed !== null) {
+        // Already an object, use it directly
+        parsed = distributed as WorkspacePayload
+      } else {
+        throw new Error(`Invalid cache value type: ${typeof distributed}`)
+      }
+
       workspaceCache.set(key, {
         payload: parsed,
         expiresAt: Date.now() + WORKSPACE_CACHE_TTL_MS

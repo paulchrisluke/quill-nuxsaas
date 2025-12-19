@@ -159,7 +159,7 @@ function generateSummaryFromToolHistory(
       const sourceType = invocation.arguments.sourceType === 'youtube' ? 'YouTube video' : 'source content'
       summaries.push(`Ingested ${sourceType}`)
     } else if (toolName === 'insert_image' && result.result) {
-      const contentTitle = result.result.content?.title || 'content'
+      const contentTitle = result.result.content?.title || result.result.contentTitle || 'content'
       const fileName = invocation.arguments.fileId ? 'image' : 'an image'
       summaries.push(`Inserted ${fileName} into "${contentTitle}"`)
     } else if (toolName === 'read_files' && result.result) {

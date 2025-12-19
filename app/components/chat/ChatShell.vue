@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { ChatMessage } from '#shared/utils/types'
+import type { ChatMessage, FileRecord } from '#shared/utils/types'
+import type { FileListItem } from '~/composables/useFileList'
 import { useClipboard, useElementVisibility } from '@vueuse/core'
 import { computed, onMounted, ref, watch } from 'vue'
 
@@ -9,6 +10,15 @@ import { useFileList } from '~/composables/useFileList'
 import { useFileManager } from '~/composables/useFileManager'
 import ChatConversationMessages from './ChatConversationMessages.vue'
 import PromptComposer from './PromptComposer.vue'
+
+declare global {
+  interface Window {
+    gapi?: any
+    google?: any
+    __googleApiLoaderPromise?: Promise<void>
+    __googlePickerLoaderPromise?: Promise<void>
+  }
+}
 
 const props = withDefaults(defineProps<{
   contentId?: string | null
@@ -33,6 +43,8 @@ const route = useRoute()
 const localePath = useLocalePath()
 const { loggedIn, signIn, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
+const runtimeConfig = useRuntimeConfig()
+const googlePickerApiKey = runtimeConfig.public.googlePickerApiKey || ''
 
 // Check for Google Drive integration
 const organizationIdForIntegrations = computed(() => activeOrg.value?.data?.id)
@@ -96,11 +108,290 @@ const chatVisible = useElementVisibility(chatContainerRef)
 const pendingConversationLoad = ref<string | null>(null)
 const conversationLoadToken = ref(0)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const googlePickerOpening = ref(false)
 
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
-const { refresh: _refreshWorkspaceFiles, initialized: _workspaceFilesInitialized } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+const {
+  refresh: refreshWorkspaceFiles,
+  upsert: upsertWorkspaceFile
+} = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
+const ensureIsoString = (value: string | Date | null | undefined) => {
+  if (!value)
+    return new Date().toISOString()
+  if (typeof value === 'string')
+    return value
+  try {
+    return value.toISOString()
+  } catch {
+    return new Date().toISOString()
+  }
+}
+
+const mapFileRecordToListItem = (file: FileRecord): FileListItem => ({
+  id: file.id,
+  originalName: file.originalName,
+  fileName: file.fileName,
+  mimeType: file.mimeType,
+  fileType: file.fileType,
+  size: Number(file.size) || 0,
+  path: file.path,
+  url: file.url ?? null,
+  contentId: file.contentId ?? null,
+  createdAt: ensureIsoString(file.createdAt),
+  updatedAt: ensureIsoString(file.updatedAt)
+})
+
+const triggerWorkspaceFileRefresh = () => {
+  refreshWorkspaceFiles().catch((error) => {
+    console.error('[ChatShell] Failed to refresh workspace files after upload', error)
+  })
+}
+
+const GOOGLE_PICKER_IMAGE_MIME_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'image/bmp',
+  'image/tiff',
+  'image/avif',
+  'image/heic',
+  'image/heif'
+].join(',')
+
+const ensureGooglePickerLoaded = async () => {
+  if (typeof window === 'undefined') {
+    throw new Error('Google Drive picker is only available in the browser.')
+  }
+
+  if (!window.__googleApiLoaderPromise) {
+    window.__googleApiLoaderPromise = new Promise((resolve, reject) => {
+      if (window.gapi) {
+        resolve()
+        return
+      }
+      const existingScript = document.querySelector<HTMLScriptElement>('script[data-google-api]')
+      if (existingScript) {
+        existingScript.addEventListener('load', () => resolve())
+        existingScript.addEventListener('error', reject)
+        return
+      }
+      const script = document.createElement('script')
+      script.src = 'https://apis.google.com/js/api.js'
+      script.async = true
+      script.defer = true
+      script.dataset.googleApi = 'true'
+      script.onload = () => resolve()
+      script.onerror = reject
+      document.head.appendChild(script)
+    })
+  }
+
+  await window.__googleApiLoaderPromise
+
+  if (!window.__googlePickerLoaderPromise) {
+    window.__googlePickerLoaderPromise = new Promise((resolve, reject) => {
+      window.gapi.load('picker', {
+        callback: resolve,
+        onerror: reject
+      })
+    })
+  }
+
+  await window.__googlePickerLoaderPromise
+  if (!window.google?.picker) {
+    throw new Error('Google Picker failed to initialize.')
+  }
+}
+
+const notifyFileAdded = (
+  file: FileRecord,
+  options?: { title?: string, description?: string, resetInput?: boolean }
+) => {
+  const title = options?.title ?? 'File uploaded'
+  const description = options?.description ?? `"${file.originalName || file.fileName}" has been added to this workspace.`
+
+  toast.add({
+    title,
+    description,
+    color: 'success',
+    icon: 'i-lucide-check-circle'
+  })
+
+  try {
+    upsertWorkspaceFile(mapFileRecordToListItem(file))
+  } catch (error) {
+    console.warn('[ChatShell] Failed to upsert file into tree', error)
+  }
+
+  triggerWorkspaceFileRefresh()
+
+  if (options?.resetInput && fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
+const importDriveDocument = async (doc: Record<string, any>) => {
+  const googlePicker = window.google?.picker
+  const docId = doc.id ?? doc?.[googlePicker?.Document?.ID]
+  if (!docId) {
+    toast.add({
+      title: 'Import failed',
+      description: 'Could not determine the selected file ID.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+    return
+  }
+  const docName = doc.name ?? doc?.[googlePicker?.Document?.NAME] ?? 'drive-image'
+  const docMimeType = (doc.mimeType ?? doc?.[googlePicker?.Document?.MIME_TYPE] ?? '').toLowerCase()
+
+  if (docMimeType && !docMimeType.startsWith('image/')) {
+    toast.add({
+      title: 'Unsupported file type',
+      description: 'Please select an image file from Google Drive.',
+      color: 'warning',
+      icon: 'i-lucide-alert-circle'
+    })
+    return
+  }
+
+  try {
+    const response = await $fetch<{ file: FileRecord }>('/api/integration/google-drive/import', {
+      method: 'POST',
+      body: {
+        fileId: docId,
+        fileName: docName,
+        mimeType: docMimeType || 'application/octet-stream',
+        contentId: props.contentId || null
+      }
+    })
+
+    notifyFileAdded(response.file, {
+      title: 'Image imported',
+      description: `"${response.file.originalName || response.file.fileName}" has been imported from Google Drive.`
+    })
+  } catch (error: any) {
+    console.error('[ChatShell] Failed to import Drive file', error)
+    toast.add({
+      title: 'Import failed',
+      description: error?.data?.statusMessage || error?.message || 'Unable to import the selected file.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+  }
+}
+
+const openGoogleDrivePickerInstance = (accessToken: string) => {
+  if (typeof window === 'undefined' || !window.google?.picker) {
+    throw new Error('Google Picker is not available.')
+  }
+
+  const pickerBuilder = new window.google.picker.PickerBuilder()
+    .setOAuthToken(accessToken)
+    .setDeveloperKey(googlePickerApiKey)
+    .setCallback(async (data: any) => {
+      try {
+        const picker = window.google?.picker
+        if (!picker)
+          return
+        const action = data?.[picker.Response.ACTION] ?? data?.action
+        if (action !== picker.Action.PICKED)
+          return
+        const documents = data?.[picker.Response.DOCUMENTS] ?? data?.docs ?? []
+        if (!Array.isArray(documents) || !documents.length)
+          return
+        await importDriveDocument(documents[0])
+      } catch (error) {
+        console.error('[ChatShell] Picker callback failed', error)
+        toast.add({
+          title: 'Import failed',
+          description: error instanceof Error ? error.message : 'Unable to import the selected file.',
+          color: 'error',
+          icon: 'i-lucide-alert-triangle'
+        })
+      }
+    })
+    .setTitle('Select a Google Drive image')
+    .enableFeature(window.google.picker.Feature.SIMPLE_UPLOAD_ENABLED)
+    .enableFeature(window.google.picker.Feature.NAV_HIDDEN)
+
+  if (window.location?.origin) {
+    pickerBuilder.setOrigin(window.location.origin)
+  }
+
+  const docsView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+    .setIncludeFolders(true)
+    .setSelectFolderEnabled(false)
+    .setMimeTypes(GOOGLE_PICKER_IMAGE_MIME_TYPES)
+    .setLabel('Images')
+
+  const uploadView = new window.google.picker.DocsUploadView()
+    .setIncludeFolders(true)
+    .setMimeTypes(GOOGLE_PICKER_IMAGE_MIME_TYPES)
+
+  pickerBuilder.addView(docsView)
+  pickerBuilder.addView(uploadView)
+
+  const picker = pickerBuilder.build()
+  picker.setVisible(true)
+}
+
+const handleGoogleDriveClick = async () => {
+  if (googlePickerOpening.value)
+    return
+
+  if (!hasGoogleDrive.value) {
+    toast.add({
+      title: 'Google Drive not connected',
+      description: 'Please connect Google Drive in your organization settings first.',
+      color: 'warning',
+      icon: 'i-lucide-alert-circle'
+    })
+    return
+  }
+
+  if (!googlePickerApiKey) {
+    toast.add({
+      title: 'Google Drive unavailable',
+      description: 'Missing Google Picker API key. Contact support to configure it.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+    return
+  }
+
+  if (!import.meta.client) {
+    toast.add({
+      title: 'Google Drive unavailable',
+      description: 'Drive imports can only be started in the browser.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+    return
+  }
+
+  googlePickerOpening.value = true
+  try {
+    await ensureGooglePickerLoaded()
+    const { accessToken } = await $fetch<{ accessToken: string }>('/api/integration/google-drive/picker-token')
+    openGoogleDrivePickerInstance(accessToken)
+  } catch (error: any) {
+    console.error('[ChatShell] Failed to open Google Drive picker', error)
+    toast.add({
+      title: 'Unable to open Google Drive',
+      description: error?.data?.statusMessage || error?.message || 'Please try again after reconnecting the integration.',
+      color: 'error',
+      icon: 'i-lucide-alert-triangle'
+    })
+  } finally {
+    googlePickerOpening.value = false
+  }
+}
 const handleAgentModeGoogleSignup = () => {
   showAgentModeLoginModal.value = false
   if (typeof window === 'undefined')
@@ -169,25 +460,6 @@ const handleImageUploadClick = () => {
   }
 }
 
-const handleGoogleDriveClick = () => {
-  if (!hasGoogleDrive.value) {
-    toast.add({
-      title: 'Google Drive not connected',
-      description: 'Please connect Google Drive in your organization settings first.',
-      color: 'warning',
-      icon: 'i-lucide-alert-circle'
-    })
-    return
-  }
-  // TODO: Implement Google Drive file picker
-  toast.add({
-    title: 'Coming soon',
-    description: 'Google Drive file import is coming soon.',
-    color: 'info',
-    icon: 'i-lucide-info'
-  })
-}
-
 const uploadMenuItems = computed(() => [
   {
     label: 'Upload Image',
@@ -197,7 +469,7 @@ const uploadMenuItems = computed(() => [
   {
     label: hasGoogleDrive.value ? 'Import from Google Drive' : 'Google Drive (Connect in Settings)',
     icon: 'i-simple-icons-googledrive',
-    disabled: !hasGoogleDrive.value,
+    disabled: !hasGoogleDrive.value || googlePickerOpening.value,
     onSelect: handleGoogleDriveClick
   }
 ])
@@ -207,16 +479,11 @@ const { uploading: _fileUploading, uploadToServer } = useFileManager({
   allowedTypes: ['image/*'],
   contentId: props.contentId || null,
   onSuccess: (file) => {
-    toast.add({
+    notifyFileAdded(file as FileRecord, {
       title: 'Image uploaded',
       description: `"${file.originalName || file.fileName}" has been uploaded successfully.`,
-      color: 'success',
-      icon: 'i-lucide-check-circle'
+      resetInput: true
     })
-    // Reset file input
-    if (fileInputRef.value) {
-      fileInputRef.value.value = ''
-    }
   },
   onError: (error) => {
     toast.add({

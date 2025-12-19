@@ -139,6 +139,7 @@ export const generateRuntimeConfig = () => ({
     appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
     appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
     payment: process.env.NUXT_PAYMENT || 'stripe',
+    googlePickerApiKey: process.env.NUXT_GOOGLE_PICKER_API_KEY || process.env.NUXT_GOOGLE_API_KEY || '',
     auth: {
       redirectUserTo: '/',
       redirectGuestTo: '/signin'

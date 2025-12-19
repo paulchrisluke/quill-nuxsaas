@@ -1105,6 +1105,10 @@ async function executeChatTool(
         result: {
           contentId: insertionResult.content.id,
           versionId: insertionResult.version.id,
+          content: {
+            id: insertionResult.content.id,
+            title: insertionResult.content.title
+          },
           suggestion: insertionResult.suggestion,
           markdown: insertionResult.markdown,
           html: insertionResult.html
