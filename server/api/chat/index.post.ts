@@ -1,3 +1,4 @@
+import type { ReferenceScope } from '~~/server/services/chat/references/types'
 import type { ChatToolInvocation } from '~~/server/services/chat/tools'
 import type { ChatRequestBody } from '~~/server/types/api'
 import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
@@ -6,6 +7,11 @@ import { and, asc, count, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
+import { buildContextBlock } from '~~/server/services/chat/references/contextBuilder'
+import { buildReferenceScope, getReferenceScopeError } from '~~/server/services/chat/references/guard'
+import { loadReferenceContent } from '~~/server/services/chat/references/loader'
+import { parseReferences } from '~~/server/services/chat/references/parser'
+import { resolveReferences } from '~~/server/services/chat/references/resolver'
 import { generateContentFromSource, insertUploadedImage, updateContentSection } from '~~/server/services/content/generation'
 import { suggestImagesForContent } from '~~/server/services/content/generation/imageSuggestions'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
@@ -282,6 +288,7 @@ async function executeChatTool(
     onToolProgress?: (toolCallId: string, message: string) => void
     toolCallId?: string
     conversationMetadata?: Record<string, any> | null
+    referenceScope?: ReferenceScope | null
   }
 ): Promise<ToolExecutionResult> {
   const {
@@ -292,7 +299,8 @@ async function executeChatTool(
     conversationId,
     onToolProgress,
     toolCallId,
-    conversationMetadata
+    conversationMetadata,
+    referenceScope
   } = context
 
   // Import mode enforcement functions
@@ -304,6 +312,14 @@ async function executeChatTool(
       success: false,
       error: getModeEnforcementError(toolInvocation.name)
     }
+  }
+
+  const referenceScopeError = getReferenceScopeError(toolInvocation, {
+    mode,
+    scope: referenceScope ?? undefined
+  })
+  if (referenceScopeError) {
+    return { success: false, error: referenceScopeError }
   }
 
   if (toolInvocation.name === 'read_files') {
@@ -2263,6 +2279,40 @@ export default defineEventHandler(async (event) => {
           // ============================================================================
           const { conversationHistory, contextBlocks } = await loadContextPromise
 
+          let referenceScope: ReferenceScope | null = null
+          let referenceContext: string | null = null
+          try {
+            const tokens = parseReferences(trimmedMessage)
+            if (tokens.length > 0) {
+              const referenceResolution = await resolveReferences(tokens, {
+                db,
+                organizationId,
+                currentContentId: body.contentId ?? null,
+                userId: user.id,
+                mode
+              })
+
+              referenceScope = buildReferenceScope(referenceResolution.resolved)
+
+              const referenceContents = await loadReferenceContent(referenceResolution.resolved, {
+                db,
+                organizationId
+              })
+              referenceContext = buildContextBlock({
+                referenceContents,
+                ambiguous: referenceResolution.ambiguous,
+                unresolved: referenceResolution.unresolved
+              })
+            } else {
+              referenceScope = buildReferenceScope([])
+            }
+          } catch (error) {
+            safeError('[Chat API] Failed to resolve references:', {
+              error: error instanceof Error ? error.message : 'Unknown error'
+            })
+            referenceScope = buildReferenceScope([])
+          }
+
           // ============================================================================
           // OPTIMIZATION: Background intent analysis (don't block streaming)
           // ============================================================================
@@ -2301,6 +2351,7 @@ export default defineEventHandler(async (event) => {
                 conversationHistory,
                 userMessage: trimmedMessage,
                 contextBlocks,
+                referenceContext: referenceContext ?? undefined,
                 onLLMChunk: (chunk: string) => {
                   _currentAssistantMessage += chunk
                   if (!currentMessageId) {
@@ -2393,6 +2444,7 @@ export default defineEventHandler(async (event) => {
                     conversationId: activeConversation.id,
                     event,
                     conversationMetadata: activeConversation.metadata as Record<string, any> | null,
+                    referenceScope,
                     toolCallId,
                     onToolProgress: (toolCallId: string, message: string) => {
                     // Forward progress to SSE stream using the callback if provided

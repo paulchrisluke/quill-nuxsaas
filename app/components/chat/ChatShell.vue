@@ -885,6 +885,8 @@ if (import.meta.client) {
           placeholder="Paste a transcript or describe what you need..."
           :disabled="isBusy || promptSubmitting"
           :status="promptSubmitting ? 'submitted' : uiStatus"
+          :content-id="props.contentId"
+          :mode="mode"
           @submit="handlePromptSubmit"
           @stop="handleStopStreaming"
         >
