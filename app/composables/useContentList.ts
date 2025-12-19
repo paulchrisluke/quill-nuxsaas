@@ -14,19 +14,51 @@ interface FetchResponse {
 }
 
 const DEFAULT_PAGE_SIZE = 30
+const STATE_VERSION = 'v2'
 
 export function useContentList(options?: { pageSize?: number, stateKey?: string, includeArchived?: boolean }) {
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE
   const includeArchived = options?.includeArchived ?? false
-  const baseKey = options?.stateKey ?? `default:${pageSize}:${includeArchived ? 'archived' : 'active'}`
+
+  // Use versioned key for default state to handle breaking changes
+  const baseKey = options?.stateKey ?? `${STATE_VERSION}:default:${pageSize}:${includeArchived ? 'archived' : 'active'}`
   const resolveKey = (segment: string) => `content-list:${baseKey}:${segment}`
 
+  // Initialize new state
   const itemsState = useState<ContentListItem[]>(resolveKey('items'), () => [])
   const cursorState = useState<string | null>(resolveKey('cursor'), () => null)
   const hasMoreState = useState<boolean>(resolveKey('has-more'), () => true)
   const pendingState = useState<boolean>(resolveKey('pending'), () => false)
   const errorState = useState<string | null>(resolveKey('error'), () => null)
   const initializedState = useState<boolean>(resolveKey('initialized'), () => false)
+
+  // Migration: Check for old key format and migrate data if present
+  // Old format: `default:${pageSize}` (without version or active/archived suffix)
+  // Only migrate when using default key (not custom stateKey) and new state is empty
+  if (!options?.stateKey && !initializedState.value && itemsState.value.length === 0) {
+    const oldBaseKey = `default:${pageSize}`
+    const oldResolveKey = (segment: string) => `content-list:${oldBaseKey}:${segment}`
+
+    // Check if old state exists
+    const oldItemsState = useState<ContentListItem[]>(oldResolveKey('items'))
+    const oldCursorState = useState<string | null>(oldResolveKey('cursor'))
+    const oldHasMoreState = useState<boolean>(oldResolveKey('has-more'))
+    const oldInitializedState = useState<boolean>(oldResolveKey('initialized'))
+
+    // Migrate if old state has data
+    if (oldItemsState.value.length > 0 || oldInitializedState.value) {
+      itemsState.value = [...oldItemsState.value]
+      cursorState.value = oldCursorState.value
+      hasMoreState.value = oldHasMoreState.value
+      initializedState.value = oldInitializedState.value
+
+      // Clear old state after migration
+      oldItemsState.value = []
+      oldCursorState.value = null
+      oldHasMoreState.value = true
+      oldInitializedState.value = false
+    }
+  }
 
   const mergeItems = (incoming: ContentListItem[], replace = false) => {
     if (replace) {

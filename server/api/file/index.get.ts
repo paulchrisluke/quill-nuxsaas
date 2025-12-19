@@ -137,6 +137,7 @@ export default defineEventHandler(async (event) => {
         path: schema.file.path,
         url: schema.file.url,
         contentId: schema.file.contentId,
+        isActive: schema.file.isActive,
         createdAt: schema.file.createdAt,
         updatedAt: schema.file.updatedAt
       })
@@ -169,6 +170,7 @@ export default defineEventHandler(async (event) => {
         path: file.path,
         url: file.url,
         contentId: file.contentId,
+        isActive: file.isActive,
         createdAt: file.createdAt instanceof Date ? file.createdAt.toISOString() : file.createdAt,
         updatedAt: file.updatedAt instanceof Date ? file.updatedAt.toISOString() : file.updatedAt
       })),
