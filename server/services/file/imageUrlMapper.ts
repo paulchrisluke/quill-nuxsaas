@@ -1,4 +1,9 @@
-export const normalizeBaseUrl = (value: string) => value.replace(/\/+$/u, '')
+export const normalizeBaseUrl = (value: string) => {
+  if (value == null || typeof value !== 'string') {
+    throw new TypeError(`normalizeBaseUrl expects a string, but received ${value === null ? 'null' : value === undefined ? 'undefined' : typeof value}`)
+  }
+  return value.replace(/\/+$/u, '')
+}
 
 const normalizeUrl = (value: string) => {
   return value.replace(/^https?:\/\//i, '').split(/[?#]/)[0]?.replace(/\/+$/u, '') || ''
@@ -32,6 +37,9 @@ export const resolveStoragePathFromUrl = (src: string, baseUrls: string[]) => {
 }
 
 export const extractImageSourcesFromHtml = (html: string) => {
+  if (typeof html !== 'string' || html.length === 0) {
+    return []
+  }
   const sources: string[] = []
   const regex = /<img[^>]+?\bsrc\s*=\s*(["'])(.*?)\1/gi
   for (const match of html.matchAll(regex)) {

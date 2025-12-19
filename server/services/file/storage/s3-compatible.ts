@@ -66,10 +66,30 @@ export class S3CompatibleStorageProvider implements StorageProvider {
     }
   }
 
+  private encodePath(path: string): string {
+    // Split path by '/', encode each segment, then join back with '/'
+    return path.split('/').map(segment => encodeURIComponent(segment)).join('/')
+  }
+
+  private async getErrorDetails(response: Response): Promise<string> {
+    try {
+      const text = await response.text()
+      return text ? ` - ${text.substring(0, 500)}` : ''
+    } catch {
+      try {
+        const arrayBuffer = await response.arrayBuffer()
+        return arrayBuffer.byteLength > 0 ? ` - [${arrayBuffer.byteLength} bytes]` : ''
+      } catch {
+        return ''
+      }
+    }
+  }
+
   async upload(file: Buffer, fileName: string, mimeType: string): Promise<{ path: string, url?: string }> {
     this.ensureInitialized()
 
-    const url = `${this.endpoint}/${this.bucketName}/${fileName}`
+    const encodedPath = this.encodePath(fileName)
+    const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
 
     const response = await this.client!.fetch(url, {
       method: 'PUT',
@@ -80,8 +100,12 @@ export class S3CompatibleStorageProvider implements StorageProvider {
     })
 
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status} ${response.statusText}`)
+      const errorDetails = await this.getErrorDetails(response)
+      throw new Error(`Upload failed: ${response.status} ${response.statusText}${errorDetails}`)
     }
+
+    // Consume response body on success to release connection
+    await response.arrayBuffer()
 
     return {
       path: fileName,
@@ -92,11 +116,13 @@ export class S3CompatibleStorageProvider implements StorageProvider {
   async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
     this.ensureInitialized()
 
-    const url = `${this.endpoint}/${this.bucketName}/${path}`
+    const encodedPath = this.encodePath(path)
+    const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
     const response = await this.client!.fetch(url)
 
     if (!response.ok) {
-      throw new Error(`Fetch failed: ${response.status} ${response.statusText}`)
+      const errorDetails = await this.getErrorDetails(response)
+      throw new Error(`Fetch failed: ${response.status} ${response.statusText}${errorDetails}`)
     }
 
     const arrayBuffer = await response.arrayBuffer()
@@ -110,11 +136,12 @@ export class S3CompatibleStorageProvider implements StorageProvider {
   async putObject(path: string, bytes: Uint8Array, contentType: string, cacheControl?: string): Promise<void> {
     this.ensureInitialized()
 
-    const url = `${this.endpoint}/${this.bucketName}/${path}`
+    const encodedPath = this.encodePath(path)
+    const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
 
     const response = await this.client!.fetch(url, {
       method: 'PUT',
-      body: bytes,
+      body: bytes as BodyInit,
       headers: {
         'Content-Type': contentType,
         ...(cacheControl ? { 'Cache-Control': cacheControl } : {})
@@ -122,22 +149,31 @@ export class S3CompatibleStorageProvider implements StorageProvider {
     })
 
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status} ${response.statusText}`)
+      const errorDetails = await this.getErrorDetails(response)
+      throw new Error(`Upload failed: ${response.status} ${response.statusText}${errorDetails}`)
     }
+
+    // Consume response body on success to release connection
+    await response.arrayBuffer()
   }
 
   async delete(path: string): Promise<void> {
     this.ensureInitialized()
 
-    const url = `${this.endpoint}/${this.bucketName}/${path}`
+    const encodedPath = this.encodePath(path)
+    const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
 
     const response = await this.client!.fetch(url, {
       method: 'DELETE'
     })
 
     if (!response.ok && response.status !== 404) {
-      throw new Error(`Delete failed: ${response.status} ${response.statusText}`)
+      const errorDetails = await this.getErrorDetails(response)
+      throw new Error(`Delete failed: ${response.status} ${response.statusText}${errorDetails}`)
     }
+
+    // Consume response body on success to release connection
+    await response.arrayBuffer()
   }
 
   getUrl(path: string): string {
@@ -156,11 +192,15 @@ export class S3CompatibleStorageProvider implements StorageProvider {
     this.ensureInitialized()
 
     try {
-      const url = `${this.endpoint}/${this.bucketName}/${path}`
+      const encodedPath = this.encodePath(path)
+      const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
 
       const response = await this.client!.fetch(url, {
         method: 'HEAD'
       })
+
+      // Consume response body to release connection
+      await response.arrayBuffer()
 
       return response.ok
     } catch {

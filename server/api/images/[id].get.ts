@@ -58,7 +58,13 @@ export default defineEventHandler(async (event) => {
   let object
   try {
     object = await provider.getObject(targetPath)
-  } catch {
+  } catch (err) {
+    console.error('[Image API] Error retrieving image from storage provider:', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      error: err,
+      targetPath
+    })
     throw createError({ statusCode: 404, statusMessage: 'Image file not found in storage' })
   }
   const isVariant = Boolean(variant)

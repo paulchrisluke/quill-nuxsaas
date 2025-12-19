@@ -1,10 +1,13 @@
-import { and, eq } from 'drizzle-orm'
-import { setHeader } from 'h3'
+import { and, asc, count, eq } from 'drizzle-orm'
+import { createError, setHeader } from 'h3'
 import { file as fileTable } from '~~/server/db/schema'
 import { useFileManagerConfig } from '~~/server/services/file/fileService'
 import { parseImageVariantMap } from '~~/server/services/file/imageVariantValidation'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { useDB } from '~~/server/utils/db'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
+
+const MAX_ITEMS_PER_SITEMAP = 50000
 
 const xmlEscape = (value: string) => {
   return value
@@ -16,47 +19,178 @@ const xmlEscape = (value: string) => {
 }
 
 export default defineEventHandler(async (event) => {
-  const db = await useDB(event)
-  const config = useFileManagerConfig()
-  const provider = await createStorageProvider(config.storage)
+  try {
+    const db = await useDB(event)
+    const config = useFileManagerConfig()
+    const provider = await createStorageProvider(config.storage)
+    const query = getQuery(event)
+    const page = query.page ? parseInt(String(query.page), 10) : 1
 
-  const files = await db
-    .select()
-    .from(fileTable)
-    .where(and(
-      eq(fileTable.fileType, 'image'),
-      eq(fileTable.isActive, true)
-    ))
-
-  const entries = files.map((record) => {
-    const urls = new Set<string>()
-    const originalUrl = record.url || provider.getUrl(record.path)
-    if (!originalUrl) {
-      return ''
+    if (page < 1 || !Number.isInteger(page)) {
+      throw createError({
+        statusCode: 400,
+        statusMessage: 'Invalid page parameter. Must be a positive integer.'
+      })
     }
-    urls.add(originalUrl)
 
-    const variants = parseImageVariantMap(record.variants)
-    if (variants) {
-      for (const variant of Object.values(variants)) {
-        if (variant?.url) {
-          urls.add(String(variant.url))
-        }
+    const baseUrl = runtimeConfig.public.baseURL
+    const basePath = '/api/sitemap-images.xml'
+
+    // Get total count to determine if we need a sitemap index
+    const [{ value: totalCount }] = await db
+      .select({ value: count() })
+      .from(fileTable)
+      .where(and(
+        eq(fileTable.fileType, 'image'),
+        eq(fileTable.isActive, true)
+      ))
+
+    const totalPages = Math.ceil(totalCount / MAX_ITEMS_PER_SITEMAP)
+
+    // Validate page doesn't exceed total pages
+    if (page > totalPages) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: `Page ${page} does not exist. Maximum page is ${totalPages}.`
+      })
+    }
+
+    // If total exceeds max items per sitemap and page is 1, return sitemap index
+    if (totalCount > MAX_ITEMS_PER_SITEMAP && page === 1) {
+      const sitemapIndexEntries = []
+
+      for (let i = 1; i <= totalPages; i++) {
+        const sitemapUrl = `${baseUrl}${basePath}?page=${i}`
+        sitemapIndexEntries.push(
+          `<sitemap><loc>${xmlEscape(sitemapUrl)}</loc></sitemap>`
+        )
+      }
+
+      const sitemapIndexXml = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${sitemapIndexEntries.join('')}
+</sitemapindex>`
+
+      setHeader(event, 'Content-Type', 'application/xml')
+      setHeader(event, 'Cache-Control', 'public, max-age=3600, s-maxage=3600')
+      return sitemapIndexXml
+    }
+
+    // Calculate pagination
+    const offset = (page - 1) * MAX_ITEMS_PER_SITEMAP
+    const limit = MAX_ITEMS_PER_SITEMAP
+
+    // Fetch paginated files
+    const files = await db
+      .select()
+      .from(fileTable)
+      .where(and(
+        eq(fileTable.fileType, 'image'),
+        eq(fileTable.isActive, true)
+      ))
+      .orderBy(asc(fileTable.createdAt), asc(fileTable.id))
+      .limit(limit)
+      .offset(offset)
+
+    // Helper function to validate and normalize URLs
+    const isValidUrl = (url: unknown): url is string => {
+      if (typeof url !== 'string' || !url.trim()) {
+        return false
+      }
+      try {
+        const parsedUrl = new URL(url.trim())
+        // Validate that the URL has a valid protocol
+        return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:'
+      } catch {
+        return false
       }
     }
 
-    const images = [...urls]
-      .map(url => `<image:image><image:loc>${xmlEscape(url)}</image:loc></image:image>`)
-      .join('')
+    const entries = files.map((record) => {
+      // Get page URL (where the image appears) - use record.url as the page URL
+      let pageUrl: string | null = null
+      if (record.url && isValidUrl(record.url)) {
+        pageUrl = record.url.trim()
+      }
 
-    const loc = xmlEscape(originalUrl)
-    return `<url><loc>${loc}</loc>${images}</url>`
-  }).filter(Boolean)
+      // If no page URL, skip this record (we need a page URL for the <loc>)
+      if (!pageUrl) {
+        return ''
+      }
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+      // Collect all image URLs (from file path and variants)
+      const imageUrls = new Set<string>()
+
+      // Get the main image URL from the file path
+      try {
+        const providerUrl = provider.getUrl(record.path)
+        if (providerUrl && isValidUrl(providerUrl)) {
+          imageUrls.add(providerUrl.trim())
+        }
+      } catch (error) {
+        console.error('[sitemap-images] Failed to get URL from provider for record:', {
+          id: record.id,
+          path: record.path,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        // Continue - we might still have variants
+      }
+
+      // Parse variants with error handling
+      let variants: ReturnType<typeof parseImageVariantMap> = null
+      try {
+        variants = parseImageVariantMap(record.variants)
+      } catch (error) {
+        console.error('[sitemap-images] Failed to parse image variants for record:', {
+          id: record.id,
+          error: error instanceof Error ? error.message : String(error)
+        })
+        // Continue without variants rather than skipping the entire record
+      }
+
+      if (variants) {
+        for (const variant of Object.values(variants)) {
+          if (variant && variant.url && isValidUrl(variant.url)) {
+            imageUrls.add(variant.url.trim())
+          }
+        }
+      }
+
+      // Filter out invalid/empty image URLs and build image elements
+      const imageElements = [...imageUrls]
+        .filter(url => url && url.trim().length > 0)
+        .map(url => `<image:image><image:loc>${xmlEscape(url)}</image:loc></image:image>`)
+        .join('')
+
+      // If no valid image URLs, skip this record
+      if (!imageElements) {
+        return ''
+      }
+
+      // Use page URL for <loc>, image URLs go in <image:image> elements
+      const loc = xmlEscape(pageUrl)
+      return `<url><loc>${loc}</loc>${imageElements}</url>`
+    }).filter(Boolean)
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${entries.join('')}</urlset>`
 
-  setHeader(event, 'Content-Type', 'application/xml')
-  setHeader(event, 'Cache-Control', 'public, max-age=3600, s-maxage=3600')
-  return xml
+    setHeader(event, 'Content-Type', 'application/xml')
+    setHeader(event, 'Cache-Control', 'public, max-age=3600, s-maxage=3600')
+    return xml
+  } catch (error) {
+    // Log error for debugging
+    console.error('[sitemap-images] Error generating sitemap:', error)
+
+    // If it's already an H3 error, rethrow it
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      throw error
+    }
+
+    // Otherwise, return a 500 error
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Internal server error while generating sitemap'
+    })
+  }
 })

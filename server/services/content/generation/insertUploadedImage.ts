@@ -389,8 +389,12 @@ export const insertUploadedImage = async (
   if (isHtmlFormat) {
     // Insert HTML <img> tag for HTML content
     const safeAltText = escapeHtmlAttribute(suggestion.altText ?? '')
-    const dimensions = fileRecord.width && fileRecord.height
-      ? ` width="${fileRecord.width}" height="${fileRecord.height}"`
+    // Validate width and height are finite positive integers
+    const width = Number(fileRecord.width)
+    const height = Number(fileRecord.height)
+    const hasValidDimensions = Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+    const dimensions = hasValidDimensions
+      ? ` width="${width}" height="${height}"`
       : ''
     const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${safeAltText}"${dimensions} loading="lazy" decoding="async" />`
     updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)

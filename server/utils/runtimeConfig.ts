@@ -24,6 +24,10 @@ const assertValidProductionUrl = (value: string) => {
   }
 }
 
+const isValidStorageProvider = (value: string | undefined): value is StorageProviderType => {
+  return value === 'local' || value === 's3' || value === 'r2'
+}
+
 const getAppUrl = (): string => {
   const nodeEnv = process.env.NODE_ENV || 'development'
 
@@ -72,6 +76,52 @@ const tryResolveFromNuxt = () => {
   }
 }
 
+/**
+ * Validates R2 configuration when R2 is selected as the storage provider.
+ * Throws an error in non-development environments or logs a warning in development.
+ */
+function validateR2Config(config: NitroRuntimeConfig) {
+  if (config.fileManager.storage.provider !== 'r2') {
+    return
+  }
+
+  const r2Config = config.fileManager.storage.r2
+  if (!r2Config) {
+    return
+  }
+
+  const missingFields: string[] = []
+
+  if (!r2Config.accountId || r2Config.accountId.trim() === '') {
+    missingFields.push('NUXT_CF_ACCOUNT_ID')
+  }
+  if (!r2Config.accessKeyId || r2Config.accessKeyId.trim() === '') {
+    missingFields.push('NUXT_CF_ACCESS_KEY_ID')
+  }
+  if (!r2Config.secretAccessKey || r2Config.secretAccessKey.trim() === '') {
+    missingFields.push('NUXT_CF_SECRET_ACCESS_KEY')
+  }
+  if (!r2Config.bucketName || r2Config.bucketName.trim() === '') {
+    missingFields.push('NUXT_CF_R2_BUCKET_NAME')
+  }
+
+  if (missingFields.length > 0) {
+    const nodeEnv = process.env.NODE_ENV || 'development'
+    const isDevelopment = nodeEnv === 'development'
+
+    const missingVarsList = missingFields.join(', ')
+    const message = `R2 storage provider is configured but required environment variables are missing: ${missingVarsList}. ` +
+      `Please set these variables in your environment configuration. ` +
+      `See configuration documentation for details.`
+
+    if (isDevelopment) {
+      console.warn(`[R2 Config Validation] ${message}`)
+    } else {
+      throw new Error(`[R2 Config Validation] ${message}`)
+    }
+  }
+}
+
 export const generateRuntimeConfig = () => {
   const parsedAllowedMimeTypes = (process.env.NUXT_FILE_ALLOWED_MIME_TYPES || '')
     .split(',')
@@ -98,7 +148,7 @@ export const generateRuntimeConfig = () => {
   const allowedMimeTypes = (parsedAllowedMimeTypes.length > 0 ? parsedAllowedMimeTypes : defaultAllowedMimeTypes)
     .filter((value, index, array) => array.indexOf(value) === index)
 
-  return {
+  const config = {
     preset: process.env.NUXT_NITRO_PRESET,
     betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
     // Feature Flags
@@ -146,7 +196,10 @@ export const generateRuntimeConfig = () => {
     databaseUrl: process.env.DATABASE_URL,
     // File
     fileManager: {
-      maxFileSize: Number.parseInt(process.env.NUXT_FILE_MAX_SIZE ?? '', 10) || 10 * 1024 * 1024,
+      maxFileSize: (() => {
+        const parsed = Number.parseInt(process.env.NUXT_FILE_MAX_SIZE ?? '', 10)
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 10 * 1024 * 1024
+      })(),
       allowedMimeTypes,
       image: {
         sizes: (process.env.NUXT_IMAGE_SIZES || '150,400,800,1200,1600')
@@ -170,7 +223,16 @@ export const generateRuntimeConfig = () => {
         altTextPlaceholder: process.env.NUXT_IMAGE_ALT_TEXT_PLACEHOLDER || 'TODO: describe image'
       },
       storage: {
-        provider: process.env.NUXT_APP_STORAGE as StorageProviderType || 'r2',
+        provider: (() => {
+          const envValue = process.env.NUXT_APP_STORAGE
+          if (isValidStorageProvider(envValue)) {
+            return envValue
+          }
+          if (envValue) {
+            console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 's3', 'r2'. Falling back to 'r2'.`)
+          }
+          return 'r2' as StorageProviderType
+        })(),
         local: { // provider: 'local'
           uploadDir: process.env.NUXT_LOCAL_UPLOAD_DIR || './uploads',
           publicPath: process.env.NUXT_LOCAL_PUBLIC_PATH || '/uploads'
@@ -203,6 +265,11 @@ export const generateRuntimeConfig = () => {
       }
     }
   }
+
+  // Validate R2 configuration if R2 is the selected storage provider
+  validateR2Config(config as NitroRuntimeConfig)
+
+  return config
 }
 
 const resolveRuntimeConfig = () => {

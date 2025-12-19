@@ -32,7 +32,9 @@ export const file = pgTable('file', {
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, table => ({
   organizationIdx: index('file_organization_idx').on(table.organizationId),
-  organizationActiveIdx: index('file_organization_active_idx').on(table.organizationId, table.isActive)
+  organizationActiveIdx: index('file_organization_active_idx').on(table.organizationId, table.isActive),
+  optimizationStatusIdx: index('file_optimization_status_idx').on(table.optimizationStatus),
+  optimizationStatusCreatedAtIdx: index('file_optimization_status_created_at_idx').on(table.optimizationStatus, table.createdAt)
 }))
 
 export const fileRelations = relations(file, ({ one }) => ({
