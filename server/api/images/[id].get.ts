@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { createError, getHeader, getQuery, getRouterParams, setHeader } from 'h3'
+import { createError, getQuery, getRouterParams, setHeader } from 'h3'
 import { file as fileTable } from '~~/server/db/schema'
 import { useFileManagerConfig } from '~~/server/services/file/fileService'
 import { getCacheControlHeader, parseProxyParams, selectVariant } from '~~/server/services/file/imageProxy'
@@ -30,27 +30,33 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Image not found' })
   }
 
-  // If the requester has an active session/org, enforce org ownership (prevents cross-org ID guessing).
-  const hasAuthSignal = Boolean(getHeader(event, 'cookie') || getHeader(event, 'authorization'))
-  if (hasAuthSignal) {
-    try {
-      const session = await getAuthSession(event)
-      const organizationId = session?.session?.activeOrganizationId
-        ?? session?.data?.session?.activeOrganizationId
-        ?? session?.activeOrganizationId
-        ?? null
-      if (organizationId && record.organizationId && record.organizationId !== organizationId) {
-        throw createError({ statusCode: 404, statusMessage: 'Image not found' })
-      }
-    } catch {
-      // If auth resolution fails, fall back to public behavior.
+  let requesterOrgId: string | null = null
+  try {
+    const session = await getAuthSession(event)
+    requesterOrgId = session?.session?.activeOrganizationId
+      ?? session?.data?.session?.activeOrganizationId
+      ?? session?.activeOrganizationId
+      ?? null
+  } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error && (error as any).statusCode === 404) {
+      throw error
     }
+    // Swallow auth resolution failures to keep proxy functional for public assets.
+  }
+
+  if (requesterOrgId && record.organizationId && record.organizationId !== requesterOrgId) {
+    throw createError({ statusCode: 404, statusMessage: 'Image not found' })
   }
 
   const variants = parseImageVariantMap(record.variants)
   const variant = selectVariant(variants, width, format)
   const targetPath = variant?.path || record.path
-  const object = await provider.getObject(targetPath)
+  let object
+  try {
+    object = await provider.getObject(targetPath)
+  } catch {
+    throw createError({ statusCode: 404, statusMessage: 'Image file not found in storage' })
+  }
   const isVariant = Boolean(variant)
 
   setHeader(event, 'Content-Type', variant?.mime || record.mimeType || object.contentType || 'application/octet-stream')

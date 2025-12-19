@@ -1,4 +1,5 @@
-DO $$ BEGIN
+DO $$
+BEGIN
   CREATE TYPE "file_optimization_status" AS ENUM ('pending', 'processing', 'done', 'failed');
 EXCEPTION
   WHEN duplicate_object THEN null;
@@ -12,4 +13,10 @@ ALTER TABLE "file"
   ADD COLUMN IF NOT EXISTS "variants" jsonb,
   ADD COLUMN IF NOT EXISTS "optimization_status" "file_optimization_status" DEFAULT 'pending' NOT NULL,
   ADD COLUMN IF NOT EXISTS "optimization_error" text,
-  ADD COLUMN IF NOT EXISTS "optimized_at" timestamp;
+  ADD COLUMN IF NOT EXISTS "optimized_at" timestamp,
+  ADD COLUMN IF NOT EXISTS "optimization_started_at" timestamp;
+--> statement-breakpoint
+
+UPDATE "file"
+SET "optimization_status" = 'done'
+WHERE "optimization_status" = 'pending';

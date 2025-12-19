@@ -176,11 +176,11 @@ export const generateRuntimeConfig = () => {
           publicPath: process.env.NUXT_LOCAL_PUBLIC_PATH || '/uploads'
         },
         r2: { // provider: 'r2'
-          accountId: process.env.NUXT_CF_ACCOUNT_ID!,
-          accessKeyId: process.env.NUXT_CF_ACCESS_KEY_ID!,
-          secretAccessKey: process.env.NUXT_CF_SECRET_ACCESS_KEY!,
-          bucketName: process.env.NUXT_CF_R2_BUCKET_NAME!,
-          publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL!
+          accountId: process.env.NUXT_CF_ACCOUNT_ID ?? '',
+          accessKeyId: process.env.NUXT_CF_ACCESS_KEY_ID ?? '',
+          secretAccessKey: process.env.NUXT_CF_SECRET_ACCESS_KEY ?? '',
+          bucketName: process.env.NUXT_CF_R2_BUCKET_NAME ?? '',
+          publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL ?? ''
         }
       },
       uploadRateLimit: {

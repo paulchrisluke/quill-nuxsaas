@@ -4,7 +4,7 @@ import { decode as decodeJpeg } from '@jsquash/jpeg'
 import { decode as decodePng } from '@jsquash/png'
 import resize from '@jsquash/resize'
 import { decode as decodeWebp, encode as encodeWebp } from '@jsquash/webp'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, lt, or } from 'drizzle-orm'
 import { file as fileTable } from '~~/server/db/schema'
 import { useDB } from '~~/server/utils/db'
 import { useFileManagerConfig } from './fileService'
@@ -20,6 +20,7 @@ const SUPPORTED_MIME_DECODERS = new Map<string, (bytes: Uint8Array) => Promise<I
 ])
 
 const SUPPORTED_OUTPUT_FORMATS = new Set(['webp', 'avif'])
+const STALE_PROCESSING_MINUTES = 10
 
 const toUint8Array = (input: Uint8Array | ArrayBuffer) => {
   return input instanceof Uint8Array ? input : new Uint8Array(input)
@@ -349,7 +350,11 @@ export async function optimizeImageInBackground(fileId: string) {
     return
   }
 
-  if (record.optimizationStatus === 'processing') {
+  const staleProcessingCutoff = new Date(Date.now() - STALE_PROCESSING_MINUTES * 60 * 1000)
+  const isStaleProcessing = record.optimizationStatus === 'processing'
+    && record.optimizationStartedAt
+    && record.optimizationStartedAt < staleProcessingCutoff
+  if (record.optimizationStatus === 'processing' && !isStaleProcessing) {
     return
   }
 
@@ -362,20 +367,29 @@ export async function optimizeImageInBackground(fileId: string) {
       .set({
         optimizationStatus: 'done',
         optimizationError: null,
-        optimizedAt: new Date()
+        optimizedAt: new Date(),
+        optimizationStartedAt: null
       })
       .where(eq(fileTable.id, fileId))
     return
   }
 
+  const leaseStartedAt = new Date()
   const [lease] = await db.update(fileTable)
     .set({
       optimizationStatus: 'processing',
-      optimizationError: null
+      optimizationError: null,
+      optimizationStartedAt: leaseStartedAt
     })
     .where(and(
       eq(fileTable.id, fileId),
-      inArray(fileTable.optimizationStatus, ['pending', 'failed'])
+      or(
+        inArray(fileTable.optimizationStatus, ['pending', 'failed']),
+        and(
+          eq(fileTable.optimizationStatus, 'processing'),
+          lt(fileTable.optimizationStartedAt, staleProcessingCutoff)
+        )
+      )
     ))
     .returning({ id: fileTable.id })
 
@@ -393,7 +407,8 @@ export async function optimizeImageInBackground(fileId: string) {
         height,
         optimizationStatus: 'done',
         optimizationError: null,
-        optimizedAt: new Date()
+        optimizedAt: new Date(),
+        optimizationStartedAt: null
       })
       .where(eq(fileTable.id, fileId))
     return
@@ -413,7 +428,8 @@ export async function optimizeImageInBackground(fileId: string) {
         height: dimensions?.height ?? null,
         optimizationStatus: 'done',
         optimizationError: null,
-        optimizedAt: new Date()
+        optimizedAt: new Date(),
+        optimizationStartedAt: null
       })
       .where(eq(fileTable.id, fileId))
     return
@@ -424,7 +440,8 @@ export async function optimizeImageInBackground(fileId: string) {
     await db.update(fileTable)
       .set({
         optimizationStatus: 'failed',
-        optimizationError: `Unsupported image mime type: ${record.mimeType}`
+        optimizationError: `Unsupported image mime type: ${record.mimeType}`,
+        optimizationStartedAt: null
       })
       .where(eq(fileTable.id, fileId))
     return
@@ -474,14 +491,16 @@ export async function optimizeImageInBackground(fileId: string) {
         variants,
         optimizationStatus: 'done',
         optimizationError: null,
-        optimizedAt: new Date()
+        optimizedAt: new Date(),
+        optimizationStartedAt: null
       })
       .where(and(eq(fileTable.id, fileId), eq(fileTable.isActive, true)))
   } catch (error) {
     await db.update(fileTable)
       .set({
         optimizationStatus: 'failed',
-        optimizationError: error instanceof Error ? error.message : 'Image optimization failed'
+        optimizationError: error instanceof Error ? error.message : 'Image optimization failed',
+        optimizationStartedAt: null
       })
       .where(eq(fileTable.id, fileId))
   }

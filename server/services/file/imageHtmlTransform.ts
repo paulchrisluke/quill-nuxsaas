@@ -38,7 +38,7 @@ const normalizeSizes = (sizes: number[]) => {
 }
 
 export async function transformHtmlImages(html: string, options?: { organizationId?: string }) {
-  if (!html || !html.includes('<img')) {
+  if (!html || !/<img\b/i.test(html)) {
     return html
   }
 

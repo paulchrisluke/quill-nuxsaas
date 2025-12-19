@@ -10,14 +10,20 @@ const isImageVariant = (value: unknown): value is ImageVariant => {
   }
 
   return typeof value.path === 'string'
+    && value.path.length > 0
     && typeof value.url === 'string'
+    && value.url.length > 0
     && typeof value.width === 'number'
     && Number.isFinite(value.width)
+    && value.width > 0
     && typeof value.height === 'number'
     && Number.isFinite(value.height)
+    && value.height > 0
     && typeof value.bytes === 'number'
     && Number.isFinite(value.bytes)
+    && value.bytes > 0
     && typeof value.mime === 'string'
+    && value.mime.length > 0
 }
 
 export const parseImageVariantMap = (value: unknown): ImageVariantMap | null => {

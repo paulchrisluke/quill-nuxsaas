@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { setHeader } from 'h3'
 import { file as fileTable } from '~~/server/db/schema'
 import { useFileManagerConfig } from '~~/server/services/file/fileService'
+import { parseImageVariantMap } from '~~/server/services/file/imageVariantValidation'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { useDB } from '~~/server/utils/db'
 
@@ -30,16 +31,22 @@ export default defineEventHandler(async (event) => {
   const entries = files.map((record) => {
     const urls = new Set<string>()
     const originalUrl = record.url || provider.getUrl(record.path)
-    if (originalUrl) {
-      urls.add(originalUrl)
+    if (!originalUrl) {
+      return ''
     }
-    const variants = record.variants as Record<string, any> | null
+    urls.add(originalUrl)
+
+    const variants = parseImageVariantMap(record.variants)
     if (variants) {
       for (const variant of Object.values(variants)) {
         if (variant?.url) {
           urls.add(String(variant.url))
         }
       }
+    }
+
+    if (urls.size === 0) {
+      return ''
     }
 
     const images = [...urls]
@@ -50,7 +57,7 @@ export default defineEventHandler(async (event) => {
       return ''
     }
 
-    const loc = xmlEscape(originalUrl || provider.getUrl(record.path))
+    const loc = xmlEscape(originalUrl)
     return `<url><loc>${loc}</loc>${images}</url>`
   }).filter(Boolean)
 

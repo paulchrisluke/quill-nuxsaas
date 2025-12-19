@@ -1,20 +1,22 @@
 import type { Buffer } from 'node:buffer'
 import type { StorageProvider } from '../types'
 import { promises as fs } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, resolve as resolvePath, sep } from 'node:path'
 
 export class LocalStorageProvider implements StorageProvider {
   name = 'local'
-  private uploadDir: string
+  private baseDir: string
+  private baseDirWithSep: string
   private publicPath: string
 
   constructor(uploadDir: string, publicPath: string) {
-    this.uploadDir = uploadDir
+    this.baseDir = resolvePath(uploadDir)
+    this.baseDirWithSep = this.baseDir.endsWith(sep) ? this.baseDir : `${this.baseDir}${sep}`
     this.publicPath = publicPath
   }
 
   async upload(file: Buffer, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
-    const filePath = join(this.uploadDir, fileName)
+    const filePath = this.resolvePathSafe(fileName)
     const dir = dirname(filePath)
 
     await fs.mkdir(dir, { recursive: true })
@@ -26,21 +28,29 @@ export class LocalStorageProvider implements StorageProvider {
     }
   }
 
+  private resolvePathSafe(path: string) {
+    const resolvedPath = resolvePath(this.baseDir, path)
+    if (resolvedPath === this.baseDir || resolvedPath.startsWith(this.baseDirWithSep)) {
+      return resolvedPath
+    }
+    throw new Error('Invalid path: path traversal detected')
+  }
+
   async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
-    const filePath = join(this.uploadDir, path)
+    const filePath = this.resolvePathSafe(path)
     const data = await fs.readFile(filePath)
     return { bytes: new Uint8Array(data), contentType: null, cacheControl: null }
   }
 
   async putObject(path: string, bytes: Uint8Array, _contentType: string, _cacheControl?: string): Promise<void> {
-    const filePath = join(this.uploadDir, path)
+    const filePath = this.resolvePathSafe(path)
     const dir = dirname(filePath)
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(filePath, bytes)
   }
 
   async delete(path: string): Promise<void> {
-    const filePath = join(this.uploadDir, path)
+    const filePath = this.resolvePathSafe(path)
     try {
       await fs.unlink(filePath)
     } catch (error) {
@@ -56,7 +66,7 @@ export class LocalStorageProvider implements StorageProvider {
 
   async exists(path: string): Promise<boolean> {
     try {
-      const filePath = join(this.uploadDir, path)
+      const filePath = this.resolvePathSafe(path)
       await fs.access(filePath)
       return true
     } catch {

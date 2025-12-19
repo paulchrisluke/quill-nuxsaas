@@ -20,6 +20,7 @@ export const file = pgTable('file', {
   optimizationStatus: fileOptimizationStatusEnum('optimization_status').default('pending').notNull(),
   optimizationError: text('optimization_error'),
   optimizedAt: timestamp('optimized_at'),
+  optimizationStartedAt: timestamp('optimization_started_at'),
   path: text('path').notNull(),
   url: text('url'),
   storageProvider: text('storage_provider').notNull(),

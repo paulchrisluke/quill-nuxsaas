@@ -8,7 +8,10 @@ const rootDir = fileURLToPath(new URL('./', import.meta.url))
 const resolvePnpmDepEntry = (packageName: string, entryRelativePath: string) => {
   try {
     const pnpmDir = join(rootDir, 'node_modules/.pnpm')
-    const match = readdirSync(pnpmDir).find(name => name.startsWith(`${packageName}@`))
+    const entries = readdirSync(pnpmDir)
+      .filter(name => name.startsWith(`${packageName}@`))
+      .sort()
+    const match = entries[0]
     if (!match) {
       return null
     }
