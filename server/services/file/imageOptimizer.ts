@@ -4,7 +4,7 @@ import { decode as decodeJpeg } from '@jsquash/jpeg'
 import { decode as decodePng } from '@jsquash/png'
 import resize from '@jsquash/resize'
 import { decode as decodeWebp, encode as encodeWebp } from '@jsquash/webp'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { file as fileTable } from '~~/server/db/schema'
 import { useDB } from '~~/server/utils/db'
 import { useFileManagerConfig } from './fileService'
@@ -34,6 +34,96 @@ const toBase64 = (bytes: Uint8Array) => {
     return btoa(binary)
   }
   throw new Error('Base64 encoding not supported in this runtime.')
+}
+
+const parseGifDimensions = (bytes: Uint8Array): { width: number, height: number } | null => {
+  const byte = (index: number) => bytes[index] ?? 0
+
+  if (bytes.length < 10) {
+    return null
+  }
+  if (byte(0) !== 0x47 || byte(1) !== 0x49 || byte(2) !== 0x46) { // GIF
+    return null
+  }
+  const width = byte(6) + (byte(7) << 8)
+  const height = byte(8) + (byte(9) << 8)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null
+  }
+  return { width, height }
+}
+
+const isAnimatedGif = (bytes: Uint8Array): boolean => {
+  const byte = (index: number) => bytes[index] ?? 0
+
+  if (bytes.length < 14) {
+    return false
+  }
+  if (byte(0) !== 0x47 || byte(1) !== 0x49 || byte(2) !== 0x46) { // GIF
+    return false
+  }
+
+  let offset = 13
+  const packed = byte(10)
+  const hasGlobalColorTable = (packed & 0x80) !== 0
+  if (hasGlobalColorTable) {
+    const sizeBits = packed & 0x07
+    const colorTableBytes = 3 * (2 ** (sizeBits + 1))
+    offset += colorTableBytes
+  }
+
+  let frames = 0
+  while (offset < bytes.length) {
+    const blockId = byte(offset)
+    if (blockId === 0x3B) { // trailer
+      break
+    }
+
+    if (blockId === 0x21) { // extension
+      offset += 2 // 0x21 + label
+      while (offset < bytes.length) {
+        const size = byte(offset)
+        offset += 1
+        if (size === 0) {
+          break
+        }
+        offset += size
+      }
+      continue
+    }
+
+    if (blockId === 0x2C) { // image descriptor (frame)
+      frames += 1
+      if (frames > 1) {
+        return true
+      }
+      if (offset + 10 > bytes.length) {
+        break
+      }
+      const localPacked = byte(offset + 9)
+      offset += 10
+      const hasLocalColorTable = (localPacked & 0x80) !== 0
+      if (hasLocalColorTable) {
+        const sizeBits = localPacked & 0x07
+        const colorTableBytes = 3 * (2 ** (sizeBits + 1))
+        offset += colorTableBytes
+      }
+      offset += 1 // LZW minimum code size
+      while (offset < bytes.length) {
+        const size = byte(offset)
+        offset += 1
+        if (size === 0) {
+          break
+        }
+        offset += size
+      }
+      continue
+    }
+
+    break
+  }
+
+  return false
 }
 
 const buildVariantPath = (path: string, width: number, format: string) => {
@@ -71,16 +161,18 @@ const encodeVariant = async (format: string, image: ImageDataLike, quality: numb
 }
 
 const getExifOrientation = (bytes: Uint8Array): number | null => {
+  const byte = (index: number) => bytes[index] ?? 0
+
   if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
     return null
   }
 
   let offset = 2
   while (offset + 1 < bytes.length) {
-    if (bytes[offset] !== 0xFF) {
+    if (byte(offset) !== 0xFF) {
       break
     }
-    const marker = bytes[offset + 1]
+    const marker = byte(offset + 1)
     offset += 2
     if (marker === 0xDA) {
       break
@@ -89,29 +181,29 @@ const getExifOrientation = (bytes: Uint8Array): number | null => {
       if (offset + 1 >= bytes.length) {
         break
       }
-      const length = (bytes[offset] << 8) + bytes[offset + 1]
+      const length = (byte(offset) << 8) + byte(offset + 1)
       const segmentStart = offset + 2
       const segmentEnd = segmentStart + length - 2
       if (segmentEnd > bytes.length) {
         break
       }
       if (
-        bytes[segmentStart] === 0x45
-        && bytes[segmentStart + 1] === 0x78
-        && bytes[segmentStart + 2] === 0x69
-        && bytes[segmentStart + 3] === 0x66
+        byte(segmentStart) === 0x45
+        && byte(segmentStart + 1) === 0x78
+        && byte(segmentStart + 2) === 0x69
+        && byte(segmentStart + 3) === 0x66
       ) {
         const tiffOffset = segmentStart + 6
-        const littleEndian = bytes[tiffOffset] === 0x49 && bytes[tiffOffset + 1] === 0x49
+        const littleEndian = byte(tiffOffset) === 0x49 && byte(tiffOffset + 1) === 0x49
         const getShort = (index: number) => {
           return littleEndian
-            ? bytes[index] + (bytes[index + 1] << 8)
-            : (bytes[index] << 8) + bytes[index + 1]
+            ? byte(index) + (byte(index + 1) << 8)
+            : (byte(index) << 8) + byte(index + 1)
         }
         const getLong = (index: number) => {
           return littleEndian
-            ? (bytes[index]) + (bytes[index + 1] << 8) + (bytes[index + 2] << 16) + (bytes[index + 3] << 24)
-            : (bytes[index] << 24) + (bytes[index + 1] << 16) + (bytes[index + 2] << 8) + bytes[index + 3]
+            ? byte(index) + (byte(index + 1) << 8) + (byte(index + 2) << 16) + (byte(index + 3) << 24)
+            : (byte(index) << 24) + (byte(index + 1) << 16) + (byte(index + 2) << 8) + byte(index + 3)
         }
         const firstIFDOffset = getLong(tiffOffset + 4)
         if (!firstIFDOffset) {
@@ -141,7 +233,7 @@ const getExifOrientation = (bytes: Uint8Array): number | null => {
     if (offset + 1 >= bytes.length) {
       break
     }
-    const size = (bytes[offset] << 8) + bytes[offset + 1]
+    const size = (byte(offset) << 8) + byte(offset + 1)
     offset += size
   }
 
@@ -161,10 +253,10 @@ const applyExifOrientation = (image: ImageDataLike, orientation: number | null):
 
   const setPixel = (x: number, y: number, idx: number) => {
     const outIndex = (y * outputWidth + x) * 4
-    output[outIndex] = data[idx]
-    output[outIndex + 1] = data[idx + 1]
-    output[outIndex + 2] = data[idx + 2]
-    output[outIndex + 3] = data[idx + 3]
+    output[outIndex] = data[idx]!
+    output[outIndex + 1] = data[idx + 1]!
+    output[outIndex + 2] = data[idx + 2]!
+    output[outIndex + 3] = data[idx + 3]!
   }
 
   for (let y = 0; y < height; y++) {
@@ -257,6 +349,10 @@ export async function optimizeImageInBackground(fileId: string) {
     return
   }
 
+  if (record.optimizationStatus === 'processing') {
+    return
+  }
+
   if (record.optimizationStatus === 'done' && record.variants) {
     return
   }
@@ -269,6 +365,21 @@ export async function optimizeImageInBackground(fileId: string) {
         optimizedAt: new Date()
       })
       .where(eq(fileTable.id, fileId))
+    return
+  }
+
+  const [lease] = await db.update(fileTable)
+    .set({
+      optimizationStatus: 'processing',
+      optimizationError: null
+    })
+    .where(and(
+      eq(fileTable.id, fileId),
+      inArray(fileTable.optimizationStatus, ['pending', 'failed'])
+    ))
+    .returning({ id: fileTable.id })
+
+  if (!lease) {
     return
   }
 
@@ -288,6 +399,26 @@ export async function optimizeImageInBackground(fileId: string) {
     return
   }
 
+  if (record.mimeType === 'image/gif') {
+    const original = await provider.getObject(record.path)
+    const bytes = toUint8Array(original.bytes)
+    const dimensions = parseGifDimensions(bytes)
+    // Always skip GIF optimization for MVP (animated GIFs must not be flattened).
+    // We still detect animation for future observability/feature work.
+    void isAnimatedGif(bytes)
+
+    await db.update(fileTable)
+      .set({
+        width: dimensions?.width ?? null,
+        height: dimensions?.height ?? null,
+        optimizationStatus: 'done',
+        optimizationError: null,
+        optimizedAt: new Date()
+      })
+      .where(eq(fileTable.id, fileId))
+    return
+  }
+
   const decoder = SUPPORTED_MIME_DECODERS.get(record.mimeType)
   if (!decoder) {
     await db.update(fileTable)
@@ -298,13 +429,6 @@ export async function optimizeImageInBackground(fileId: string) {
       .where(eq(fileTable.id, fileId))
     return
   }
-
-  await db.update(fileTable)
-    .set({
-      optimizationStatus: 'processing',
-      optimizationError: null
-    })
-    .where(eq(fileTable.id, fileId))
 
   try {
     const original = await provider.getObject(record.path)

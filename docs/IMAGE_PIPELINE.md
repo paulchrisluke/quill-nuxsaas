@@ -11,6 +11,7 @@ Environment overrides:
 - `NUXT_IMAGE_SIZES` (comma-separated widths, default `150,400,800,1200,1600`)
 - `NUXT_IMAGE_FORMATS` (`webp`, optionally `avif`)
 - `NUXT_IMAGE_QUALITY` (integer, default `80`)
+- `NUXT_IMAGE_MAX_PROXY_WIDTH` (integer, default `2000`)
 - `NUXT_IMAGE_ENABLE_PROXY` (`true`/`false`, default `true`)
 - `NUXT_IMAGE_REQUIRE_ALT_TEXT` (`true`/`false`, default `false`)
 - `NUXT_IMAGE_ALT_TEXT_PLACEHOLDER` (default `TODO: describe image`)

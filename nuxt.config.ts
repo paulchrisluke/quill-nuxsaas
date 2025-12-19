@@ -21,7 +21,7 @@ export default defineNuxtConfig({
     '@nuxtjs/i18n',
     '@nuxtjs/seo',
     ...(process.env.NODE_ENV === 'test' ? ['@nuxt/test-utils/module'] : []),
-    '@nuxthub/core'
+    ...(process.env.NODE_ENV === 'test' ? [] : ['@nuxthub/core'])
   ],
   mdc: {
     highlight: {}

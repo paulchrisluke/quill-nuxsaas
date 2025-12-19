@@ -41,6 +41,7 @@ export interface FileManagerConfig {
     sizes?: number[]
     formats?: Array<'webp' | 'avif'>
     quality?: number
+    maxProxyWidth?: number
     enableProxy?: boolean
     requireAltText?: boolean
     altTextPlaceholder?: string

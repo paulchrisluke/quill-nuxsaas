@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "test": "vitest run --silent=false",
+    "test:unit": "vitest run --config vitest.unit.config.ts --silent=false",
     "test:chat": "vitest run tests/integration/chat.test.ts tests/e2e/chat-codex.test.ts",
     "test:chat-manual": "pnpm dlx tsx tests/manual/chat-runner.ts",
     "test:chat-custom": "pnpm dlx tsx tests/manual/chat-runner.ts custom",

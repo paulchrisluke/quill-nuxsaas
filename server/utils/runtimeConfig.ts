@@ -161,6 +161,10 @@ export const generateRuntimeConfig = () => {
           const parsed = Number.parseInt(process.env.NUXT_IMAGE_QUALITY ?? '', 10)
           return Number.isFinite(parsed) ? parsed : 80
         })(),
+        maxProxyWidth: (() => {
+          const parsed = Number.parseInt(process.env.NUXT_IMAGE_MAX_PROXY_WIDTH ?? '', 10)
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : 2000
+        })(),
         enableProxy: process.env.NUXT_IMAGE_ENABLE_PROXY !== 'false',
         requireAltText: process.env.NUXT_IMAGE_REQUIRE_ALT_TEXT === 'true',
         altTextPlaceholder: process.env.NUXT_IMAGE_ALT_TEXT_PLACEHOLDER || 'TODO: describe image'

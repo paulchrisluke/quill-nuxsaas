@@ -124,7 +124,7 @@ export async function getContentWorkspacePayload(
   let renderedHtml: string | null = null
   if (currentVersion?.bodyHtml) {
     try {
-      renderedHtml = await transformHtmlImages(currentVersion.bodyHtml)
+      renderedHtml = await transformHtmlImages(currentVersion.bodyHtml, { organizationId })
     } catch (error) {
       console.warn('[workspace] Failed to transform images in HTML', { error })
       renderedHtml = currentVersion.bodyHtml

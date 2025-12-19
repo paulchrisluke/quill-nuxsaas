@@ -37,8 +37,14 @@ const normalizeSizes = (sizes: number[]) => {
   return [...new Set(sizes)].filter(size => size > 0).sort((a, b) => a - b)
 }
 
-export async function transformHtmlImages(html: string) {
+export async function transformHtmlImages(html: string, options?: { organizationId?: string }) {
   if (!html || !html.includes('<img')) {
+    return html
+  }
+
+  const organizationId = options?.organizationId?.trim()
+  if (!organizationId) {
+    // Safety default: without org context, do not rewrite HTML.
     return html
   }
 
@@ -76,6 +82,7 @@ export async function transformHtmlImages(html: string) {
     .from(fileTable)
     .where(and(
       eq(fileTable.isActive, true),
+      eq(fileTable.organizationId, organizationId),
       inArray(fileTable.path, uniquePaths)
     ))
 
@@ -93,6 +100,9 @@ export async function transformHtmlImages(html: string) {
     if (!src) {
       return tag
     }
+    if (src.startsWith('/api/images/')) {
+      return tag
+    }
     const resolvedPath = resolveStoragePathFromUrl(src, [...baseUrls])
     if (!resolvedPath) {
       return tag
@@ -102,22 +112,33 @@ export async function transformHtmlImages(html: string) {
       return tag
     }
 
-    const originalUrl = record.url || storage.getUrl(record.path)
-    const width = record.width
-    const height = record.height
-    const alt = attrs.alt || ''
-    const className = attrs.class ? `class="${escapeAttribute(attrs.class)}"` : ''
-    const sizesAttrValue = sizes.length > 0 ? '100vw' : null
+    const proxyBase = `/api/images/${record.id}`
+    const resolvedAlt = (attrs.alt || '').trim()
+    const sizesAttrValue = (attrs.sizes || '').trim() || (sizes.length > 0 ? '100vw' : '')
 
-    const imgAttrs = [
-      `src="${escapeAttribute(originalUrl)}"`,
-      alt ? `alt="${escapeAttribute(alt)}"` : 'alt=""',
-      width ? `width="${width}"` : '',
-      height ? `height="${height}"` : '',
-      'loading="lazy"',
-      'decoding="async"',
-      className ? className.trim() : '',
-      sizesAttrValue ? `sizes="${sizesAttrValue}"` : ''
+    const imgAttrs: Record<string, string> = { ...attrs }
+    delete imgAttrs.src
+    delete imgAttrs.srcset
+    delete imgAttrs.sizes
+
+    imgAttrs.alt = resolvedAlt || ''
+    if (!imgAttrs.loading) {
+      imgAttrs.loading = 'lazy'
+    }
+    if (!imgAttrs.decoding) {
+      imgAttrs.decoding = 'async'
+    }
+    if (!imgAttrs.width && record.width) {
+      imgAttrs.width = String(record.width)
+    }
+    if (!imgAttrs.height && record.height) {
+      imgAttrs.height = String(record.height)
+    }
+
+    const imgAttrString = [
+      `src="${escapeAttribute(proxyBase)}"`,
+      sizesAttrValue ? `sizes="${escapeAttribute(sizesAttrValue)}"` : '',
+      ...Object.entries(imgAttrs).map(([key, value]) => `${key}="${escapeAttribute(value)}"`)
     ].filter(Boolean).join(' ')
 
     const sourcesMarkup = formats.map((format) => {
@@ -126,9 +147,9 @@ export async function transformHtmlImages(html: string) {
         return ''
       }
       const mime = format === 'avif' ? 'image/avif' : 'image/webp'
-      return `<source type="${mime}" srcset="${escapeAttribute(srcset)}"${sizesAttrValue ? ` sizes="${sizesAttrValue}"` : ''}>`
+      return `<source type="${mime}" srcset="${escapeAttribute(srcset)}"${sizesAttrValue ? ` sizes="${escapeAttribute(sizesAttrValue)}"` : ''}>`
     }).filter(Boolean).join('')
 
-    return `<picture>${sourcesMarkup}<img ${imgAttrs}></picture>`
+    return `<picture>${sourcesMarkup}<img ${imgAttrString}></picture>`
   })
 }
