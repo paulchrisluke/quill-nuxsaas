@@ -130,18 +130,17 @@ export function sanitizeSVG(svgContent: string): SanitizeResult {
   // Remove href and xlink:href attributes only if they contain dangerous protocols
   // Preserve safe protocols (http:, https:, #) and relative URLs
   const dangerousHrefPatterns = [
-    // Match href="javascript:..." or href='javascript:...'
-    /\b(href|xlink:href)\s*=\s*(["'])\s*javascript\s*:/gi,
-    // Match href="data:text/html..." or href='data:text/html...'
-    /\b(href|xlink:href)\s*=\s*(["'])\s*data\s*:\s*text\s*\/\s*html/gi,
-    // Match href="vbscript:..." or href='vbscript:...'
-    /\b(href|xlink:href)\s*=\s*(["'])\s*vbscript\s*:/gi,
-    // Match unquoted href=javascript:...
-    /\b(href|xlink:href)\s*=\s*javascript\s*:/gi,
-    // Match unquoted href=data:text/html...
-    /\b(href|xlink:href)\s*=\s*data\s*:\s*text\s*\/\s*html/gi,
-    // Match unquoted href=vbscript:...
-    /\b(href|xlink:href)\s*=\s*vbscript\s*:/gi
+    // Match quoted href/xlink:href with dangerous protocols (complete attribute)
+    // Captures opening quote and matches until closing quote
+    /\b(href|xlink:href)\s*=\s*(["'])\s*(?:javascript|vbscript)\s*:.*?\2/gi,
+    // Match quoted href/xlink:href with dangerous data: URLs (complete attribute)
+    // Includes all dangerous data: types: text/html, image/svg+xml, application/xml, text/xml
+    /\b(href|xlink:href)\s*=\s*(["'])\s*data\s*:\s*(?:text\/html|image\/svg\+xml|application\/xml|text\/xml).*?\2/gi,
+    // Match unquoted href/xlink:href with dangerous protocols (up to whitespace or >)
+    /\b(href|xlink:href)\s*=\s*(?:javascript|vbscript)\s*:[^\s>]*/gi,
+    // Match unquoted href/xlink:href with dangerous data: URLs (up to whitespace or >)
+    // Includes all dangerous data: types: text/html, image/svg+xml, application/xml, text/xml
+    /\b(href|xlink:href)\s*=\s*data\s*:\s*(?:text\/html|image\/svg\+xml|application\/xml|text\/xml)[^\s>]*/gi
   ]
 
   for (const pattern of dangerousHrefPatterns) {
