@@ -177,8 +177,10 @@ const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 
 // Set header title from content
-watch(contentEntry, (entry) => {
-  if (entry) {
+watch([contentEntry, error], ([entry, err]) => {
+  if (err) {
+    setHeaderTitle?.(err.message || 'Error loading content')
+  } else if (entry) {
     setHeaderTitle?.(entry.title)
   } else {
     setHeaderTitle?.('Loading content…')

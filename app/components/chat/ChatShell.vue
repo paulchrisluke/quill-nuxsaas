@@ -545,12 +545,15 @@ const conversationId = computed(() => {
   if (props.conversationId)
     return props.conversationId
   // Otherwise, derive from route
-  return routeConversationId.value
+  if (routeConversationId.value)
+    return routeConversationId.value
+  // Fallback to active conversation (e.g., when programmatically created)
+  return activeConversationId.value
 })
 
 const showWelcomeState = computed(() => {
   // Show welcome when at /conversations (no ID) and not busy
-  return !routeConversationId.value && !isBusy.value && !promptSubmitting.value
+  return !conversationId.value && !isBusy.value && !promptSubmitting.value
 })
 
 const isValidUUID = (id: string | null): boolean => {
