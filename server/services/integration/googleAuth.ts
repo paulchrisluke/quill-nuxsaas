@@ -80,21 +80,9 @@ export async function refreshGoogleAccessToken(
   let lastError: unknown
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    // Create new AbortController for each attempt
-    const abortController = new AbortController()
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
-
     try {
-      // Set up timeout
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          abortController.abort()
-          reject(new Error(`Google OAuth token request timed out after ${timeout}ms`))
-        }, timeout)
-      })
-
-      // Make the request with abort signal
-      const fetchPromise = $fetch<{
+      // Make the request with timeout using AbortSignal.timeout
+      const response = await $fetch<{
         access_token: string
         expires_in: number
         refresh_token?: string
@@ -104,16 +92,8 @@ export async function refreshGoogleAccessToken(
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        signal: abortController.signal
+        signal: AbortSignal.timeout(timeout)
       })
-
-      // Race between fetch and timeout
-      const response = await Promise.race([fetchPromise, timeoutPromise])
-
-      // Success - clear timeout
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
 
       // Update database with new token
       const expiresAt = new Date(Date.now() + (response.expires_in || 3600) * 1000)
@@ -131,11 +111,6 @@ export async function refreshGoogleAccessToken(
 
       return updated
     } catch (error) {
-      // Clear timeout on error
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-
       lastError = error
 
       // Check if we should retry

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { sanitizeSVG, isSVGSafe } from '~~/server/services/file/svgSanitizer'
+import { describe, expect, it } from 'vitest'
+import { isSVGSafe, sanitizeSVG } from '~~/server/services/file/svgSanitizer'
 
-describe('SVG Sanitizer', () => {
+describe('svg sanitizer', () => {
   describe('sanitizeSVG', () => {
     it('should accept a clean SVG without modifications', () => {
       const cleanSVG = '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40"/></svg>'
@@ -78,7 +78,7 @@ describe('SVG Sanitizer', () => {
 
     it('should handle various quote styles in attributes', () => {
       const maliciousSVG1 = '<svg><circle onclick="alert(1)"/></svg>'
-      const maliciousSVG2 = "<svg><circle onclick='alert(1)'/></svg>"
+      const maliciousSVG2 = '<svg><circle onclick=\'alert(1)\'/></svg>'
       const maliciousSVG3 = '<svg><circle onclick=alert(1)/></svg>'
 
       const result1 = sanitizeSVG(maliciousSVG1)

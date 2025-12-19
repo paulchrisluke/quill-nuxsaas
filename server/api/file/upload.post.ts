@@ -1,8 +1,9 @@
+import { Buffer } from 'node:buffer'
 import { readMultipartFormData } from 'h3'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { UploadRateLimiter } from '~~/server/services/file/rateLimiter'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
-import { sanitizeSVG, isSVGSafe } from '~~/server/services/file/svgSanitizer'
+import { isSVGSafe, sanitizeSVG } from '~~/server/services/file/svgSanitizer'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
@@ -78,7 +79,6 @@ export default defineEventHandler(async (event) => {
   const fileData = validFiles[0]!
 
   const mimeType = fileData.type || 'application/octet-stream'
-  const fileSize = fileData.data.length
   const fileName = fileData.filename!
   const fileExtension = fileName.split('.').pop()?.toLowerCase()
 
