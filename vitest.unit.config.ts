@@ -11,7 +11,7 @@ const rootDir = fileURLToPath(new URL('./', import.meta.url))
  */
 const compareVersions = (a: string, b: string): number => {
   const parseVersion = (version: string): number[] => {
-    return version.split('.').map(Number.parseInt).filter(Number.isFinite)
+    return version.split('.').map(s => parseInt(s, 10)).filter(Number.isFinite)
   }
 
   const versionA = parseVersion(a)

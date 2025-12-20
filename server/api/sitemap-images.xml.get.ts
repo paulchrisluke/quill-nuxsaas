@@ -51,8 +51,8 @@ export default defineEventHandler(async (event) => {
     if (totalCount > MAX_ITEMS_PER_SITEMAP && page === 1) {
       const sitemapIndexEntries = []
 
-      // Generate sitemap index entries for pages 2..totalPages (page 1 is index-only)
-      for (let i = 2; i <= totalPages; i++) {
+      // Generate sitemap index entries for pages 2..(totalPages + 1) (page 1 is index-only)
+      for (let i = 2; i <= totalPages + 1; i++) {
         const sitemapUrl = `${baseUrl}${basePath}?page=${i}`
         sitemapIndexEntries.push(
           `<sitemap><loc>${xmlEscape(sitemapUrl)}</loc></sitemap>`
@@ -71,11 +71,11 @@ ${sitemapIndexEntries.join('')}
 
     // Validate page bounds based on whether we're using pagination
     if (totalCount > MAX_ITEMS_PER_SITEMAP) {
-      // When paginated, valid content pages are 2..totalPages (page 1 is index-only)
-      if (page < 2 || page > totalPages) {
+      // When paginated, valid content pages are 2..(totalPages + 1) (page 1 is index-only)
+      if (page < 2 || page > totalPages + 1) {
         throw createError({
           statusCode: 404,
-          statusMessage: `Page ${page} does not exist. Valid pages are 2-${totalPages} (page 1 shows the sitemap index).`
+          statusMessage: `Page ${page} does not exist. Valid pages are 2-${totalPages + 1} (page 1 shows the sitemap index).`
         })
       }
     } else {

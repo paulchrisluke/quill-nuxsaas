@@ -1,6 +1,6 @@
 import type { FileManagerConfig, StorageProvider } from '../types'
 import { LocalStorageProvider } from './local'
-import { S3CompatibleStorageProvider } from './s3-compatible'
+import { R2StorageProvider } from './r2'
 
 const ensureR2Config = (config: NonNullable<FileManagerConfig['storage']['r2']>) => {
   const missing: string[] = []
@@ -31,7 +31,7 @@ export async function createStorageProvider(config: FileManagerConfig['storage']
         throw new Error('R2 storage configuration is required')
       }
       ensureR2Config(config.r2)
-      return new S3CompatibleStorageProvider({
+      return new R2StorageProvider({
         provider: 'r2',
         ...config.r2
       })

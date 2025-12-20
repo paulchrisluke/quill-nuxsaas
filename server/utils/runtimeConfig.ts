@@ -78,7 +78,8 @@ const tryResolveFromNuxt = () => {
 
 /**
  * Validates R2 configuration when R2 is selected as the storage provider.
- * Throws an error in non-development environments or logs a warning in development.
+ * In development: automatically switches to 'local' storage if R2 config is missing.
+ * In non-development: throws an error if R2 config is missing.
  */
 function validateR2Config(config: NitroRuntimeConfig) {
   if (config.fileManager.storage.provider !== 'r2') {
@@ -115,7 +116,10 @@ function validateR2Config(config: NitroRuntimeConfig) {
       `See configuration documentation for details.`
 
     if (isDevelopment) {
-      console.warn(`[R2 Config Validation] ${message}`)
+      // In development, automatically fallback to local storage
+      config.fileManager.storage.provider = 'local'
+      config.fileManager.storage.r2 = undefined
+      console.warn(`[R2 Config Validation] ${message} Storage provider has been automatically switched to 'local' as a fallback.`)
     } else {
       throw new Error(`[R2 Config Validation] ${message}`)
     }
@@ -212,7 +216,10 @@ export const generateRuntimeConfig = () => {
           .filter((value): value is 'webp' | 'avif' => value === 'webp' || value === 'avif'),
         quality: (() => {
           const parsed = Number.parseInt(process.env.NUXT_IMAGE_QUALITY ?? '', 10)
-          return Number.isFinite(parsed) ? parsed : 80
+          if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
+            return parsed
+          }
+          return 80
         })(),
         maxProxyWidth: (() => {
           const parsed = Number.parseInt(process.env.NUXT_IMAGE_MAX_PROXY_WIDTH ?? '', 10)

@@ -1,6 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import type { NuxtPage } from 'nuxt/schema'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
@@ -52,15 +52,42 @@ function jsquashResolvePlugin(): RollupPlugin {
 
         try {
           if (existsSync(pkgDir)) {
+            // First, try to read package.json and use its "main" field
+            const packageJsonPath = resolve(pkgDir, 'package.json')
+            if (existsSync(packageJsonPath)) {
+              try {
+                const packageJsonContent = readFileSync(packageJsonPath, 'utf-8')
+                const packageJson = JSON.parse(packageJsonContent)
+                if (packageJson.main) {
+                  const mainPath = resolve(pkgDir, packageJson.main)
+                  if (existsSync(mainPath)) {
+                    return mainPath
+                  }
+                }
+              } catch {
+                // If package.json parsing fails, continue to next fallback
+              }
+            }
+
+            // Second, explicitly check for index.js
+            const indexJsPath = resolve(pkgDir, 'index.js')
+            if (existsSync(indexJsPath)) {
+              return indexJsPath
+            }
+
+            // Last fallback: read directory, sort alphabetically, and pick first matching .js file
             const files = readdirSync(pkgDir)
-            const mainFile = files.find((f: string) =>
+            const sortedFiles = files.sort()
+            const mainFile = sortedFiles.find((f: string) =>
               f.endsWith('.js') &&
               !f.includes('workerHelpers') &&
-              !f.includes('bg.wasm') &&
               !f.endsWith('.d.ts')
             )
             if (mainFile) {
-              return resolve(pkgDir, mainFile)
+              const mainFilePath = resolve(pkgDir, mainFile)
+              if (existsSync(mainFilePath)) {
+                return mainFilePath
+              }
             }
           }
         } catch (error) {

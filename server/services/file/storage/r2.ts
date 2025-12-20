@@ -2,7 +2,7 @@ import type { Buffer } from 'node:buffer'
 import type { StorageProvider } from '../types'
 import { AwsClient } from 'aws4fetch'
 
-export class S3CompatibleStorageProvider implements StorageProvider {
+export class R2StorageProvider implements StorageProvider {
   name = ''
   private client: AwsClient | null = null
   private bucketName: string

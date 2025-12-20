@@ -43,6 +43,17 @@ export class LocalStorageProvider implements StorageProvider {
       return verifyOrThrow(realPath)
     } catch (error: any) {
       if (error?.code === 'ENOENT') {
+        // Verify parent directory's real path to prevent symlink attacks
+        const parentDir = dirname(resolvedPath)
+        try {
+          const realParent = await fs.realpath(parentDir)
+          verifyOrThrow(realParent)
+        } catch (parentError: any) {
+          // Parent doesn't exist either - verify logical path only
+          if (parentError?.code !== 'ENOENT') {
+            throw parentError
+          }
+        }
         return verifyOrThrow(resolvedPath)
       }
       throw error
