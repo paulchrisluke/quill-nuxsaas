@@ -7,12 +7,10 @@ const props = withDefaults(defineProps<{
   conversationId?: string | null
   contentId?: string | null
   syncRoute?: boolean
-  embedded?: boolean
   useRouteConversationId?: boolean
   showMessages?: boolean
 }>(), {
   syncRoute: true,
-  embedded: false,
   useRouteConversationId: true,
   showMessages: true
 })
@@ -113,7 +111,6 @@ const reloadPage = () => {
             :conversation-id="props.conversationId"
             :content-id="props.contentId"
             :sync-route="props.syncRoute"
-            :embedded="props.embedded"
             :use-route-conversation-id="props.useRouteConversationId"
             :show-messages="props.showMessages"
           />

@@ -505,7 +505,6 @@ const canExpandConversationList = computed(() => {
             :sync-route="false"
             :use-route-conversation-id="false"
             :show-messages="chatView !== 'list'"
-            embedded
           />
         </div>
       </aside>
@@ -710,7 +709,6 @@ const canExpandConversationList = computed(() => {
             :sync-route="false"
             :use-route-conversation-id="false"
             :show-messages="chatView !== 'list'"
-            embedded
           />
         </div>
       </aside>

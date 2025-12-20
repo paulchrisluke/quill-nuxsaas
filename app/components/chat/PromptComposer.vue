@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import ReferencePickerPanel from './ReferencePickerPanel.vue'
 
 const props = withDefaults(defineProps<{
   placeholder?: string
@@ -72,9 +73,14 @@ interface ReferenceResolutionResponse {
 interface ReferenceSuggestionItem {
   id: string
   label: string
-  subtitle?: string
   insertText: string
   type: 'file' | 'content' | 'section'
+}
+
+interface ReferenceSuggestionGroups {
+  files: ReferenceSuggestionItem[]
+  contents: ReferenceSuggestionItem[]
+  sections: ReferenceSuggestionItem[]
 }
 
 const modelValue = defineModel<string>({ default: '' })
@@ -84,34 +90,31 @@ const cursorIndex = ref(0)
 const activeMention = ref<{ startIndex: number, query: string } | null>(null)
 const highlightedIndex = ref(0)
 const isAutocompleteOpen = ref(false)
+const isComposing = ref(false)
+const panelPosition = ref({ bottom: 0, left: 0, right: 0 })
 const referenceResolution = ref<ReferenceResolutionResponse | null>(null)
 const referenceLoading = ref(false)
 const lastResolvedMessage = ref('')
-const suggestionItems = ref<ReferenceSuggestionItem[]>([])
+const suggestionGroups = ref<ReferenceSuggestionGroups>({
+  files: [],
+  contents: [],
+  sections: [] // Sections not shown in picker, only used for LLM context
+})
 
 const { useActiveOrganization } = useAuth()
 const activeOrganization = useActiveOrganization()
 const organizationId = computed(() => activeOrganization.value?.data?.id || null)
 
-const hasReferences = computed(() => {
-  const resolution = referenceResolution.value
-  if (!resolution) {
-    return false
-  }
-  return resolution.resolved.length > 0 || resolution.ambiguous.length > 0 || resolution.unresolved.length > 0
-})
-
 const combinedSuggestions = computed(() => {
-  if (!suggestionItems.value.length || !activeMention.value) {
-    return []
+  if (!activeMention.value) {
+    return { files: [], contents: [], sections: [] }
   }
-  const query = activeMention.value.query.toLowerCase()
-  const filtered = suggestionItems.value.filter(item =>
-    item.label.toLowerCase().includes(query) ||
-    item.insertText.toLowerCase().includes(query) ||
-    (item.subtitle ? item.subtitle.toLowerCase().includes(query) : false)
-  )
-  return filtered.slice(0, 8)
+  // API handles all filtering - just return what the API returned
+  return {
+    files: suggestionGroups.value.files,
+    contents: suggestionGroups.value.contents,
+    sections: [] // Sections not shown in picker, only used for LLM context
+  }
 })
 
 const isBoundaryChar = (value: string | undefined) => {
@@ -141,7 +144,13 @@ const updateActiveMention = () => {
   }
 
   const query = prefix.slice(atIndex + 1)
-  if (!query || !/[a-z0-9]/i.test(query[0]) || /\s/.test(query)) {
+  if (/\s/.test(query)) {
+    activeMention.value = null
+    isAutocompleteOpen.value = false
+    return
+  }
+  const firstChar = query[0]
+  if (query && firstChar && !/[a-z0-9]/i.test(firstChar)) {
     activeMention.value = null
     isAutocompleteOpen.value = false
     return
@@ -149,6 +158,23 @@ const updateActiveMention = () => {
 
   activeMention.value = { startIndex: atIndex, query }
   highlightedIndex.value = 0
+  isAutocompleteOpen.value = true
+
+  // Calculate panel position for fixed positioning
+  nextTick(() => {
+    updatePanelPosition()
+  })
+}
+
+const updatePanelPosition = () => {
+  if (composerRef.value) {
+    const rect = composerRef.value.getBoundingClientRect()
+    panelPosition.value = {
+      bottom: window.innerHeight - rect.top + 16, // 16px = mb-4
+      left: rect.left,
+      right: window.innerWidth - rect.right
+    }
+  }
 }
 
 const applySuggestion = (item: ReferenceSuggestionItem) => {
@@ -157,11 +183,12 @@ const applySuggestion = (item: ReferenceSuggestionItem) => {
     return
   }
 
-  const insertion = `@${item.insertText}`
+  const insertText = item.label.startsWith('@') ? item.label : `@${item.label}`
+  const mentionEnd = mention.startIndex + 1 + mention.query.length
   const value = modelValue.value
   const before = value.slice(0, mention.startIndex)
-  const after = value.slice(cursorIndex.value)
-  const nextValue = `${before}${insertion}${after}`
+  const after = value.slice(mentionEnd)
+  const nextValue = `${before}${insertText}${after}`
 
   modelValue.value = nextValue
   isAutocompleteOpen.value = false
@@ -169,7 +196,7 @@ const applySuggestion = (item: ReferenceSuggestionItem) => {
 
   nextTick(() => {
     if (textareaRef.value) {
-      const position = before.length + insertion.length
+      const position = before.length + insertText.length
       textareaRef.value.setSelectionRange(position, position)
       textareaRef.value.focus()
       cursorIndex.value = position
@@ -178,26 +205,32 @@ const applySuggestion = (item: ReferenceSuggestionItem) => {
 }
 
 const handleKeyDown = (event: KeyboardEvent) => {
-  if (!isAutocompleteOpen.value || combinedSuggestions.value.length === 0) {
+  if (isComposing.value) {
+    return
+  }
+  const flatSuggestions = [
+    ...combinedSuggestions.value.files,
+    ...combinedSuggestions.value.contents
+  ]
+  if (!isAutocompleteOpen.value || flatSuggestions.length === 0) {
     return
   }
 
   if (event.key === 'ArrowDown') {
     event.preventDefault()
-    highlightedIndex.value = (highlightedIndex.value + 1) % combinedSuggestions.value.length
+    highlightedIndex.value = (highlightedIndex.value + 1) % flatSuggestions.length
   } else if (event.key === 'ArrowUp') {
     event.preventDefault()
-    highlightedIndex.value = (highlightedIndex.value - 1 + combinedSuggestions.value.length) % combinedSuggestions.value.length
+    highlightedIndex.value = (highlightedIndex.value - 1 + flatSuggestions.length) % flatSuggestions.length
   } else if (event.key === 'Enter' || event.key === 'Tab') {
     event.preventDefault()
-    const item = combinedSuggestions.value[highlightedIndex.value]
+    const item = flatSuggestions[highlightedIndex.value]
     if (item) {
       applySuggestion(item)
     }
   } else if (event.key === 'Escape') {
     event.preventDefault()
-    isAutocompleteOpen.value = false
-    activeMention.value = null
+    closeAutocomplete()
   }
 }
 
@@ -206,7 +239,19 @@ const updateCursor = () => {
     return
   }
   cursorIndex.value = textareaRef.value.selectionStart || 0
+  if (isComposing.value) {
+    return
+  }
   updateActiveMention()
+}
+
+const handleCompositionStart = () => {
+  isComposing.value = true
+}
+
+const handleCompositionEnd = () => {
+  isComposing.value = false
+  updateCursor()
 }
 
 function setTextareaRef() {
@@ -227,34 +272,45 @@ function setTextareaRef() {
     textareaRef.value.addEventListener('input', updateCursor)
     textareaRef.value.addEventListener('click', updateCursor)
     textareaRef.value.addEventListener('keyup', updateCursor)
+    textareaRef.value.addEventListener('compositionstart', handleCompositionStart)
+    textareaRef.value.addEventListener('compositionend', handleCompositionEnd)
   }
 }
 
-const fetchSuggestions = async () => {
+const fetchSuggestions = async (query?: string) => {
   if (!organizationId.value) {
-    suggestionItems.value = []
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
     return
   }
 
   try {
     const data = await $fetch('/api/chat/reference-suggestions', {
       query: {
-        contentId: props.contentId || undefined
+        contentId: props.contentId || undefined,
+        q: query || undefined
       }
     }) as {
-      files: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
-      contents: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
-      sections: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
+      files: Array<{ id: string, label: string, insertText: string }>
+      contents: Array<{ id: string, label: string, insertText: string }>
+      sections: Array<{ id: string, label: string, insertText: string }>
     }
 
-    suggestionItems.value = [
-      ...data.sections.map(item => ({ ...item, type: 'section' as const })),
-      ...data.contents.map(item => ({ ...item, type: 'content' as const })),
-      ...data.files.map(item => ({ ...item, type: 'file' as const }))
-    ]
+    console.log('[PromptComposer] API response:', {
+      filesCount: data.files.length,
+      contentsCount: data.contents.length,
+      query,
+      files: data.files.slice(0, 3),
+      contents: data.contents.slice(0, 3)
+    })
+
+    suggestionGroups.value = {
+      files: data.files.map(item => ({ ...item, type: 'file' as const })),
+      contents: data.contents.map(item => ({ ...item, type: 'content' as const })),
+      sections: [] // Sections not shown in picker, only used for LLM context
+    }
   } catch (error) {
     console.error('[PromptComposer] Failed to load reference suggestions', error)
-    suggestionItems.value = []
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
   }
 }
 
@@ -333,33 +389,6 @@ const replaceToken = (token: ReferenceToken, reference: string) => {
   modelValue.value = `${before}${replacement}${after}`
 }
 
-const buildDropdownItems = (token: ReferenceToken, candidates: ReferenceCandidate[]) => {
-  return [candidates.map(candidate => ({
-    label: candidate.label,
-    icon: candidate.type === 'file'
-      ? 'i-lucide-file'
-      : candidate.type === 'content'
-        ? 'i-lucide-file-text'
-        : candidate.type === 'section'
-          ? 'i-lucide-list'
-          : 'i-lucide-book',
-    click: () => replaceToken(token, candidate.reference)
-  }))]
-}
-
-const chipLabel = (reference: ResolvedReference) => {
-  if (reference.type === 'file') {
-    return reference.metadata?.fileName || reference.metadata?.originalName || reference.token.raw
-  }
-  if (reference.type === 'content') {
-    return reference.metadata?.slug || reference.token.raw
-  }
-  if (reference.type === 'section') {
-    return `${reference.metadata?.contentSlug || reference.token.raw}#${reference.metadata?.sectionId || reference.id}`
-  }
-  return reference.metadata?.title || reference.token.raw
-}
-
 const handleSubmit = (value?: string | unknown) => {
   const input = typeof value === 'string' ? value : modelValue.value
   const trimmed = String(input || '').trim()
@@ -374,6 +403,8 @@ const handleStop = () => {
 
 onMounted(() => {
   nextTick(setTextareaRef)
+  window.addEventListener('resize', updatePanelPosition)
+  window.addEventListener('scroll', updatePanelPosition, true)
 })
 
 onBeforeUnmount(() => {
@@ -381,14 +412,22 @@ onBeforeUnmount(() => {
     clearTimeout(resolveTimeout)
     resolveTimeout = null
   }
+  if (suggestionTimeout) {
+    clearTimeout(suggestionTimeout)
+    suggestionTimeout = null
+  }
   // Reset to safe defaults to avoid callbacks running against unmounted component
   referenceLoading.value = false
   referenceResolution.value = null
+  window.removeEventListener('resize', updatePanelPosition)
+  window.removeEventListener('scroll', updatePanelPosition, true)
   if (textareaRef.value) {
     textareaRef.value.removeEventListener('keydown', handleKeyDown)
     textareaRef.value.removeEventListener('input', updateCursor)
     textareaRef.value.removeEventListener('click', updateCursor)
     textareaRef.value.removeEventListener('keyup', updateCursor)
+    textareaRef.value.removeEventListener('compositionstart', handleCompositionStart)
+    textareaRef.value.removeEventListener('compositionend', handleCompositionEnd)
   }
 })
 
@@ -400,21 +439,84 @@ watch(modelValue, (value) => {
   scheduleReferenceResolution(value)
 })
 
-watch([organizationId, () => props.contentId], async () => {
-  try {
-    await fetchSuggestions()
-  } catch (error) {
-    console.error('[PromptComposer] Failed to fetch suggestions in watch', error)
+let suggestionTimeout: ReturnType<typeof setTimeout> | null = null
+
+const scheduleSuggestionFetch = (query?: string) => {
+  if (suggestionTimeout) {
+    clearTimeout(suggestionTimeout)
+  }
+  suggestionTimeout = setTimeout(() => {
+    void fetchSuggestions(query)
+  }, 160)
+}
+
+watch([organizationId, () => props.contentId], () => {
+  if (isAutocompleteOpen.value && activeMention.value && activeMention.value.query && activeMention.value.query.length > 0) {
+    scheduleSuggestionFetch(activeMention.value.query)
+  } else {
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
   }
 }, { immediate: true })
 
+watch(() => activeMention.value?.query, (query) => {
+  if (!isAutocompleteOpen.value) {
+    return
+  }
+  // Only fetch when user starts typing (query has at least one character)
+  if (query && query.length > 0) {
+    scheduleSuggestionFetch(query)
+  } else {
+    // Clear suggestions when query is empty
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
+  }
+  updatePanelPosition()
+})
+
 watch(combinedSuggestions, (value) => {
-  if (!value.length) {
-    isAutocompleteOpen.value = false
-  } else if (activeMention.value) {
-    isAutocompleteOpen.value = true
+  const flat = [...value.files, ...value.contents]
+  if (highlightedIndex.value >= flat.length) {
+    highlightedIndex.value = 0
   }
 })
+
+const closeAutocomplete = () => {
+  isAutocompleteOpen.value = false
+  activeMention.value = null
+  nextTick(() => {
+    textareaRef.value?.focus()
+  })
+}
+
+
+const handleNavigate = (delta: number) => {
+  const flat = [
+    ...combinedSuggestions.value.files,
+    ...combinedSuggestions.value.contents,
+    ...combinedSuggestions.value.sections
+  ]
+  if (!flat.length) {
+    return
+  }
+  highlightedIndex.value = (highlightedIndex.value + delta + flat.length) % flat.length
+}
+
+const handleQueryChange = (value: string) => {
+  const mention = activeMention.value
+  if (!mention) {
+    return
+  }
+  const insertionStart = mention.startIndex + 1
+  const insertionEnd = mention.startIndex + 1 + mention.query.length
+  const currentValue = modelValue.value
+  const before = currentValue.slice(0, insertionStart)
+  const after = currentValue.slice(insertionEnd)
+  const nextValue = `${before}${value}${after}`
+  modelValue.value = nextValue
+  activeMention.value = { ...mention, query: value }
+  cursorIndex.value = insertionStart + value.length
+  highlightedIndex.value = 0
+  isAutocompleteOpen.value = true
+}
 </script>
 
 <template>
@@ -422,16 +524,36 @@ watch(combinedSuggestions, (value) => {
     ref="composerRef"
     class="space-y-3 relative"
   >
-    <div class="rounded-3xl overflow-hidden relative">
-      <UChatPrompt
-        v-model="modelValue"
-        :placeholder="props.placeholder"
-        variant="subtle"
-        :disabled="props.disabled"
-        class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
-        :autofocus="props.autofocus"
-        @submit="handleSubmit"
-      >
+    <div class="relative">
+      <ReferencePickerPanel
+        v-if="isAutocompleteOpen"
+        :open="isAutocompleteOpen"
+        :query="activeMention?.query || ''"
+        :groups="combinedSuggestions"
+        :active-index="highlightedIndex"
+        :style="{
+          position: 'fixed',
+          bottom: `${panelPosition.bottom}px`,
+          left: `${panelPosition.left}px`,
+          right: `${panelPosition.right}px`,
+          zIndex: 50
+        }"
+        class="pointer-events-auto"
+        @select="applySuggestion"
+        @close="closeAutocomplete"
+        @navigate="handleNavigate"
+        @query-change="handleQueryChange"
+      />
+      <div class="rounded-3xl overflow-hidden relative">
+        <UChatPrompt
+          v-model="modelValue"
+          :placeholder="props.placeholder"
+          variant="subtle"
+          :disabled="props.disabled"
+          class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
+          :autofocus="props.autofocus"
+          @submit="handleSubmit"
+        >
         <template #footer>
           <div
             data-slot="footer"
@@ -456,117 +578,7 @@ watch(combinedSuggestions, (value) => {
           </div>
         </template>
       </UChatPrompt>
-
-      <div
-        v-if="isAutocompleteOpen && combinedSuggestions.length"
-        class="absolute left-3 right-3 bottom-16 z-20 rounded-2xl border border-muted-200 bg-white/95 dark:bg-gray-900/95 dark:border-muted-800 shadow-lg backdrop-blur"
-      >
-        <div class="max-h-56 overflow-y-auto py-2">
-          <button
-            v-for="(item, index) in combinedSuggestions"
-            :key="item.id"
-            type="button"
-            class="w-full flex items-center gap-3 px-4 py-2 text-sm text-left hover:bg-muted-100 dark:hover:bg-muted-800"
-            :class="index === highlightedIndex ? 'bg-muted-100 dark:bg-muted-800' : ''"
-            @click="applySuggestion(item)"
-          >
-            <UIcon
-              :name="item.type === 'file'
-                ? 'i-lucide-image'
-                : item.type === 'content'
-                  ? 'i-lucide-file-text'
-                  : 'i-lucide-list'"
-              class="w-4 h-4 text-muted-500"
-            />
-            <div class="flex flex-col">
-              <span class="font-medium text-muted-900 dark:text-muted-100">
-                @{{ item.label }}
-              </span>
-              <span
-                v-if="item.subtitle"
-                class="text-xs text-muted-500"
-              >
-                {{ item.subtitle }}
-              </span>
-            </div>
-          </button>
-        </div>
       </div>
-    </div>
-
-    <div
-      v-if="hasReferences"
-      class="flex flex-wrap items-center gap-2 text-xs"
-    >
-      <template
-        v-for="reference in referenceResolution?.resolved"
-        :key="reference.id"
-      >
-        <UBadge
-          color="primary"
-          variant="subtle"
-        >
-          @{{ chipLabel(reference) }}
-        </UBadge>
-      </template>
-
-      <template
-        v-for="item in referenceResolution?.ambiguous"
-        :key="`ambiguous-${item.token.startIndex}-${item.token.raw}`"
-      >
-        <UDropdownMenu
-          v-if="item.candidates.length"
-          :items="buildDropdownItems(item.token, item.candidates)"
-        >
-          <UBadge
-            color="warning"
-            variant="subtle"
-            class="cursor-pointer"
-          >
-            {{ item.token.raw }} (ambiguous)
-          </UBadge>
-        </UDropdownMenu>
-        <UBadge
-          v-else
-          color="warning"
-          variant="subtle"
-        >
-          {{ item.token.raw }} (ambiguous)
-        </UBadge>
-      </template>
-
-      <template
-        v-for="item in referenceResolution?.unresolved"
-        :key="`unresolved-${item.token.startIndex}-${item.token.raw}`"
-      >
-        <UDropdownMenu
-          v-if="item.suggestions?.length"
-          :items="buildDropdownItems(item.token, item.suggestions)"
-        >
-          <UBadge
-            color="error"
-            variant="subtle"
-            class="cursor-pointer"
-          >
-            {{ item.token.raw }} (not found)
-          </UBadge>
-        </UDropdownMenu>
-        <UBadge
-          v-else
-          color="error"
-          variant="subtle"
-        >
-          {{ item.token.raw }} (not found)
-        </UBadge>
-      </template>
-
-      <UBadge
-        v-if="referenceLoading"
-        color="neutral"
-        variant="subtle"
-      >
-        Resolving references…
-      </UBadge>
     </div>
 
     <div

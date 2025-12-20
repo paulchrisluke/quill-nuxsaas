@@ -177,7 +177,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="space-y-8">
+  <div class="h-full flex flex-col min-h-0">
     <div
       v-if="showLoadingSkeleton"
       class="space-y-4"
@@ -207,38 +207,36 @@ onBeforeUnmount(() => {
 
     <div
       v-if="messages.length"
-      class="space-y-6 w-full"
+      class="flex-1 min-h-0 flex flex-col overflow-y-auto"
     >
-      <div class="w-full">
-        <UChatMessages
-          class="py-4"
-          :messages="displayMessages"
-          :status="uiStatus"
-          should-auto-scroll
-          :assistant="{ actions: assistantActions }"
-          :user="{ actions: userActions }"
-        >
-          <template #content="{ message }">
-            <div
-              :class="message.role === 'user' ? 'cursor-pointer select-text' : 'select-text'"
-              @touchstart.passive="startMessageLongPress(message, $event)"
-              @touchmove.passive="handleMessageLongPressMove"
-              @touchend.passive="clearMessageLongPress"
-              @touchcancel.passive="clearMessageLongPress"
-              @mousedown="startMessageLongPress(message, $event)"
-              @mousemove="handleMessageLongPressMove"
-              @mouseup="clearMessageLongPress"
-              @mouseleave="clearMessageLongPress"
-              @contextmenu.prevent="handleUserMessageContextMenu(message, $event)"
-            >
-              <ChatMessageContent
-                :message="message"
-                :display-text="message.parts?.[0]?.text || ''"
-              />
-            </div>
-          </template>
-        </UChatMessages>
-      </div>
+      <UChatMessages
+        class="py-4"
+        :messages="displayMessages"
+        :status="uiStatus"
+        should-auto-scroll
+        :assistant="{ actions: assistantActions }"
+        :user="{ actions: userActions }"
+      >
+        <template #content="{ message }">
+          <div
+            :class="message.role === 'user' ? 'cursor-pointer select-text' : 'select-text'"
+            @touchstart.passive="startMessageLongPress(message, $event)"
+            @touchmove.passive="handleMessageLongPressMove"
+            @touchend.passive="clearMessageLongPress"
+            @touchcancel.passive="clearMessageLongPress"
+            @mousedown="startMessageLongPress(message, $event)"
+            @mousemove="handleMessageLongPressMove"
+            @mouseup="clearMessageLongPress"
+            @mouseleave="clearMessageLongPress"
+            @contextmenu.prevent="handleUserMessageContextMenu(message, $event)"
+          >
+            <ChatMessageContent
+              :message="message"
+              :display-text="message.parts?.[0]?.text || ''"
+            />
+          </div>
+        </template>
+      </UChatMessages>
 
       <FilesChanged
         v-if="conversationId"

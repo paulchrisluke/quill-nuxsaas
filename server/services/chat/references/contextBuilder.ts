@@ -32,8 +32,7 @@ export function buildContextBlock(params: {
         `- URL: ${meta.url}`
       ]
       if (ref.textContent) {
-        details.push(`- Text preview${ref.truncated ? ' (truncated)' : ''}:
-\n\n\`\`\`\n${ref.textContent}\n\`\`\``)
+        details.push(`- Text preview${ref.truncated ? ' (truncated)' : ''}:\n\n\`\`\`\n${ref.textContent}\n\`\`\``)
       }
       blocks.push(header)
       blocks.push(details.join('\n'))
@@ -80,8 +79,7 @@ export function buildContextBlock(params: {
         `- Type: ${meta.sourceType || 'unknown'}`
       ]
       if (ref.textContent) {
-        details.push(`- Text excerpt${ref.truncated ? ' (truncated)' : ''}:
-\n\n\`\`\`\n${ref.textContent}\n\`\`\``)
+        details.push(`- Text excerpt${ref.truncated ? ' (truncated)' : ''}:\n\n\`\`\`\n${ref.textContent}\n\`\`\``)
       }
       blocks.push(header)
       blocks.push(details.join('\n'))

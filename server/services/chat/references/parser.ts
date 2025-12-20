@@ -1,6 +1,6 @@
 import type { ReferenceAnchor, ReferenceToken } from './types'
 
-const TRAILING_PUNCTUATION = new Set(['.', ',', '!', '?', ';', ':', ')', ']', '}', '"', '\''])
+const TRAILING_PUNCTUATION = new Set(['.', ',', '!', '?', ';', ':', '#', ')', ']', '}', '"', '\''])
 
 const isBoundaryChar = (value: string | undefined) => {
   if (!value) {

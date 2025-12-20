@@ -1,10 +1,17 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, or, sql } from 'drizzle-orm'
 import { getQuery } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { requireActiveOrganization } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 
 const DEFAULT_LIMIT = 10
+
+const escapeLikePattern = (value: string): string => {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
+}
 
 interface RawSection {
   id?: string
@@ -19,6 +26,9 @@ export default defineEventHandler(async (event) => {
   const db = await useDB(event)
   const query = getQuery(event)
   const contentId = typeof query.contentId === 'string' ? query.contentId : null
+  const searchQuery = typeof query.q === 'string' ? query.q.trim().toLowerCase() : ''
+  const escapedQuery = searchQuery ? escapeLikePattern(searchQuery) : ''
+  const likeQuery = escapedQuery ? `%${escapedQuery}%` : ''
 
   let files: Array<{
     id: string
@@ -54,7 +64,13 @@ export default defineEventHandler(async (event) => {
         .from(schema.file)
         .where(and(
           eq(schema.file.organizationId, organizationId),
-          eq(schema.file.isActive, true)
+          eq(schema.file.isActive, true),
+          ...(searchQuery
+            ? [or(
+              sql`lower(${schema.file.fileName}) like ${likeQuery} escape '\\'`,
+              sql`lower(${schema.file.originalName}) like ${likeQuery} escape '\\'`
+            )]
+            : [])
         ))
         .orderBy(desc(schema.file.updatedAt))
         .limit(DEFAULT_LIMIT),
@@ -69,7 +85,12 @@ export default defineEventHandler(async (event) => {
         .from(schema.content)
         .where(and(
           eq(schema.content.organizationId, organizationId),
-          eq(schema.content.status, 'published')
+          ...(searchQuery
+            ? [or(
+              sql`lower(${schema.content.slug}) like ${likeQuery} escape '\\'`,
+              sql`lower(${schema.content.title}) like ${likeQuery} escape '\\'`
+            )]
+            : [])
         ))
         .orderBy(desc(schema.content.updatedAt))
         .limit(DEFAULT_LIMIT)
@@ -136,14 +157,30 @@ export default defineEventHandler(async (event) => {
       sections = rawSections
         .filter((section: RawSection) => section?.id || section?.section_id)
         .map((section: RawSection) => ({
-          id: section.id || section.section_id,
+          id: (section.id || section.section_id) as string,
           title: section.title ?? null,
           type: section.type ?? null,
           index: section.index ?? null,
           contentId: content.id,
-          contentSlug: content.slug,
-          contentTitle: content.title
+          contentSlug: content.slug || '',
+          contentTitle: content.title || ''
         }))
+        .filter((section) => {
+          if (!searchQuery) {
+            return true
+          }
+          const combined = [
+            section.id,
+            section.title,
+            section.type,
+            section.contentSlug,
+            section.contentTitle
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+          return combined.includes(searchQuery)
+        })
         .slice(0, DEFAULT_LIMIT)
     }
   }
@@ -151,35 +188,17 @@ export default defineEventHandler(async (event) => {
   return {
     files: files.map(file => ({
       id: file.id,
-      label: file.fileName || file.originalName,
-      subtitle: file.originalName !== file.fileName ? file.originalName : undefined,
-      fileName: file.fileName,
-      originalName: file.originalName,
-      fileType: file.fileType,
-      mimeType: file.mimeType,
-      size: file.size,
-      url: file.url,
+      label: file.fileName || file.originalName || file.id,
       insertText: file.fileName || file.originalName || file.id
     })),
     contents: contents.map(content => ({
       id: content.id,
-      slug: content.slug,
-      title: content.title,
-      status: content.status,
-      label: content.slug || content.id,
-      subtitle: content.title,
+      label: content.title || content.slug || content.id,
       insertText: content.slug || content.id
     })),
     sections: sections.map(section => ({
       id: section.id,
-      title: section.title,
-      type: section.type,
-      index: section.index,
-      contentId: section.contentId,
-      contentSlug: section.contentSlug,
-      contentTitle: section.contentTitle,
       label: section.title || section.type || section.id,
-      subtitle: section.contentTitle,
       insertText: section.contentSlug ? `${section.contentSlug}#${section.id}` : section.id
     }))
   }

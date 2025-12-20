@@ -60,7 +60,8 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
             textContent = truncatedResult.text
             truncated = truncatedResult.truncated
           }
-        } catch {
+        } catch (error) {
+          console.error('[references] Failed to fetch file reference:', reference.metadata.url, error)
           // Treat abort as failed fetch (textContent remains undefined)
           textContent = undefined
         } finally {
