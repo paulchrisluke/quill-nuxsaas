@@ -369,6 +369,8 @@ export const insertUploadedImage = async (
     resolvedAltText = placeholder || deriveAltText(undefined, fileRecord.originalName)
     if (placeholder) {
       warnings.push('Alt text was missing; inserted placeholder text.')
+    } else {
+      warnings.push('Alt text was missing; derived from filename — please review for accessibility.')
     }
   }
 

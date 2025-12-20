@@ -1,4 +1,7 @@
-CREATE TYPE "public"."file_optimization_status" AS ENUM('pending', 'processing', 'done', 'failed', 'skipped');--> statement-breakpoint
+DO $$ BEGIN
+    CREATE TYPE "public"."file_optimization_status" AS ENUM('pending', 'processing', 'done', 'failed', 'skipped');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
 ALTER TABLE "file"
   ADD COLUMN IF NOT EXISTS "width" integer,
   ADD COLUMN IF NOT EXISTS "height" integer,

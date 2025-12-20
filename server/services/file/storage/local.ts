@@ -135,8 +135,12 @@ export class LocalStorageProvider implements StorageProvider {
       try {
         handle = await fs.open(resolvedPath, constants.O_RDONLY | constants.O_NOFOLLOW)
       } catch (error: any) {
+        // ELOOP indicates a symlink was encountered - this is a security error
+        if (error?.code === 'ELOOP') {
+          throw new Error('Invalid path: symlink detected - security violation')
+        }
         // If O_NOFOLLOW not supported, open normally and verify after
-        if (error?.code === 'EOPNOTSUPP' || error?.code === 'ELOOP') {
+        if (error?.code === 'EOPNOTSUPP') {
           handle = await fs.open(resolvedPath, constants.O_RDONLY)
         } else {
           throw error
@@ -239,42 +243,12 @@ export class LocalStorageProvider implements StorageProvider {
   async delete(path: string): Promise<void> {
     const resolvedPath = resolvePath(this.baseDir, path)
 
-    // Open file atomically first, then verify
-    let handle: FileHandle | null = null
+    // Validate the resolved path is within base
+    this.verifyPathWithinBase(resolvedPath)
+
     try {
-      try {
-        handle = await fs.open(resolvedPath, constants.O_RDONLY | constants.O_NOFOLLOW)
-      } catch (error: any) {
-        if (error?.code === 'EOPNOTSUPP' || error?.code === 'ELOOP') {
-          handle = await fs.open(resolvedPath, constants.O_RDONLY)
-        } else if (error?.code === 'ENOENT') {
-          // File doesn't exist, nothing to delete
-          return
-        } else {
-          throw error
-        }
-      }
-
-      // Verify the opened file is safe
-      const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
-
-      // Verify inode matches
-      const handleStats = await handle.stat()
-      const realPathStats = await fs.stat(realPath)
-      if (handleStats.ino !== realPathStats.ino) {
-        throw new Error('Invalid path: inode mismatch detected')
-      }
-
-      await handle.close()
-      handle = null
-
-      // Now safe to delete
       await fs.unlink(resolvedPath)
     } catch (error: any) {
-      if (handle) {
-        await handle.close().catch(() => {})
-      }
       if ((error as any).code === 'ENOENT') {
         // File doesn't exist, that's fine
         return

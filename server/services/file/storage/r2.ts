@@ -7,8 +7,15 @@ export class R2StorageProvider implements StorageProvider {
   private client: AwsClient | null = null
   private bucketName: string
   private publicUrl?: string
-  private provider: 'r2'
-  private config: any
+  private config: {
+    provider: 'r2'
+    accountId?: string
+    accessKeyId: string
+    secretAccessKey: string
+    bucketName: string
+    publicUrl?: string
+  }
+
   private endpoint = ''
 
   constructor(config: {
@@ -19,7 +26,6 @@ export class R2StorageProvider implements StorageProvider {
     bucketName: string
     publicUrl?: string
   }) {
-    this.provider = config.provider
     this.bucketName = config.bucketName
     this.publicUrl = config.publicUrl
     this.config = config
