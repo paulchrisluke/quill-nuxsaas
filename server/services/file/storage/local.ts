@@ -41,8 +41,21 @@ export class LocalStorageProvider implements StorageProvider {
     const resolvedPath = resolvePath(this.baseDir, fileName)
     const dir = dirname(resolvedPath)
 
-    // Validate and ensure parent directory exists atomically
-    await this.ensureParentDirSafe(dir)
+    try {
+      // Validate and ensure parent directory exists atomically
+      await this.ensureParentDirSafe(dir)
+    } catch (error: any) {
+      console.error('[Local Storage] Failed to ensure parent directory:', {
+        dir,
+        baseDir: this.baseDir,
+        fileName,
+        error: error?.message,
+        code: error?.code,
+        errno: error?.errno,
+        syscall: error?.syscall
+      })
+      throw error
+    }
 
     // Open file with exclusive creation flag to prevent TOCTOU
     // O_CREAT | O_EXCL ensures the file doesn't exist and is created atomically
@@ -74,6 +87,17 @@ export class LocalStorageProvider implements StorageProvider {
         // File already exists, try to overwrite safely
         return this.uploadOverwrite(file, fileName)
       }
+      console.error('[Local Storage] Upload failed:', {
+        resolvedPath,
+        baseDir: this.baseDir,
+        fileName,
+        fileSize: file.byteLength,
+        error: error?.message,
+        code: error?.code,
+        errno: error?.errno,
+        syscall: error?.syscall,
+        stack: error?.stack
+      })
       throw error
     }
 

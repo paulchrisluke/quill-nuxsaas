@@ -211,7 +211,19 @@ export default defineEventHandler(async (event) => {
       file
     }
   } catch (error) {
-    console.error(error)
+    console.error('[File Upload] Error:', {
+      fileName,
+      userId: user.id,
+      organizationId,
+      mimeType,
+      fileSize: fileBuffer?.byteLength,
+      storageProvider: config.storage.provider,
+      error: error instanceof Error ? error.message : String(error),
+      code: (error as any)?.code,
+      errno: (error as any)?.errno,
+      syscall: (error as any)?.syscall,
+      stack: error instanceof Error ? error.stack : undefined
+    })
     throw createError({
       statusCode: 400,
       statusMessage: error instanceof Error ? error.message : 'Upload failed'

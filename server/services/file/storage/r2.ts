@@ -1,3 +1,4 @@
+import type { Buffer } from 'node:buffer'
 import type { StorageProvider } from '../types'
 import { AwsClient } from 'aws4fetch'
 
@@ -6,15 +7,8 @@ export class R2StorageProvider implements StorageProvider {
   private client: AwsClient | null = null
   private bucketName: string
   private publicUrl?: string
-  private config: {
-    provider: 'r2'
-    accountId: string
-    accessKeyId: string
-    secretAccessKey: string
-    bucketName: string
-    publicUrl?: string
-  }
-
+  private provider: 'r2'
+  private config: any
   private endpoint = ''
 
   constructor(config: {
@@ -25,17 +19,11 @@ export class R2StorageProvider implements StorageProvider {
     bucketName: string
     publicUrl?: string
   }) {
-    if (!config.accountId) {
-      throw new Error('Account ID is required for R2 storage')
-    }
-
+    this.provider = config.provider
     this.bucketName = config.bucketName
     this.publicUrl = config.publicUrl
+    this.config = config
     this.name = 'r2'
-    this.config = {
-      ...config,
-      accountId: config.accountId
-    }
   }
 
   private initializeClient() {
@@ -43,6 +31,9 @@ export class R2StorageProvider implements StorageProvider {
       return
     }
 
+    if (!this.config.accountId) {
+      throw new Error('Account ID is required for R2 storage')
+    }
     this.endpoint = `https://${this.config.accountId}.r2.cloudflarestorage.com`
     const region = 'auto'
 
@@ -87,7 +78,7 @@ export class R2StorageProvider implements StorageProvider {
     }
   }
 
-  async upload(file: Uint8Array, fileName: string, mimeType: string): Promise<{ path: string, url?: string }> {
+  async upload(file: Buffer, fileName: string, mimeType: string): Promise<{ path: string, url?: string }> {
     this.ensureInitialized()
 
     const encodedPath = this.encodePath(fileName)
@@ -95,7 +86,7 @@ export class R2StorageProvider implements StorageProvider {
 
     const response = await this.client!.fetch(url, {
       method: 'PUT',
-      body: file,
+      body: new Uint8Array(file),
       headers: {
         'Content-Type': mimeType
       }
@@ -111,7 +102,7 @@ export class R2StorageProvider implements StorageProvider {
 
     return {
       path: fileName,
-      url: this.publicUrl ? `${this.publicUrl}/${encodedPath}` : undefined
+      url: this.publicUrl ? `${this.publicUrl}/${fileName}` : undefined
     }
   }
 
@@ -195,22 +186,20 @@ export class R2StorageProvider implements StorageProvider {
   async exists(path: string): Promise<boolean> {
     this.ensureInitialized()
 
-    const encodedPath = this.encodePath(path)
-    const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
+    try {
+      const encodedPath = this.encodePath(path)
+      const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
 
-    const response = await this.client!.fetch(url, {
-      method: 'HEAD'
-    })
+      const response = await this.client!.fetch(url, {
+        method: 'HEAD'
+      })
 
-    if (response.ok) {
-      return true
-    }
+      // Consume response body to release connection
+      await response.arrayBuffer()
 
-    if (response.status === 404) {
+      return response.ok
+    } catch {
       return false
     }
-
-    const errorDetails = await this.getErrorDetails(response)
-    throw new Error(`Existence check failed: ${response.status} ${response.statusText}${errorDetails}`)
   }
 }
