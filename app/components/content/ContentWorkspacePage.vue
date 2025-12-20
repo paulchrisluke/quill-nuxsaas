@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { ContentStatus, ContentType } from '~~/server/types/content'
+import { nextTick } from 'vue'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
 
@@ -62,6 +64,21 @@ interface ContentApiResponse {
 }
 
 interface SaveContentBodyResponse {
+  content: {
+    id: string
+    organizationId: string
+    slug: string
+    title: string
+    status: ContentStatus
+    contentType: ContentType
+  }
+  version: {
+    id: string
+    contentId: string
+    version: number
+    bodyMdx: string
+    sections: Record<string, any>[] | null
+  }
   markdown: string
 }
 
@@ -145,6 +162,7 @@ const isSaving = ref(false)
 const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
 const lastContentId = ref<string | null>(null)
 const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+const isContentLoading = ref(false)
 const editorToolbarItems = [
   [
     { kind: 'heading', level: 1, label: 'H1' },
@@ -198,8 +216,7 @@ const saveContentBody = async () => {
     const updated = response?.markdown ?? editorContent.value
     editorContent.value = updated
     saveStatus.value = 'saved'
-
-    await refreshContent()
+    // No need to refresh - we already have the updated markdown from the response
   } catch (err) {
     console.error('Failed to save content body', err)
     saveStatus.value = 'unsaved'
@@ -215,26 +232,39 @@ const saveContentBody = async () => {
 
 watch(contentEntry, (entry) => {
   if (!entry) {
+    isContentLoading.value = true
     editorContent.value = ''
     lastContentId.value = null
     saveStatus.value = 'saved'
+    isContentLoading.value = false
     return
   }
   if (entry.id && entry.id !== lastContentId.value) {
+    isContentLoading.value = true
     lastContentId.value = entry.id
     editorContent.value = entry.bodyMarkdown || ''
     saveStatus.value = 'saved'
+    nextTick(() => {
+      isContentLoading.value = false
+    })
     return
   }
   // Only update if we haven't made local edits
   if (saveStatus.value === 'saved') {
+    isContentLoading.value = true
     editorContent.value = entry.bodyMarkdown || ''
+    nextTick(() => {
+      isContentLoading.value = false
+    })
   }
 })
 
 // Auto-save with debouncing
 watch(editorContent, () => {
-  if (!contentEntry.value || saveStatus.value === 'saving') {
+  if (!contentEntry.value || saveStatus.value === 'saving' || isContentLoading.value) {
+    return
+  }
+  if (saveStatus.value === 'saved') {
     return
   }
 
@@ -293,10 +323,11 @@ watch([contentEntry, error], ([entry, err]) => {
 }, { immediate: true })
 
 // Listen for content updates via window events (for cross-component communication)
+// Only refresh if we don't have unsaved changes to avoid disrupting the user
 if (import.meta.client) {
   const handleContentUpdate = (event: CustomEvent) => {
     const updatedContentId = event.detail?.contentId
-    if (updatedContentId === contentId.value) {
+    if (updatedContentId === contentId.value && saveStatus.value === 'saved') {
       refreshContent()
     }
   }
