@@ -456,6 +456,12 @@ export const insertUploadedImage = async (
 
   const warnings: string[] = []
   let resolvedAltText = altText?.trim() || ''
+  if (shouldSetFeatured && !resolvedAltText) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Alt text is required for featured images'
+    })
+  }
   if (!resolvedAltText) {
     if (config.image?.requireAltText) {
       throw createError({
@@ -526,10 +532,14 @@ export const insertUploadedImage = async (
         }
   }
 
-  const nextFrontmatter = (version.frontmatter && typeof version.frontmatter === 'object')
-    ? { ...(version.frontmatter as Record<string, any>) }
-    : {}
-  if (shouldSetFeatured) {
+  const nextFrontmatter = shouldSetFeatured
+    ? {
+        ...((version.frontmatter && typeof version.frontmatter === 'object')
+          ? (version.frontmatter as Record<string, any>)
+          : {})
+      }
+    : version.frontmatter
+  if (shouldSetFeatured && nextFrontmatter) {
     nextFrontmatter.featuredImage = {
       url: safeImageUrl,
       fileId: fileRecord.id,

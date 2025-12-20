@@ -802,9 +802,13 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
 
   if (toolCall.function.name === 'insert_image') {
     const { type: _omit, ...rest } = args
+    const invocation = rest as ChatToolInvocation<'insert_image'>['arguments']
+    if (!invocation.fileId) {
+      console.warn('[Tool Validation] insert_image called without fileId; falling back to latest image linked to content.')
+    }
     return {
       name: 'insert_image',
-      arguments: rest as ChatToolInvocation<'insert_image'>['arguments']
+      arguments: invocation
     }
   }
 
