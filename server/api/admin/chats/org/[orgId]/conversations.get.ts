@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { and, desc, eq, lt, or } from 'drizzle-orm'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
@@ -23,7 +22,7 @@ interface CursorPayload {
 }
 
 const encodeCursor = (payload: CursorPayload) => {
-  const base64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64')
+  const base64 = btoa(JSON.stringify(payload))
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '')
 }
 
@@ -32,7 +31,7 @@ const decodeCursor = (cursor: string): CursorPayload => {
     const base64 = cursor.replace(/-/g, '+').replace(/_/g, '/')
     const paddingNeeded = (4 - (base64.length % 4 || 4)) % 4
     const padded = `${base64}${'='.repeat(paddingNeeded)}`
-    const json = Buffer.from(padded, 'base64').toString('utf8')
+    const json = atob(padded)
     const parsed = JSON.parse(json) as CursorPayload
     if (!parsed?.id || !parsed?.updatedAt)
       throw new Error('Invalid cursor payload')
