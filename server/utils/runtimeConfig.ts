@@ -247,9 +247,9 @@ export const generateRuntimeConfig = () => {
             return envValue
           }
           if (envValue) {
-            console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 'r2'. Falling back to 'r2'.`)
+            console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 'r2'. Falling back to 'local'.`)
           }
-          return 'r2' as StorageProviderType
+          return 'local' as StorageProviderType
         })(),
         local: { // provider: 'local'
           uploadDir: process.env.NUXT_LOCAL_UPLOAD_DIR || './uploads',
