@@ -113,7 +113,7 @@ export default defineEventHandler(async (event) => {
         isValid: sanitizeResult.isValid,
         warnings: sanitizeResult.warnings,
         originalSize: fileBuffer.byteLength,
-        sanitizedSize: sanitizeResult.sanitized.length
+        sanitizedSize: encodeUtf8(sanitizeResult.sanitized).byteLength
       })
 
       // Reject SVG if sanitization failed
@@ -124,7 +124,7 @@ export default defineEventHandler(async (event) => {
           organizationId,
           warnings: sanitizeResult.warnings,
           originalSize: fileBuffer.byteLength,
-          sanitizedSize: sanitizeResult.sanitized.length
+          sanitizedSize: encodeUtf8(sanitizeResult.sanitized).byteLength
         })
         throw createError({
           statusCode: 400,

@@ -27,9 +27,13 @@ const toUint8Array = (input: Uint8Array | ArrayBuffer) => {
 }
 
 const toBase64 = (bytes: Uint8Array) => {
+  // Convert Uint8Array to binary string correctly handling all byte values (0-255)
+  // Use String.fromCharCode with proper handling for all byte values
+  // This works because btoa() expects Latin-1 encoding (ISO-8859-1) where code points 0-255 map directly
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+    // String.fromCharCode correctly handles values 0-255 for Latin-1 encoding
+    binary += String.fromCharCode(bytes[i] & 0xFF)
   }
   return btoa(binary)
 }
