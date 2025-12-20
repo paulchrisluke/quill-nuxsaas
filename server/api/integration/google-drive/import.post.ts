@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { and, eq } from 'drizzle-orm'
 import { createError, readBody } from 'h3'
 import * as schema from '~~/server/db/schema'
@@ -144,7 +143,7 @@ export default defineEventHandler(async (event) => {
     })
   })
 
-  const fileBuffer = Buffer.from(arrayBuffer)
+  const fileBuffer = new Uint8Array(arrayBuffer)
   const fileName = metadata.name || body.fileName || `drive-file-${metadata.id}`
   const mimeType = metadata.mimeType || body.mimeType || 'application/octet-stream'
 

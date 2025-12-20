@@ -1,5 +1,4 @@
 import type { ImageDataLike, ImageVariantMap } from './imageTypes'
-import { Buffer } from 'node:buffer'
 import { decode as decodeAvif, encode as encodeAvif } from '@jsquash/avif'
 import { decode as decodeJpeg } from '@jsquash/jpeg'
 import { decode as decodePng } from '@jsquash/png'
@@ -28,8 +27,11 @@ const toUint8Array = (input: Uint8Array | ArrayBuffer) => {
 }
 
 const toBase64 = (bytes: Uint8Array) => {
-  // Node.js Buffer API is significantly faster for large byte arrays
-  return Buffer.from(bytes).toString('base64')
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
 }
 
 const parseGifDimensions = (bytes: Uint8Array): { width: number, height: number } | null => {

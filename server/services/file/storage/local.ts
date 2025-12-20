@@ -1,4 +1,3 @@
-import type { Buffer } from 'node:buffer'
 import type { FileHandle } from 'node:fs/promises'
 import type { StorageProvider } from '../types'
 import { constants, promises as fs } from 'node:fs'
@@ -38,7 +37,7 @@ export class LocalStorageProvider implements StorageProvider {
     return this.baseDirRealPathWithSep!
   }
 
-  async upload(file: Buffer, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
+  async upload(file: Uint8Array, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
     const resolvedPath = resolvePath(this.baseDir, fileName)
     const dir = dirname(resolvedPath)
 
@@ -84,7 +83,7 @@ export class LocalStorageProvider implements StorageProvider {
     }
   }
 
-  private async uploadOverwrite(file: Buffer, fileName: string): Promise<{ path: string, url?: string }> {
+  private async uploadOverwrite(file: Uint8Array, fileName: string): Promise<{ path: string, url?: string }> {
     const resolvedPath = resolvePath(this.baseDir, fileName)
 
     // For overwrite, open existing file atomically, then verify
