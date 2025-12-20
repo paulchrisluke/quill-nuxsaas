@@ -1,6 +1,5 @@
 import type { GithubIntegrationProvider } from '~~/shared/constants/githubScopes'
 import type { GoogleIntegrationProvider } from '~~/shared/constants/googleScopes'
-import { Buffer } from 'node:buffer'
 import { APIError } from 'better-auth/api'
 import { and, eq } from 'drizzle-orm'
 import { member } from '~~/server/db/schema'
@@ -79,10 +78,12 @@ async function revokeGithubToken(token: string) {
   }
 
   try {
+    const credentials = `${clientId}:${clientSecret}`
+    const base64Credentials = btoa(credentials)
     await $fetch(`https://api.github.com/applications/${clientId}/grant`, {
       method: 'DELETE',
       headers: {
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        Authorization: `Basic ${base64Credentials}`,
         Accept: 'application/vnd.github+json'
       },
       body: {

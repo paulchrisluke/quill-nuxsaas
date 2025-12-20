@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import { readMultipartFormData } from 'h3'
 import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
@@ -94,10 +93,16 @@ export default defineEventHandler(async (event) => {
   const isSVG = mimeType === 'image/svg+xml' || fileExtension === 'svg'
 
   // Sanitize SVG files to prevent XSS attacks
-  let fileBuffer = fileData.data
+  const toUint8Array = (input: Uint8Array | ArrayBuffer) => {
+    return input instanceof Uint8Array ? input : new Uint8Array(input)
+  }
+  const decodeUtf8 = (bytes: Uint8Array) => new TextDecoder('utf-8').decode(bytes)
+  const encodeUtf8 = (value: string) => new TextEncoder().encode(value)
+
+  let fileBuffer = toUint8Array(fileData.data)
   if (isSVG) {
     try {
-      const svgContent = fileBuffer.toString('utf-8')
+      const svgContent = decodeUtf8(fileBuffer)
       const sanitizeResult = sanitizeSVG(svgContent)
 
       // Log sanitization attempt
@@ -107,8 +112,8 @@ export default defineEventHandler(async (event) => {
         organizationId,
         isValid: sanitizeResult.isValid,
         warnings: sanitizeResult.warnings,
-        originalSize: fileBuffer.length,
-        sanitizedSize: sanitizeResult.sanitized.length
+        originalSize: fileBuffer.byteLength,
+        sanitizedSize: encodeUtf8(sanitizeResult.sanitized).byteLength
       })
 
       // Reject SVG if sanitization failed
@@ -118,8 +123,8 @@ export default defineEventHandler(async (event) => {
           userId: user.id,
           organizationId,
           warnings: sanitizeResult.warnings,
-          originalSize: fileBuffer.length,
-          sanitizedSize: sanitizeResult.sanitized.length
+          originalSize: fileBuffer.byteLength,
+          sanitizedSize: encodeUtf8(sanitizeResult.sanitized).byteLength
         })
         throw createError({
           statusCode: 400,
@@ -134,7 +139,7 @@ export default defineEventHandler(async (event) => {
           userId: user.id,
           warnings: sanitizeResult.warnings
         })
-        fileBuffer = Buffer.from(sanitizeResult.sanitized, 'utf-8')
+        fileBuffer = encodeUtf8(sanitizeResult.sanitized)
       } else {
         console.log('[SVG Upload] SVG passed sanitization checks:', {
           fileName,
@@ -159,7 +164,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  if (config.maxFileSize && fileBuffer.length > config.maxFileSize) {
+  if (config.maxFileSize && fileBuffer.byteLength > config.maxFileSize) {
     throw createError({
       statusCode: 413,
       statusMessage: `File size exceeds maximum allowed size of ${formatFileSize(config.maxFileSize)}`

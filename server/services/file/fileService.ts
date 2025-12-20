@@ -1,6 +1,4 @@
-import type { Buffer } from 'node:buffer'
 import type { StorageProvider } from './types'
-import { extname } from 'node:path'
 import { format } from 'date-fns'
 import { and, desc, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
@@ -32,6 +30,14 @@ const getFileTypeFromMimeType = (mimeType: string) => {
   return 'other'
 }
 
+const getFileExtension = (fileName: string) => {
+  const lastDot = fileName.lastIndexOf('.')
+  if (lastDot <= 0 || lastDot === fileName.length - 1) {
+    return ''
+  }
+  return fileName.slice(lastDot)
+}
+
 export class FileService {
   private storage: StorageProvider
 
@@ -41,7 +47,7 @@ export class FileService {
 
   private generateFileName(originalName: string): string {
     const fileId = uuidv7()
-    const ext = extname(originalName)
+    const ext = getFileExtension(originalName)
 
     const dateFolder = format(new Date(), 'yyyy-MM-dd')
 
@@ -52,7 +58,7 @@ export class FileService {
   }
 
   async uploadFile(
-    fileBuffer: Buffer,
+    fileBuffer: Uint8Array,
     originalName: string,
     mimeType: string,
     uploadedBy?: string,
@@ -97,7 +103,7 @@ export class FileService {
         fileName,
         mimeType,
         fileType,
-        size: fileBuffer.length,
+        size: fileBuffer.byteLength,
         optimizationStatus,
         path,
         url,
@@ -129,7 +135,7 @@ export class FileService {
           originalName: resolvedOriginalName,
           fileName,
           mimeType,
-          size: formatFileSize(fileBuffer.length),
+          size: formatFileSize(fileBuffer.byteLength),
           storageProvider: this.storage.name
         })
       })
@@ -147,7 +153,7 @@ export class FileService {
         details: JSON.stringify({
           originalName: resolvedOriginalName,
           mimeType,
-          size: formatFileSize(fileBuffer.length),
+          size: formatFileSize(fileBuffer.byteLength),
           error: error instanceof Error ? error.message : 'Unknown error'
         })
       })

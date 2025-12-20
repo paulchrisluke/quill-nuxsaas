@@ -1,4 +1,5 @@
 import type { FileManagerConfig, StorageProvider } from '../types'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { LocalStorageProvider } from './local'
 import { R2StorageProvider } from './r2'
 
@@ -23,6 +24,9 @@ export async function createStorageProvider(config: FileManagerConfig['storage']
     case 'local':
       if (!config.local) {
         throw new Error('Local storage configuration is required')
+      }
+      if (runtimeConfig.preset === 'cloudflare-module') {
+        throw new Error('Local storage is not supported on Cloudflare Workers. Please switch to R2.')
       }
       return new LocalStorageProvider(config.local.uploadDir, config.local.publicPath)
 

@@ -1,5 +1,4 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { Buffer } from 'node:buffer'
 import { and, eq, ne } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
@@ -119,7 +118,7 @@ export async function publishContentVersion(
 
   let uploadedFile: typeof schema.file.$inferSelect | null = null
   try {
-    const buffer = Buffer.from(filePayload.fullMdx, 'utf8')
+    const buffer = new TextEncoder().encode(filePayload.fullMdx)
     uploadedFile = await fileService.uploadFile(
       buffer,
       filePayload.filename,

@@ -1,4 +1,3 @@
-import type { Buffer } from 'node:buffer'
 import type { StorageProvider } from '../types'
 import { AwsClient } from 'aws4fetch'
 
@@ -88,7 +87,7 @@ export class R2StorageProvider implements StorageProvider {
     }
   }
 
-  async upload(file: Buffer, fileName: string, mimeType: string): Promise<{ path: string, url?: string }> {
+  async upload(file: Uint8Array, fileName: string, mimeType: string): Promise<{ path: string, url?: string }> {
     this.ensureInitialized()
 
     const encodedPath = this.encodePath(fileName)
@@ -96,7 +95,7 @@ export class R2StorageProvider implements StorageProvider {
 
     const response = await this.client!.fetch(url, {
       method: 'PUT',
-      body: new Uint8Array(file),
+      body: file,
       headers: {
         'Content-Type': mimeType
       }

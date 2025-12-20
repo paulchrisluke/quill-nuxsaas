@@ -1,8 +1,6 @@
-import type { Buffer } from 'node:buffer'
-
 export interface StorageProvider {
   name: string
-  upload: (file: Buffer, fileName: string, mimeType: string) => Promise<{ path: string, url?: string }>
+  upload: (file: Uint8Array, fileName: string, mimeType: string) => Promise<{ path: string, url?: string }>
   getObject: (path: string) => Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }>
   putObject: (path: string, bytes: Uint8Array, contentType: string, cacheControl?: string) => Promise<void>
   delete: (path: string) => Promise<void>
