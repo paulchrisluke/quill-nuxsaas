@@ -254,7 +254,10 @@ export default defineNuxtConfig({
       ? {
           cloudflare: {
             deployConfig: true,
-            nodeCompat: true
+            nodeCompat: true,
+            wrangler: {
+              compatibility_flags: ['nodejs_compat']
+            }
           }
         }
       : {}),
