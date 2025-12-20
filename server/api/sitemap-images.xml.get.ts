@@ -89,7 +89,11 @@ ${sitemapIndexEntries.join('')}
     }
 
     // Calculate pagination
-    const offset = (page - 1) * MAX_ITEMS_PER_SITEMAP
+    // When paginated (totalCount > MAX_ITEMS_PER_SITEMAP), page 1 is the index,
+    // so content pages start at page 2. Adjust offset to account for this.
+    const offset = totalCount > MAX_ITEMS_PER_SITEMAP
+      ? (page - 2) * MAX_ITEMS_PER_SITEMAP
+      : (page - 1) * MAX_ITEMS_PER_SITEMAP
     const limit = MAX_ITEMS_PER_SITEMAP
 
     // Fetch paginated files

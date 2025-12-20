@@ -1,9 +1,22 @@
 import type { ImageVariant, ImageVariantMap } from './imageTypes'
 import { createError } from 'h3'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 
 export const SUPPORTED_PROXY_FORMATS = new Set(['webp', 'avif', 'original'])
 
-export const DEFAULT_MAX_PROXY_WIDTH = 2000
+/**
+ * Gets the maximum proxy width from runtime config, with a safe fallback.
+ * This allows operators to change the limit at runtime without redeploying.
+ */
+const getDefaultMaxProxyWidth = (): number => {
+  try {
+    const configValue = runtimeConfig.fileManager?.image?.maxProxyWidth
+    return Number.isFinite(configValue) && (configValue ?? 0) > 0 ? (configValue as number) : 2000
+  } catch {
+    // Fallback if runtime config is not available (e.g., during tests or build time)
+    return 2000
+  }
+}
 
 export const parseProxyParams = (
   query: { w?: string | string[], format?: string | string[] },
@@ -13,7 +26,7 @@ export const parseProxyParams = (
   const formatRaw = Array.isArray(query.format) ? query.format[0] : query.format
   const maxWidth = Number.isFinite(options?.maxWidth) && (options?.maxWidth ?? 0) > 0
     ? (options!.maxWidth as number)
-    : DEFAULT_MAX_PROXY_WIDTH
+    : getDefaultMaxProxyWidth()
 
   let width: number | null = null
   if (widthRaw !== undefined) {

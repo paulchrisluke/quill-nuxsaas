@@ -1,10 +1,15 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import type { NuxtPage } from 'nuxt/schema'
-import type { Plugin } from 'rollup'
 import { existsSync, readdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
+
+// Minimal Rollup plugin interface for type safety
+interface RollupPlugin {
+  name: string
+  resolveId?: (source: string, importer: string | undefined) => string | null | undefined
+}
 
 console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
 
@@ -12,11 +17,30 @@ const effectiveNitroPreset = (process.env.NODE_ENV === 'development' && !process
   ? 'node-server'
   : (process.env.NUXT_NITRO_PRESET || 'node-server')
 
-// Custom Rollup plugin to handle problematic relative imports in jsquash packages
-function jsquashResolvePlugin(): Plugin {
+/**
+ * Custom Rollup plugin to work around @jsquash relative import and WASM incompatibilities
+ * when bundling for Cloudflare Workers.
+ *
+ * Problem: @jsquash packages use relative imports (e.g., "../../.." from workerHelpers.js)
+ * and WASM files that don't resolve correctly during bundling for Cloudflare Workers.
+ *
+ * Solution: This plugin intercepts problematic imports and resolves them to the correct
+ * filesystem paths based on the expected @jsquash package layout:
+ * - workerHelpers.js references "../../.." to reach the package root
+ * - Package root contains main .js files (excluding workerHelpers.js, .wasm, .d.ts)
+ * - @jsquash/png uses bare "meta" imports that should resolve to "./meta.js"
+ *
+ * Expected package structure:
+ *   @jsquash/png/
+ *     ├── index.js (or similar main entry)
+ *     ├── meta.js
+ *     ├── workerHelpers.js
+ *     └── ...
+ */
+function jsquashResolvePlugin(): RollupPlugin {
   return {
     name: 'jsquash-resolve',
-    resolveId(source, importer) {
+    resolveId(source: string, importer: string | undefined) {
       if (!importer?.includes('@jsquash')) {
         return null
       }
@@ -39,8 +63,13 @@ function jsquashResolvePlugin(): Plugin {
               return resolve(pkgDir, mainFile)
             }
           }
-        } catch {
-          // If we can't resolve, return null to let other plugins handle it
+        } catch (error) {
+          console.warn('[jsquash-resolve] Failed to resolve "../../.." import:', {
+            importer,
+            source,
+            error: error instanceof Error ? error.message : String(error)
+          })
+          return null
         }
       }
 
@@ -52,8 +81,13 @@ function jsquashResolvePlugin(): Plugin {
           if (existsSync(metaPath)) {
             return metaPath
           }
-        } catch {
-          // Fall through
+        } catch (error) {
+          console.warn('[jsquash-resolve] Failed to resolve "meta" import:', {
+            importer,
+            source,
+            error: error instanceof Error ? error.message : String(error)
+          })
+          return null
         }
       }
 

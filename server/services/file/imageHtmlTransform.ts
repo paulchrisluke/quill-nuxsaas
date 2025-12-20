@@ -192,14 +192,18 @@ export async function transformHtmlImages(html: string, options?: { organization
       ...Object.entries(imgAttrs).map(([key, value]) => `${key}="${escapeAttribute(value)}"`)
     ].filter(Boolean).join(' ')
 
-    const sourcesMarkup = formats.map((format) => {
-      const srcset = buildProxySrcset(record.id, sizes, format)
-      if (!srcset) {
-        return ''
-      }
-      const mime = format === 'avif' ? 'image/avif' : 'image/webp'
-      return `<source type="${mime}" srcset="${escapeAttribute(srcset)}"${sizesAttrValue ? ` sizes="${escapeAttribute(sizesAttrValue)}"` : ''}>`
-    }).filter(Boolean).join('')
+    const sourcesMarkup = formats
+      .map((format) => {
+        const srcset = buildProxySrcset(record.id, sizes, format)
+        if (!srcset || srcset.trim() === '') {
+          return null
+        }
+        const mime = format === 'avif' ? 'image/avif' : 'image/webp'
+        const sizesAttr = sizesAttrValue ? ` sizes="${escapeAttribute(sizesAttrValue)}"` : ''
+        return `<source type="${mime}" srcset="${escapeAttribute(srcset)}"${sizesAttr}>`
+      })
+      .filter((markup): markup is string => markup !== null && markup !== '')
+      .join('')
 
     return `<picture>${sourcesMarkup}<img ${imgAttrString}></picture>`
   })

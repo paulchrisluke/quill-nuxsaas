@@ -170,11 +170,17 @@ export class S3CompatibleStorageProvider implements StorageProvider {
   }
 
   getUrl(path: string): string {
+    // Encode the path to handle spaces, unicode, and special characters
+    const encodedPath = this.encodePath(path).replace(/^\//, '') // Strip leading slash
+
     if (this.publicUrl) {
-      return `${this.publicUrl}/${path}`
+      // Ensure publicUrl doesn't have a trailing slash, then append encoded path
+      const baseUrl = this.publicUrl.replace(/\/$/, '')
+      return `${baseUrl}/${encodedPath}`
     }
 
-    return `https://${this.bucketName}.r2.dev/${path}`
+    // Fallback to r2.dev URL with encoded path
+    return `https://${this.bucketName}.r2.dev/${encodedPath}`
   }
 
   async exists(path: string): Promise<boolean> {

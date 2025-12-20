@@ -62,8 +62,8 @@ const h3Entry = resolvePnpmDepEntry('h3', 'dist/index.mjs')
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^~~\//, replacement: `${rootDir}` },
-      { find: /^~\//, replacement: `${rootDir}` },
+      { find: /^~~\//, replacement: `${rootDir}/` },
+      { find: /^~\//, replacement: `${rootDir}/` },
       ...(h3Entry ? [{ find: /^h3$/, replacement: h3Entry }] : [])
     ]
   },

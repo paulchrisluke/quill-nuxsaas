@@ -12,8 +12,7 @@ const ensureR2Config = (config: NonNullable<FileManagerConfig['storage']['r2']>)
     missing.push('NUXT_CF_SECRET_ACCESS_KEY')
   if (!config.bucketName)
     missing.push('NUXT_CF_R2_BUCKET_NAME')
-  if (!config.publicUrl)
-    missing.push('NUXT_CF_R2_PUBLIC_URL')
+  // Note: publicUrl is optional - if not provided, getUrl() will fall back to r2.dev URL
   if (missing.length > 0) {
     throw new Error(`Missing R2 configuration values: ${missing.join(', ')}`)
   }
