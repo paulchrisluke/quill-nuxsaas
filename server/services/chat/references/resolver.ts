@@ -25,6 +25,13 @@ interface MatchResult<T> {
 
 const normalizeValue = (value: string | null | undefined) => (value ?? '').trim().toLowerCase()
 
+const escapeLikePattern = (value: string): string => {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
+}
+
 const selectBestMatch = <T>(identifier: string, candidates: T[], getKeys: (candidate: T) => Array<string | null | undefined>): MatchResult<T> => {
   const normalized = normalizeValue(identifier)
   const matches: Array<{ item: T, priority: 'exact' | 'prefix' | 'substring' }> = []
@@ -76,6 +83,7 @@ const LIMIT_MATCHES = 25
 
 const fetchFileCandidates = async (context: ResolveContext, identifier: string) => {
   const normalized = normalizeValue(identifier)
+  const escaped = escapeLikePattern(normalized)
   return await context.db
     .select({
       id: schema.file.id,
@@ -91,8 +99,8 @@ const fetchFileCandidates = async (context: ResolveContext, identifier: string) 
       eq(schema.file.organizationId, context.organizationId),
       eq(schema.file.isActive, true),
       or(
-        sql`lower(${schema.file.fileName}) like ${`%${normalized}%`}`,
-        sql`lower(${schema.file.originalName}) like ${`%${normalized}%`}`
+        sql`lower(${schema.file.fileName}) like ${`%${escaped}%`} escape '\\'`,
+        sql`lower(${schema.file.originalName}) like ${`%${escaped}%`} escape '\\'`
       )
     ))
     .orderBy(schema.file.updatedAt)
@@ -101,6 +109,7 @@ const fetchFileCandidates = async (context: ResolveContext, identifier: string) 
 
 const fetchContentCandidates = async (context: ResolveContext, identifier: string) => {
   const normalized = normalizeValue(identifier)
+  const escaped = escapeLikePattern(normalized)
   return await context.db
     .select({
       id: schema.content.id,
@@ -112,7 +121,7 @@ const fetchContentCandidates = async (context: ResolveContext, identifier: strin
     .from(schema.content)
     .where(and(
       eq(schema.content.organizationId, context.organizationId),
-      sql`lower(${schema.content.slug}) like ${`%${normalized}%`}`
+      sql`lower(${schema.content.slug}) like ${`%${escaped}%`} escape '\\'`
     ))
     .orderBy(schema.content.updatedAt)
     .limit(LIMIT_MATCHES)
@@ -120,6 +129,7 @@ const fetchContentCandidates = async (context: ResolveContext, identifier: strin
 
 const fetchSourceCandidates = async (context: ResolveContext, identifier: string) => {
   const normalized = normalizeValue(identifier)
+  const escaped = escapeLikePattern(normalized)
   return await context.db
     .select({
       id: schema.sourceContent.id,
@@ -131,8 +141,8 @@ const fetchSourceCandidates = async (context: ResolveContext, identifier: string
     .where(and(
       eq(schema.sourceContent.organizationId, context.organizationId),
       or(
-        sql`lower(${schema.sourceContent.externalId}) like ${`%${normalized}%`}`,
-        sql`lower(${schema.sourceContent.title}) like ${`%${normalized}%`}`
+        sql`lower(${schema.sourceContent.externalId}) like ${`%${escaped}%`} escape '\\'`,
+        sql`lower(${schema.sourceContent.title}) like ${`%${escaped}%`} escape '\\'`
       )
     ))
     .orderBy(schema.sourceContent.updatedAt)

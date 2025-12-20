@@ -353,6 +353,13 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (resolveTimeout) {
+    clearTimeout(resolveTimeout)
+    resolveTimeout = null
+  }
+  // Reset to safe defaults to avoid callbacks running against unmounted component
+  referenceLoading.value = false
+  referenceResolution.value = null
   if (textareaRef.value) {
     textareaRef.value.removeEventListener('keydown', handleKeyDown)
     textareaRef.value.removeEventListener('input', updateCursor)
@@ -369,8 +376,12 @@ watch(modelValue, (value) => {
   scheduleReferenceResolution(value)
 })
 
-watch([organizationId, () => props.contentId], () => {
-  fetchSuggestions()
+watch([organizationId, () => props.contentId], async () => {
+  try {
+    await fetchSuggestions()
+  } catch (error) {
+    console.error('[PromptComposer] Failed to fetch suggestions in watch', error)
+  }
 }, { immediate: true })
 
 watch(combinedSuggestions, (value) => {

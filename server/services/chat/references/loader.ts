@@ -36,8 +36,15 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
       let textContent: string | undefined
       let truncated = false
       if (isTextLikeMime(reference.metadata.mimeType)) {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => {
+          controller.abort()
+        }, 5000) // 5 second timeout
+
         try {
-          const response = await fetch(reference.metadata.url)
+          const response = await fetch(reference.metadata.url, {
+            signal: controller.signal
+          })
           if (response.ok) {
             const rawText = await response.text()
             const truncatedResult = truncateText(rawText)
@@ -45,7 +52,10 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
             truncated = truncatedResult.truncated
           }
         } catch {
+          // Treat abort as failed fetch (textContent remains undefined)
           textContent = undefined
+        } finally {
+          clearTimeout(timeoutId)
         }
       }
 
