@@ -84,6 +84,9 @@ export class FileService {
     }
     const fileType = getFileTypeFromMimeType(mimeType)
     const resolvedOriginalName = options?.overrideOriginalName?.trim() || originalName
+    const optimizationStatus = fileType === 'image' && mimeType.startsWith('image/')
+      ? 'pending'
+      : 'done'
 
     try {
       const { path, url } = await this.storage.upload(fileBuffer, fileName, mimeType)
@@ -95,6 +98,7 @@ export class FileService {
         mimeType,
         fileType,
         size: fileBuffer.length,
+        optimizationStatus,
         path,
         url,
         storageProvider: this.storage.name,

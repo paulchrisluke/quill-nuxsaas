@@ -1093,7 +1093,7 @@ export const getAuthSession = async (event: H3Event) => {
   return session
 }
 
-const getSessionOrganizationId = (session: any): string | null => {
+export const getSessionOrganizationId = (session: any): string | null => {
   return session?.session?.activeOrganizationId
     ?? session?.data?.session?.activeOrganizationId
     ?? session?.activeOrganizationId
