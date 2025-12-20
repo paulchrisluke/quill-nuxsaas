@@ -7,6 +7,15 @@ interface LoaderContext {
   organizationId: string
 }
 
+interface RawSection {
+  id?: string
+  section_id?: string
+  title?: string | null
+  type?: string | null
+  index?: number | null
+  body?: string | null
+}
+
 const MAX_TEXT_CHARS = 20000
 
 const isTextLikeMime = (mimeType: string | null | undefined) => {
@@ -70,20 +79,32 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
     }
 
     if (reference.type === 'content') {
-      const [content] = await context.db
-        .select({
-          id: schema.content.id,
-          slug: schema.content.slug,
-          title: schema.content.title,
-          status: schema.content.status,
-          currentVersionId: schema.content.currentVersionId
-        })
-        .from(schema.content)
-        .where(and(
-          eq(schema.content.id, reference.id),
-          eq(schema.content.organizationId, context.organizationId)
-        ))
-        .limit(1)
+      let content: {
+        id: string
+        slug: string | null
+        title: string | null
+        status: string | null
+        currentVersionId: string | null
+      } | undefined
+      try {
+        ;[content] = await context.db
+          .select({
+            id: schema.content.id,
+            slug: schema.content.slug,
+            title: schema.content.title,
+            status: schema.content.status,
+            currentVersionId: schema.content.currentVersionId
+          })
+          .from(schema.content)
+          .where(and(
+            eq(schema.content.id, reference.id),
+            eq(schema.content.organizationId, context.organizationId)
+          ))
+          .limit(1)
+      } catch (error) {
+        console.error('[references] Failed to load content reference:', reference.id, error)
+        continue
+      }
 
       if (!content?.currentVersionId) {
         contents.push({
@@ -96,18 +117,24 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
         continue
       }
 
-      const [version] = await context.db
-        .select({
-          id: schema.contentVersion.id,
-          frontmatter: schema.contentVersion.frontmatter,
-          sections: schema.contentVersion.sections
-        })
-        .from(schema.contentVersion)
-        .where(eq(schema.contentVersion.id, content.currentVersionId))
-        .limit(1)
+      let version: { id: string, frontmatter: Record<string, any> | null, sections: RawSection[] | null } | undefined
+      try {
+        ;[version] = await context.db
+          .select({
+            id: schema.contentVersion.id,
+            frontmatter: schema.contentVersion.frontmatter,
+            sections: schema.contentVersion.sections
+          })
+          .from(schema.contentVersion)
+          .where(eq(schema.contentVersion.id, content.currentVersionId))
+          .limit(1)
+      } catch (error) {
+        console.error('[references] Failed to load content version:', content.currentVersionId, error)
+        continue
+      }
 
       const sections = Array.isArray(version?.sections) ? version.sections : []
-      const sectionsSummary = sections.map((section: any) => ({
+      const sectionsSummary = sections.map((section: RawSection) => ({
         id: section.id || section.section_id,
         title: section.title ?? null,
         type: section.type ?? null,
@@ -125,34 +152,50 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
     }
 
     if (reference.type === 'section') {
-      const [content] = await context.db
-        .select({
-          id: schema.content.id,
-          slug: schema.content.slug,
-          title: schema.content.title,
-          currentVersionId: schema.content.currentVersionId
-        })
-        .from(schema.content)
-        .where(and(
-          eq(schema.content.id, reference.contentId),
-          eq(schema.content.organizationId, context.organizationId)
-        ))
-        .limit(1)
-
-      let version: { id: string, sections: Record<string, any>[] | null } | null = null
-      if (content?.currentVersionId) {
-        ;[version] = await context.db
+      let content: {
+        id: string
+        slug: string | null
+        title: string | null
+        currentVersionId: string | null
+      } | undefined
+      try {
+        ;[content] = await context.db
           .select({
-            id: schema.contentVersion.id,
-            sections: schema.contentVersion.sections
+            id: schema.content.id,
+            slug: schema.content.slug,
+            title: schema.content.title,
+            currentVersionId: schema.content.currentVersionId
           })
-          .from(schema.contentVersion)
-          .where(eq(schema.contentVersion.id, content.currentVersionId))
+          .from(schema.content)
+          .where(and(
+            eq(schema.content.id, reference.contentId),
+            eq(schema.content.organizationId, context.organizationId)
+          ))
           .limit(1)
+      } catch (error) {
+        console.error('[references] Failed to load section content:', reference.contentId, error)
+        continue
+      }
+
+      let version: { id: string, sections: RawSection[] | null } | null = null
+      if (content?.currentVersionId) {
+        try {
+          ;[version] = await context.db
+            .select({
+              id: schema.contentVersion.id,
+              sections: schema.contentVersion.sections
+            })
+            .from(schema.contentVersion)
+            .where(eq(schema.contentVersion.id, content.currentVersionId))
+            .limit(1)
+        } catch (error) {
+          console.error('[references] Failed to load section version:', content.currentVersionId, error)
+          continue
+        }
       }
 
       const sections = Array.isArray(version?.sections) ? version.sections : []
-      const matchedSection = sections.find((section: any) => {
+      const matchedSection = sections.find((section: RawSection) => {
         const sectionId = section.id || section.section_id
         return sectionId === reference.id
       })
@@ -167,19 +210,30 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
     }
 
     if (reference.type === 'source') {
-      const [source] = await context.db
-        .select({
-          id: schema.sourceContent.id,
-          title: schema.sourceContent.title,
-          sourceType: schema.sourceContent.sourceType,
-          sourceText: schema.sourceContent.sourceText
-        })
-        .from(schema.sourceContent)
-        .where(and(
-          eq(schema.sourceContent.id, reference.id),
-          eq(schema.sourceContent.organizationId, context.organizationId)
-        ))
-        .limit(1)
+      let source: {
+        id: string
+        title: string | null
+        sourceType: string | null
+        sourceText: string | null
+      } | undefined
+      try {
+        ;[source] = await context.db
+          .select({
+            id: schema.sourceContent.id,
+            title: schema.sourceContent.title,
+            sourceType: schema.sourceContent.sourceType,
+            sourceText: schema.sourceContent.sourceText
+          })
+          .from(schema.sourceContent)
+          .where(and(
+            eq(schema.sourceContent.id, reference.id),
+            eq(schema.sourceContent.organizationId, context.organizationId)
+          ))
+          .limit(1)
+      } catch (error) {
+        console.error('[references] Failed to load source reference:', reference.id, error)
+        continue
+      }
 
       const text = source?.sourceText || ''
       const truncatedResult = text ? truncateText(text) : { text: '', truncated: false }

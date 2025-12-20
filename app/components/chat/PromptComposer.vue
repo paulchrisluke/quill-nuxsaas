@@ -325,7 +325,7 @@ const replaceToken = (token: ReferenceToken, reference: string) => {
 
   const rawIndex = findClosestTokenIndex(currentValue, token.raw, token.startIndex)
   if (rawIndex === -1) {
-    modelValue.value = currentValue.replace(token.raw, replacement)
+    console.warn('[PromptComposer] Token not found in current value, skipping replacement', token.raw)
     return
   }
   const before = currentValue.slice(0, rawIndex)

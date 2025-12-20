@@ -42,6 +42,7 @@ describe('parseReferences', () => {
       raw: '@source:manual-transcript',
       identifier: 'source:manual-transcript'
     })
+    // "source:" acts as a namespace prefix, not an anchor delimiter.
     expect(tokens[1].anchor).toBeUndefined()
   })
 })

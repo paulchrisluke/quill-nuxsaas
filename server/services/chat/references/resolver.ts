@@ -415,9 +415,6 @@ export async function resolveReferences(tokens: ReferenceToken[], context: Resol
     if (contentResult.resolved) {
       resolved.push(contentResult.resolved)
     }
-    if (contentResult.unresolved) {
-      unresolved.push(contentResult.unresolved)
-    }
     if (contentResult.ambiguous) {
       ambiguous.push(contentResult.ambiguous)
     }
@@ -434,6 +431,9 @@ export async function resolveReferences(tokens: ReferenceToken[], context: Resol
     }
     if (fileResult.ambiguous) {
       ambiguous.push(fileResult.ambiguous)
+    }
+    if (!fileResult.resolved && !fileResult.ambiguous && contentResult.unresolved) {
+      unresolved.push(contentResult.unresolved)
     }
   }
 
