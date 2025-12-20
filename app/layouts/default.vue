@@ -279,14 +279,12 @@ const canExpandConversationList = computed(() => {
 
 <template>
   <div class="relative min-h-screen bg-white dark:bg-neutral-950 lg:h-screen lg:overflow-hidden">
-    <ClientOnly>
-      <template #default>
-        <UDashboardGroup
-          v-if="shouldShowSidebar"
-          :ui="{
-            wrapper: 'flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row'
-          }"
-        >
+    <UDashboardGroup
+      v-if="shouldShowSidebar"
+      :ui="{
+        wrapper: 'flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row'
+      }"
+    >
       <UDashboardSidebar
         :class="[
           { 'lg:!hidden': !shouldRenderAppShell }
@@ -510,43 +508,29 @@ const canExpandConversationList = computed(() => {
           />
         </div>
       </aside>
-        </UDashboardGroup>
+    </UDashboardGroup>
 
-        <!-- Fallback layout when sidebar shouldn't be shown -->
+    <!-- Fallback layout when sidebar shouldn't be shown -->
+    <div
+      v-else
+      class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row"
+    >
+      <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
         <div
-          v-else
-          class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row"
+          v-if="pageTitle"
+          class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]"
         >
-          <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
-            <div
-              v-if="pageTitle"
-              class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]"
-            >
-              <h1 class="text-sm font-semibold text-left truncate">
-                {{ pageTitle }}
-              </h1>
-            </div>
-            <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-              <div class="h-full w-full">
-                <slot />
-              </div>
-            </div>
+          <h1 class="text-sm font-semibold text-left truncate">
+            {{ pageTitle }}
+          </h1>
+        </div>
+        <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+          <div class="h-full w-full">
+            <slot />
           </div>
         </div>
-      </template>
-      <template #fallback>
-        <!-- Fallback matches the simpler layout structure (when shouldShowSidebar is false) -->
-        <div class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row">
-          <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
-            <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-              <div class="h-full w-full">
-                <slot />
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-    </ClientOnly>
+      </div>
+    </div>
     <OnboardingModal />
     <AuthModal
       v-model:open="authModalOpen"
