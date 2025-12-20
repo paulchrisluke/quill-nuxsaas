@@ -200,9 +200,6 @@ export class R2StorageProvider implements StorageProvider {
         method: 'HEAD'
       })
 
-      // Consume response body to release connection
-      await response.arrayBuffer()
-
       return response.ok
     } catch {
       return false

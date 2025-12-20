@@ -38,8 +38,8 @@ export const file = pgTable('file', {
   uploadedBy: text('uploaded_by').references(() => user.id, { onDelete: 'set null' }),
   contentId: uuid('content_id').references(() => content.id, { onDelete: 'set null' }),
   isActive: boolean('is_active').default(true).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull()
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 }, table => ({
   organizationIdx: index('file_organization_idx').on(table.organizationId),
   organizationActiveIdx: index('file_organization_active_idx').on(table.organizationId, table.isActive),

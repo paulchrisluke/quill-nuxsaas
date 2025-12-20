@@ -139,6 +139,9 @@ const clampQuality = (value: number | undefined) => {
 }
 
 const calculateSize = (width: number, height: number, targetWidth: number) => {
+  if (width <= 0) {
+    return { width: targetWidth, height: 1 }
+  }
   const ratio = targetWidth / width
   return {
     width: targetWidth,

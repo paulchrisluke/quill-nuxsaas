@@ -6,8 +6,5 @@ export default defineConfig({
   out: './server/db/migrations',
   dbCredentials: {
     url: process.env.DATABASE_URL!
-  },
-  migrations: {
-    transactional: true
-  } as any
+  }
 })
