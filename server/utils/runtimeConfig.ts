@@ -86,9 +86,17 @@ function validateR2Config(config: NitroRuntimeConfig) {
     return
   }
 
-  const r2Config = config.fileManager.storage.r2
+  let r2Config = config.fileManager.storage.r2
   if (!r2Config) {
-    return
+    // Treat missing r2Config as an object with missing fields so validation can run
+    r2Config = {
+      accountId: '',
+      accessKeyId: '',
+      secretAccessKey: '',
+      bucketName: '',
+      publicUrl: ''
+    }
+    config.fileManager.storage.r2 = r2Config
   }
 
   const missingFields: string[] = []

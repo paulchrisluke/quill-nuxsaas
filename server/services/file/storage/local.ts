@@ -8,12 +8,34 @@ export class LocalStorageProvider implements StorageProvider {
   name = 'local'
   private baseDir: string
   private baseDirWithSep: string
+  private baseDirRealPath: string | null = null
+  private baseDirRealPathWithSep: string | null = null
   private publicPath: string
 
   constructor(uploadDir: string, publicPath: string) {
     this.baseDir = resolvePath(uploadDir)
     this.baseDirWithSep = this.baseDir.endsWith(sep) ? this.baseDir : `${this.baseDir}${sep}`
     this.publicPath = publicPath
+  }
+
+  private async getBaseDirRealPath(): Promise<string> {
+    if (this.baseDirRealPath === null) {
+      try {
+        this.baseDirRealPath = await fs.realpath(this.baseDir)
+        this.baseDirRealPathWithSep = this.baseDirRealPath.endsWith(sep) ? this.baseDirRealPath : `${this.baseDirRealPath}${sep}`
+      } catch {
+        // If baseDir doesn't exist yet, use the original path
+        // It will be validated when the directory is created
+        this.baseDirRealPath = this.baseDir
+        this.baseDirRealPathWithSep = this.baseDirWithSep
+      }
+    }
+    return this.baseDirRealPath
+  }
+
+  private async getBaseDirRealPathWithSep(): Promise<string> {
+    await this.getBaseDirRealPath()
+    return this.baseDirRealPathWithSep!
   }
 
   async upload(file: Buffer, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
@@ -32,7 +54,7 @@ export class LocalStorageProvider implements StorageProvider {
       // Verify the opened file is within base directory by checking its realpath
       // Use the resolved path (which we validated the parent of) to verify
       const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
+      await this.verifyPathWithinBase(realPath)
 
       // Verify the file descriptor points to the expected file by checking inode
       const handleStats = await handle.stat()
@@ -73,7 +95,7 @@ export class LocalStorageProvider implements StorageProvider {
 
       // Verify the opened file is safe
       const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
+      await this.verifyPathWithinBase(realPath)
 
       // Verify inode matches to ensure we opened the expected file
       const handleStats = await handle.stat()
@@ -105,22 +127,30 @@ export class LocalStorageProvider implements StorageProvider {
     const realParent = await fs.realpath(dir).catch(async (error: any) => {
       if (error?.code === 'ENOENT') {
         // Parent doesn't exist, validate the logical path
-        this.verifyPathWithinBase(dir)
+        await this.verifyPathWithinBase(dir)
         // Create parent directories
         await fs.mkdir(dir, { recursive: true })
         // After creation, verify the real path
         const createdRealPath = await fs.realpath(dir)
-        this.verifyPathWithinBase(createdRealPath)
+        await this.verifyPathWithinBase(createdRealPath)
         return createdRealPath
       }
       throw error
     })
 
-    this.verifyPathWithinBase(realParent)
+    await this.verifyPathWithinBase(realParent)
   }
 
-  private verifyPathWithinBase(candidate: string): void {
-    if (candidate !== this.baseDir && !candidate.startsWith(this.baseDirWithSep)) {
+  private async verifyPathWithinBase(candidate: string): Promise<void> {
+    // Compare against both the original baseDir and its realpath
+    // This handles cases where the baseDir path contains symlinks (e.g., /var -> /private/var on macOS)
+    const baseDirRealPath = await this.getBaseDirRealPath()
+    const baseDirRealPathWithSep = await this.getBaseDirRealPathWithSep()
+
+    const isWithinOriginal = candidate === this.baseDir || candidate.startsWith(this.baseDirWithSep)
+    const isWithinRealPath = candidate === baseDirRealPath || candidate.startsWith(baseDirRealPathWithSep)
+
+    if (!isWithinOriginal && !isWithinRealPath) {
       throw new Error('Invalid path: path traversal detected')
     }
   }
@@ -149,7 +179,7 @@ export class LocalStorageProvider implements StorageProvider {
 
       // Now verify the opened file is safe
       const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
+      await this.verifyPathWithinBase(realPath)
 
       // Verify inode matches to ensure we opened the expected file
       const handleStats = await handle.stat()
@@ -186,7 +216,7 @@ export class LocalStorageProvider implements StorageProvider {
 
       // Verify the opened file is safe
       const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
+      await this.verifyPathWithinBase(realPath)
 
       // Verify inode matches
       const handleStats = await handle.stat()
@@ -219,7 +249,7 @@ export class LocalStorageProvider implements StorageProvider {
 
       // Verify the opened file is safe
       const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
+      await this.verifyPathWithinBase(realPath)
 
       // Verify inode matches to ensure we opened the expected file
       const handleStats = await handle.stat()
@@ -243,7 +273,20 @@ export class LocalStorageProvider implements StorageProvider {
   async delete(path: string): Promise<void> {
     const resolvedPath = resolvePath(this.baseDir, path)
 
-    // Resolve the actual filesystem path (following symlinks)
+    // First check if the original path exists
+    // Use lstat (not stat) to avoid following symlinks
+    let _originalStats
+    try {
+      _originalStats = await fs.lstat(resolvedPath)
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        // File doesn't exist, that's fine
+        return
+      }
+      throw error
+    }
+
+    // Resolve the actual filesystem path (following symlinks) for safety validation
     const realPath = await fs.realpath(resolvedPath).catch(async (error: any) => {
       if (error?.code === 'ENOENT') {
         // File doesn't exist, that's fine
@@ -257,11 +300,12 @@ export class LocalStorageProvider implements StorageProvider {
       return
     }
 
-    // Validate the canonical path is within base
-    this.verifyPathWithinBase(realPath)
+    // Validate the canonical path is within base to ensure the target is safe
+    await this.verifyPathWithinBase(realPath)
 
+    // Unlink the original resolvedPath (the user-specified path) so symlinks are removed, not their targets
     try {
-      await fs.unlink(realPath)
+      await fs.unlink(resolvedPath)
     } catch (error: any) {
       if ((error as any).code === 'ENOENT') {
         // File doesn't exist, that's fine
@@ -281,7 +325,7 @@ export class LocalStorageProvider implements StorageProvider {
     try {
       // Validate path
       const realPath = await fs.realpath(resolvedPath)
-      this.verifyPathWithinBase(realPath)
+      await this.verifyPathWithinBase(realPath)
 
       // Check access using the validated path
       await fs.access(realPath)

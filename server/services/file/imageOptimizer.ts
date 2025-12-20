@@ -309,11 +309,14 @@ const applyExifOrientation = (image: ImageDataLike, orientation: number | null):
 }
 
 const extractSvgDimensions = (svg: string) => {
-  const widthMatch = svg.match(/width=["']?([0-9.]+)(?:px)?["']?/i)
-  const heightMatch = svg.match(/height=["']?([0-9.]+)(?:px)?["']?/i)
+  const widthMatch = svg.match(/width=["']?([0-9.]+)(px)?["']?/i)
+  const heightMatch = svg.match(/height=["']?([0-9.]+)(px)?["']?/i)
   const width = widthMatch ? Number.parseFloat(widthMatch[1]) : null
   const height = heightMatch ? Number.parseFloat(heightMatch[1]) : null
-  if (width && height) {
+  // Only use explicit dimensions if they're unitless or px (not %, em, etc.)
+  const widthHasValidUnit = widthMatch && (!widthMatch[2] || widthMatch[2] === 'px')
+  const heightHasValidUnit = heightMatch && (!heightMatch[2] || heightMatch[2] === 'px')
+  if (width && height && widthHasValidUnit && heightHasValidUnit) {
     return { width, height }
   }
   const viewBoxMatch = svg.match(/viewBox=["']?\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*["']?/i)
@@ -328,6 +331,9 @@ const extractSvgDimensions = (svg: string) => {
 }
 
 const generateBlurDataUrl = async (image: ImageDataLike) => {
+  if (image.width <= 0 || image.height <= 0) {
+    return null
+  }
   const targetWidth = 16
   const resized = await resize(image, {
     width: targetWidth,
@@ -476,7 +482,7 @@ export async function optimizeImageInBackground(fileId: string) {
     const formats = (config.image?.formats || ['webp']).filter(format => SUPPORTED_OUTPUT_FORMATS.has(format))
     const variants: ImageVariantMap = {}
 
-    const blurDataUrl = await generateBlurDataUrl(oriented)
+    const blurDataUrl = await generateBlurDataUrl(oriented) ?? undefined
 
     for (const format of formats) {
       for (const width of sizes) {

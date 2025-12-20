@@ -38,7 +38,13 @@ const normalizeSizes = (sizes: number[]) => {
   return [...new Set(sizes)].filter(size => size > 0).sort((a, b) => a - b)
 }
 
-export async function transformHtmlImages(html: string, options?: { organizationId?: string }) {
+export async function transformHtmlImages(
+  html: string,
+  options?: {
+    organizationId?: string
+    signal?: AbortSignal
+  }
+) {
   if (!html || !/<img\b/i.test(html)) {
     return html
   }
@@ -47,6 +53,11 @@ export async function transformHtmlImages(html: string, options?: { organization
   if (!organizationId) {
     // Safety default: without org context, do not rewrite HTML.
     return html
+  }
+
+  const signal = options?.signal
+  if (signal?.aborted) {
+    throw new DOMException('Image transformation was aborted', 'AbortError')
   }
 
   const config = useFileManagerConfig()
@@ -60,6 +71,10 @@ export async function transformHtmlImages(html: string, options?: { organization
   } catch (error) {
     console.error('Failed to create storage provider in transformHtmlImages:', error)
     return html
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Image transformation was aborted', 'AbortError')
   }
 
   const baseUrls = new Set<string>()
@@ -82,6 +97,10 @@ export async function transformHtmlImages(html: string, options?: { organization
     return html
   }
 
+  if (signal?.aborted) {
+    throw new DOMException('Image transformation was aborted', 'AbortError')
+  }
+
   const db = await useDB()
   const uniquePaths = [...new Set(candidates)]
   let records
@@ -95,6 +114,10 @@ export async function transformHtmlImages(html: string, options?: { organization
         inArray(fileTable.path, uniquePaths)
       ))
   } catch (error) {
+    // Check if error is due to abort
+    if (signal?.aborted) {
+      throw new DOMException('Image transformation was aborted', 'AbortError')
+    }
     console.error('Failed to query file records in transformHtmlImages:', {
       error: error instanceof Error ? error.message : String(error),
       organizationId,
@@ -102,6 +125,10 @@ export async function transformHtmlImages(html: string, options?: { organization
       uniquePathCount: uniquePaths.length
     })
     return html
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Image transformation was aborted', 'AbortError')
   }
 
   const fileByPath = new Map(records.map(record => [record.path, record]))

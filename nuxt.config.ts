@@ -1,6 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import type { NuxtPage } from 'nuxt/schema'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
@@ -75,8 +75,42 @@ function jsquashResolvePlugin(): RollupPlugin {
               return indexJsPath
             }
 
-            // No fallback - log warning and let other resolvers handle it
-            console.warn('[jsquash-resolve] Could not resolve "../../.." import: package.json main field missing and index.js not found. Falling back to other resolvers.', {
+            // Third fallback: look for WASM package files matching common patterns
+            // This is more targeted than alphabetical sorting - looks for files that
+            // match WASM package naming conventions (e.g., squoosh_*.js, *_bg.js)
+            try {
+              const files = readdirSync(pkgDir)
+              // Prioritize files matching WASM package patterns
+              const wasmPatterns = [
+                /^squoosh_.*\.js$/, // squoosh_*.js files
+                /.*_bg\.js$/, // *_bg.js files (WASM bindings)
+                /.*\.js$/ // Any .js file as last resort
+              ]
+
+              for (const pattern of wasmPatterns) {
+                const matchingFile = files.find((f: string) =>
+                  pattern.test(f) &&
+                  !f.includes('workerHelpers') &&
+                  !f.endsWith('.d.ts')
+                )
+                if (matchingFile) {
+                  const mainFilePath = resolve(pkgDir, matchingFile)
+                  if (existsSync(mainFilePath)) {
+                    console.warn('[jsquash-resolve] Resolved "../../.." import using pattern fallback (package.json main and index.js not found):', {
+                      importer,
+                      resolved: mainFilePath,
+                      pattern: pattern.toString()
+                    })
+                    return mainFilePath
+                  }
+                }
+              }
+            } catch {
+              // If directory read fails, continue to final fallback
+            }
+
+            // Final fallback: log warning and return null to let other resolvers handle it
+            console.warn('[jsquash-resolve] Could not resolve "../../.." import: package.json main field missing, index.js not found, and no matching WASM package files found. Falling back to other resolvers.', {
               importer,
               source,
               pkgDir

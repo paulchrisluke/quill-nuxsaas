@@ -123,26 +123,35 @@ export async function getContentWorkspacePayload(
 
   let renderedHtml: string | null = null
   if (currentVersion?.bodyHtml) {
-    // Image transformation is best-effort and non-blocking
+    // Image transformation is time-limited and best-effort
     // Use a short timeout (1s) to avoid blocking the request thread
     // If transformation fails or times out, fall back to original HTML
+    // The AbortController ensures cancellation of the transform when timeout triggers
     try {
-      const transformPromise = transformHtmlImages(currentVersion.bodyHtml, { organizationId })
+      const controller = new AbortController()
       const timeoutMs = 1000 // 1 second - reasonable for DB query + HTML processing
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error(`Image transform timed out after ${timeoutMs}ms`))
-        }, timeoutMs)
-        // Clean up timer if transform completes before timeout
-        transformPromise.finally(() => clearTimeout(timer))
-      })
-      renderedHtml = await Promise.race([transformPromise, timeoutPromise])
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+      }, timeoutMs)
+
+      try {
+        renderedHtml = await transformHtmlImages(currentVersion.bodyHtml, {
+          organizationId,
+          signal: controller.signal
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
     } catch (error) {
       // Fall back to original HTML if transformation fails or times out
-      // Note: transformPromise may continue executing in background, but result is discarded
-      console.warn('[workspace] Image transformation failed or timed out, using original HTML', {
-        error: error instanceof Error ? error.message : String(error)
-      })
+      // AbortController ensures the transform is cancelled when timeout triggers,
+      // preventing leaked DB/API calls and resource exhaustion
+      const isAbortError = error instanceof DOMException && error.name === 'AbortError'
+      if (!isAbortError) {
+        console.warn('[workspace] Image transformation failed, using original HTML', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      }
       renderedHtml = currentVersion.bodyHtml
     }
   }
