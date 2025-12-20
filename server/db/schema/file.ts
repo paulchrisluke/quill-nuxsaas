@@ -4,6 +4,16 @@ import { v7 as uuidv7 } from 'uuid'
 import { organization, user } from './auth'
 import { content } from './content'
 
+export interface FileVariant {
+  url: string
+  width: number
+  height: number
+  format: string
+  size: number
+}
+
+export type FileVariants = Record<string, FileVariant>
+
 export const fileOptimizationStatusEnum = pgEnum('file_optimization_status', ['pending', 'processing', 'done', 'failed', 'skipped'])
 
 export const file = pgTable('file', {
@@ -16,7 +26,7 @@ export const file = pgTable('file', {
   width: integer('width'),
   height: integer('height'),
   blurDataUrl: text('blur_data_url'),
-  variants: jsonb('variants').$type<Record<string, any> | null>(),
+  variants: jsonb('variants').$type<FileVariants | null>(),
   optimizationStatus: fileOptimizationStatusEnum('optimization_status').default('pending').notNull(),
   optimizationError: text('optimization_error'),
   optimizedAt: timestamp('optimized_at', { withTimezone: true }),

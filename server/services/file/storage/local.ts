@@ -1,6 +1,7 @@
 import type { Buffer } from 'node:buffer'
+import type { FileHandle } from 'node:fs/promises'
 import type { StorageProvider } from '../types'
-import { promises as fs } from 'node:fs'
+import { constants, promises as fs } from 'node:fs'
 import { dirname, resolve as resolvePath, sep } from 'node:path'
 
 export class LocalStorageProvider implements StorageProvider {
@@ -16,11 +17,44 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async upload(file: Buffer, fileName: string, _mimeType: string): Promise<{ path: string, url?: string }> {
-    const filePath = await this.resolvePathSafe(fileName)
-    const dir = dirname(filePath)
+    const resolvedPath = resolvePath(this.baseDir, fileName)
+    const dir = dirname(resolvedPath)
 
-    await fs.mkdir(dir, { recursive: true })
-    await fs.writeFile(filePath, file)
+    // Validate and ensure parent directory exists atomically
+    await this.ensureParentDirSafe(dir)
+
+    // Open file with exclusive creation flag to prevent TOCTOU
+    // O_CREAT | O_EXCL ensures the file doesn't exist and is created atomically
+    let handle: FileHandle | null = null
+    try {
+      handle = await fs.open(resolvedPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY)
+
+      // Verify the opened file is within base directory by checking its realpath
+      // Use the resolved path (which we validated the parent of) to verify
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Verify the file descriptor points to the expected file by checking inode
+      const handleStats = await handle.stat()
+      const realPathStats = await fs.stat(realPath)
+      if (handleStats.ino !== realPathStats.ino) {
+        throw new Error('Invalid path: inode mismatch detected')
+      }
+
+      // Write file using the handle
+      await handle.writeFile(file)
+      await handle.close()
+      handle = null
+    } catch (error: any) {
+      if (handle) {
+        await handle.close().catch(() => {})
+      }
+      if (error?.code === 'EEXIST') {
+        // File already exists, try to overwrite safely
+        return this.uploadOverwrite(file, fileName)
+      }
+      throw error
+    }
 
     return {
       path: fileName,
@@ -28,59 +62,224 @@ export class LocalStorageProvider implements StorageProvider {
     }
   }
 
-  private async resolvePathSafe(path: string) {
-    const resolvedPath = resolvePath(this.baseDir, path)
-    const isWithinBase = (candidate: string) => candidate === this.baseDir || candidate.startsWith(this.baseDirWithSep)
-    const verifyOrThrow = (candidate: string) => {
-      if (!isWithinBase(candidate)) {
-        throw new Error('Invalid path: path traversal detected')
+  private async uploadOverwrite(file: Buffer, fileName: string): Promise<{ path: string, url?: string }> {
+    const resolvedPath = resolvePath(this.baseDir, fileName)
+
+    // For overwrite, open existing file atomically, then verify
+    let handle: FileHandle | null = null
+    try {
+      // Open file (following symlinks is OK for overwrite)
+      handle = await fs.open(resolvedPath, constants.O_WRONLY)
+
+      // Verify the opened file is safe
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Verify inode matches to ensure we opened the expected file
+      const handleStats = await handle.stat()
+      const realPathStats = await fs.stat(realPath)
+      if (handleStats.ino !== realPathStats.ino) {
+        throw new Error('Invalid path: inode mismatch detected')
       }
-      return candidate
+
+      // Truncate and write
+      await handle.truncate(0)
+      await handle.writeFile(file)
+      await handle.close()
+      handle = null
+    } catch (error: any) {
+      if (handle) {
+        await handle.close().catch(() => {})
+      }
+      throw error
     }
 
-    try {
-      const realPath = await fs.realpath(resolvedPath)
-      return verifyOrThrow(realPath)
-    } catch (error: any) {
+    return {
+      path: fileName,
+      url: `${this.publicPath}/${fileName}`
+    }
+  }
+
+  private async ensureParentDirSafe(dir: string): Promise<void> {
+    // Validate parent directory path
+    const realParent = await fs.realpath(dir).catch(async (error: any) => {
       if (error?.code === 'ENOENT') {
-        // Verify parent directory's real path to prevent symlink attacks
-        const parentDir = dirname(resolvedPath)
-        try {
-          const realParent = await fs.realpath(parentDir)
-          verifyOrThrow(realParent)
-        } catch (parentError: any) {
-          // Parent doesn't exist either - verify logical path only
-          if (parentError?.code !== 'ENOENT') {
-            throw parentError
-          }
+        // Parent doesn't exist, validate the logical path
+        this.verifyPathWithinBase(dir)
+        // Create parent directories
+        await fs.mkdir(dir, { recursive: true })
+        // After creation, verify the real path
+        const createdRealPath = await fs.realpath(dir)
+        this.verifyPathWithinBase(createdRealPath)
+        return createdRealPath
+      }
+      throw error
+    })
+
+    this.verifyPathWithinBase(realParent)
+  }
+
+  private verifyPathWithinBase(candidate: string): void {
+    if (candidate !== this.baseDir && !candidate.startsWith(this.baseDirWithSep)) {
+      throw new Error('Invalid path: path traversal detected')
+    }
+  }
+
+  async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
+    const resolvedPath = resolvePath(this.baseDir, path)
+
+    // Open file atomically first, then verify
+    let handle: FileHandle | null = null
+    try {
+      // Try to open with O_NOFOLLOW first to prevent following symlinks
+      try {
+        handle = await fs.open(resolvedPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+      } catch (error: any) {
+        // If O_NOFOLLOW not supported, open normally and verify after
+        if (error?.code === 'EOPNOTSUPP' || error?.code === 'ELOOP') {
+          handle = await fs.open(resolvedPath, constants.O_RDONLY)
+        } else {
+          throw error
         }
-        return verifyOrThrow(resolvedPath)
+      }
+
+      // Now verify the opened file is safe
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Verify inode matches to ensure we opened the expected file
+      const handleStats = await handle.stat()
+      const realPathStats = await fs.stat(realPath)
+      if (handleStats.ino !== realPathStats.ino) {
+        throw new Error('Invalid path: inode mismatch detected')
+      }
+
+      // Read using the handle
+      const data = await handle.readFile()
+      await handle.close()
+      handle = null
+
+      return { bytes: new Uint8Array(data), contentType: null, cacheControl: null }
+    } catch (error: any) {
+      if (handle) {
+        await handle.close().catch(() => {})
       }
       throw error
     }
   }
 
-  async getObject(path: string): Promise<{ bytes: Uint8Array, contentType?: string | null, cacheControl?: string | null }> {
-    const filePath = await this.resolvePathSafe(path)
-    const data = await fs.readFile(filePath)
-    return { bytes: new Uint8Array(data), contentType: null, cacheControl: null }
+  async putObject(path: string, bytes: Uint8Array, _contentType: string, _cacheControl?: string): Promise<void> {
+    const resolvedPath = resolvePath(this.baseDir, path)
+    const dir = dirname(resolvedPath)
+
+    // Validate and ensure parent directory exists atomically
+    await this.ensureParentDirSafe(dir)
+
+    // Try exclusive creation first
+    let handle: FileHandle | null = null
+    try {
+      handle = await fs.open(resolvedPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY)
+
+      // Verify the opened file is safe
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Verify inode matches
+      const handleStats = await handle.stat()
+      const realPathStats = await fs.stat(realPath)
+      if (handleStats.ino !== realPathStats.ino) {
+        throw new Error('Invalid path: inode mismatch detected')
+      }
+
+      await handle.writeFile(bytes)
+      await handle.close()
+      handle = null
+    } catch (error: any) {
+      if (handle) {
+        await handle.close().catch(() => {})
+      }
+      if (error?.code === 'EEXIST') {
+        // File exists, overwrite safely
+        await this.putObjectOverwrite(resolvedPath, bytes)
+      } else {
+        throw error
+      }
+    }
   }
 
-  async putObject(path: string, bytes: Uint8Array, _contentType: string, _cacheControl?: string): Promise<void> {
-    const filePath = await this.resolvePathSafe(path)
-    const dir = dirname(filePath)
-    await fs.mkdir(dir, { recursive: true })
-    await fs.writeFile(filePath, bytes)
+  private async putObjectOverwrite(resolvedPath: string, bytes: Uint8Array): Promise<void> {
+    let handle: FileHandle | null = null
+    try {
+      // Open file (following symlinks is OK for overwrite)
+      handle = await fs.open(resolvedPath, constants.O_WRONLY)
+
+      // Verify the opened file is safe
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Verify inode matches to ensure we opened the expected file
+      const handleStats = await handle.stat()
+      const realPathStats = await fs.stat(realPath)
+      if (handleStats.ino !== realPathStats.ino) {
+        throw new Error('Invalid path: inode mismatch detected')
+      }
+
+      await handle.truncate(0)
+      await handle.writeFile(bytes)
+      await handle.close()
+      handle = null
+    } catch (error: any) {
+      if (handle) {
+        await handle.close().catch(() => {})
+      }
+      throw error
+    }
   }
 
   async delete(path: string): Promise<void> {
-    const filePath = await this.resolvePathSafe(path)
+    const resolvedPath = resolvePath(this.baseDir, path)
+
+    // Open file atomically first, then verify
+    let handle: FileHandle | null = null
     try {
-      await fs.unlink(filePath)
-    } catch (error) {
-      if ((error as any).code !== 'ENOENT') {
-        throw error
+      try {
+        handle = await fs.open(resolvedPath, constants.O_RDONLY | constants.O_NOFOLLOW)
+      } catch (error: any) {
+        if (error?.code === 'EOPNOTSUPP' || error?.code === 'ELOOP') {
+          handle = await fs.open(resolvedPath, constants.O_RDONLY)
+        } else if (error?.code === 'ENOENT') {
+          // File doesn't exist, nothing to delete
+          return
+        } else {
+          throw error
+        }
       }
+
+      // Verify the opened file is safe
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Verify inode matches
+      const handleStats = await handle.stat()
+      const realPathStats = await fs.stat(realPath)
+      if (handleStats.ino !== realPathStats.ino) {
+        throw new Error('Invalid path: inode mismatch detected')
+      }
+
+      await handle.close()
+      handle = null
+
+      // Now safe to delete
+      await fs.unlink(resolvedPath)
+    } catch (error: any) {
+      if (handle) {
+        await handle.close().catch(() => {})
+      }
+      if ((error as any).code === 'ENOENT') {
+        // File doesn't exist, that's fine
+        return
+      }
+      throw error
     }
   }
 
@@ -89,9 +288,15 @@ export class LocalStorageProvider implements StorageProvider {
   }
 
   async exists(path: string): Promise<boolean> {
+    const resolvedPath = resolvePath(this.baseDir, path)
+
     try {
-      const filePath = await this.resolvePathSafe(path)
-      await fs.access(filePath)
+      // Validate path
+      const realPath = await fs.realpath(resolvedPath)
+      this.verifyPathWithinBase(realPath)
+
+      // Check access using the validated path
+      await fs.access(realPath)
       return true
     } catch {
       return false

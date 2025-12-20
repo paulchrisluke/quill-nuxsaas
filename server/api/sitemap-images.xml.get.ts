@@ -79,11 +79,11 @@ ${sitemapIndexEntries.join('')}
         })
       }
     } else {
-      // When not paginated, valid pages are 1..totalPages
-      if (page > totalPages) {
+      // When not paginated, only page 1 is valid (totalPages will be 0 or 1)
+      if (page > 1) {
         throw createError({
           statusCode: 404,
-          statusMessage: `Page ${page} does not exist. Maximum page is ${totalPages}.`
+          statusMessage: `Page ${page} does not exist. Only page 1 is available when not paginated.`
         })
       }
     }

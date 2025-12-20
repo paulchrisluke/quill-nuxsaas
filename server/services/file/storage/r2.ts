@@ -102,7 +102,7 @@ export class R2StorageProvider implements StorageProvider {
 
     return {
       path: fileName,
-      url: this.publicUrl ? `${this.publicUrl}/${fileName}` : undefined
+      url: this.publicUrl ? `${this.publicUrl}/${encodedPath}` : undefined
     }
   }
 
