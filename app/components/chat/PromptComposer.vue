@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import ReferencePickerPanel from './ReferencePickerPanel.vue'
 
 const props = withDefaults(defineProps<{
   placeholder?: string
@@ -9,6 +10,8 @@ const props = withDefaults(defineProps<{
   contextValue?: string | null
   hint?: string | null
   autofocus?: boolean
+  contentId?: string | null
+  mode?: 'chat' | 'agent'
 }>(), {
   placeholder: '',
   disabled: false,
@@ -16,7 +19,9 @@ const props = withDefaults(defineProps<{
   contextLabel: undefined,
   contextValue: null,
   hint: null,
-  autofocus: false
+  autofocus: false,
+  contentId: null,
+  mode: 'chat'
 })
 
 const emit = defineEmits<{
@@ -24,16 +29,237 @@ const emit = defineEmits<{
   stop: []
 }>()
 
+interface ReferenceToken {
+  raw: string
+  identifier: string
+  anchor?: { kind: 'hash' | 'colon', value: string }
+  startIndex: number
+  endIndex: number
+}
+
+interface ReferenceCandidate {
+  type: 'file' | 'content' | 'section' | 'source'
+  id: string
+  label: string
+  subtitle?: string
+  reference: string
+}
+
+interface ResolvedReference {
+  type: 'file' | 'content' | 'section' | 'source'
+  id: string
+  token: ReferenceToken
+  metadata: Record<string, any>
+}
+
+interface UnresolvedReference {
+  token: ReferenceToken
+  reason: string
+  suggestions?: ReferenceCandidate[]
+}
+
+interface AmbiguousReference {
+  token: ReferenceToken
+  candidates: ReferenceCandidate[]
+}
+
+interface ReferenceResolutionResponse {
+  tokens: ReferenceToken[]
+  resolved: ResolvedReference[]
+  unresolved: UnresolvedReference[]
+  ambiguous: AmbiguousReference[]
+}
+
+interface ReferenceSuggestionItem {
+  id: string
+  label: string
+  insertText: string
+  type: 'file' | 'content' | 'section'
+}
+
+interface ReferenceSuggestionGroups {
+  files: ReferenceSuggestionItem[]
+  contents: ReferenceSuggestionItem[]
+  sections: ReferenceSuggestionItem[]
+}
+
 const modelValue = defineModel<string>({ default: '' })
 const composerRef = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const cursorIndex = ref(0)
+const activeMention = ref<{ startIndex: number, query: string } | null>(null)
+const highlightedIndex = ref(0)
+const isAutocompleteOpen = ref(false)
+const isComposing = ref(false)
+const panelPosition = ref({ bottom: 0, left: 0, right: 0 })
+const referenceResolution = ref<ReferenceResolutionResponse | null>(null)
+const referenceLoading = ref(false)
+const lastResolvedMessage = ref('')
+const suggestionGroups = ref<ReferenceSuggestionGroups>({
+  files: [],
+  contents: [],
+  sections: [] // Sections not shown in picker, only used for LLM context
+})
 
-const handleSubmit = (value?: string | unknown) => {
-  const input = typeof value === 'string' ? value : modelValue.value
-  const trimmed = String(input || '').trim()
-  if (trimmed) {
-    emit('submit', trimmed)
+const { useActiveOrganization } = useAuth()
+const activeOrganization = useActiveOrganization()
+const organizationId = computed(() => activeOrganization.value?.data?.id || null)
+
+const combinedSuggestions = computed(() => {
+  if (!activeMention.value) {
+    return { files: [], contents: [], sections: [] }
   }
+  // API handles all filtering - just return what the API returned
+  return {
+    files: suggestionGroups.value.files,
+    contents: suggestionGroups.value.contents,
+    sections: [] // Sections not shown in picker, only used for LLM context
+  }
+})
+
+const isBoundaryChar = (value: string | undefined) => {
+  if (!value) {
+    return true
+  }
+  return /\s/.test(value) || /[.,!?;:()[\]{}<>"']/.test(value)
+}
+
+const updatePanelPosition = () => {
+  if (composerRef.value) {
+    const rect = composerRef.value.getBoundingClientRect()
+    panelPosition.value = {
+      bottom: window.innerHeight - rect.top + 16, // 16px = mb-4
+      left: rect.left,
+      right: window.innerWidth - rect.right
+    }
+  }
+}
+
+const closeAutocomplete = () => {
+  isAutocompleteOpen.value = false
+  activeMention.value = null
+  nextTick(() => {
+    textareaRef.value?.focus()
+  })
+}
+
+const updateActiveMention = () => {
+  const value = modelValue.value
+  const caretIndex = cursorIndex.value
+  const prefix = value.slice(0, caretIndex)
+  const atIndex = prefix.lastIndexOf('@')
+
+  if (atIndex < 0) {
+    activeMention.value = null
+    isAutocompleteOpen.value = false
+    return
+  }
+
+  const prevChar = atIndex > 0 ? prefix[atIndex - 1] : undefined
+  if (!isBoundaryChar(prevChar)) {
+    activeMention.value = null
+    isAutocompleteOpen.value = false
+    return
+  }
+
+  const query = prefix.slice(atIndex + 1)
+  if (/\s/.test(query)) {
+    activeMention.value = null
+    isAutocompleteOpen.value = false
+    return
+  }
+  const firstChar = query[0]
+  if (query && firstChar && !/[a-z0-9]/i.test(firstChar)) {
+    activeMention.value = null
+    isAutocompleteOpen.value = false
+    return
+  }
+
+  activeMention.value = { startIndex: atIndex, query }
+  highlightedIndex.value = 0
+  isAutocompleteOpen.value = true
+
+  // Calculate panel position for fixed positioning
+  nextTick(() => {
+    updatePanelPosition()
+  })
+}
+
+const applySuggestion = (item: ReferenceSuggestionItem) => {
+  const mention = activeMention.value
+  if (!mention) {
+    return
+  }
+
+  const insertText = item.insertText.startsWith('@') ? item.insertText : `@${item.insertText}`
+  const mentionEnd = mention.startIndex + 1 + mention.query.length
+  const value = modelValue.value
+  const before = value.slice(0, mention.startIndex)
+  const after = value.slice(mentionEnd)
+  const nextValue = `${before}${insertText}${after}`
+
+  modelValue.value = nextValue
+  isAutocompleteOpen.value = false
+  activeMention.value = null
+
+  nextTick(() => {
+    if (textareaRef.value) {
+      const position = before.length + insertText.length
+      textareaRef.value.setSelectionRange(position, position)
+      textareaRef.value.focus()
+      cursorIndex.value = position
+    }
+  })
+}
+
+const handleKeyDown = (event: KeyboardEvent) => {
+  if (isComposing.value) {
+    return
+  }
+  const flatSuggestions = [
+    ...combinedSuggestions.value.files,
+    ...combinedSuggestions.value.contents
+  ]
+  if (!isAutocompleteOpen.value || flatSuggestions.length === 0) {
+    return
+  }
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    highlightedIndex.value = (highlightedIndex.value + 1) % flatSuggestions.length
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    highlightedIndex.value = (highlightedIndex.value - 1 + flatSuggestions.length) % flatSuggestions.length
+  } else if (event.key === 'Enter' || event.key === 'Tab') {
+    event.preventDefault()
+    const item = flatSuggestions[highlightedIndex.value]
+    if (item) {
+      applySuggestion(item)
+    }
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    closeAutocomplete()
+  }
+}
+
+const updateCursor = () => {
+  if (!textareaRef.value) {
+    return
+  }
+  cursorIndex.value = textareaRef.value.selectionStart || 0
+  if (isComposing.value) {
+    return
+  }
+  updateActiveMention()
+}
+
+const handleCompositionStart = () => {
+  isComposing.value = true
+}
+
+const handleCompositionEnd = () => {
+  isComposing.value = false
+  updateCursor()
 }
 
 function setTextareaRef() {
@@ -43,7 +269,134 @@ function setTextareaRef() {
   }
   const node = composerRef.value.querySelector('textarea')
   if (node instanceof HTMLTextAreaElement) {
+    if (textareaRef.value && textareaRef.value !== node) {
+      textareaRef.value.removeEventListener('keydown', handleKeyDown)
+      textareaRef.value.removeEventListener('input', updateCursor)
+      textareaRef.value.removeEventListener('click', updateCursor)
+      textareaRef.value.removeEventListener('keyup', updateCursor)
+      textareaRef.value.removeEventListener('compositionstart', handleCompositionStart)
+      textareaRef.value.removeEventListener('compositionend', handleCompositionEnd)
+    }
     textareaRef.value = node
+    textareaRef.value.addEventListener('keydown', handleKeyDown)
+    textareaRef.value.addEventListener('input', updateCursor)
+    textareaRef.value.addEventListener('click', updateCursor)
+    textareaRef.value.addEventListener('keyup', updateCursor)
+    textareaRef.value.addEventListener('compositionstart', handleCompositionStart)
+    textareaRef.value.addEventListener('compositionend', handleCompositionEnd)
+  }
+}
+
+const fetchSuggestions = async (query?: string) => {
+  if (!organizationId.value) {
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
+    return
+  }
+
+  try {
+    const data = await $fetch('/api/chat/reference-suggestions', {
+      query: {
+        contentId: props.contentId || undefined,
+        q: query || undefined
+      }
+    }) as {
+      files: Array<{ id: string, label: string, insertText: string }>
+      contents: Array<{ id: string, label: string, insertText: string }>
+      sections: Array<{ id: string, label: string, insertText: string }>
+    }
+
+    suggestionGroups.value = {
+      files: data.files.map(item => ({ ...item, type: 'file' as const })),
+      contents: data.contents.map(item => ({ ...item, type: 'content' as const })),
+      sections: [] // Sections not shown in picker, only used for LLM context
+    }
+  } catch (error) {
+    console.error('[PromptComposer] Failed to load reference suggestions', error)
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
+  }
+}
+
+const resolveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+const suggestionTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+
+const scheduleReferenceResolution = (value: string) => {
+  if (resolveTimeout.value) {
+    clearTimeout(resolveTimeout.value)
+  }
+
+  if (!value || !value.includes('@') || !organizationId.value) {
+    referenceResolution.value = null
+    referenceLoading.value = false
+    return
+  }
+
+  resolveTimeout.value = setTimeout(async () => {
+    referenceLoading.value = true
+    try {
+      const response = await $fetch('/api/chat/resolve-references', {
+        method: 'POST',
+        body: {
+          message: value,
+          organizationId: organizationId.value,
+          currentContentId: props.contentId || null,
+          mode: props.mode || 'chat'
+        }
+      }) as ReferenceResolutionResponse
+      referenceResolution.value = response
+      lastResolvedMessage.value = value
+    } catch (error) {
+      console.error('[PromptComposer] Failed to resolve references', error)
+      referenceResolution.value = null
+    } finally {
+      referenceLoading.value = false
+    }
+  }, 320)
+}
+
+const findClosestTokenIndex = (value: string, raw: string, targetIndex: number) => {
+  if (!raw) {
+    return -1
+  }
+  const indices: number[] = []
+  let cursor = value.indexOf(raw)
+  while (cursor !== -1) {
+    indices.push(cursor)
+    cursor = value.indexOf(raw, cursor + raw.length)
+  }
+  if (!indices.length) {
+    return -1
+  }
+  return indices.reduce((closest, index) =>
+    Math.abs(index - targetIndex) < Math.abs(closest - targetIndex) ? index : closest
+  )
+}
+
+const _replaceToken = (token: ReferenceToken, reference: string) => {
+  const replacement = `@${reference}`
+  const currentValue = modelValue.value
+
+  if (currentValue === lastResolvedMessage.value) {
+    const before = currentValue.slice(0, token.startIndex)
+    const after = currentValue.slice(token.endIndex)
+    modelValue.value = `${before}${replacement}${after}`
+    return
+  }
+
+  const rawIndex = findClosestTokenIndex(currentValue, token.raw, token.startIndex)
+  if (rawIndex === -1) {
+    console.warn('[PromptComposer] Token not found in current value, skipping replacement', token.raw)
+    return
+  }
+  const before = currentValue.slice(0, rawIndex)
+  const after = currentValue.slice(rawIndex + token.raw.length)
+  modelValue.value = `${before}${replacement}${after}`
+}
+
+const handleSubmit = (value?: string | unknown) => {
+  const input = typeof value === 'string' ? value : modelValue.value
+  const trimmed = String(input || '').trim()
+  if (trimmed) {
+    emit('submit', trimmed)
   }
 }
 
@@ -53,11 +406,109 @@ const handleStop = () => {
 
 onMounted(() => {
   nextTick(setTextareaRef)
+  window.addEventListener('resize', updatePanelPosition)
+  window.addEventListener('scroll', updatePanelPosition, true)
+})
+
+onBeforeUnmount(() => {
+  if (resolveTimeout.value) {
+    clearTimeout(resolveTimeout.value)
+    resolveTimeout.value = null
+  }
+  if (suggestionTimeout.value) {
+    clearTimeout(suggestionTimeout.value)
+    suggestionTimeout.value = null
+  }
+  // Reset to safe defaults to avoid callbacks running against unmounted component
+  referenceLoading.value = false
+  referenceResolution.value = null
+  window.removeEventListener('resize', updatePanelPosition)
+  window.removeEventListener('scroll', updatePanelPosition, true)
+  if (textareaRef.value) {
+    textareaRef.value.removeEventListener('keydown', handleKeyDown)
+    textareaRef.value.removeEventListener('input', updateCursor)
+    textareaRef.value.removeEventListener('click', updateCursor)
+    textareaRef.value.removeEventListener('keyup', updateCursor)
+    textareaRef.value.removeEventListener('compositionstart', handleCompositionStart)
+    textareaRef.value.removeEventListener('compositionend', handleCompositionEnd)
+  }
 })
 
 watch(composerRef, () => {
   nextTick(setTextareaRef)
 })
+
+watch(modelValue, (value) => {
+  scheduleReferenceResolution(value)
+})
+
+const scheduleSuggestionFetch = (query?: string) => {
+  if (suggestionTimeout.value) {
+    clearTimeout(suggestionTimeout.value)
+  }
+  suggestionTimeout.value = setTimeout(() => {
+    void fetchSuggestions(query)
+  }, 160)
+}
+
+watch([organizationId, () => props.contentId], () => {
+  if (isAutocompleteOpen.value && activeMention.value && activeMention.value.query && activeMention.value.query.length > 0) {
+    scheduleSuggestionFetch(activeMention.value.query)
+  } else {
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
+  }
+}, { immediate: true })
+
+watch(() => activeMention.value?.query, (query) => {
+  if (!isAutocompleteOpen.value) {
+    return
+  }
+  // Only fetch when user starts typing (query has at least one character)
+  if (query && query.length > 0) {
+    scheduleSuggestionFetch(query)
+  } else {
+    // Clear suggestions when query is empty
+    suggestionGroups.value = { files: [], contents: [], sections: [] }
+  }
+  updatePanelPosition()
+})
+
+watch(combinedSuggestions, (value) => {
+  const flat = [...value.files, ...value.contents]
+  if (highlightedIndex.value >= flat.length) {
+    highlightedIndex.value = 0
+  }
+})
+
+const handleNavigate = (delta: number) => {
+  const flat = [
+    ...combinedSuggestions.value.files,
+    ...combinedSuggestions.value.contents,
+    ...combinedSuggestions.value.sections
+  ]
+  if (!flat.length) {
+    return
+  }
+  highlightedIndex.value = (highlightedIndex.value + delta + flat.length) % flat.length
+}
+
+const handleQueryChange = (value: string) => {
+  const mention = activeMention.value
+  if (!mention) {
+    return
+  }
+  const insertionStart = mention.startIndex + 1
+  const insertionEnd = mention.startIndex + 1 + mention.query.length
+  const currentValue = modelValue.value
+  const before = currentValue.slice(0, insertionStart)
+  const after = currentValue.slice(insertionEnd)
+  const nextValue = `${before}${value}${after}`
+  modelValue.value = nextValue
+  activeMention.value = { ...mention, query: value }
+  cursorIndex.value = insertionStart + value.length
+  highlightedIndex.value = 0
+  isAutocompleteOpen.value = true
+}
 </script>
 
 <template>
@@ -65,41 +516,63 @@ watch(composerRef, () => {
     ref="composerRef"
     class="space-y-3 relative"
   >
-    <div class="rounded-3xl overflow-hidden">
-      <UChatPrompt
-        v-model="modelValue"
-        :placeholder="props.placeholder"
-        variant="subtle"
-        :disabled="props.disabled"
-        class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
-        :autofocus="props.autofocus"
-        @submit="handleSubmit"
-      >
-        <template #footer>
-          <div
-            data-slot="footer"
-            class="flex items-center justify-between gap-2 w-full"
-          >
-            <div>
-              <slot name="footer" />
+    <div class="relative">
+      <ReferencePickerPanel
+        v-if="isAutocompleteOpen"
+        :open="isAutocompleteOpen"
+        :query="activeMention?.query || ''"
+        :groups="combinedSuggestions"
+        :active-index="highlightedIndex"
+        :style="{
+          position: 'fixed',
+          bottom: `${panelPosition.bottom}px`,
+          left: `${panelPosition.left}px`,
+          right: `${panelPosition.right}px`,
+          zIndex: 50
+        }"
+        class="pointer-events-auto"
+        @select="applySuggestion"
+        @close="closeAutocomplete"
+        @navigate="handleNavigate"
+        @query-change="handleQueryChange"
+      />
+      <div class="rounded-3xl overflow-hidden relative">
+        <UChatPrompt
+          v-model="modelValue"
+          :placeholder="props.placeholder"
+          variant="subtle"
+          :disabled="props.disabled"
+          class="flex-1 w-full min-h-[144px] [&>form]:flex [&>form]:flex-col [&>form]:min-h-[144px] [&_[data-slot=footer]]:mt-auto [&_[data-slot=footer]]:pt-2"
+          :autofocus="props.autofocus"
+          @submit="handleSubmit"
+        >
+          <template #footer>
+            <div
+              data-slot="footer"
+              class="flex items-center justify-between gap-2 w-full"
+            >
+              <div>
+                <slot name="footer" />
+              </div>
+              <div>
+                <slot name="submit">
+                  <UChatPromptSubmit
+                    :status="props.status || 'idle'"
+                    submitted-color="primary"
+                    submitted-variant="solid"
+                    submitted-icon="i-custom-square-solid"
+                    streaming-color="primary"
+                    streaming-variant="solid"
+                    @stop="handleStop"
+                  />
+                </slot>
+              </div>
             </div>
-            <div>
-              <slot name="submit">
-                <UChatPromptSubmit
-                  :status="props.status || 'idle'"
-                  submitted-color="primary"
-                  submitted-variant="solid"
-                  submitted-icon="i-custom-square-solid"
-                  streaming-color="primary"
-                  streaming-variant="solid"
-                  @stop="handleStop"
-                />
-              </slot>
-            </div>
-          </div>
-        </template>
-      </UChatPrompt>
+          </template>
+        </UChatPrompt>
+      </div>
     </div>
+
     <div
       v-if="props.contextLabel || props.hint || $slots.context"
       class="flex flex-wrap items-center justify-between text-xs text-muted-500 mt-1"

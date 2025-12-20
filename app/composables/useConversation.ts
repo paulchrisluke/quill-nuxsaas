@@ -628,6 +628,14 @@ export function useConversation() {
                       }
                     }
 
+                    // Dispatch content:updated event for content-modifying tools
+                    if (eventData.success && eventData.result?.contentId && import.meta.client) {
+                      const contentId = eventData.result.contentId
+                      window.dispatchEvent(new CustomEvent('content:updated', {
+                        detail: { contentId }
+                      }))
+                    }
+
                     if (activeToolActivities.value.size === 0 && currentAssistantMessageText) {
                       currentActivity.value = 'streaming'
                     }

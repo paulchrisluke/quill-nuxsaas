@@ -21,6 +21,7 @@ import {
 import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import { calculateDiffStats, findSectionLineRange } from '../diff'
+import { invalidateWorkspaceCache } from '../workspaceCache'
 import {
   assembleMarkdownFromSections,
   extractMarkdownFromEnrichedMdx
@@ -1171,6 +1172,7 @@ export const updateContentSectionWithAI = async (
   })
 
   await emitProgress('Section update saved.')
+  invalidateWorkspaceCache(organizationId, result.content.id)
 
   return {
     content: result.content,

@@ -10,6 +10,7 @@ export interface ChatAgentInput {
   conversationHistory: ChatCompletionMessage[]
   userMessage: string
   contextBlocks?: string[]
+  referenceContext?: string
   onRetry?: (toolInvocation: ChatToolInvocation, retryCount: number) => Promise<void> | void
 }
 
@@ -33,7 +34,7 @@ export interface MultiPassAgentResult {
   conversationHistory: ChatCompletionMessage[]
 }
 
-function buildSystemPrompt(mode: 'chat' | 'agent'): string {
+function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): string {
   const basePrompt = `You are an autonomous content-creation assistant.`
 
   if (mode === 'chat') {
@@ -53,7 +54,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent'): string {
 - Keep replies concise (2-4 sentences) and helpful.`
   }
 
-  return `${basePrompt}
+  const prompt = `${basePrompt}
 
 - Always analyze the user's intent from natural language.
 - When users reference uploaded files by name, use read_files to find the matching fileId before taking action.
@@ -70,6 +71,12 @@ function buildSystemPrompt(mode: 'chat' | 'agent'): string {
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".
 - For inserting uploaded images into content at specific spots, find the file with read_files and then call insert_image with a clear position (line number, sectionId, or natural language description).
 - Never use content_write with action="create" for editing existing content - use edit_metadata or edit_section instead.`
+
+  if (!referenceContext) {
+    return prompt
+  }
+
+  return `${prompt}\n\n---\n${referenceContext}`
 }
 
 const MAX_TOOL_ITERATIONS = 5
@@ -216,6 +223,7 @@ export async function runChatAgentWithMultiPassStream({
   conversationHistory,
   userMessage,
   contextBlocks = [],
+  referenceContext,
   onLLMChunk,
   onToolPreparing,
   onToolStart,
@@ -248,7 +256,7 @@ export async function runChatAgentWithMultiPassStream({
     // Run agent turn
     const contextText = contextBlocks.length ? `\n\nContext:\n${contextBlocks.join('\n\n')}` : ''
     const messages: ChatCompletionMessage[] = [
-      { role: 'system', content: `${buildSystemPrompt(mode)}${contextText}` },
+      { role: 'system', content: `${buildSystemPrompt(mode, referenceContext)}${contextText}` },
       ...currentHistory
     ]
 

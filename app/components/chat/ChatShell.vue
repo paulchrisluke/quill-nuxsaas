@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage, FileRecord } from '#shared/utils/types'
 import type { FileListItem } from '~/composables/useFileList'
-import { useClipboard, useElementVisibility } from '@vueuse/core'
+import { useClipboard } from '@vueuse/core'
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { KNOWN_LOCALES } from '~~/shared/constants/routing'
@@ -25,7 +25,6 @@ const props = withDefaults(defineProps<{
   conversationId?: string | null
   initialMode?: 'chat' | 'agent'
   syncRoute?: boolean
-  embedded?: boolean
   useRouteConversationId?: boolean
   showMessages?: boolean
 }>(), {
@@ -33,7 +32,6 @@ const props = withDefaults(defineProps<{
   conversationId: null,
   initialMode: 'chat',
   syncRoute: true,
-  embedded: false,
   useRouteConversationId: true,
   showMessages: true
 })
@@ -104,7 +102,6 @@ const showAgentModeLoginModal = ref(false)
 const { copy } = useClipboard()
 const toast = useToast()
 const chatContainerRef = ref<HTMLElement | null>(null)
-const chatVisible = useElementVisibility(chatContainerRef)
 const pendingConversationLoad = ref<string | null>(null)
 const conversationLoadToken = ref(0)
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -624,20 +621,8 @@ const requestConversationMessages = async (conversationId: string, options?: { f
     hydrateConversation({ conversationId, messages: cached.messages }, { skipCache: true })
   }
 
-  // In embedded mode (right-panel shell), avoid deferring loads behind element-visibility;
-  // it can be flaky with nested overflow containers and causes stale conversations to stick.
-  if (!props.embedded && !chatVisible.value) {
-    // Only update if not already pending or if it's a different conversation
-    if (!pendingConversationLoad.value || pendingConversationLoad.value !== conversationId) {
-      pendingConversationLoad.value = conversationId
-    }
-    // If we have fresh cached messages, we're done
-    if (cached && !cached.isStale) {
-      return
-    }
-    // Otherwise, we'll fetch when visible
-    return
-  }
+  // Always load immediately (avoid deferring loads behind element-visibility;
+  // it can be flaky with nested overflow containers and causes stale conversations to stick)
   pendingConversationLoad.value = null
   await loadConversationMessages(conversationId, options)
 }
@@ -686,19 +671,6 @@ watch(routeConversationId, (next, previous) => {
     return
   loadConversationById(next)
 }, { immediate: true })
-
-watch(chatVisible, (visible) => {
-  if (!visible || !pendingConversationLoad.value)
-    return
-  const target = pendingConversationLoad.value
-  pendingConversationLoad.value = null
-  // Only load if this conversation is still active
-  if (target !== activeConversationId.value)
-    return
-  loadConversationMessages(target).catch((error) => {
-    console.error('Failed to load conversation after becoming visible', error)
-  })
-})
 
 const getMessageText = (message: ChatMessage) => {
   return (message.parts || [])
@@ -836,20 +808,15 @@ if (import.meta.client) {
 <template>
   <div
     ref="chatContainerRef"
-    class="w-full flex flex-col overflow-x-hidden"
-    :class="props.embedded ? 'h-full min-h-0 overflow-hidden' : 'min-h-full py-4 px-4 sm:px-6 pb-40 lg:pb-4'"
+    class="w-full flex flex-col h-full min-h-0 overflow-hidden"
   >
     <div
       v-if="props.showMessages"
-      class="w-full flex-1 min-h-0"
-      :class="props.embedded ? 'flex flex-col overflow-y-auto overscroll-contain px-3 py-3' : 'flex flex-col justify-end lg:justify-start'"
+      class="w-full flex-1 min-h-0 flex flex-col px-3 py-3"
     >
-      <div
-        class="w-full"
-        :class="props.embedded ? '' : 'space-y-8 max-w-3xl mx-auto'"
-      >
+      <div class="w-full flex-1 min-h-0">
         <h1
-          v-if="showWelcomeState && !props.embedded"
+          v-if="showWelcomeState"
           class="hidden lg:block text-3xl font-semibold text-center px-4"
         >
           What would you like to write today?
@@ -873,18 +840,16 @@ if (import.meta.client) {
     </div>
 
     <div
-      class="w-full flex flex-col justify-center overflow-x-hidden"
-      :class="props.embedded ? 'mt-auto border-t border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2' : 'fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm z-40 lg:static lg:bg-white lg:dark:bg-gray-900 lg:backdrop-blur-none px-4 sm:px-6'"
+      class="w-full flex flex-col justify-center overflow-x-hidden mt-auto border-t border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2"
     >
-      <div
-        class="w-full"
-        :class="props.embedded ? '' : 'max-w-3xl mx-auto'"
-      >
+      <div class="w-full">
         <PromptComposer
           v-model="prompt"
           placeholder="Paste a transcript or describe what you need..."
           :disabled="isBusy || promptSubmitting"
           :status="promptSubmitting ? 'submitted' : uiStatus"
+          :content-id="props.contentId"
+          :mode="mode"
           @submit="handlePromptSubmit"
           @stop="handleStopStreaming"
         >

@@ -83,10 +83,19 @@ const contentId = computed(() => {
   return Array.isArray(param) ? param[0] : param || ''
 })
 
-const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
+const { data: contentData, pending, error, refresh: refreshContent } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),
   lazy: true,
-  default: () => null
+  default: () => null,
+  server: false
+})
+
+// Ensure pending state is consistent for hydration
+const isPending = computed(() => {
+  if (import.meta.server) {
+    return false // On server, always render as not pending since server: false
+  }
+  return pending.value
 })
 const toast = useToast()
 const { remove: removeContent } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
@@ -213,28 +222,46 @@ watch([contentEntry, error], ([entry, err]) => {
     setHeaderTitle?.('Loading content…')
   }
 }, { immediate: true })
+
+// Listen for content updates via window events (for cross-component communication)
+if (import.meta.client) {
+  const handleContentUpdate = (event: CustomEvent) => {
+    const updatedContentId = event.detail?.contentId
+    if (updatedContentId === contentId.value) {
+      refreshContent()
+    }
+  }
+
+  window.addEventListener('content:updated', handleContentUpdate as EventListener)
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('content:updated', handleContentUpdate as EventListener)
+  })
+}
 </script>
 
 <template>
   <div class="space-y-6">
-    <div
-      v-if="pending"
-      class="space-y-4"
-    >
-      <USkeleton class="h-20 w-full" />
-      <USkeleton class="h-32 w-3/4" />
-      <USkeleton class="h-24 w-full" />
-    </div>
+    <ClientOnly>
+      <div
+        v-if="isPending"
+        class="space-y-4"
+      >
+        <USkeleton class="h-20 w-full" />
+        <USkeleton class="h-32 w-3/4" />
+        <USkeleton class="h-24 w-full" />
+      </div>
+    </ClientOnly>
 
     <UAlert
-      v-else-if="error"
+      v-if="!isPending && error"
       color="error"
       variant="soft"
       icon="i-lucide-alert-triangle"
-      :description="error.message || 'Failed to load content'"
+      :description="error?.message || 'Failed to load content'"
     />
 
-    <template v-else-if="contentEntry">
+    <template v-if="!isPending && contentEntry">
       <div class="space-y-4 mb-4">
         <UAlert
           v-if="schemaErrors.length"

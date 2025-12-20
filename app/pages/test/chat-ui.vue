@@ -1005,13 +1005,17 @@ const handlePromptSubmit = async (value: string) => {
 }
 
 // Mock handlers for ChatConversationMessages
-const handleCopy = (message: ChatMessage) => {
+const handleCopy = async (message: ChatMessage) => {
   const text = message.parts
     .filter(part => part.type === 'text')
     .map(part => part.text)
     .join(' ')
-  if (import.meta.client && navigator.clipboard) {
-    navigator.clipboard.writeText(text)
+  if (import.meta.client && typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error)
+    }
   }
 }
 
