@@ -49,79 +49,6 @@ const parseGifDimensions = (bytes: Uint8Array): { width: number, height: number 
   return { width, height }
 }
 
-const isAnimatedGif = (bytes: Uint8Array): boolean => {
-  const byte = (index: number) => bytes[index] ?? 0
-
-  if (bytes.length < 14) {
-    return false
-  }
-  if (byte(0) !== 0x47 || byte(1) !== 0x49 || byte(2) !== 0x46) { // GIF
-    return false
-  }
-
-  let offset = 13
-  const packed = byte(10)
-  const hasGlobalColorTable = (packed & 0x80) !== 0
-  if (hasGlobalColorTable) {
-    const sizeBits = packed & 0x07
-    const colorTableBytes = 3 * (2 ** (sizeBits + 1))
-    offset += colorTableBytes
-  }
-
-  let frames = 0
-  while (offset < bytes.length) {
-    const blockId = byte(offset)
-    if (blockId === 0x3B) { // trailer
-      break
-    }
-
-    if (blockId === 0x21) { // extension
-      offset += 2 // 0x21 + label
-      while (offset < bytes.length) {
-        const size = byte(offset)
-        offset += 1
-        if (size === 0) {
-          break
-        }
-        offset += size
-      }
-      continue
-    }
-
-    if (blockId === 0x2C) { // image descriptor (frame)
-      frames += 1
-      if (frames > 1) {
-        return true
-      }
-      if (offset + 10 > bytes.length) {
-        break
-      }
-      const localPacked = byte(offset + 9)
-      offset += 10
-      const hasLocalColorTable = (localPacked & 0x80) !== 0
-      if (hasLocalColorTable) {
-        const sizeBits = localPacked & 0x07
-        const colorTableBytes = 3 * (2 ** (sizeBits + 1))
-        offset += colorTableBytes
-      }
-      offset += 1 // LZW minimum code size
-      while (offset < bytes.length) {
-        const size = byte(offset)
-        offset += 1
-        if (size === 0) {
-          break
-        }
-        offset += size
-      }
-      continue
-    }
-
-    break
-  }
-
-  return false
-}
-
 const buildVariantPath = (path: string, width: number, format: string) => {
   const lastSlash = path.lastIndexOf('/')
   const dir = lastSlash >= 0 ? path.slice(0, lastSlash) : ''
@@ -245,6 +172,15 @@ const applyExifOrientation = (image: ImageDataLike, orientation: number | null):
   }
 
   const { width, height, data } = image
+  const expectedDataLength = width * height * 4
+
+  // Validate image.data exists and has sufficient length
+  if (!data || data.length < expectedDataLength) {
+    throw new Error(
+      `Invalid image data: expected length ${expectedDataLength} (${width}x${height}x4), but got ${data?.length ?? 0}`
+    )
+  }
+
   const swapDimensions = orientation >= 5 && orientation <= 8
   const outputWidth = swapDimensions ? height : width
   const outputHeight = swapDimensions ? width : height
@@ -252,10 +188,10 @@ const applyExifOrientation = (image: ImageDataLike, orientation: number | null):
 
   const setPixel = (x: number, y: number, idx: number) => {
     const outIndex = (y * outputWidth + x) * 4
-    output[outIndex] = data[idx]!
-    output[outIndex + 1] = data[idx + 1]!
-    output[outIndex + 2] = data[idx + 2]!
-    output[outIndex + 3] = data[idx + 3]!
+    output[outIndex] = data[idx]
+    output[outIndex + 1] = data[idx + 1]
+    output[outIndex + 2] = data[idx + 2]
+    output[outIndex + 3] = data[idx + 3]
   }
 
   for (let y = 0; y < height; y++) {
@@ -434,8 +370,6 @@ export async function optimizeImageInBackground(fileId: string) {
       const bytes = toUint8Array(original.bytes)
       const dimensions = parseGifDimensions(bytes)
       // Always skip GIF optimization for MVP (animated GIFs must not be flattened).
-      // We still detect animation for future observability/feature work.
-      void isAnimatedGif(bytes)
 
       await db.update(fileTable)
         .set({

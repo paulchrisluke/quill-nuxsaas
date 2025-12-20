@@ -259,7 +259,7 @@ export default defineNuxtConfig({
         }
       : {}),
     rollupConfig: {
-      external: effectiveNitroPreset != 'node-server' ? ['pg-native'] : undefined,
+      external: effectiveNitroPreset !== 'node-server' ? ['pg-native'] : undefined,
       plugins: effectiveNitroPreset === 'cloudflare-module' ? [jsquashResolvePlugin()] : undefined
     },
     esbuild: {
