@@ -5,11 +5,12 @@ import { organization, user } from './auth'
 import { content } from './content'
 
 export interface FileVariant {
+  path: string
   url: string
   width: number
   height: number
-  format: string
-  size: number
+  bytes: number
+  mime: string
 }
 
 export type FileVariants = Record<string, FileVariant>

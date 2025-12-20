@@ -243,11 +243,25 @@ export class LocalStorageProvider implements StorageProvider {
   async delete(path: string): Promise<void> {
     const resolvedPath = resolvePath(this.baseDir, path)
 
-    // Validate the resolved path is within base
-    this.verifyPathWithinBase(resolvedPath)
+    // Resolve the actual filesystem path (following symlinks)
+    const realPath = await fs.realpath(resolvedPath).catch(async (error: any) => {
+      if (error?.code === 'ENOENT') {
+        // File doesn't exist, that's fine
+        return null
+      }
+      throw error
+    })
+
+    // If file doesn't exist, we're done
+    if (realPath === null) {
+      return
+    }
+
+    // Validate the canonical path is within base
+    this.verifyPathWithinBase(realPath)
 
     try {
-      await fs.unlink(resolvedPath)
+      await fs.unlink(realPath)
     } catch (error: any) {
       if ((error as any).code === 'ENOENT') {
         // File doesn't exist, that's fine

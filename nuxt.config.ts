@@ -1,6 +1,6 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 import type { NuxtPage } from 'nuxt/schema'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
@@ -75,20 +75,13 @@ function jsquashResolvePlugin(): RollupPlugin {
               return indexJsPath
             }
 
-            // Last fallback: read directory, sort alphabetically, and pick first matching .js file
-            const files = readdirSync(pkgDir)
-            const sortedFiles = files.sort()
-            const mainFile = sortedFiles.find((f: string) =>
-              f.endsWith('.js') &&
-              !f.includes('workerHelpers') &&
-              !f.endsWith('.d.ts')
-            )
-            if (mainFile) {
-              const mainFilePath = resolve(pkgDir, mainFile)
-              if (existsSync(mainFilePath)) {
-                return mainFilePath
-              }
-            }
+            // No fallback - log warning and let other resolvers handle it
+            console.warn('[jsquash-resolve] Could not resolve "../../.." import: package.json main field missing and index.js not found. Falling back to other resolvers.', {
+              importer,
+              source,
+              pkgDir
+            })
+            return null
           }
         } catch (error) {
           console.warn('[jsquash-resolve] Failed to resolve "../../.." import:', {
