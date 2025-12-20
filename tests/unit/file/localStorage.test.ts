@@ -35,10 +35,10 @@ describe('localStorageProvider', () => {
       await fs.writeFile(filePath, 'test content')
 
       // Verify file exists
-      await expect(fs.access(filePath)).resolves.not.toThrow()
+      await expect(fs.access(filePath)).resolves.toBeUndefined()
 
       // Delete the file
-      await expect(storage.delete(fileName)).resolves.not.toThrow()
+      await expect(storage.delete(fileName)).resolves.toBeUndefined()
 
       // Verify file is deleted
       await expect(fs.access(filePath)).rejects.toThrow()
@@ -57,7 +57,7 @@ describe('localStorageProvider', () => {
       await fs.symlink(fileName, symlinkPath)
 
       // Verify symlink exists
-      await expect(fs.access(symlinkPath)).resolves.not.toThrow()
+      await expect(fs.access(symlinkPath)).resolves.toBeUndefined()
 
       // Attempt to delete the symlink - should throw error
       await expect(storage.delete(symlinkName)).rejects.toThrow(
@@ -65,7 +65,7 @@ describe('localStorageProvider', () => {
       )
 
       // Verify symlink still exists
-      await expect(fs.access(symlinkPath)).resolves.not.toThrow()
+      await expect(fs.access(symlinkPath)).resolves.toBeUndefined()
 
       // Clean up
       await fs.unlink(symlinkPath)
@@ -74,7 +74,7 @@ describe('localStorageProvider', () => {
 
     it('should handle non-existent files gracefully', async () => {
       // Delete a non-existent file - should not throw
-      await expect(storage.delete('non-existent-file.txt')).resolves.not.toThrow()
+      await expect(storage.delete('non-existent-file.txt')).resolves.toBeUndefined()
     })
 
     it('should reject symlinks even if they point to valid files within base', async () => {
@@ -95,8 +95,8 @@ describe('localStorageProvider', () => {
       )
 
       // Verify both symlink and target still exist
-      await expect(fs.access(symlinkPath)).resolves.not.toThrow()
-      await expect(fs.access(targetPath)).resolves.not.toThrow()
+      await expect(fs.access(symlinkPath)).resolves.toBeUndefined()
+      await expect(fs.access(targetPath)).resolves.toBeUndefined()
 
       // Clean up
       await fs.unlink(symlinkPath)

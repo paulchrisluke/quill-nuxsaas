@@ -9,7 +9,7 @@ export class R2StorageProvider implements StorageProvider {
   private publicUrl?: string
   private config: {
     provider: 'r2'
-    accountId?: string
+    accountId: string
     accessKeyId: string
     secretAccessKey: string
     bucketName: string
@@ -26,10 +26,17 @@ export class R2StorageProvider implements StorageProvider {
     bucketName: string
     publicUrl?: string
   }) {
+    if (!config.accountId) {
+      throw new Error('Account ID is required for R2 storage')
+    }
+
     this.bucketName = config.bucketName
     this.publicUrl = config.publicUrl
-    this.config = config
     this.name = 'r2'
+    this.config = {
+      ...config,
+      accountId: config.accountId
+    }
   }
 
   private initializeClient() {
@@ -37,9 +44,6 @@ export class R2StorageProvider implements StorageProvider {
       return
     }
 
-    if (!this.config.accountId) {
-      throw new Error('Account ID is required for R2 storage')
-    }
     this.endpoint = `https://${this.config.accountId}.r2.cloudflarestorage.com`
     const region = 'auto'
 
@@ -192,17 +196,22 @@ export class R2StorageProvider implements StorageProvider {
   async exists(path: string): Promise<boolean> {
     this.ensureInitialized()
 
-    try {
-      const encodedPath = this.encodePath(path)
-      const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
+    const encodedPath = this.encodePath(path)
+    const url = `${this.endpoint}/${this.bucketName}/${encodedPath}`
 
-      const response = await this.client!.fetch(url, {
-        method: 'HEAD'
-      })
+    const response = await this.client!.fetch(url, {
+      method: 'HEAD'
+    })
 
-      return response.ok
-    } catch {
+    if (response.ok) {
+      return true
+    }
+
+    if (response.status === 404) {
       return false
     }
+
+    const errorDetails = await this.getErrorDetails(response)
+    throw new Error(`Existence check failed: ${response.status} ${response.statusText}${errorDetails}`)
   }
 }

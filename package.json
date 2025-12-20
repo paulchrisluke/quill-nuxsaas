@@ -94,6 +94,7 @@
     "playwright-core": "^1.56.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "semver": "^7.7.3",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",

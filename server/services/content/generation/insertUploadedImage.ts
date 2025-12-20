@@ -245,6 +245,20 @@ const resolvePosition = (params: {
   return { lineNumber: maxLine, sectionId: sections[sections.length - 1]?.id ?? null, reason: 'Defaulted to end of content' }
 }
 
+/**
+ * Validates and normalizes a dimension value (width or height).
+ * Converts raw value to Number, returns null for non-finite values,
+ * rounds non-integer finite numbers to an integer, and returns null if <= 0.
+ */
+const validateDimension = (rawValue: unknown): number | null => {
+  const numValue = Number(rawValue)
+  if (!Number.isFinite(numValue)) {
+    return null
+  }
+  const rounded = Number.isInteger(numValue) ? numValue : Math.round(numValue)
+  return rounded > 0 ? rounded : null
+}
+
 export const insertUploadedImage = async (
   db: NodePgDatabase<typeof schema>,
   params: {
@@ -391,39 +405,8 @@ export const insertUploadedImage = async (
   if (isHtmlFormat) {
     // Insert HTML <img> tag for HTML content
     const safeAltText = escapeHtmlAttribute(suggestion.altText ?? '')
-    // Validate width and height are finite positive integers
-    const rawWidth = Number(fileRecord.width)
-    const rawHeight = Number(fileRecord.height)
-    let width: number | null = null
-    let height: number | null = null
-
-    // Parse and validate width
-    if (Number.isFinite(rawWidth)) {
-      if (Number.isInteger(rawWidth)) {
-        width = rawWidth
-      } else {
-        // Coerce to integer if finite but not integer
-        width = Math.round(rawWidth)
-      }
-      // Ensure positive after coercion
-      if (width <= 0) {
-        width = null
-      }
-    }
-
-    // Parse and validate height
-    if (Number.isFinite(rawHeight)) {
-      if (Number.isInteger(rawHeight)) {
-        height = rawHeight
-      } else {
-        // Coerce to integer if finite but not integer
-        height = Math.round(rawHeight)
-      }
-      // Ensure positive after coercion
-      if (height <= 0) {
-        height = null
-      }
-    }
+    const width = validateDimension(fileRecord.width)
+    const height = validateDimension(fileRecord.height)
 
     const hasValidDimensions = width !== null && height !== null && width > 0 && height > 0
     const dimensions = hasValidDimensions

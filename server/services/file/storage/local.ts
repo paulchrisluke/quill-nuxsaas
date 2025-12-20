@@ -130,6 +130,11 @@ export class LocalStorageProvider implements StorageProvider {
         await this.verifyPathWithinBase(dir)
         // Create parent directories
         await fs.mkdir(dir, { recursive: true })
+        // Immediately after creation, check for symlink race condition
+        const createdStats = await fs.lstat(dir)
+        if (createdStats.isSymbolicLink()) {
+          throw new Error('Invalid path: symlink detected after directory creation - security violation')
+        }
         // After creation, verify the real path
         const createdRealPath = await fs.realpath(dir)
         await this.verifyPathWithinBase(createdRealPath)
@@ -137,6 +142,12 @@ export class LocalStorageProvider implements StorageProvider {
       }
       throw error
     })
+
+    // For existing paths, also check for symlinks
+    const existingStats = await fs.lstat(dir)
+    if (existingStats.isSymbolicLink()) {
+      throw new Error('Invalid path: symlink detected - security violation')
+    }
 
     await this.verifyPathWithinBase(realParent)
   }
@@ -169,8 +180,15 @@ export class LocalStorageProvider implements StorageProvider {
         if (error?.code === 'ELOOP') {
           throw new Error('Invalid path: symlink detected - security violation')
         }
-        // If O_NOFOLLOW not supported, open normally and verify after
-        if (error?.code === 'EOPNOTSUPP') {
+        // Check for multiple error codes that indicate O_NOFOLLOW is unsupported
+        // Different platforms may return different error codes
+        if (error?.code === 'EOPNOTSUPP' || error?.code === 'EINVAL' || error?.code === 'ENOTSUP') {
+          // O_NOFOLLOW not supported on this platform - perform symlink check manually
+          const stats = await fs.lstat(resolvedPath)
+          if (stats.isSymbolicLink()) {
+            throw new Error('Invalid path: symlink detected - security violation')
+          }
+          // Safe to open without O_NOFOLLOW since we've verified it's not a symlink
           handle = await fs.open(resolvedPath, constants.O_RDONLY)
         } else {
           throw error
@@ -275,9 +293,8 @@ export class LocalStorageProvider implements StorageProvider {
 
     // First check if the original path exists
     // Use lstat (not stat) to avoid following symlinks
-    let _originalStats
     try {
-      _originalStats = await fs.lstat(resolvedPath)
+      await fs.lstat(resolvedPath)
     } catch (error: any) {
       if (error?.code === 'ENOENT') {
         // File doesn't exist, that's fine

@@ -1,38 +1,30 @@
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { compare, valid } from 'semver'
 import { defineConfig } from 'vitest/config'
 
 const rootDir = fileURLToPath(new URL('./', import.meta.url))
 
 /**
- * Simple semver comparison function for sorting version strings.
- * Compares semantic versions correctly (e.g., "1.10.0" > "1.9.0").
+ * Resolves the entry point for a pnpm dependency by finding the newest version.
+ * Handles semver pre-release identifiers, build metadata, and numeric parts per semver rules.
+ *
+ * Note: This function uses synchronous I/O at module load time, which is necessary
+ * for Vitest config initialization. The pnpm directory format assumption may be
+ * fragile if pnpm changes its internal structure.
  */
-const compareVersions = (a: string, b: string): number => {
-  const parseVersion = (version: string): number[] => {
-    return version.split('.').map(s => parseInt(s, 10)).filter(Number.isFinite)
-  }
-
-  const versionA = parseVersion(a)
-  const versionB = parseVersion(b)
-  const maxLength = Math.max(versionA.length, versionB.length)
-
-  for (let i = 0; i < maxLength; i++) {
-    const partA = versionA[i] ?? 0
-    const partB = versionB[i] ?? 0
-    if (partA !== partB) {
-      return partA - partB
-    }
-  }
-
-  return 0
-}
-
-const resolvePnpmDepEntry = (packageName: string, entryRelativePath: string) => {
+const resolvePnpmDepEntry = (packageName: string, entryRelativePath: string): string | null => {
   try {
     const pnpmDir = join(rootDir, 'node_modules/.pnpm')
     const prefix = `${packageName}@`
+
+    // Check if pnpm directory exists
+    if (!existsSync(pnpmDir)) {
+      console.warn(`[vitest.unit.config] pnpm directory not found: ${pnpmDir}`)
+      return null
+    }
+
     const entries = readdirSync(pnpmDir)
       .filter(name => name.startsWith(prefix))
       .map((name) => {
@@ -42,17 +34,31 @@ const resolvePnpmDepEntry = (packageName: string, entryRelativePath: string) => 
         const version = raw.split('_')[0]
         return { name, version }
       })
-      .sort((a, b) => compareVersions(b.version, a.version)) // Sort descending (newest first)
+      .filter(({ version }) => {
+        // Filter out invalid semver versions
+        // semver.valid returns null for invalid versions
+        return valid(version) !== null
+      })
+      .sort((a, b) => compare(b.version, a.version)) // Sort descending (newest first) using semver.compare
       .map(entry => entry.name)
 
     if (entries.length === 0) {
+      console.warn(`[vitest.unit.config] No pnpm entries found for package: ${packageName}`)
       return null
     }
 
     // Take the first match (newest version)
     const match = entries[0]
-    return join(pnpmDir, match, 'node_modules', packageName, entryRelativePath)
-  } catch {
+    const resolvedPath = join(pnpmDir, match, 'node_modules', packageName, entryRelativePath)
+
+    if (!existsSync(resolvedPath)) {
+      console.warn(`[vitest.unit.config] Resolved path does not exist: ${resolvedPath}`)
+      return null
+    }
+
+    return resolvedPath
+  } catch (error) {
+    console.warn(`[vitest.unit.config] Failed to resolve pnpm dependency entry for ${packageName}:`, error)
     return null
   }
 }
