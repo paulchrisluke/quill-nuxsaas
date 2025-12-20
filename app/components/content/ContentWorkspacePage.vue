@@ -10,15 +10,9 @@ interface ContentEntry {
   title: string
   slug: string
   status: string
-  updatedAt: Date | null
   contentType: string
-  additions?: number
-  deletions?: number
-  conversationId?: string | null
   bodyMarkdown: string
-  frontmatter: Record<string, any> | null
   schemaTypes: string[]
-  jsonLd: string | null
   schemaValidation: {
     errors: string[]
     warnings: string[]
@@ -50,9 +44,7 @@ interface ContentApiResponse {
       title?: string
       slug?: string
       status?: string
-      updatedAt?: string
       contentType?: string
-      conversationId?: string | null
     }
     sourceContent?: {
       sourceType?: string
@@ -60,18 +52,9 @@ interface ContentApiResponse {
     } | null
     currentVersion?: {
       bodyMdx?: string
-      structuredData?: string | null
       imageSuggestions?: ImageSuggestion[]
-      diffStats?: {
-        additions?: number
-        deletions?: number
-      }
       frontmatter?: {
         contentType?: string
-        diffStats?: {
-          additions?: number
-          deletions?: number
-        }
       } & Record<string, any>
       seoSnapshot?: Record<string, any> | null
     }
@@ -117,21 +100,10 @@ const contentEntry = computed<ContentEntry | null>(() => {
   if (!content)
     return null
 
-  let updatedAt: Date | null = null
-  if (content?.updatedAt) {
-    const parsedDate = new Date(content.updatedAt)
-    updatedAt = Number.isFinite(parsedDate.getTime()) ? parsedDate : null
-  }
-
-  const versionStats = currentVersion?.diffStats
-  const fmStats = currentVersion?.frontmatter?.diffStats as { additions?: number, deletions?: number } | undefined
-  const additions = versionStats?.additions ?? fmStats?.additions ?? 0
-  const deletions = versionStats?.deletions ?? fmStats?.deletions ?? 0
   const frontmatter = (currentVersion?.frontmatter as Record<string, any> | undefined) ?? null
   const schemaTypes = Array.isArray(frontmatter?.schemaTypes)
     ? frontmatter.schemaTypes.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     : []
-  const jsonLd = typeof currentVersion?.structuredData === 'string' ? currentVersion.structuredData : null
   const schemaValidationRaw = currentVersion?.seoSnapshot && typeof currentVersion.seoSnapshot === 'object'
     ? (currentVersion.seoSnapshot as Record<string, any>).schemaValidation
     : null
@@ -156,47 +128,23 @@ const contentEntry = computed<ContentEntry | null>(() => {
     title: content?.title || 'Untitled content',
     slug: content?.slug || '',
     status: content?.status || 'draft',
-    updatedAt,
     contentType: currentVersion?.frontmatter?.contentType || content?.contentType || 'content',
-    additions,
-    deletions,
-    conversationId: content?.conversationId || null,
     bodyMarkdown: currentVersion?.bodyMdx || '',
-    frontmatter,
     schemaTypes,
-    jsonLd: jsonLd?.trim() || null,
     schemaValidation,
     imageSuggestions,
     videoId
   }
 })
 
-const frontmatterJson = computed(() => {
-  if (!contentEntry.value?.frontmatter) {
-    return 'Frontmatter has not been generated yet.'
-  }
-  try {
-    return JSON.stringify(contentEntry.value.frontmatter, null, 2)
-  } catch {
-    return 'Failed to serialize frontmatter.'
-  }
-})
-
-const structuredDataSnippet = computed(() => {
-  if (contentEntry.value?.jsonLd) {
-    return contentEntry.value.jsonLd
-  }
-  return 'Structured data will be generated automatically once schema types are configured.'
-})
-
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
-const isArchived = computed(() => contentEntry.value?.status === 'archived')
 
 const editorContent = ref('')
-const lastSavedContent = ref('')
 const isSaving = ref(false)
+const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
 const lastContentId = ref<string | null>(null)
+const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const editorToolbarItems = [
   [
     { kind: 'heading', level: 1, label: 'H1' },
@@ -224,35 +172,21 @@ const editorToolbarItems = [
     { kind: 'redo', label: 'Redo' },
     { kind: 'clearFormatting', label: 'Clear' }
   ]
-] as const
-
-const hasLocalEdits = computed(() => editorContent.value !== lastSavedContent.value)
-
-watch(contentEntry, (entry) => {
-  if (!entry) {
-    editorContent.value = ''
-    lastSavedContent.value = ''
-    lastContentId.value = null
-    return
-  }
-  if (entry.id && entry.id !== lastContentId.value) {
-    lastContentId.value = entry.id
-    editorContent.value = entry.bodyMarkdown || ''
-    lastSavedContent.value = entry.bodyMarkdown || ''
-    return
-  }
-  if (!hasLocalEdits.value) {
-    editorContent.value = entry.bodyMarkdown || ''
-    lastSavedContent.value = entry.bodyMarkdown || ''
-  }
-})
+]
 
 const saveContentBody = async () => {
-  if (!contentEntry.value || isSaving.value || !hasLocalEdits.value) {
+  if (!contentEntry.value || isSaving.value) {
     return
+  }
+
+  // Clear timeout if it exists
+  if (autoSaveTimeout.value) {
+    clearTimeout(autoSaveTimeout.value)
+    autoSaveTimeout.value = null
   }
 
   isSaving.value = true
+  saveStatus.value = 'saving'
   try {
     const response = await $fetch<SaveContentBodyResponse>(`/api/content/${contentEntry.value.id}/body`, {
       method: 'POST',
@@ -263,15 +197,12 @@ const saveContentBody = async () => {
 
     const updated = response?.markdown ?? editorContent.value
     editorContent.value = updated
-    lastSavedContent.value = updated
+    saveStatus.value = 'saved'
 
     await refreshContent()
-    toast.add({
-      title: 'Content saved',
-      color: 'success'
-    })
   } catch (err) {
     console.error('Failed to save content body', err)
+    saveStatus.value = 'unsaved'
     toast.add({
       title: 'Failed to save content',
       description: err instanceof Error ? err.message : 'Please try again.',
@@ -281,6 +212,51 @@ const saveContentBody = async () => {
     isSaving.value = false
   }
 }
+
+watch(contentEntry, (entry) => {
+  if (!entry) {
+    editorContent.value = ''
+    lastContentId.value = null
+    saveStatus.value = 'saved'
+    return
+  }
+  if (entry.id && entry.id !== lastContentId.value) {
+    lastContentId.value = entry.id
+    editorContent.value = entry.bodyMarkdown || ''
+    saveStatus.value = 'saved'
+    return
+  }
+  // Only update if we haven't made local edits
+  if (saveStatus.value === 'saved') {
+    editorContent.value = entry.bodyMarkdown || ''
+  }
+})
+
+// Auto-save with debouncing
+watch(editorContent, () => {
+  if (!contentEntry.value || saveStatus.value === 'saving') {
+    return
+  }
+
+  saveStatus.value = 'unsaved'
+
+  // Clear existing timeout
+  if (autoSaveTimeout.value) {
+    clearTimeout(autoSaveTimeout.value)
+  }
+
+  // Debounce auto-save (2 seconds after user stops typing)
+  autoSaveTimeout.value = setTimeout(() => {
+    saveContentBody()
+  }, 2000)
+})
+
+// Cleanup timeout on unmount
+onBeforeUnmount(() => {
+  if (autoSaveTimeout.value) {
+    clearTimeout(autoSaveTimeout.value)
+  }
+})
 
 const archiveContent = async () => {
   if (!contentEntry.value)
@@ -411,46 +387,34 @@ if (import.meta.client) {
             </UButton>
           </div>
         </template>
-        <div class="space-y-4">
+        <div class="grid grid-cols-2 gap-4">
           <div>
-            <p class="text-xs uppercase tracking-wide text-muted-500">
-              Slug
-            </p>
-            <p class="font-medium break-all">
-              {{ contentEntry.slug || '—' }}
-            </p>
-          </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-muted-500">
+            <p class="text-xs uppercase tracking-wide text-muted-500 mb-1">
               Status
             </p>
             <div class="flex items-center gap-2">
-              <p class="font-medium capitalize">
-                {{ contentEntry.status }}
-              </p>
               <UBadge
-                v-if="isArchived"
-                color="warning"
+                :color="contentEntry.status === 'published' ? 'success' : contentEntry.status === 'archived' ? 'warning' : 'neutral'"
                 variant="soft"
-                size="xs"
+                size="sm"
               >
-                Archived
+                {{ contentEntry.status }}
               </UBadge>
             </div>
           </div>
           <div>
-            <p class="text-xs uppercase tracking-wide text-muted-500">
+            <p class="text-xs uppercase tracking-wide text-muted-500 mb-1">
               Content type
             </p>
-            <p class="font-medium capitalize">
+            <p class="font-medium capitalize text-sm">
               {{ contentEntry.contentType }}
             </p>
           </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-muted-500">
+          <div class="col-span-2">
+            <p class="text-xs uppercase tracking-wide text-muted-500 mb-1">
               Schema types
             </p>
-            <div class="flex flex-wrap gap-2 pt-1">
+            <div class="flex flex-wrap gap-2">
               <template v-if="contentEntry.schemaTypes.length">
                 <UBadge
                   v-for="schema in contentEntry.schemaTypes"
@@ -476,26 +440,29 @@ if (import.meta.client) {
       <UCard class="mb-4">
         <template #header>
           <div class="flex items-center justify-between gap-3">
-            <div>
-              <p class="text-sm font-medium">
-                Body Markdown
-              </p>
-              <p
-                v-if="hasLocalEdits"
+            <p class="text-sm font-medium">
+              Body Markdown
+            </p>
+            <div class="flex items-center gap-2">
+              <span
+                v-if="saveStatus === 'saving'"
+                class="text-xs text-muted-500"
+              >
+                Saving...
+              </span>
+              <span
+                v-else-if="saveStatus === 'saved'"
+                class="text-xs text-emerald-600 dark:text-emerald-400"
+              >
+                Saved
+              </span>
+              <span
+                v-else
                 class="text-xs text-warning-600 dark:text-warning-400"
               >
-                Unsaved changes
-              </p>
+                Unsaved
+              </span>
             </div>
-            <UButton
-              size="sm"
-              color="primary"
-              :loading="isSaving"
-              :disabled="!hasLocalEdits || isSaving"
-              @click="saveContentBody"
-            >
-              Save
-            </UButton>
           </div>
         </template>
         <ClientOnly>
@@ -526,36 +493,6 @@ if (import.meta.client) {
             />
           </template>
         </ClientOnly>
-      </UCard>
-
-      <UCard class="mb-4">
-        <template #header>
-          <p class="text-sm font-medium">
-            Frontmatter
-          </p>
-        </template>
-        <UTextarea
-          :model-value="frontmatterJson"
-          readonly
-          :rows="12"
-          autoresize
-          class="w-full"
-        />
-      </UCard>
-
-      <UCard>
-        <template #header>
-          <p class="text-sm font-medium">
-            JSON-LD Structured Data
-          </p>
-        </template>
-        <UTextarea
-          :model-value="structuredDataSnippet"
-          readonly
-          :rows="12"
-          autoresize
-          class="w-full"
-        />
       </UCard>
 
       <ImageSuggestionsPanel
