@@ -39,6 +39,7 @@ A production-ready Nuxt SaaS starter with authentication, billing, teams, and mo
 - [x] **User profiles** — avatar upload, email change, password management
 - [x] **Session management** — view/revoke active sessions
 - [x] **API keys** — per-org keys with expiration options
+- [x] **Unified archiving** — archive conversations, content, and files from the UI; archived items are hidden by default but can be filtered back in
 - [x] **Admin tools** — user impersonation, soft-ban
 - [x] **Transactional emails** — React Email + Resend for all auth/billing events
 - [x] **Timezone support** — per-org timezone settings

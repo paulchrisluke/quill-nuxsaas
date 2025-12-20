@@ -9,7 +9,8 @@ const querySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
   contentId: z.string().uuid().optional(),
-  fileType: z.string().optional()
+  fileType: z.string().optional(),
+  includeArchived: z.coerce.boolean().optional().default(false)
 })
 
 interface CursorPayload {
@@ -100,10 +101,10 @@ export default defineEventHandler(async (event) => {
       cursorDate = parsedDate
     }
 
-    const whereClauses = [
-      eq(schema.file.organizationId, organizationId),
-      eq(schema.file.isActive, true)
-    ]
+    const whereClauses = [eq(schema.file.organizationId, organizationId)]
+    if (!query.includeArchived) {
+      whereClauses.push(eq(schema.file.isActive, true))
+    }
 
     if (query.contentId) {
       whereClauses.push(eq(schema.file.contentId, query.contentId))
@@ -136,6 +137,7 @@ export default defineEventHandler(async (event) => {
         path: schema.file.path,
         url: schema.file.url,
         contentId: schema.file.contentId,
+        isActive: schema.file.isActive,
         createdAt: schema.file.createdAt,
         updatedAt: schema.file.updatedAt
       })
@@ -168,6 +170,7 @@ export default defineEventHandler(async (event) => {
         path: file.path,
         url: file.url,
         contentId: file.contentId,
+        isActive: file.isActive,
         createdAt: file.createdAt instanceof Date ? file.createdAt.toISOString() : file.createdAt,
         updatedAt: file.updatedAt instanceof Date ? file.updatedAt.toISOString() : file.updatedAt
       })),

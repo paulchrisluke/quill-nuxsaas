@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "test": "vitest run --silent=false",
+    "test:unit": "vitest run --config vitest.unit.config.ts --silent=false",
     "test:chat": "vitest run tests/integration/chat.test.ts tests/e2e/chat-codex.test.ts",
     "test:chat-manual": "pnpm dlx tsx tests/manual/chat-runner.ts",
     "test:chat-custom": "pnpm dlx tsx tests/manual/chat-runner.ts custom",
@@ -37,6 +38,11 @@
   },
   "dependencies": {
     "@better-auth/stripe": "^1.4.1",
+    "@jsquash/avif": "^1.0.4",
+    "@jsquash/jpeg": "^1.0.4",
+    "@jsquash/png": "^1.0.4",
+    "@jsquash/resize": "^1.0.4",
+    "@jsquash/webp": "^1.0.4",
     "@nuxt/ui": "^4.2.1",
     "@nuxthub/core": "^0.10.0",
     "@nuxtjs/i18n": "^9.5.6",
@@ -88,6 +94,7 @@
     "playwright-core": "^1.56.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "semver": "^7.7.3",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4",

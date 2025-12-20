@@ -2,10 +2,12 @@ import { Buffer } from 'node:buffer'
 import { readMultipartFormData } from 'h3'
 import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
+import { optimizeImageInBackground } from '~~/server/services/file/imageOptimizer'
 import { UploadRateLimiter } from '~~/server/services/file/rateLimiter'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { sanitizeSVG } from '~~/server/services/file/svgSanitizer'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
+import { getWaitUntil } from '~~/server/utils/waitUntil'
 
 export default defineEventHandler(async (event) => {
   const config = useFileManagerConfig()
@@ -186,6 +188,19 @@ export default defineEventHandler(async (event) => {
         contentId: validatedContentId ?? undefined
       }
     )
+
+    if (file.fileType === 'image' && mimeType.startsWith('image/') && !isSVG) {
+      const waitUntil = await getWaitUntil()
+      const optimizePromise = optimizeImageInBackground(file.id)
+      if (waitUntil) {
+        waitUntil(optimizePromise)
+      } else {
+        optimizePromise.catch((error) => {
+          console.error('Image optimization failed:', error)
+        })
+      }
+    }
+
     return {
       success: true,
       file

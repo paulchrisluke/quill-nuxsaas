@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
+import { useContentList } from '~/composables/useContentList'
 
 const route = useRoute()
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', () => {})
@@ -96,6 +97,8 @@ const isPending = computed(() => {
   }
   return pending.value
 })
+const toast = useToast()
+const { remove: removeContent } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const contentEntry = computed<ContentEntry | null>(() => {
   if (!contentData.value)
@@ -184,6 +187,30 @@ const structuredDataSnippet = computed(() => {
 
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
+const isArchived = computed(() => contentEntry.value?.status === 'archived')
+
+const archiveContent = async () => {
+  if (!contentEntry.value)
+    return
+
+  try {
+    await $fetch(`/api/content/${contentEntry.value.id}/archive`, { method: 'POST' })
+    removeContent(contentEntry.value.id)
+    // Navigate to content list after successful archive
+    await navigateTo('/content')
+    toast.add({
+      title: 'Content archived',
+      color: 'success'
+    })
+  } catch (err) {
+    console.error('Failed to archive content', err)
+    toast.add({
+      title: 'Failed to archive content',
+      description: err instanceof Error ? err.message : 'Please try again.',
+      color: 'error'
+    })
+  }
+}
 
 // Set header title from content
 watch([contentEntry, error], ([entry, err]) => {
@@ -276,9 +303,20 @@ if (import.meta.client) {
 
       <UCard class="mb-4">
         <template #header>
-          <p class="text-sm font-medium">
-            Content details
-          </p>
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-sm font-medium">
+              Content details
+            </p>
+            <UButton
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-archive"
+              @click="archiveContent"
+            >
+              Archive
+            </UButton>
+          </div>
         </template>
         <div class="space-y-4">
           <div>
@@ -293,9 +331,19 @@ if (import.meta.client) {
             <p class="text-xs uppercase tracking-wide text-muted-500">
               Status
             </p>
-            <p class="font-medium capitalize">
-              {{ contentEntry.status }}
-            </p>
+            <div class="flex items-center gap-2">
+              <p class="font-medium capitalize">
+                {{ contentEntry.status }}
+              </p>
+              <UBadge
+                v-if="isArchived"
+                color="warning"
+                variant="soft"
+                size="xs"
+              >
+                Archived
+              </UBadge>
+            </div>
           </div>
           <div>
             <p class="text-xs uppercase tracking-wide text-muted-500">

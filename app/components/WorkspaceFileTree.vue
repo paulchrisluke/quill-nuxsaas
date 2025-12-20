@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import type * as schema from '~~/server/db/schema'
 import type { FileTreeNode } from './WorkspaceFileTreeNode.vue'
 import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { useContentList } from '~/composables/useContentList'
 import { useFileList } from '~/composables/useFileList'
 import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
-
-type SourceContentItem = typeof schema.sourceContent.$inferSelect
 
 const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
@@ -30,7 +27,9 @@ const {
   pending: contentPending,
   error: contentError,
   initialized: contentInitialized,
-  loadInitial: loadContentInitial
+  loadInitial: loadContentInitial,
+  remove: removeContent,
+  refresh: refreshContent
 } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const {
@@ -38,15 +37,16 @@ const {
   pending: filePending,
   error: fileError,
   initialized: fileInitialized,
-  loadInitial: loadFileInitial
+  loadInitial: loadFileInitial,
+  refresh: refreshFileList,
+  remove: removeFile
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
-const sourceItems = ref<SourceContentItem[]>([])
-const sourcePending = ref(false)
-const sourceError = ref<string | null>(null)
-const sourceInitialized = ref(false)
-
-const expandedPaths = ref<Set<string>>(new Set(['files', 'content', 'sources']))
+const expandedPaths = ref<Set<string>>(new Set(['files', 'content']))
+const toast = useToast()
+// Track in-flight archive operations to prevent concurrent invocations
+const archivingFiles = ref<Set<string>>(new Set())
+const archivingContent = ref<Set<string>>(new Set())
 
 const activeContentId = computed(() => {
   const path = route.path
@@ -73,10 +73,6 @@ const normalizeSegment = (value: string | null | undefined) => {
 const buildContentFilename = (label: string, fallback: string) => {
   const slug = normalizeSegment(label) || normalizeSegment(fallback) || fallback
   return `${slug}.mdx`
-}
-
-const buildSourceName = (title: string | null, fallback: string) => {
-  return normalizeSegment(title) || fallback
 }
 
 const buildTreeFromEntries = (entries: { path: string, metadata?: FileTreeNode['metadata'] }[]): FileTreeNode[] => {
@@ -173,23 +169,12 @@ const fileEntries = computed(() => {
   }))
 })
 
-const sourceEntries = computed(() => {
-  return sourceItems.value.map(source => ({
-    path: ['sources', normalizeSegment(source.sourceType) || 'other', buildSourceName(source.title, source.id)].join('/'),
-    metadata: {
-      sourceId: source.id,
-      sourceType: source.sourceType || undefined,
-      displayLabel: source.title || source.id
-    }
-  }))
-})
-
 const tree = computed<FileTreeNode[]>(() => {
-  const entries = [...fileEntries.value, ...contentEntries.value, ...sourceEntries.value]
+  const entries = [...fileEntries.value, ...contentEntries.value]
   const builtTree = buildTreeFromEntries(entries)
 
   // Always ensure root folders exist, even if empty
-  const rootFolders = ['files', 'content', 'sources']
+  const rootFolders = ['files', 'content']
   const existingRootPaths = new Set(builtTree.map(node => node.path))
 
   for (const folderName of rootFolders) {
@@ -203,9 +188,9 @@ const tree = computed<FileTreeNode[]>(() => {
     }
   }
 
-  // Sort to ensure consistent order: content, files, sources
+  // Sort to ensure consistent order: content, files
   builtTree.sort((a, b) => {
-    const order = { content: 0, files: 1, sources: 2 }
+    const order = { content: 0, files: 1 }
     const aOrder = order[a.path as keyof typeof order] ?? 999
     const bOrder = order[b.path as keyof typeof order] ?? 999
     return aOrder - bOrder
@@ -230,15 +215,6 @@ const resolveContentPath = (contentId: string | null | undefined) => {
   return `/${slug}/content/${contentId}`
 }
 
-const resolveSourcePath = (sourceId: string | null | undefined) => {
-  const slug = orgSlug.value
-  if (!slug)
-    return null
-  // Navigate to source content route (can be created later if needed)
-  // For now, we'll use a query parameter approach or emit event
-  return `/${slug}/sources/${sourceId}`
-}
-
 const openNode = (node: FileTreeNode) => {
   emit('open', node)
 
@@ -253,48 +229,95 @@ const openNode = (node: FileTreeNode) => {
     const path = resolveContentPath(metadata.contentId)
     if (path)
       router.push(localePath(path))
-  } else if (metadata.sourceId) {
-    // For sources, we can navigate to a route or show in a modal
-    // For now, navigate to a route pattern that could be created
-    const path = resolveSourcePath(metadata.sourceId)
-    if (path) {
-      // Try to navigate, but if route doesn't exist, emit event for parent to handle
-      router.push(localePath(path)).catch(() => {
-        // Route doesn't exist yet - parent already received 'open' event above
-        // to handle source display in embedding scenarios
-      })
-    }
   }
 }
 
-const fetchSources = async () => {
-  sourcePending.value = true
-  sourceError.value = null
+// Strategy: Use optimistic UI updates (removeFile/removeContent) for immediate feedback,
+// then handle server errors by re-adding or refreshing on failure. This provides better UX
+// than waiting for server refresh, and both archive operations now use the same approach.
+const archiveFile = async (node: FileTreeNode) => {
+  const fileId = node.metadata?.fileId
+  if (!fileId)
+    return
+
+  // Prevent concurrent invocations for the same file
+  if (archivingFiles.value.has(fileId))
+    return
+
+  // Mark as in-flight
+  archivingFiles.value.add(fileId)
+
+  // Optimistically remove from UI
+  removeFile(fileId)
+
   try {
-    const response = await $fetch<{ data: SourceContentItem[] }>('/api/source-content', {
-      query: {
-        limit: 100
-      }
+    await $fetch(`/api/file/${fileId}/archive`, { method: 'POST' })
+    toast.add({
+      id: `archive-file-${fileId}`,
+      title: 'File archived',
+      color: 'success'
     })
-    sourceItems.value = response?.data || []
-    sourceInitialized.value = true
   } catch (error) {
-    console.error('Failed to fetch sources', error)
-    sourceError.value = error instanceof Error ? error.message : 'Failed to load sources'
-    sourceInitialized.value = true
+    console.error('Failed to archive file', error)
+    // On error, refresh to restore correct server state
+    await refreshFileList()
+    toast.add({
+      id: `archive-file-error-${fileId}`,
+      title: 'Failed to archive file',
+      description: error instanceof Error ? error.message : 'Please try again.',
+      color: 'error'
+    })
   } finally {
-    sourcePending.value = false
+    // Remove from in-flight tracker
+    archivingFiles.value.delete(fileId)
+  }
+}
+
+const archiveContent = async (node: FileTreeNode) => {
+  const contentId = node.metadata?.contentId
+  if (!contentId)
+    return
+
+  // Prevent concurrent invocations for the same content
+  if (archivingContent.value.has(contentId))
+    return
+
+  // Mark as in-flight
+  archivingContent.value.add(contentId)
+
+  // Optimistically remove from UI
+  removeContent(contentId)
+
+  try {
+    await $fetch(`/api/content/${contentId}/archive`, { method: 'POST' })
+    toast.add({
+      id: `archive-content-${contentId}`,
+      title: 'Content archived',
+      color: 'success'
+    })
+  } catch (error) {
+    console.error('Failed to archive content', error)
+    // On error, refresh to restore correct server state
+    await refreshContent()
+    toast.add({
+      id: `archive-content-error-${contentId}`,
+      title: 'Failed to archive content',
+      description: error instanceof Error ? error.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    // Remove from in-flight tracker
+    archivingContent.value.delete(contentId)
   }
 }
 
 onMounted(() => {
   loadContentInitial().catch(() => {})
   loadFileInitial().catch(() => {})
-  fetchSources()
 })
 
 const isEmptyState = computed(() => {
-  return contentInitialized.value && fileInitialized.value && sourceInitialized.value && !contentItems.value.length && !fileItems.value.length && !sourceItems.value.length
+  return contentInitialized.value && fileInitialized.value && !contentItems.value.length && !fileItems.value.length
 })
 
 // Debug: log file count for troubleshooting
@@ -311,7 +334,7 @@ watch([fileItems, fileInitialized], () => {
     role="tree"
   >
     <div class="flex-1 overflow-y-auto px-1 pb-4">
-      <div v-if="contentPending || filePending || sourcePending">
+      <div v-if="contentPending || filePending">
         <div
           v-for="n in 6"
           :key="n"
@@ -331,8 +354,12 @@ watch([fileItems, fileInitialized], () => {
           :node="node"
           :expanded-paths="expandedPaths"
           :active-content-id="activeContentId"
+          :archiving-file-ids="archivingFiles"
+          :archiving-content-ids="archivingContent"
           @toggle="toggleFolder"
           @select="openNode"
+          @archive-file="archiveFile"
+          @archive-content="archiveContent"
         />
       </ul>
 
@@ -344,7 +371,7 @@ watch([fileItems, fileInitialized], () => {
       </div>
 
       <div
-        v-if="contentError || fileError || sourceError"
+        v-if="contentError || fileError"
         class="px-3 space-y-2"
       >
         <UAlert
@@ -358,12 +385,6 @@ watch([fileItems, fileInitialized], () => {
           color="error"
           variant="soft"
           :title="fileError"
-        />
-        <UAlert
-          v-if="sourceError"
-          color="error"
-          variant="soft"
-          :title="sourceError"
         />
       </div>
     </div>

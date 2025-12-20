@@ -1,6 +1,22 @@
 import type { FileManagerConfig, StorageProvider } from '../types'
 import { LocalStorageProvider } from './local'
-import { S3CompatibleStorageProvider } from './s3-compatible'
+import { R2StorageProvider } from './r2'
+
+const ensureR2Config = (config: NonNullable<FileManagerConfig['storage']['r2']>) => {
+  const missing: string[] = []
+  if (!config.accountId)
+    missing.push('NUXT_CF_ACCOUNT_ID')
+  if (!config.accessKeyId)
+    missing.push('NUXT_CF_ACCESS_KEY_ID')
+  if (!config.secretAccessKey)
+    missing.push('NUXT_CF_SECRET_ACCESS_KEY')
+  if (!config.bucketName)
+    missing.push('NUXT_CF_R2_BUCKET_NAME')
+  // Note: publicUrl is optional - if not provided, getUrl() will fall back to r2.dev URL
+  if (missing.length > 0) {
+    throw new Error(`Missing R2 configuration values: ${missing.join(', ')}`)
+  }
+}
 
 export async function createStorageProvider(config: FileManagerConfig['storage']): Promise<StorageProvider> {
   switch (config.provider) {
@@ -10,20 +26,12 @@ export async function createStorageProvider(config: FileManagerConfig['storage']
       }
       return new LocalStorageProvider(config.local.uploadDir, config.local.publicPath)
 
-    case 's3':
-      if (!config.s3) {
-        throw new Error('S3 storage configuration is required')
-      }
-      return new S3CompatibleStorageProvider({
-        provider: 's3',
-        ...config.s3
-      })
-
     case 'r2':
       if (!config.r2) {
         throw new Error('R2 storage configuration is required')
       }
-      return new S3CompatibleStorageProvider({
+      ensureR2Config(config.r2)
+      return new R2StorageProvider({
         provider: 'r2',
         ...config.r2
       })
