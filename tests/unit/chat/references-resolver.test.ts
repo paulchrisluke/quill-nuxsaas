@@ -23,5 +23,6 @@ describe('resolveReferences matching', () => {
   it('falls back to substring matches', () => {
     const result = _testing.selectBestMatch('gingerbread', candidates, item => [item.slug])
     expect(result.match?.id).toBe('3')
+    expect(result.ambiguous).toHaveLength(0)
   })
 })

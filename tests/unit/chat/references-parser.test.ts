@@ -42,5 +42,6 @@ describe('parseReferences', () => {
       raw: '@source:manual-transcript',
       identifier: 'source:manual-transcript'
     })
+    expect(tokens[1].anchor).toBeUndefined()
   })
 })

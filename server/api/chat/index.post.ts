@@ -2287,7 +2287,7 @@ export default defineEventHandler(async (event) => {
               const referenceResolution = await resolveReferences(tokens, {
                 db,
                 organizationId,
-                currentContentId: body.contentId ?? null,
+                currentContentId: requestContentId,
                 userId: user.id,
                 mode
               })

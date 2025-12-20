@@ -8,7 +8,7 @@ interface ResolveReferencesBody {
   message: string
   organizationId: string
   currentContentId?: string | null
-  mode: 'chat' | 'agent'
+  mode?: 'chat' | 'agent'
 }
 
 export default defineEventHandler(async (event) => {

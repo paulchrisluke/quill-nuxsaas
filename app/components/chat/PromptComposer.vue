@@ -149,7 +149,6 @@ const updateActiveMention = () => {
 
   activeMention.value = { startIndex: atIndex, query }
   highlightedIndex.value = 0
-  isAutocompleteOpen.value = combinedSuggestions.value.length > 0
 }
 
 const applySuggestion = (item: ReferenceSuggestionItem) => {
@@ -295,6 +294,24 @@ const scheduleReferenceResolution = (value: string) => {
   }, 320)
 }
 
+const findClosestTokenIndex = (value: string, raw: string, targetIndex: number) => {
+  if (!raw) {
+    return -1
+  }
+  const indices: number[] = []
+  let cursor = value.indexOf(raw)
+  while (cursor !== -1) {
+    indices.push(cursor)
+    cursor = value.indexOf(raw, cursor + raw.length)
+  }
+  if (!indices.length) {
+    return -1
+  }
+  return indices.reduce((closest, index) =>
+    Math.abs(index - targetIndex) < Math.abs(closest - targetIndex) ? index : closest
+  )
+}
+
 const replaceToken = (token: ReferenceToken, reference: string) => {
   const replacement = `@${reference}`
   const currentValue = modelValue.value
@@ -306,7 +323,14 @@ const replaceToken = (token: ReferenceToken, reference: string) => {
     return
   }
 
-  modelValue.value = currentValue.replace(token.raw, replacement)
+  const rawIndex = findClosestTokenIndex(currentValue, token.raw, token.startIndex)
+  if (rawIndex === -1) {
+    modelValue.value = currentValue.replace(token.raw, replacement)
+    return
+  }
+  const before = currentValue.slice(0, rawIndex)
+  const after = currentValue.slice(rawIndex + token.raw.length)
+  modelValue.value = `${before}${replacement}${after}`
 }
 
 const buildDropdownItems = (token: ReferenceToken, candidates: ReferenceCandidate[]) => {
@@ -488,7 +512,7 @@ watch(combinedSuggestions, (value) => {
 
       <template
         v-for="item in referenceResolution?.ambiguous"
-        :key="item.token.raw"
+        :key="`ambiguous-${item.token.startIndex}-${item.token.raw}`"
       >
         <UDropdownMenu
           v-if="item.candidates.length"
@@ -513,7 +537,7 @@ watch(combinedSuggestions, (value) => {
 
       <template
         v-for="item in referenceResolution?.unresolved"
-        :key="item.token.raw"
+        :key="`unresolved-${item.token.startIndex}-${item.token.raw}`"
       >
         <UDropdownMenu
           v-if="item.suggestions?.length"
