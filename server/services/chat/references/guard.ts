@@ -51,7 +51,7 @@ export const getReferenceScopeError = (
 
   if (toolInvocation.name === 'edit_metadata') {
     const args = toolInvocation.arguments as ChatToolInvocation<'edit_metadata'>['arguments']
-    if (!allowedContentIds.has(args.contentId)) {
+    if (!args.contentId || !allowedContentIds.has(args.contentId)) {
       return NO_REFERENCE_ERROR
     }
     return null
@@ -67,7 +67,12 @@ export const getReferenceScopeError = (
 
   if (toolInvocation.name === 'insert_image') {
     const args = toolInvocation.arguments as ChatToolInvocation<'insert_image'>['arguments']
-    if (!allowedContentIds.has(args.contentId) || !allowedFileIds.has(args.fileId)) {
+    if (
+      !args.contentId ||
+      !allowedContentIds.has(args.contentId) ||
+      !args.fileId ||
+      !allowedFileIds.has(args.fileId)
+    ) {
       return NO_REFERENCE_ERROR
     }
     return null

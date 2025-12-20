@@ -103,7 +103,7 @@ const fetchFileCandidates = async (context: ResolveContext, identifier: string) 
         sql`lower(${schema.file.originalName}) like ${`%${escaped}%`} escape '\\'`
       )
     ))
-    .orderBy(schema.file.updatedAt)
+    .orderBy(sql`${schema.file.updatedAt} DESC`)
     .limit(LIMIT_MATCHES)
 }
 
@@ -123,7 +123,7 @@ const fetchContentCandidates = async (context: ResolveContext, identifier: strin
       eq(schema.content.organizationId, context.organizationId),
       sql`lower(${schema.content.slug}) like ${`%${escaped}%`} escape '\\'`
     ))
-    .orderBy(schema.content.updatedAt)
+    .orderBy(sql`${schema.content.updatedAt} DESC`)
     .limit(LIMIT_MATCHES)
 }
 
@@ -145,7 +145,7 @@ const fetchSourceCandidates = async (context: ResolveContext, identifier: string
         sql`lower(${schema.sourceContent.title}) like ${`%${escaped}%`} escape '\\'`
       )
     ))
-    .orderBy(schema.sourceContent.updatedAt)
+    .orderBy(sql`${schema.sourceContent.updatedAt} DESC`)
     .limit(LIMIT_MATCHES)
 }
 
