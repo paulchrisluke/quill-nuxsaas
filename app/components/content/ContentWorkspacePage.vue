@@ -79,6 +79,10 @@ interface ContentApiResponse {
   }
 }
 
+interface SaveContentBodyResponse {
+  markdown: string
+}
+
 const contentId = computed(() => {
   const param = route.params.id
   return Array.isArray(param) ? param[0] : param || ''
@@ -194,8 +198,8 @@ const editorContent = ref('')
 const lastSavedContent = ref('')
 const isSaving = ref(false)
 const lastContentId = ref<string | null>(null)
-const EditorComponent = defineAsyncComponent(() => import('@nuxt/ui/runtime/components/Editor.vue'))
-const EditorToolbarComponent = defineAsyncComponent(() => import('@nuxt/ui/runtime/components/EditorToolbar.vue'))
+const EditorComponent = defineAsyncComponent(() => import('@nuxt/ui/components/Editor.vue'))
+const EditorToolbarComponent = defineAsyncComponent(() => import('@nuxt/ui/components/EditorToolbar.vue'))
 const editorToolbarItems = [
   [
     { kind: 'heading', level: 1, label: 'H1' },
@@ -253,22 +257,16 @@ const saveContentBody = async () => {
 
   isSaving.value = true
   try {
-    const response = await $fetch(`/api/content/${contentEntry.value.id}/body`, {
+    const response = await $fetch<SaveContentBodyResponse>(`/api/content/${contentEntry.value.id}/body`, {
       method: 'POST',
       body: {
         markdown: editorContent.value
       }
     })
 
-    if (response && typeof response === 'object' && 'markdown' in response) {
-      const updated = typeof (response as any).markdown === 'string'
-        ? (response as any).markdown
-        : editorContent.value
-      editorContent.value = updated
-      lastSavedContent.value = updated
-    } else {
-      lastSavedContent.value = editorContent.value
-    }
+    const updated = response?.markdown ?? editorContent.value
+    editorContent.value = updated
+    lastSavedContent.value = updated
 
     await refreshContent()
     toast.add({
