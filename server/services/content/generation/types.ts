@@ -135,11 +135,20 @@ export interface FaqMetadata {
   entries?: FaqEntryMetadata[]
 }
 
+export interface FeaturedImageMetadata {
+  url: string
+  fileId?: string | null
+  alt?: string | null
+  width?: number | null
+  height?: number | null
+}
+
 export interface ContentFrontmatter {
   title: string
   description?: string
   slug: string
   slugSuggestion: string
+  featuredImage?: FeaturedImageMetadata
   tags?: string[]
   keywords?: string[]
   status: typeof CONTENT_STATUSES[number]

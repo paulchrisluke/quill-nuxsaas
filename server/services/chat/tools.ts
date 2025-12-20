@@ -101,7 +101,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
                           : TName extends 'insert_image'
                             ? {
                                 contentId: string
-                                fileId: string
+                                fileId?: string | null
                                 position?: string | number | null
                                 altText?: string | null
                               }
@@ -606,8 +606,8 @@ function buildInsertImageParameters(): ParameterSchema {
         description: 'Content ID (UUID format) where the image should be inserted.'
       },
       fileId: {
-        type: 'string',
-        description: 'File ID of the uploaded image to insert.'
+        type: ['string', 'null'],
+        description: 'Optional file ID of the uploaded image to insert. If omitted, the latest image attached to the content will be used.'
       },
       position: {
         type: ['string', 'number', 'null'],
@@ -618,7 +618,7 @@ function buildInsertImageParameters(): ParameterSchema {
         description: 'Optional alt text for the image.'
       }
     },
-    required: ['contentId', 'fileId']
+    required: ['contentId']
   }
 }
 

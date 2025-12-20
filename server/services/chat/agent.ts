@@ -69,7 +69,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 - For creating new content items from source content (context, YouTube video, etc.), use content_write with action="create". This tool only creates new content - it cannot update existing content.
 - For refreshing an existing content item's frontmatter and JSON-LD structured data, use content_write with action="enrich".
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".
-- For inserting uploaded images into content at specific spots, find the file with read_files and then call insert_image with a clear position (line number, sectionId, or natural language description).
+- For inserting uploaded images into content, prefer using insert_image with a fileId. If omitted, insert_image will use the latest image linked to the content.
 - Never use content_write with action="create" for editing existing content - use edit_metadata or edit_section instead.`
 
   if (!referenceContext) {

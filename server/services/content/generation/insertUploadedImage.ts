@@ -77,6 +77,7 @@ const sanitizeMarkdownUrl = (url: string): string => {
 
 const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
 const DATA_URI_IMAGE_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i
+const HOST_LIKE_PATTERN = /^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i
 
 const escapeHtmlAttribute = (value: string): string => {
   return value
@@ -96,6 +97,61 @@ const escapeHtmlAttribute = (value: string): string => {
         return '&#13;'
       return ''
     })
+}
+
+const resolveAbsoluteImageUrl = (rawUrl: string, baseUrl: string | null): string => {
+  if (!rawUrl) {
+    return rawUrl
+  }
+
+  if (rawUrl.startsWith('data:')) {
+    return rawUrl
+  }
+
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return rawUrl
+  }
+
+  if (HOST_LIKE_PATTERN.test(rawUrl)) {
+    return `https://${rawUrl}`
+  }
+
+  if (rawUrl.startsWith('/') && baseUrl) {
+    return new URL(rawUrl, baseUrl).toString()
+  }
+
+  if (baseUrl) {
+    return new URL(`/${rawUrl.replace(/^\/+/, '')}`, baseUrl).toString()
+  }
+
+  return rawUrl
+}
+
+const buildStoredImageUrl = (params: {
+  url?: string | null
+  path?: string | null
+  baseUrl: string | null
+  localPublicPath?: string | null
+  r2PublicUrl?: string | null
+}): string | null => {
+  const { url, path, baseUrl, localPublicPath, r2PublicUrl } = params
+
+  if (url && url.trim()) {
+    return resolveAbsoluteImageUrl(url.trim(), baseUrl)
+  }
+
+  if (!path || !path.trim()) {
+    return null
+  }
+
+  const trimmedPath = path.trim().replace(/^\/+/, '')
+  const publicRoot = r2PublicUrl || localPublicPath || ''
+  if (publicRoot) {
+    const combined = `${publicRoot.replace(/\/+$/, '')}/${trimmedPath}`
+    return resolveAbsoluteImageUrl(combined, baseUrl)
+  }
+
+  return resolveAbsoluteImageUrl(trimmedPath, baseUrl)
 }
 
 const validateImageUrl = (rawUrl: string): string => {
@@ -265,13 +321,14 @@ export const insertUploadedImage = async (
     organizationId: string
     userId: string
     contentId: string
-    fileId: string
+    fileId?: string | null
     position?: string | number | null
     altText?: string | null
   }
 ) => {
   const { organizationId, userId, contentId, fileId, position, altText } = params
   const config = useFileManagerConfig()
+  const appBaseUrl = useRuntimeConfig().public?.baseURL || null
 
   const [contentRecord] = await db
     .select({
@@ -302,20 +359,40 @@ export const insertUploadedImage = async (
 
   const version = contentRecord.version
 
-  const [fileRecord] = await db
-    .select()
-    .from(schema.file)
-    .where(and(
-      eq(schema.file.id, fileId),
-      eq(schema.file.organizationId, organizationId),
-      eq(schema.file.isActive, true)
-    ))
-    .limit(1)
+  let fileRecord: typeof schema.file.$inferSelect | null = null
+
+  if (fileId) {
+    const [matched] = await db
+      .select()
+      .from(schema.file)
+      .where(and(
+        eq(schema.file.id, fileId),
+        eq(schema.file.organizationId, organizationId),
+        eq(schema.file.isActive, true)
+      ))
+      .limit(1)
+    fileRecord = matched ?? null
+  } else {
+    const [latest] = await db
+      .select()
+      .from(schema.file)
+      .where(and(
+        eq(schema.file.organizationId, organizationId),
+        eq(schema.file.isActive, true),
+        eq(schema.file.contentId, contentId),
+        eq(schema.file.fileType, 'image')
+      ))
+      .orderBy(desc(schema.file.createdAt))
+      .limit(1)
+    fileRecord = latest ?? null
+  }
 
   if (!fileRecord) {
     throw createError({
       statusCode: 404,
-      statusMessage: 'File not found for this organization'
+      statusMessage: fileId
+        ? 'File not found for this organization'
+        : 'No recent image found for this content. Upload an image or provide a fileId.'
     })
   }
 
@@ -361,7 +438,13 @@ export const insertUploadedImage = async (
     sections
   })
 
-  const imageUrl = fileRecord.url || fileRecord.path
+  const imageUrl = buildStoredImageUrl({
+    url: fileRecord.url,
+    path: fileRecord.path,
+    baseUrl: appBaseUrl,
+    localPublicPath: config.storage?.local?.publicPath || null,
+    r2PublicUrl: config.storage?.r2?.publicUrl || null
+  })
   if (!imageUrl) {
     throw createError({
       statusCode: 400,
@@ -369,6 +452,7 @@ export const insertUploadedImage = async (
     })
   }
   const safeImageUrl = validateImageUrl(imageUrl)
+  const shouldSetFeatured = typeof position === 'string' && /\b(?:featured|hero|cover)\b/i.test(position)
 
   const warnings: string[] = []
   let resolvedAltText = altText?.trim() || ''
@@ -442,6 +526,19 @@ export const insertUploadedImage = async (
         }
   }
 
+  const nextFrontmatter = (version.frontmatter && typeof version.frontmatter === 'object')
+    ? { ...(version.frontmatter as Record<string, any>) }
+    : {}
+  if (shouldSetFeatured) {
+    nextFrontmatter.featuredImage = {
+      url: safeImageUrl,
+      fileId: fileRecord.id,
+      alt: resolvedAltText,
+      width: fileRecord.width ?? null,
+      height: fileRecord.height ?? null
+    }
+  }
+
   const result = await db.transaction(async (tx) => {
     const [currentContent] = await tx
       .select({ currentVersionId: schema.content.currentVersionId })
@@ -472,7 +569,7 @@ export const insertUploadedImage = async (
         contentId: contentRecord.content.id,
         version: nextVersionNumber,
         createdByUserId: userId,
-        frontmatter: version.frontmatter,
+        frontmatter: nextFrontmatter,
         bodyMdx: isHtmlFormat ? version.bodyMdx : updatedBody,
         bodyHtml: isHtmlFormat ? updatedBody : version.bodyHtml,
         sections: version.sections,
