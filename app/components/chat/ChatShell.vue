@@ -672,7 +672,6 @@ watch(routeConversationId, (next, previous) => {
   loadConversationById(next)
 }, { immediate: true })
 
-
 const getMessageText = (message: ChatMessage) => {
   return (message.parts || [])
     .filter((part): part is { type: 'text', text: string } => part.type === 'text' && typeof (part as any).text === 'string')

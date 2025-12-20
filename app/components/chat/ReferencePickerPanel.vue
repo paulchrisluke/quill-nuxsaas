@@ -27,7 +27,6 @@ interface ReferenceSuggestionItem {
 interface ReferenceSuggestionGroups {
   files: ReferenceSuggestionItem[]
   contents: ReferenceSuggestionItem[]
-  sections: ReferenceSuggestionItem[]
 }
 
 const attrs = useAttrs()
@@ -66,7 +65,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
   } else if (event.key === 'ArrowUp') {
     event.preventDefault()
     emit('navigate', -1)
-  } else if (event.key === 'Enter' || event.key === 'Tab') {
+  } else if (event.key === 'Enter') {
     event.preventDefault()
     const item = flatItems.value[props.activeIndex]
     if (item) {

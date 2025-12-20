@@ -171,6 +171,7 @@ const resolveFileToken = async (token: ReferenceToken, context: ResolveContext) 
         id: file.id,
         token,
         metadata: {
+          id: file.id,
           originalName: file.originalName,
           fileName: file.fileName,
           mimeType: file.mimeType,
@@ -217,6 +218,7 @@ const resolveContentToken = async (token: ReferenceToken, context: ResolveContex
       id: content.id,
       token,
       metadata: {
+        id: content.id,
         slug: content.slug,
         title: content.title,
         status: content.status
@@ -326,6 +328,7 @@ const resolveSourceToken = async (token: ReferenceToken, context: ResolveContext
         id: source.id,
         token,
         metadata: {
+          id: source.id,
           title: source.title,
           sourceType: source.sourceType
         }
@@ -426,14 +429,14 @@ export async function resolveReferences(tokens: ReferenceToken[], context: Resol
     if (fileResult.resolved) {
       resolved.push(fileResult.resolved)
     }
-    if (fileResult.unresolved) {
-      unresolved.push(fileResult.unresolved)
-    }
     if (fileResult.ambiguous) {
       ambiguous.push(fileResult.ambiguous)
     }
-    if (!fileResult.resolved && !fileResult.ambiguous && contentResult.unresolved) {
+    // Prefer content unresolved (since prefersFile is false), fallback to file unresolved
+    if (contentResult.unresolved) {
       unresolved.push(contentResult.unresolved)
+    } else if (fileResult.unresolved) {
+      unresolved.push(fileResult.unresolved)
     }
   }
 

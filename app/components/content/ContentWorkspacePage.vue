@@ -82,10 +82,11 @@ const contentId = computed(() => {
   return Array.isArray(param) ? param[0] : param || ''
 })
 
-const { data: contentData, pending, error } = useFetch(() => `/api/content/${contentId.value}`, {
+const { data: contentData, pending, error, refresh: refreshContent } = useFetch(() => `/api/content/${contentId.value}`, {
   key: computed(() => `content-${contentId.value}`),
   lazy: true,
-  default: () => null
+  default: () => null,
+  server: false
 })
 
 const contentEntry = computed<ContentEntry | null>(() => {
@@ -186,6 +187,29 @@ watch([contentEntry, error], ([entry, err]) => {
     setHeaderTitle?.('Loading content…')
   }
 }, { immediate: true })
+
+// Refresh content when route changes (handles navigation to same content after update)
+watch(() => route.params.id, () => {
+  if (contentId.value) {
+    refreshContent()
+  }
+})
+
+// Listen for content updates via window events (for cross-component communication)
+if (import.meta.client) {
+  const handleContentUpdate = (event: CustomEvent) => {
+    const updatedContentId = event.detail?.contentId
+    if (updatedContentId === contentId.value) {
+      refreshContent()
+    }
+  }
+
+  window.addEventListener('content:updated', handleContentUpdate as EventListener)
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('content:updated', handleContentUpdate as EventListener)
+  })
+}
 </script>
 
 <template>

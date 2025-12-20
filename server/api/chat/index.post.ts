@@ -16,6 +16,7 @@ import { generateContentFromSource, insertUploadedImage, updateContentSection } 
 import { suggestImagesForContent } from '~~/server/services/content/generation/imageSuggestions'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
+import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import {
   addLogEntryToConversation,
   addMessageToConversation,
@@ -638,6 +639,8 @@ async function executeChatTool(
         }
       }
 
+      invalidateWorkspaceCache(organizationId, updatedContent.id)
+
       return {
         success: true,
         result: {
@@ -1017,6 +1020,8 @@ async function executeChatTool(
         hasVersionId: !!patchResult.version.id,
         hasSectionId: !!patchResult.section?.id
       })
+
+      invalidateWorkspaceCache(organizationId, patchResult.content.id)
 
       // Extract diff stats and line range for fileEdits display
       const versionFrontmatter = patchResult.version.frontmatter as Record<string, any> | null

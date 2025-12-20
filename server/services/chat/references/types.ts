@@ -33,6 +33,7 @@ export interface UnresolvedReference {
 }
 
 export interface ResolvedFileMetadata {
+  id: string
   originalName: string
   fileName: string
   fileType: string
@@ -42,6 +43,7 @@ export interface ResolvedFileMetadata {
 }
 
 export interface ResolvedContentMetadata {
+  id: string
   slug: string
   title: string
   status: string
@@ -58,6 +60,7 @@ export interface ResolvedSectionMetadata {
 }
 
 export interface ResolvedSourceMetadata {
+  id: string
   title?: string | null
   sourceType?: string | null
 }

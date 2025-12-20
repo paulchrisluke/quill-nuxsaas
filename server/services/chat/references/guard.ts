@@ -43,7 +43,9 @@ export const getReferenceScopeError = (
 
   if (toolInvocation.name === 'edit_section') {
     const args = toolInvocation.arguments as ChatToolInvocation<'edit_section'>['arguments']
-    if (!args.sectionId || !allowedSectionIds.has(args.sectionId)) {
+    const hasSectionAccess = args.sectionId ? allowedSectionIds.has(args.sectionId) : false
+    const hasContentAccess = args.contentId ? allowedContentIds.has(args.contentId) : false
+    if (!hasSectionAccess && !hasContentAccess) {
       return NO_REFERENCE_ERROR
     }
     return null

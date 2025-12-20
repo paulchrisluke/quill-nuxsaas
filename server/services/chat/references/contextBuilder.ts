@@ -27,6 +27,7 @@ export function buildContextBlock(params: {
       const meta = ref.metadata
       const header = `### File: ${meta.fileName || meta.originalName}`
       const details = [
+        `- ID: ${meta.id}`,
         `- Type: ${meta.fileType || 'unknown'} (${meta.mimeType || 'unknown'})`,
         `- Size: ${meta.size} bytes`,
         `- URL: ${meta.url}`
@@ -42,6 +43,7 @@ export function buildContextBlock(params: {
       const meta = ref.metadata
       const header = `### Content: ${meta.slug}`
       const details = [
+        `- ID: ${meta.id}`,
         `- Title: ${meta.title}`,
         `- Status: ${meta.status}`
       ]
@@ -63,6 +65,7 @@ export function buildContextBlock(params: {
       const meta = ref.metadata
       const header = `### Section: ${meta.contentSlug}#${meta.sectionId}`
       const details = [
+        `- Content ID: ${meta.contentId}`,
         `- Content: ${meta.contentTitle}`,
         `- Title: ${meta.title || meta.type || 'Untitled section'}`,
         `- Index: ${meta.index ?? 'n/a'}`,
@@ -76,6 +79,7 @@ export function buildContextBlock(params: {
       const meta = ref.metadata
       const header = `### Source: ${meta.title || 'Untitled source'}`
       const details = [
+        `- ID: ${meta.id}`,
         `- Type: ${meta.sourceType || 'unknown'}`
       ]
       if (ref.textContent) {

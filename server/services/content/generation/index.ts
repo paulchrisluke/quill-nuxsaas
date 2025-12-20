@@ -53,6 +53,7 @@ import {
   isValidContentFrontmatter,
   parseAIResponseAsJSON
 } from './utils'
+import { invalidateWorkspaceCache } from '../workspaceCache'
 
 function formatIntentSummary(snapshot?: ConversationIntentSnapshot | null): string | null {
   if (!snapshot) {
@@ -1171,6 +1172,7 @@ export const updateContentSectionWithAI = async (
   })
 
   await emitProgress('Section update saved.')
+  invalidateWorkspaceCache(organizationId, result.content.id)
 
   return {
     content: result.content,

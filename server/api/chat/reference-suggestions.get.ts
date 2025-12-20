@@ -67,9 +67,9 @@ export default defineEventHandler(async (event) => {
           eq(schema.file.isActive, true),
           ...(searchQuery
             ? [or(
-              sql`lower(${schema.file.fileName}) like ${likeQuery} escape '\\'`,
-              sql`lower(${schema.file.originalName}) like ${likeQuery} escape '\\'`
-            )]
+                sql`lower(${schema.file.fileName}) like ${likeQuery} escape '\\'`,
+                sql`lower(${schema.file.originalName}) like ${likeQuery} escape '\\'`
+              )]
             : [])
         ))
         .orderBy(desc(schema.file.updatedAt))
@@ -87,9 +87,9 @@ export default defineEventHandler(async (event) => {
           eq(schema.content.organizationId, organizationId),
           ...(searchQuery
             ? [or(
-              sql`lower(${schema.content.slug}) like ${likeQuery} escape '\\'`,
-              sql`lower(${schema.content.title}) like ${likeQuery} escape '\\'`
-            )]
+                sql`lower(${schema.content.slug}) like ${likeQuery} escape '\\'`,
+                sql`lower(${schema.content.title}) like ${likeQuery} escape '\\'`
+              )]
             : [])
         ))
         .orderBy(desc(schema.content.updatedAt))

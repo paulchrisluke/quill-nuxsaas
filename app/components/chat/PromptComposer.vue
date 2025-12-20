@@ -124,6 +124,25 @@ const isBoundaryChar = (value: string | undefined) => {
   return /\s/.test(value) || /[.,!?;:()[\]{}<>"']/.test(value)
 }
 
+const updatePanelPosition = () => {
+  if (composerRef.value) {
+    const rect = composerRef.value.getBoundingClientRect()
+    panelPosition.value = {
+      bottom: window.innerHeight - rect.top + 16, // 16px = mb-4
+      left: rect.left,
+      right: window.innerWidth - rect.right
+    }
+  }
+}
+
+const closeAutocomplete = () => {
+  isAutocompleteOpen.value = false
+  activeMention.value = null
+  nextTick(() => {
+    textareaRef.value?.focus()
+  })
+}
+
 const updateActiveMention = () => {
   const value = modelValue.value
   const caretIndex = cursorIndex.value
@@ -166,24 +185,13 @@ const updateActiveMention = () => {
   })
 }
 
-const updatePanelPosition = () => {
-  if (composerRef.value) {
-    const rect = composerRef.value.getBoundingClientRect()
-    panelPosition.value = {
-      bottom: window.innerHeight - rect.top + 16, // 16px = mb-4
-      left: rect.left,
-      right: window.innerWidth - rect.right
-    }
-  }
-}
-
 const applySuggestion = (item: ReferenceSuggestionItem) => {
   const mention = activeMention.value
   if (!mention) {
     return
   }
 
-  const insertText = item.label.startsWith('@') ? item.label : `@${item.label}`
+  const insertText = item.insertText.startsWith('@') ? item.insertText : `@${item.insertText}`
   const mentionEnd = mention.startIndex + 1 + mention.query.length
   const value = modelValue.value
   const before = value.slice(0, mention.startIndex)
@@ -266,6 +274,8 @@ function setTextareaRef() {
       textareaRef.value.removeEventListener('input', updateCursor)
       textareaRef.value.removeEventListener('click', updateCursor)
       textareaRef.value.removeEventListener('keyup', updateCursor)
+      textareaRef.value.removeEventListener('compositionstart', handleCompositionStart)
+      textareaRef.value.removeEventListener('compositionend', handleCompositionEnd)
     }
     textareaRef.value = node
     textareaRef.value.addEventListener('keydown', handleKeyDown)
@@ -295,14 +305,6 @@ const fetchSuggestions = async (query?: string) => {
       sections: Array<{ id: string, label: string, insertText: string }>
     }
 
-    console.log('[PromptComposer] API response:', {
-      filesCount: data.files.length,
-      contentsCount: data.contents.length,
-      query,
-      files: data.files.slice(0, 3),
-      contents: data.contents.slice(0, 3)
-    })
-
     suggestionGroups.value = {
       files: data.files.map(item => ({ ...item, type: 'file' as const })),
       contents: data.contents.map(item => ({ ...item, type: 'content' as const })),
@@ -314,11 +316,12 @@ const fetchSuggestions = async (query?: string) => {
   }
 }
 
-let resolveTimeout: ReturnType<typeof setTimeout> | null = null
+const resolveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+const suggestionTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 
 const scheduleReferenceResolution = (value: string) => {
-  if (resolveTimeout) {
-    clearTimeout(resolveTimeout)
+  if (resolveTimeout.value) {
+    clearTimeout(resolveTimeout.value)
   }
 
   if (!value || !value.includes('@') || !organizationId.value) {
@@ -327,7 +330,7 @@ const scheduleReferenceResolution = (value: string) => {
     return
   }
 
-  resolveTimeout = setTimeout(async () => {
+  resolveTimeout.value = setTimeout(async () => {
     referenceLoading.value = true
     try {
       const response = await $fetch('/api/chat/resolve-references', {
@@ -368,7 +371,7 @@ const findClosestTokenIndex = (value: string, raw: string, targetIndex: number) 
   )
 }
 
-const replaceToken = (token: ReferenceToken, reference: string) => {
+const _replaceToken = (token: ReferenceToken, reference: string) => {
   const replacement = `@${reference}`
   const currentValue = modelValue.value
 
@@ -408,13 +411,13 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (resolveTimeout) {
-    clearTimeout(resolveTimeout)
-    resolveTimeout = null
+  if (resolveTimeout.value) {
+    clearTimeout(resolveTimeout.value)
+    resolveTimeout.value = null
   }
-  if (suggestionTimeout) {
-    clearTimeout(suggestionTimeout)
-    suggestionTimeout = null
+  if (suggestionTimeout.value) {
+    clearTimeout(suggestionTimeout.value)
+    suggestionTimeout.value = null
   }
   // Reset to safe defaults to avoid callbacks running against unmounted component
   referenceLoading.value = false
@@ -439,13 +442,11 @@ watch(modelValue, (value) => {
   scheduleReferenceResolution(value)
 })
 
-let suggestionTimeout: ReturnType<typeof setTimeout> | null = null
-
 const scheduleSuggestionFetch = (query?: string) => {
-  if (suggestionTimeout) {
-    clearTimeout(suggestionTimeout)
+  if (suggestionTimeout.value) {
+    clearTimeout(suggestionTimeout.value)
   }
-  suggestionTimeout = setTimeout(() => {
+  suggestionTimeout.value = setTimeout(() => {
     void fetchSuggestions(query)
   }, 160)
 }
@@ -478,15 +479,6 @@ watch(combinedSuggestions, (value) => {
     highlightedIndex.value = 0
   }
 })
-
-const closeAutocomplete = () => {
-  isAutocompleteOpen.value = false
-  activeMention.value = null
-  nextTick(() => {
-    textareaRef.value?.focus()
-  })
-}
-
 
 const handleNavigate = (delta: number) => {
   const flat = [
@@ -554,30 +546,30 @@ const handleQueryChange = (value: string) => {
           :autofocus="props.autofocus"
           @submit="handleSubmit"
         >
-        <template #footer>
-          <div
-            data-slot="footer"
-            class="flex items-center justify-between gap-2 w-full"
-          >
-            <div>
-              <slot name="footer" />
+          <template #footer>
+            <div
+              data-slot="footer"
+              class="flex items-center justify-between gap-2 w-full"
+            >
+              <div>
+                <slot name="footer" />
+              </div>
+              <div>
+                <slot name="submit">
+                  <UChatPromptSubmit
+                    :status="props.status || 'idle'"
+                    submitted-color="primary"
+                    submitted-variant="solid"
+                    submitted-icon="i-custom-square-solid"
+                    streaming-color="primary"
+                    streaming-variant="solid"
+                    @stop="handleStop"
+                  />
+                </slot>
+              </div>
             </div>
-            <div>
-              <slot name="submit">
-                <UChatPromptSubmit
-                  :status="props.status || 'idle'"
-                  submitted-color="primary"
-                  submitted-variant="solid"
-                  submitted-icon="i-custom-square-solid"
-                  streaming-color="primary"
-                  streaming-variant="solid"
-                  @stop="handleStop"
-                />
-              </slot>
-            </div>
-          </div>
-        </template>
-      </UChatPrompt>
+          </template>
+        </UChatPrompt>
       </div>
     </div>
 
