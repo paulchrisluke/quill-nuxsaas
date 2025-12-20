@@ -250,6 +250,11 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: effectiveNitroPreset,
+    alias: effectiveNitroPreset === 'cloudflare-module'
+      ? {
+          string_decoder: resolve('./server/shims/string_decoder')
+        }
+      : {},
     ...(effectiveNitroPreset === 'cloudflare-module'
       ? {
           cloudflare: {
