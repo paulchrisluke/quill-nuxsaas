@@ -244,11 +244,15 @@ export const generateRuntimeConfig = () => {
         provider: (() => {
           const envValue = process.env.NUXT_APP_STORAGE
           if (isValidStorageProvider(envValue)) {
+            console.log(`[Storage Config] Using storage provider: ${envValue}`)
             return envValue
           }
           if (envValue) {
             console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 'r2'. Falling back to 'local'.`)
+          } else {
+            console.warn('[Storage Config] NUXT_APP_STORAGE is not set, falling back to "local"')
           }
+          console.log('[Storage Config] Using storage provider: local (fallback)')
           return 'local' as StorageProviderType
         })(),
         local: { // provider: 'local'

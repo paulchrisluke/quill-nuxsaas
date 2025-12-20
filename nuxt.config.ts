@@ -260,7 +260,16 @@ export default defineNuxtConfig({
       : {}),
     rollupConfig: {
       external: effectiveNitroPreset !== 'node-server' ? ['pg-native'] : undefined,
-      plugins: effectiveNitroPreset === 'cloudflare-module' ? [jsquashResolvePlugin()] : undefined
+      plugins: [jsquashResolvePlugin()]
+    },
+    externals: {
+      inline: [
+        '@jsquash/avif',
+        '@jsquash/jpeg',
+        '@jsquash/png',
+        '@jsquash/resize',
+        '@jsquash/webp'
+      ]
     },
     esbuild: {
       options: {
