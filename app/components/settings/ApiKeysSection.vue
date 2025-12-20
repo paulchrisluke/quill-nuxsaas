@@ -119,9 +119,14 @@ async function confirmDelete() {
   }
 }
 
-function copyKey(key: string) {
-  copy(key)
-  toast.add({ title: 'Copied to clipboard' })
+async function copyKey(key: string) {
+  try {
+    await copy(key)
+    toast.add({ title: 'Copied to clipboard' })
+  } catch (error) {
+    console.error('Failed to copy to clipboard:', error)
+    toast.add({ title: 'Copy failed', description: 'Could not copy to clipboard', color: 'error' })
+  }
 }
 
 function closeModal() {

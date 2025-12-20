@@ -138,3 +138,11 @@ export interface ReferenceScope {
   allowedSectionIds: Set<string>
   allowedFileIds: Set<string>
 }
+
+export interface ContentSection {
+  id?: string
+  section_id?: string
+  title?: string
+  type?: string
+  index?: number
+}

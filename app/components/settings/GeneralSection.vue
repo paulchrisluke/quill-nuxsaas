@@ -87,14 +87,19 @@ async function updateTeam() {
   }
 }
 
-function copyId() {
+async function copyId() {
   if (activeOrg.value?.data?.id) {
-    copy(activeOrg.value.data.id)
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-    toast.add({ title: 'Copied to clipboard' })
+    try {
+      await copy(activeOrg.value.data.id)
+      copied.value = true
+      setTimeout(() => {
+        copied.value = false
+      }, 2000)
+      toast.add({ title: 'Copied to clipboard' })
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error)
+      toast.add({ title: 'Copy failed', description: 'Could not copy to clipboard', color: 'error' })
+    }
   }
 }
 </script>

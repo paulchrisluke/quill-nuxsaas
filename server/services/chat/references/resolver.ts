@@ -1,5 +1,6 @@
 import type {
   AmbiguousReference,
+  ContentSection,
   ReferenceCandidate,
   ReferenceResolutionResult,
   ReferenceToken,
@@ -235,10 +236,10 @@ const resolveContentToken = async (token: ReferenceToken, context: ResolveContex
         .where(eq(schema.contentVersion.id, content.currentVersionId))
         .limit(1)
 
-      const sections = Array.isArray(version?.sections) ? version.sections : []
+      const sections: ContentSection[] = Array.isArray(version?.sections) ? (version.sections as ContentSection[]) : []
       const normalizedAnchor = normalizeValue(token.anchor.value)
 
-      const matchedSection = sections.find((section: any) => {
+      const matchedSection = sections.find((section: ContentSection) => {
         const sectionId = normalizeValue(section.id || section.section_id)
         const sectionTitle = normalizeValue(section.title)
         const sectionType = normalizeValue(section.type)
@@ -249,35 +250,43 @@ const resolveContentToken = async (token: ReferenceToken, context: ResolveContex
       })
 
       if (matchedSection) {
-        return {
-          resolved: {
-            type: 'section',
-            id: matchedSection.id || matchedSection.section_id,
-            contentId: content.id,
-            token,
-            metadata: {
-              sectionId: matchedSection.id || matchedSection.section_id,
-              title: matchedSection.title ?? null,
-              type: matchedSection.type ?? null,
-              index: matchedSection.index ?? null,
+        const sectionId = matchedSection.id || matchedSection.section_id
+        if (!sectionId) {
+          // Section matched but has no id - fall through to unresolved
+        } else {
+          return {
+            resolved: {
+              type: 'section',
+              id: sectionId,
               contentId: content.id,
-              contentSlug: content.slug,
-              contentTitle: content.title
-            }
-          } satisfies ResolvedReference
+              token,
+              metadata: {
+                sectionId,
+                title: matchedSection.title ?? null,
+                type: matchedSection.type ?? null,
+                index: matchedSection.index ?? null,
+                contentId: content.id,
+                contentSlug: content.slug,
+                contentTitle: content.title
+              }
+            } satisfies ResolvedReference
+          }
         }
       }
 
       const suggestions = sections
-        .filter((section: any) => section?.id || section?.section_id)
+        .filter((section: ContentSection) => section?.id || section?.section_id)
         .slice(0, 5)
-        .map((section: any) => buildCandidate({
-          type: 'section',
-          id: section.id || section.section_id,
-          label: section.title || section.type || section.id || section.section_id,
-          subtitle: content.title,
-          reference: `${content.slug}#${section.id || section.section_id}`
-        }))
+        .map((section: ContentSection) => {
+          const sectionId = section.id || section.section_id || ''
+          return buildCandidate({
+            type: 'section',
+            id: sectionId,
+            label: section.title || section.type || sectionId,
+            subtitle: content.title,
+            reference: `${content.slug}#${sectionId}`
+          })
+        })
 
       return {
         resolved: baseResolved,

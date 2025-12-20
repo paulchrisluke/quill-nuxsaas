@@ -21,6 +21,7 @@ import {
 import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import { calculateDiffStats, findSectionLineRange } from '../diff'
+import { invalidateWorkspaceCache } from '../workspaceCache'
 import {
   assembleMarkdownFromSections,
   extractMarkdownFromEnrichedMdx
@@ -53,7 +54,6 @@ import {
   isValidContentFrontmatter,
   parseAIResponseAsJSON
 } from './utils'
-import { invalidateWorkspaceCache } from '../workspaceCache'
 
 function formatIntentSummary(snapshot?: ConversationIntentSnapshot | null): string | null {
   if (!snapshot) {

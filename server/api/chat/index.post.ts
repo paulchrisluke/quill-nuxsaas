@@ -14,9 +14,9 @@ import { parseReferences } from '~~/server/services/chat/references/parser'
 import { resolveReferences } from '~~/server/services/chat/references/resolver'
 import { generateContentFromSource, insertUploadedImage, updateContentSection } from '~~/server/services/content/generation'
 import { suggestImagesForContent } from '~~/server/services/content/generation/imageSuggestions'
+import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
-import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import {
   addLogEntryToConversation,
   addMessageToConversation,
