@@ -190,7 +190,7 @@ export const updateContentBodyManual = async (
   const slug = currentVersion.frontmatter?.slug || record.content.slug
   const previousSeoSnapshot = currentVersion.seoSnapshot ?? {}
 
-  const existingAssets = (currentVersion.assets && typeof currentVersion.assets === 'object')
+  const existingAssets = (currentVersion.assets !== null && typeof currentVersion.assets === 'object')
     ? currentVersion.assets as Record<string, any>
     : {}
 
@@ -285,7 +285,11 @@ export const updateContentBodyManual = async (
     }
   })
 
-  invalidateWorkspaceCache(organizationId, result.content.id)
+  try {
+    invalidateWorkspaceCache(organizationId, result.content.id)
+  } catch (error) {
+    console.error('Failed to invalidate workspace cache', error)
+  }
 
   return {
     content: result.content,

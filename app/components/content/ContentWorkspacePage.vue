@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
 
@@ -198,8 +197,6 @@ const editorContent = ref('')
 const lastSavedContent = ref('')
 const isSaving = ref(false)
 const lastContentId = ref<string | null>(null)
-const EditorComponent = defineAsyncComponent(() => import('@nuxt/ui/components/Editor.vue'))
-const EditorToolbarComponent = defineAsyncComponent(() => import('@nuxt/ui/components/EditorToolbar.vue'))
 const editorToolbarItems = [
   [
     { kind: 'heading', level: 1, label: 'H1' },
@@ -502,16 +499,14 @@ if (import.meta.client) {
           </div>
         </template>
         <ClientOnly>
-          <component
-            :is="EditorComponent"
+          <UEditor
             v-model="editorContent"
             placeholder="Start writing..."
             content-type="markdown"
             class="w-full"
           >
             <template #default="slotProps">
-              <component
-                :is="EditorToolbarComponent"
+              <UEditorToolbar
                 v-if="slotProps?.editor"
                 :editor="slotProps.editor"
                 :items="editorToolbarItems"
@@ -519,7 +514,7 @@ if (import.meta.client) {
                 class="mb-2"
               />
             </template>
-          </component>
+          </UEditor>
           <template #fallback>
             <UTextarea
               :model-value="editorContent"
