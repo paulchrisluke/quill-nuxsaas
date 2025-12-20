@@ -72,8 +72,7 @@ export const getReferenceScopeError = (
     if (
       !args.contentId ||
       !allowedContentIds.has(args.contentId) ||
-      !args.fileId ||
-      !allowedFileIds.has(args.fileId)
+      (args.fileId && !allowedFileIds.has(args.fileId))
     ) {
       return NO_REFERENCE_ERROR
     }

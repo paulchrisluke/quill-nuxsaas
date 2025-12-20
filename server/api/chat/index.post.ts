@@ -1095,7 +1095,7 @@ async function executeChatTool(
 
     try {
       const contentId = validateUUID(args.contentId, 'contentId')
-      const fileId = validateUUID(args.fileId, 'fileId')
+      const fileId = validateOptionalUUID(args.fileId, 'fileId')
 
       // Validate position parameter: must be string, number, or null/undefined
       let position: string | number | null = null

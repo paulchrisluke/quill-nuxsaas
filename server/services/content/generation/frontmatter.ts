@@ -16,6 +16,7 @@ const FRONTMATTER_KEY_ORDER = [
   'title',
   'seoTitle',
   'description',
+  'featuredImage',
   'slug',
   'contentType',
   'targetLocale',
@@ -224,6 +225,7 @@ export const extractFrontmatterFromVersion = (params: {
   return {
     title: resolvedTitle.trim(),
     description: versionFrontmatter.description ?? undefined,
+    featuredImage: versionFrontmatter.featuredImage ?? undefined,
     slug: slugifyTitle(slugInput.trim()),
     slugSuggestion: slugifyTitle(slugInput.trim()),
     tags: Array.isArray(versionFrontmatter.tags) ? normalizeContentKeywords(versionFrontmatter.tags) : undefined,
