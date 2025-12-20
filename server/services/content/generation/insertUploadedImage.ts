@@ -375,7 +375,7 @@ export const insertUploadedImage = async (
   const suggestion: ImageSuggestion = {
     sectionId: resolvedPosition.sectionId || sections[0]?.id || 'content-body',
     position: resolvedPosition.lineNumber,
-    altText: deriveAltText(resolvedAltText, fileRecord.originalName),
+    altText: resolvedAltText,
     reason: resolvedPosition.reason || 'User requested an uploaded image',
     priority: 'medium',
     type: 'uploaded',

@@ -210,10 +210,13 @@ export const generateRuntimeConfig = () => {
           .split(',')
           .map(entry => Number.parseInt(entry.trim(), 10))
           .filter(value => Number.isFinite(value) && value > 0),
-        formats: (process.env.NUXT_IMAGE_FORMATS || 'webp')
-          .split(',')
-          .map(entry => entry.trim())
-          .filter((value): value is 'webp' | 'avif' => value === 'webp' || value === 'avif'),
+        formats: (() => {
+          const filtered = (process.env.NUXT_IMAGE_FORMATS || 'webp')
+            .split(',')
+            .map(entry => entry.trim())
+            .filter((value): value is 'webp' | 'avif' => value === 'webp' || value === 'avif')
+          return filtered.length > 0 ? filtered : ['webp']
+        })(),
         quality: (() => {
           const parsed = Number.parseInt(process.env.NUXT_IMAGE_QUALITY ?? '', 10)
           if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
