@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { defineAsyncComponent } from 'vue'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
 
@@ -188,6 +189,103 @@ const structuredDataSnippet = computed(() => {
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
 const isArchived = computed(() => contentEntry.value?.status === 'archived')
+
+const editorContent = ref('')
+const lastSavedContent = ref('')
+const isSaving = ref(false)
+const lastContentId = ref<string | null>(null)
+const EditorComponent = defineAsyncComponent(() => import('@nuxt/ui/runtime/components/Editor.vue'))
+const EditorToolbarComponent = defineAsyncComponent(() => import('@nuxt/ui/runtime/components/EditorToolbar.vue'))
+const editorToolbarItems = [
+  [
+    { kind: 'heading', level: 1, label: 'H1' },
+    { kind: 'heading', level: 2, label: 'H2' },
+    { kind: 'heading', level: 3, label: 'H3' }
+  ],
+  [
+    { kind: 'mark', mark: 'bold', label: 'Bold' },
+    { kind: 'mark', mark: 'italic', label: 'Italic' },
+    { kind: 'mark', mark: 'strike', label: 'Strike' },
+    { kind: 'mark', mark: 'code', label: 'Code' }
+  ],
+  [
+    { kind: 'bulletList', label: 'Bullets' },
+    { kind: 'orderedList', label: 'Numbered' },
+    { kind: 'blockquote', label: 'Quote' }
+  ],
+  [
+    { kind: 'link', label: 'Link' },
+    { kind: 'image', label: 'Image' },
+    { kind: 'horizontalRule', label: 'Rule' }
+  ],
+  [
+    { kind: 'undo', label: 'Undo' },
+    { kind: 'redo', label: 'Redo' },
+    { kind: 'clearFormatting', label: 'Clear' }
+  ]
+] as const
+
+const hasLocalEdits = computed(() => editorContent.value !== lastSavedContent.value)
+
+watch(contentEntry, (entry) => {
+  if (!entry) {
+    editorContent.value = ''
+    lastSavedContent.value = ''
+    lastContentId.value = null
+    return
+  }
+  if (entry.id && entry.id !== lastContentId.value) {
+    lastContentId.value = entry.id
+    editorContent.value = entry.bodyMarkdown || ''
+    lastSavedContent.value = entry.bodyMarkdown || ''
+    return
+  }
+  if (!hasLocalEdits.value) {
+    editorContent.value = entry.bodyMarkdown || ''
+    lastSavedContent.value = entry.bodyMarkdown || ''
+  }
+})
+
+const saveContentBody = async () => {
+  if (!contentEntry.value || isSaving.value || !hasLocalEdits.value) {
+    return
+  }
+
+  isSaving.value = true
+  try {
+    const response = await $fetch(`/api/content/${contentEntry.value.id}/body`, {
+      method: 'POST',
+      body: {
+        markdown: editorContent.value
+      }
+    })
+
+    if (response && typeof response === 'object' && 'markdown' in response) {
+      const updated = typeof (response as any).markdown === 'string'
+        ? (response as any).markdown
+        : editorContent.value
+      editorContent.value = updated
+      lastSavedContent.value = updated
+    } else {
+      lastSavedContent.value = editorContent.value
+    }
+
+    await refreshContent()
+    toast.add({
+      title: 'Content saved',
+      color: 'success'
+    })
+  } catch (err) {
+    console.error('Failed to save content body', err)
+    toast.add({
+      title: 'Failed to save content',
+      description: err instanceof Error ? err.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    isSaving.value = false
+  }
+}
 
 const archiveContent = async () => {
   if (!contentEntry.value)
@@ -382,18 +480,59 @@ if (import.meta.client) {
 
       <UCard class="mb-4">
         <template #header>
-          <p class="text-sm font-medium">
-            Body Markdown
-          </p>
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-medium">
+                Body Markdown
+              </p>
+              <p
+                v-if="hasLocalEdits"
+                class="text-xs text-warning-600 dark:text-warning-400"
+              >
+                Unsaved changes
+              </p>
+            </div>
+            <UButton
+              size="sm"
+              color="primary"
+              :loading="isSaving"
+              :disabled="!hasLocalEdits || isSaving"
+              @click="saveContentBody"
+            >
+              Save
+            </UButton>
+          </div>
         </template>
-        <UTextarea
-          :model-value="contentEntry.bodyMarkdown || ''"
-          placeholder="No content available"
-          readonly
-          :rows="20"
-          autoresize
-          class="w-full"
-        />
+        <ClientOnly>
+          <component
+            :is="EditorComponent"
+            v-model="editorContent"
+            placeholder="Start writing..."
+            content-type="markdown"
+            class="w-full"
+          >
+            <template #default="slotProps">
+              <component
+                :is="EditorToolbarComponent"
+                v-if="slotProps?.editor"
+                :editor="slotProps.editor"
+                :items="editorToolbarItems"
+                layout="fixed"
+                class="mb-2"
+              />
+            </template>
+          </component>
+          <template #fallback>
+            <UTextarea
+              :model-value="editorContent"
+              placeholder="Loading editor..."
+              :rows="20"
+              autoresize
+              class="w-full"
+              @update:model-value="editorContent = $event ?? ''"
+            />
+          </template>
+        </ClientOnly>
       </UCard>
 
       <UCard class="mb-4">

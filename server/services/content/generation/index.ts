@@ -1369,6 +1369,11 @@ export {
 } from './insertUploadedImage'
 
 export {
+  parseSectionsFromMarkdown,
+  updateContentBodyManual
+} from './manualUpdate'
+
+export {
   createGenerationMetadata,
   createSectionUpdateMetadata
 } from './metadata'

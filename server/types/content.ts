@@ -131,6 +131,14 @@ export interface UpdateContentSectionWithAIRequestBody {
 }
 
 /**
+ * Request body for updating content body manually
+ */
+export interface UpdateContentBodyRequestBody {
+  /** Updated markdown body */
+  markdown: string
+}
+
+/**
  * Request body for creating content from conversation
  */
 export interface CreateContentFromConversationRequestBody {
@@ -171,6 +179,28 @@ export interface UpdateContentSectionWithAIResponse {
     title: string
     index: number
   }
+}
+
+/**
+ * Response from updating content body manually
+ */
+export interface UpdateContentBodyResponse {
+  content: {
+    id: string
+    organizationId: string
+    slug: string
+    title: string
+    status: ContentStatus
+    contentType: ContentType
+  }
+  version: {
+    id: string
+    contentId: string
+    version: number
+    bodyMdx: string
+    sections: Record<string, any>[] | null
+  }
+  markdown: string
 }
 
 /**

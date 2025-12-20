@@ -64,6 +64,22 @@ export interface SectionUpdateResult {
   diffStats?: { additions: number, deletions: number }
 }
 
+export interface ContentBodyUpdateInput {
+  organizationId: string
+  userId: string
+  contentId: string
+  markdown: string
+  mode?: 'chat' | 'agent'
+  onProgress?: (message: string) => Promise<void> | void
+}
+
+export interface ContentBodyUpdateResult {
+  content: typeof schema.content.$inferSelect
+  version: typeof schema.contentVersion.$inferSelect
+  markdown: string
+  diffStats?: { additions: number, deletions: number }
+}
+
 export interface ContentChunk {
   chunkIndex: number
   text: string
