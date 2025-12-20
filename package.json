@@ -6,6 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "predev": "nuxt prepare",
     "dev": "nuxt dev",
     "test": "vitest run --silent=false",
     "test:unit": "vitest run --config vitest.unit.config.ts --silent=false",
@@ -43,7 +44,7 @@
     "@jsquash/png": "^1.0.4",
     "@jsquash/resize": "^1.0.4",
     "@jsquash/webp": "^1.0.4",
-    "@nuxt/ui": "^4.2.1",
+    "@nuxt/ui": "^4.3.0",
     "@nuxthub/core": "^0.10.0",
     "@nuxtjs/i18n": "^9.5.6",
     "@nuxtjs/mdc": "^0.19.1",
