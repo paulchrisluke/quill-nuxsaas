@@ -39,7 +39,7 @@ export const getReferenceScopeError = (
 
   const allowedContentIds = scope?.allowedContentIds ?? new Set()
   const allowedSectionIds = scope?.allowedSectionIds ?? new Set()
-  const allowedFileIds = scope?.allowedFileIds ?? new Set()
+  const _allowedFileIds = scope?.allowedFileIds ?? new Set()
 
   if (toolInvocation.name === 'edit_section') {
     const args = toolInvocation.arguments as ChatToolInvocation<'edit_section'>['arguments']

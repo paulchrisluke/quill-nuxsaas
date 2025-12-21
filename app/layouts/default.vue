@@ -57,7 +57,7 @@ const isSidebarOpen = ref(false)
 
 // Workspace drawer open state (for mobile workspace view)
 const isWorkspaceOpen = ref(false)
-const isDesktop = ref(true)
+const isDesktop = ref(false)
 
 // Provide function to open workspace drawer on mobile
 provide('openWorkspace', () => {
@@ -596,8 +596,11 @@ const canExpandConversationList = computed(() => {
             </div>
           </template>
         </UDashboardNavbar>
-        <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-          <slot v-if="isDesktop" />
+        <div
+          class="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+          :class="{ hidden: !isDesktop }"
+        >
+          <slot />
         </div>
       </div>
 
@@ -621,8 +624,11 @@ const canExpandConversationList = computed(() => {
           </div>
         </template>
         <template #content>
-          <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-            <slot v-if="!isDesktop" />
+          <div
+            class="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+            :class="{ hidden: isDesktop }"
+          >
+            <slot />
           </div>
         </template>
       </UDrawer>

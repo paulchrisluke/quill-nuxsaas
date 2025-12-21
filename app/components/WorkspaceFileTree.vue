@@ -14,7 +14,7 @@ const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
 const activeOrg = useActiveOrganization()
-const openWorkspace = inject<() => void>('openWorkspace', () => {})
+const openWorkspace = inject<(() => void) | undefined>('openWorkspace')
 
 const orgSlug = computed(() => {
   const slug = activeOrg.value?.data?.slug
@@ -233,7 +233,9 @@ const openNode = (node: FileTreeNode) => {
     if (path) {
       router.push(localePath(path))
       // Open workspace drawer on mobile
-      openWorkspace()
+      if (typeof openWorkspace === 'function') {
+        openWorkspace()
+      }
     }
   }
 }
