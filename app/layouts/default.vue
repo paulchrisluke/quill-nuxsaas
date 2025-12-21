@@ -581,7 +581,7 @@ const canExpandConversationList = computed(() => {
           </template>
         </UDashboardNavbar>
         <div
-          class="flex-1 overflow-y-auto overflow-x-hidden min-h-0 max-lg:hidden"
+          class="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
         >
           <slot />
         </div>
