@@ -420,14 +420,33 @@ const handleSubmit = (value?: string | unknown) => {
   const trimmed = String(input || '').trim()
   if (trimmed) {
     const normalized = trimmed.toLowerCase()
+    const resolvedTokens = referenceResolution.value && lastResolvedMessage.value.trim() === trimmed
+      ? new Set(referenceResolution.value.tokens.map(token => token.identifier.toLowerCase()))
+      : null
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const isTokenMatch = (candidate: string) => {
+      const escaped = escapeRegex(candidate.toLowerCase())
+      const pattern = new RegExp(`@${escaped}(?=\\s|$|[.,!?;:()\\[\\]{}<>"'])`, 'i')
+      return pattern.test(normalized)
+    }
     const selections = selectedReferences.value.filter((selection) => {
       const identifier = selection.identifier?.trim()
-      if (identifier && normalized.includes(`@${identifier.toLowerCase()}`)) {
-        return true
+      if (identifier) {
+        if (resolvedTokens && resolvedTokens.has(identifier.toLowerCase())) {
+          return true
+        }
+        if (isTokenMatch(identifier)) {
+          return true
+        }
       }
       const label = selection.label?.trim()
-      if (label && normalized.includes(`@${label.toLowerCase()}`)) {
-        return true
+      if (label) {
+        if (resolvedTokens && resolvedTokens.has(label.toLowerCase())) {
+          return true
+        }
+        if (isTokenMatch(label)) {
+          return true
+        }
       }
       return false
     })

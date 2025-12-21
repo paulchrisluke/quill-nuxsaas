@@ -119,11 +119,13 @@ export async function resolveExplicitSelections(
       if (!contentId) {
         continue
       }
+
       const [content] = await context.db
         .select({
           id: schema.content.id,
           slug: schema.content.slug,
-          title: schema.content.title
+          title: schema.content.title,
+          currentVersionId: schema.content.currentVersionId
         })
         .from(schema.content)
         .where(and(
@@ -132,20 +134,40 @@ export async function resolveExplicitSelections(
         ))
         .limit(1)
 
-      if (content) {
-        resolved.push({
-          type: 'section',
-          id: selection.id,
-          contentId: content.id,
-          token,
-          metadata: {
-            sectionId: selection.id,
-            contentId: content.id,
-            contentSlug: content.slug || '',
-            contentTitle: content.title || ''
-          }
-        })
+      if (!content?.currentVersionId) {
+        continue
       }
+
+      const [version] = await context.db
+        .select({
+          sections: schema.contentVersion.sections
+        })
+        .from(schema.contentVersion)
+        .where(eq(schema.contentVersion.id, content.currentVersionId))
+        .limit(1)
+
+      const sections = Array.isArray(version?.sections) ? version.sections : []
+      const hasSection = sections.some((section: Record<string, any>) => {
+        const sectionId = section.id || section.section_id
+        return typeof sectionId === 'string' && sectionId === selection.id
+      })
+
+      if (!hasSection) {
+        continue
+      }
+
+      resolved.push({
+        type: 'section',
+        id: selection.id,
+        contentId: content.id,
+        token,
+        metadata: {
+          sectionId: selection.id,
+          contentId: content.id,
+          contentSlug: content.slug || '',
+          contentTitle: content.title || ''
+        }
+      })
       continue
     }
 
@@ -175,6 +197,7 @@ export async function resolveExplicitSelections(
           }
         })
       }
+      continue
     }
   }
 

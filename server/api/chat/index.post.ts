@@ -80,7 +80,7 @@ const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
   }
   return input
     .filter((entry): entry is ReferenceSelection => Boolean(entry && typeof entry === 'object'))
-    .map((entry) => ({
+    .map(entry => ({
       type: entry.type,
       id: entry.id,
       label: entry.label,
@@ -2326,12 +2326,12 @@ export default defineEventHandler(async (event) => {
             const tokens = parseReferences(trimmedMessage)
             const referenceResolution = tokens.length > 0
               ? await resolveReferences(tokens, {
-                db,
-                organizationId,
-                currentContentId: requestContentId,
-                userId: user.id,
-                mode
-              })
+                  db,
+                  organizationId,
+                  currentContentId: requestContentId,
+                  userId: user.id,
+                  mode
+                })
               : { tokens: [], resolved: [], unresolved: [], ambiguous: [] }
 
             const explicitResolved = referenceSelections.length
