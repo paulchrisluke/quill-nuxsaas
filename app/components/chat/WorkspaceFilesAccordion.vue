@@ -61,7 +61,11 @@ const resolveFilePaths = async () => {
 }
 
 watch(() => [props.files, activeOrg.value?.data?.slug], async () => {
-  await resolveFilePaths()
+  try {
+    await resolveFilePaths()
+  } catch (error) {
+    console.error('[WorkspaceFilesAccordion] Failed to resolve file paths:', error)
+  }
 }, { immediate: true })
 
 const getContentPath = (file: WorkspaceFilePayload): string => {

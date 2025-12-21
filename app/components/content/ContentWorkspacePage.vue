@@ -264,9 +264,6 @@ watch(editorContent, () => {
   if (!contentEntry.value || saveStatus.value === 'saving' || isContentLoading.value) {
     return
   }
-  if (saveStatus.value === 'saved') {
-    return
-  }
 
   saveStatus.value = 'unsaved'
 

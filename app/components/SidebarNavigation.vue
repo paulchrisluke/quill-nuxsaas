@@ -7,6 +7,7 @@ const route = useRoute()
 const localePath = useLocalePath()
 const { loggedIn, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
+const openWorkspace = inject<() => void>('openWorkspace', () => {})
 
 // Content list
 const {
@@ -74,7 +75,6 @@ const openContent = (contentId: string | null) => {
   if (path) {
     router.push(localePath(path))
     // Open workspace drawer on mobile
-    const openWorkspace = inject<() => void>('openWorkspace', () => {})
     openWorkspace()
   }
 }

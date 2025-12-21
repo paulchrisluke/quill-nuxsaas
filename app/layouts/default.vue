@@ -57,12 +57,28 @@ const isSidebarOpen = ref(false)
 
 // Workspace drawer open state (for mobile workspace view)
 const isWorkspaceOpen = ref(false)
+const isDesktop = ref(true)
 
 // Provide function to open workspace drawer on mobile
 provide('openWorkspace', () => {
   if (import.meta.client && window.innerWidth < 1024) {
     isWorkspaceOpen.value = true
   }
+})
+
+const updateIsDesktop = () => {
+  if (import.meta.client) {
+    isDesktop.value = window.innerWidth >= 1024
+  }
+}
+
+onMounted(() => {
+  updateIsDesktop()
+  window.addEventListener('resize', updateIsDesktop)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateIsDesktop)
 })
 
 // Check if current route is a workspace route (content, conversations, etc.)
@@ -581,7 +597,7 @@ const canExpandConversationList = computed(() => {
           </template>
         </UDashboardNavbar>
         <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-          <slot />
+          <slot v-if="isDesktop" />
         </div>
       </div>
 
@@ -606,7 +622,7 @@ const canExpandConversationList = computed(() => {
         </template>
         <template #content>
           <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-            <slot />
+            <slot v-if="!isDesktop" />
           </div>
         </template>
       </UDrawer>
