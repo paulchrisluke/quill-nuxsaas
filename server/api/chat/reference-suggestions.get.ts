@@ -13,6 +13,17 @@ const escapeLikePattern = (value: string): string => {
     .replace(/_/g, '\\_')
 }
 
+const normalizeReferenceToken = (value: string | null | undefined): string => {
+  const trimmed = (value ?? '').trim()
+  if (!trimmed) {
+    return ''
+  }
+  return trimmed
+    .replace(/\s+/g, '-')
+    .replace(/[^\w./-]+/g, '')
+    .replace(/-+/g, '-')
+}
+
 interface RawSection {
   id?: string
   section_id?: string
@@ -188,17 +199,20 @@ export default defineEventHandler(async (event) => {
   return {
     files: files.map(file => ({
       id: file.id,
-      label: file.fileName || file.originalName || file.id,
-      insertText: file.fileName || file.originalName || file.id
+      label: file.originalName || file.fileName || file.id,
+      subtitle: file.fileName && file.originalName && file.fileName !== file.originalName ? file.fileName : undefined,
+      insertText: normalizeReferenceToken(file.originalName || file.fileName || file.id) || file.id
     })),
     contents: contents.map(content => ({
       id: content.id,
       label: content.title || content.slug || content.id,
-      insertText: content.slug || content.id
+      subtitle: content.slug && content.title && content.slug !== content.title ? content.slug : undefined,
+      insertText: normalizeReferenceToken(content.slug || content.title || content.id) || content.id
     })),
     sections: sections.map(section => ({
       id: section.id,
       label: section.title || section.type || section.id,
+      subtitle: section.contentSlug || undefined,
       insertText: section.contentSlug ? `${section.contentSlug}#${section.id}` : section.id
     }))
   }

@@ -421,7 +421,7 @@ const handleAgentModeSignIn = () => {
   router.push(target)
 }
 
-const handlePromptSubmit = async (value?: string) => {
+const handlePromptSubmit = async (value?: string, selections?: Array<{ type: 'file' | 'content' | 'section' | 'source', id: string, label?: string, identifier?: string }>) => {
   const input = typeof value === 'string' ? value : prompt.value
   const trimmed = input.trim()
   if (!trimmed)
@@ -430,7 +430,7 @@ const handlePromptSubmit = async (value?: string) => {
   promptSubmitting.value = true
   prompt.value = ''
   try {
-    await sendMessage(trimmed)
+    await sendMessage(trimmed, { referenceSelections: selections })
   } catch (error) {
     prompt.value = trimmed
     console.error('Failed to send prompt', error)

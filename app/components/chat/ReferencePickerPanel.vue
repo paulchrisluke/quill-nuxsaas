@@ -20,6 +20,7 @@ const emit = defineEmits<{
 interface ReferenceSuggestionItem {
   id: string
   label: string
+  subtitle?: string
   insertText: string
   type: 'file' | 'content' | 'section'
 }
@@ -121,7 +122,15 @@ const handleKeyDown = (event: KeyboardEvent) => {
               :class="index === activeIndex ? 'bg-muted-100 dark:bg-muted-800' : ''"
               @click="emit('select', item)"
             >
-              <span class="font-medium text-muted-900 dark:text-muted-100">{{ item.label }}</span>
+              <div class="flex flex-col">
+                <span class="font-medium text-muted-900 dark:text-muted-100">{{ item.label }}</span>
+                <span
+                  v-if="item.subtitle"
+                  class="text-xs text-muted-500 dark:text-muted-400 truncate"
+                >
+                  {{ item.subtitle }}
+                </span>
+              </div>
             </button>
           </div>
 
@@ -137,7 +146,15 @@ const handleKeyDown = (event: KeyboardEvent) => {
               :class="offsets.files + index === activeIndex ? 'bg-muted-100 dark:bg-muted-800' : ''"
               @click="emit('select', item)"
             >
-              <span class="font-medium text-muted-900 dark:text-muted-100">{{ item.label }}</span>
+              <div class="flex flex-col">
+                <span class="font-medium text-muted-900 dark:text-muted-100">{{ item.label }}</span>
+                <span
+                  v-if="item.subtitle"
+                  class="text-xs text-muted-500 dark:text-muted-400 truncate"
+                >
+                  {{ item.subtitle }}
+                </span>
+              </div>
             </button>
           </div>
         </div>

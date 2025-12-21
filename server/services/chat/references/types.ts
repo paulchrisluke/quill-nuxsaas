@@ -139,6 +139,14 @@ export interface ReferenceScope {
   allowedFileIds: Set<string>
 }
 
+export interface ReferenceSelection {
+  type: 'file' | 'content' | 'section' | 'source'
+  id: string
+  label?: string
+  identifier?: string
+  contentId?: string | null
+}
+
 export interface ContentSection {
   id?: string
   section_id?: string

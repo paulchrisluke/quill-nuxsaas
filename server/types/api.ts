@@ -74,6 +74,17 @@ export interface ChatRequestBody {
    * - Continue a conversation about a specific piece of content
    */
   contentId?: string | null
+  /**
+   * Optional explicitly selected references from the client UI.
+   * Used to scope edits without relying solely on text parsing.
+   */
+  referenceSelections?: Array<{
+    type: 'file' | 'content' | 'section' | 'source'
+    id: string
+    label?: string
+    identifier?: string
+    contentId?: string | null
+  }>
   /** Chat mode: 'chat' for read-only, 'agent' for read+write */
   mode: 'chat' | 'agent'
 }
