@@ -311,15 +311,9 @@ const archiveContent = async () => {
   }
 }
 
-// Set header title from content
-watch([contentEntry, error], ([entry, err]) => {
-  if (err) {
-    setHeaderTitle?.(err.message || 'Error loading content')
-  } else if (entry) {
-    setHeaderTitle?.(entry.title)
-  } else {
-    setHeaderTitle?.('Loading content…')
-  }
+// Don't set header title - we want no header for content pages
+watch([contentEntry, error], () => {
+  setHeaderTitle?.(null)
 }, { immediate: true })
 
 // Listen for content updates via window events (for cross-component communication)
@@ -341,7 +335,7 @@ if (import.meta.client) {
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-4 sm:space-y-6 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
     <ClientOnly>
       <div
         v-if="isPending"
@@ -362,7 +356,77 @@ if (import.meta.client) {
     />
 
     <template v-if="!isPending && contentEntry">
-      <div class="space-y-4 mb-4">
+      <!-- Body Markdown Editor - moved to top -->
+      <UCard class="mb-4">
+        <template #header>
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
+            <p class="text-sm sm:text-base font-semibold truncate min-w-0 flex-1">
+              {{ contentEntry.title }}
+            </p>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <span
+                v-if="saveStatus === 'saving'"
+                class="text-xs text-muted-500 whitespace-nowrap"
+              >
+                Saving...
+              </span>
+              <span
+                v-else-if="saveStatus === 'saved'"
+                class="text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap"
+              >
+                Saved
+              </span>
+              <span
+                v-else
+                class="text-xs text-warning-600 dark:text-warning-400 whitespace-nowrap"
+              >
+                Unsaved
+              </span>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-archive"
+                class="flex-shrink-0"
+                @click="archiveContent"
+              >
+                <span class="hidden sm:inline">Archive</span>
+              </UButton>
+            </div>
+          </div>
+        </template>
+        <ClientOnly>
+          <UEditor
+            v-model="editorContent"
+            placeholder="Start writing..."
+            content-type="markdown"
+            class="w-full"
+          >
+            <template #default="slotProps">
+              <UEditorToolbar
+                v-if="slotProps?.editor"
+                :editor="slotProps.editor"
+                :items="editorToolbarItems"
+                layout="fixed"
+                class="mb-2 overflow-x-auto"
+              />
+            </template>
+          </UEditor>
+          <template #fallback>
+            <UTextarea
+              :model-value="editorContent"
+              placeholder="Loading editor..."
+              :rows="20"
+              autoresize
+              class="w-full"
+              @update:model-value="editorContent = $event ?? ''"
+            />
+          </template>
+        </ClientOnly>
+      </UCard>
+
+      <!-- Schema validation alerts -->
+      <div class="space-y-3 sm:space-y-4 mb-4">
         <UAlert
           v-if="schemaErrors.length"
           color="error"
@@ -400,131 +464,6 @@ if (import.meta.client) {
           </template>
         </UAlert>
       </div>
-
-      <UCard class="mb-4">
-        <template #header>
-          <div class="flex items-center justify-between gap-2">
-            <p class="text-sm font-medium">
-              Content details
-            </p>
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              icon="i-lucide-archive"
-              @click="archiveContent"
-            >
-              Archive
-            </UButton>
-          </div>
-        </template>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <p class="text-xs uppercase tracking-wide text-muted-500 mb-1">
-              Status
-            </p>
-            <div class="flex items-center gap-2">
-              <UBadge
-                :color="contentEntry.status === 'published' ? 'success' : contentEntry.status === 'archived' ? 'warning' : 'neutral'"
-                variant="soft"
-                size="sm"
-              >
-                {{ contentEntry.status }}
-              </UBadge>
-            </div>
-          </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-muted-500 mb-1">
-              Content type
-            </p>
-            <p class="font-medium capitalize text-sm">
-              {{ contentEntry.contentType }}
-            </p>
-          </div>
-          <div class="col-span-2">
-            <p class="text-xs uppercase tracking-wide text-muted-500 mb-1">
-              Schema types
-            </p>
-            <div class="flex flex-wrap gap-2">
-              <template v-if="contentEntry.schemaTypes.length">
-                <UBadge
-                  v-for="schema in contentEntry.schemaTypes"
-                  :key="schema"
-                  size="xs"
-                  color="neutral"
-                  variant="soft"
-                >
-                  {{ schema }}
-                </UBadge>
-              </template>
-              <span
-                v-else
-                class="text-sm text-muted-500"
-              >
-                Not set
-              </span>
-            </div>
-          </div>
-        </div>
-      </UCard>
-
-      <UCard class="mb-4">
-        <template #header>
-          <div class="flex items-center justify-between gap-3">
-            <p class="text-sm font-medium">
-              Body Markdown
-            </p>
-            <div class="flex items-center gap-2">
-              <span
-                v-if="saveStatus === 'saving'"
-                class="text-xs text-muted-500"
-              >
-                Saving...
-              </span>
-              <span
-                v-else-if="saveStatus === 'saved'"
-                class="text-xs text-emerald-600 dark:text-emerald-400"
-              >
-                Saved
-              </span>
-              <span
-                v-else
-                class="text-xs text-warning-600 dark:text-warning-400"
-              >
-                Unsaved
-              </span>
-            </div>
-          </div>
-        </template>
-        <ClientOnly>
-          <UEditor
-            v-model="editorContent"
-            placeholder="Start writing..."
-            content-type="markdown"
-            class="w-full"
-          >
-            <template #default="slotProps">
-              <UEditorToolbar
-                v-if="slotProps?.editor"
-                :editor="slotProps.editor"
-                :items="editorToolbarItems"
-                layout="fixed"
-                class="mb-2"
-              />
-            </template>
-          </UEditor>
-          <template #fallback>
-            <UTextarea
-              :model-value="editorContent"
-              placeholder="Loading editor..."
-              :rows="20"
-              autoresize
-              class="w-full"
-              @update:model-value="editorContent = $event ?? ''"
-            />
-          </template>
-        </ClientOnly>
-      </UCard>
 
       <ImageSuggestionsPanel
         v-if="contentEntry.imageSuggestions && contentEntry.imageSuggestions.length > 0"

@@ -556,7 +556,7 @@ const canExpandConversationList = computed(() => {
         :class="{ 'lg:border-l border-neutral-200/70 dark:border-neutral-800/60': shouldShowChatPanel }"
       >
         <UDashboardNavbar
-          v-if="pageTitle || (!loggedIn && !isAuthPage)"
+          v-if="(pageTitle || (!loggedIn && !isAuthPage)) && !contentRouteMatch"
           :title="pageTitle || undefined"
         >
           <template
