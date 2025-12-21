@@ -793,7 +793,14 @@ export function useConversation() {
     }
   }
 
-  async function sendMessage(prompt: string, options?: { displayContent?: string, contentId?: string | null }) {
+  async function sendMessage(
+    prompt: string,
+    options?: {
+      displayContent?: string
+      contentId?: string | null
+      referenceSelections?: Array<{ type: 'file' | 'content' | 'section' | 'source', id: string, label?: string, identifier?: string }>
+    }
+  ) {
     const trimmed = prompt.trim()
     if (!trimmed) {
       return null
@@ -823,7 +830,8 @@ export function useConversation() {
       {
         message: trimmed,
         mode: mode.value,
-        contentId: options?.contentId
+        contentId: options?.contentId,
+        referenceSelections: options?.referenceSelections
       },
       {
         optimisticUserId,

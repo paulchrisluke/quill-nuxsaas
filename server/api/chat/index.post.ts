@@ -1,4 +1,4 @@
-import type { ReferenceScope } from '~~/server/services/chat/references/types'
+import type { ReferenceScope, ReferenceSelection, ResolvedReference } from '~~/server/services/chat/references/types'
 import type { ChatToolInvocation } from '~~/server/services/chat/tools'
 import type { ChatRequestBody } from '~~/server/types/api'
 import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
@@ -8,6 +8,7 @@ import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
 import { buildContextBlock } from '~~/server/services/chat/references/contextBuilder'
+import { buildSelectionIdentifierSet, resolveExplicitSelections } from '~~/server/services/chat/references/explicit'
 import { buildReferenceScope, getReferenceScopeError } from '~~/server/services/chat/references/guard'
 import { loadReferenceContent } from '~~/server/services/chat/references/loader'
 import { parseReferences } from '~~/server/services/chat/references/parser'
@@ -71,6 +72,39 @@ function _buildContentLookupWhere(
     eq(schema.content.organizationId, organizationId),
     identifierClause
   )
+}
+
+const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
+  if (!Array.isArray(input)) {
+    return []
+  }
+  return input
+    .filter((entry): entry is ReferenceSelection => Boolean(entry && typeof entry === 'object'))
+    .map((entry) => ({
+      type: entry.type,
+      id: entry.id,
+      label: entry.label,
+      identifier: entry.identifier,
+      contentId: entry.contentId
+    }))
+    .filter((entry) => {
+      const allowedTypes = ['file', 'content', 'section', 'source']
+      return typeof entry.id === 'string'
+        && typeof entry.type === 'string'
+        && allowedTypes.includes(entry.type)
+    })
+}
+
+const dedupeResolvedReferences = (resolved: ResolvedReference[]) => {
+  const seen = new Set<string>()
+  return resolved.filter((reference) => {
+    const key = `${reference.type}:${reference.id}`
+    if (seen.has(key)) {
+      return false
+    }
+    seen.add(key)
+    return true
+  })
 }
 
 function toSummaryBullets(text: string | null | undefined) {
@@ -1800,6 +1834,7 @@ export default defineEventHandler(async (event) => {
     validateRequestBody(body)
     const VALID_MODES = ['chat', 'agent'] as const
     const mode = validateEnum(body.mode, VALID_MODES, 'mode')
+    const referenceSelections = normalizeSelectionInput(body.referenceSelections)
 
     // Enforce authentication for Agent mode BEFORE provisioning anonymous sessions
     if (mode === 'agent' && (!session?.user || session.user.isAnonymous)) {
@@ -2289,29 +2324,47 @@ export default defineEventHandler(async (event) => {
           let referenceContext: string | null = null
           try {
             const tokens = parseReferences(trimmedMessage)
-            if (tokens.length > 0) {
-              const referenceResolution = await resolveReferences(tokens, {
+            const referenceResolution = tokens.length > 0
+              ? await resolveReferences(tokens, {
                 db,
                 organizationId,
                 currentContentId: requestContentId,
                 userId: user.id,
                 mode
               })
+              : { tokens: [], resolved: [], unresolved: [], ambiguous: [] }
 
-              referenceScope = buildReferenceScope(referenceResolution.resolved)
+            const explicitResolved = referenceSelections.length
+              ? await resolveExplicitSelections(referenceSelections, { db, organizationId })
+              : []
 
-              const referenceContents = await loadReferenceContent(referenceResolution.resolved, {
-                db,
-                organizationId
-              })
-              referenceContext = buildContextBlock({
-                referenceContents,
-                ambiguous: referenceResolution.ambiguous,
-                unresolved: referenceResolution.unresolved
-              })
-            } else {
-              referenceScope = buildReferenceScope([])
-            }
+            const combinedResolved = dedupeResolvedReferences([
+              ...referenceResolution.resolved,
+              ...explicitResolved
+            ])
+
+            referenceScope = buildReferenceScope(combinedResolved)
+
+            const referenceContents = await loadReferenceContent(combinedResolved, {
+              db,
+              organizationId
+            })
+
+            const selectionIdentifiers = buildSelectionIdentifierSet(referenceSelections)
+            const normalizedToken = (value: string | null | undefined) => (value ?? '').trim().toLowerCase()
+
+            const filteredAmbiguous = referenceResolution.ambiguous.filter(item =>
+              !selectionIdentifiers.has(normalizedToken(item.token.identifier))
+            )
+            const filteredUnresolved = referenceResolution.unresolved.filter(item =>
+              !selectionIdentifiers.has(normalizedToken(item.token.identifier))
+            )
+
+            referenceContext = buildContextBlock({
+              referenceContents,
+              ambiguous: filteredAmbiguous,
+              unresolved: filteredUnresolved
+            })
           } catch (error) {
             safeError('[Chat API] Failed to resolve references:', {
               error: error instanceof Error ? error.message : 'Unknown error'

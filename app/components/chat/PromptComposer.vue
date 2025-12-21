@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  submit: [value: string]
+  submit: [value: string, selections?: ReferenceSelection[]]
   stop: []
 }>()
 
@@ -73,6 +73,7 @@ interface ReferenceResolutionResponse {
 interface ReferenceSuggestionItem {
   id: string
   label: string
+  subtitle?: string
   insertText: string
   type: 'file' | 'content' | 'section'
 }
@@ -81,6 +82,13 @@ interface ReferenceSuggestionGroups {
   files: ReferenceSuggestionItem[]
   contents: ReferenceSuggestionItem[]
   sections: ReferenceSuggestionItem[]
+}
+
+interface ReferenceSelection {
+  type: 'file' | 'content' | 'section' | 'source'
+  id: string
+  label?: string
+  identifier?: string
 }
 
 const modelValue = defineModel<string>({ default: '' })
@@ -95,6 +103,7 @@ const panelPosition = ref({ bottom: 0, left: 0, right: 0 })
 const referenceResolution = ref<ReferenceResolutionResponse | null>(null)
 const referenceLoading = ref(false)
 const lastResolvedMessage = ref('')
+const selectedReferences = ref<ReferenceSelection[]>([])
 const suggestionGroups = ref<ReferenceSuggestionGroups>({
   files: [],
   contents: [],
@@ -210,6 +219,20 @@ const applySuggestion = (item: ReferenceSuggestionItem) => {
       cursorIndex.value = position
     }
   })
+
+  const selectionKey = `${item.type}:${item.id}`
+  const exists = selectedReferences.value.some(selection => `${selection.type}:${selection.id}` === selectionKey)
+  if (!exists) {
+    selectedReferences.value = [
+      ...selectedReferences.value,
+      {
+        type: item.type,
+        id: item.id,
+        label: item.label,
+        identifier: item.insertText
+      }
+    ]
+  }
 }
 
 const handleKeyDown = (event: KeyboardEvent) => {
@@ -300,9 +323,9 @@ const fetchSuggestions = async (query?: string) => {
         q: query || undefined
       }
     }) as {
-      files: Array<{ id: string, label: string, insertText: string }>
-      contents: Array<{ id: string, label: string, insertText: string }>
-      sections: Array<{ id: string, label: string, insertText: string }>
+      files: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
+      contents: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
+      sections: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
     }
 
     suggestionGroups.value = {
@@ -396,7 +419,20 @@ const handleSubmit = (value?: string | unknown) => {
   const input = typeof value === 'string' ? value : modelValue.value
   const trimmed = String(input || '').trim()
   if (trimmed) {
-    emit('submit', trimmed)
+    const normalized = trimmed.toLowerCase()
+    const selections = selectedReferences.value.filter((selection) => {
+      const identifier = selection.identifier?.trim()
+      if (identifier && normalized.includes(`@${identifier.toLowerCase()}`)) {
+        return true
+      }
+      const label = selection.label?.trim()
+      if (label && normalized.includes(`@${label.toLowerCase()}`)) {
+        return true
+      }
+      return false
+    })
+    emit('submit', trimmed, selections.length ? selections : undefined)
+    selectedReferences.value = []
   }
 }
 
@@ -440,6 +476,9 @@ watch(composerRef, () => {
 
 watch(modelValue, (value) => {
   scheduleReferenceResolution(value)
+  if (!value.trim()) {
+    selectedReferences.value = []
+  }
 })
 
 const scheduleSuggestionFetch = (query?: string) => {
