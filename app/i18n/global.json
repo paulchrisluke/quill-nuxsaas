@@ -40,11 +40,11 @@
       },
       "conversations": {
         "new": "New conversation",
-        "signUpToStart": "Sign up to start a conversation"
-      },
-      "sidebar": {
-        "createContent": "Create Content",
-        "addFiles": "Add Files"
+        "signUpToStart": "Sign up to start a conversation",
+        "sidebar": {
+          "createContent": "Create Content",
+          "addFiles": "Add Files"
+        }
       }
     },
     "chat": {
@@ -89,11 +89,11 @@
       },
       "conversations": {
         "new": "新对话",
-        "signUpToStart": "注册以开始对话"
-      },
-      "sidebar": {
-        "createContent": "创建内容",
-        "addFiles": "添加文件"
+        "signUpToStart": "注册以开始对话",
+        "sidebar": {
+          "createContent": "创建内容",
+          "addFiles": "添加文件"
+        }
       }
     },
     "chat": {
@@ -138,11 +138,11 @@
       },
       "conversations": {
         "new": "新しい会話",
-        "signUpToStart": "会話を始めるには登録してください"
-      },
-      "sidebar": {
-        "createContent": "コンテンツを作成",
-        "addFiles": "ファイルを追加"
+        "signUpToStart": "会話を始めるには登録してください",
+        "sidebar": {
+          "createContent": "コンテンツを作成",
+          "addFiles": "ファイルを追加"
+        }
       }
     },
     "chat": {
@@ -187,11 +187,11 @@
       },
       "conversations": {
         "new": "Nouvelle conversation",
-        "signUpToStart": "Inscrivez-vous pour démarrer une conversation"
-      },
-      "sidebar": {
-        "createContent": "Créer du contenu",
-        "addFiles": "Ajouter des fichiers"
+        "signUpToStart": "Inscrivez-vous pour démarrer une conversation",
+        "sidebar": {
+          "createContent": "Créer du contenu",
+          "addFiles": "Ajouter des fichiers"
+        }
       }
     },
     "chat": {

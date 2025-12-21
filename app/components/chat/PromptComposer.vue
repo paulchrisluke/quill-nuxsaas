@@ -425,7 +425,8 @@ const handleSubmit = (value?: string | unknown) => {
       : null
     const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const isTokenMatch = (candidate: string) => {
-      const escaped = escapeRegex(candidate.toLowerCase())
+      const stripped = candidate.startsWith('@') ? candidate.slice(1) : candidate
+      const escaped = escapeRegex(stripped.toLowerCase())
       const pattern = new RegExp(`@${escaped}(?=\\s|$|[.,!?;:()\\[\\]{}<>"'])`, 'i')
       return pattern.test(normalized)
     }

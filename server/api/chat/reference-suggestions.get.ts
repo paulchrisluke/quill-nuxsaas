@@ -20,7 +20,7 @@ const normalizeReferenceToken = (value: string | null | undefined): string => {
   }
   return trimmed
     .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9._/-]+/gi, '')
+    .replace(/[^\w./-]+/g, '')
     .replace(/-+/g, '-')
 }
 
