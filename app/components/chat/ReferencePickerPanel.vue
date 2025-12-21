@@ -105,9 +105,9 @@ const handleKeyDown = (event: KeyboardEvent) => {
       v-else-if="open && query && flatItems.length > 0"
       v-bind="attrs"
       ref="rootRef"
-      class="rounded-3xl border border-neutral-200/70 dark:border-neutral-800/60 bg-gray-50 dark:bg-neutral-900 shadow-2xl"
+      class="relative rounded-3xl border border-neutral-200/70 dark:border-neutral-800/60 bg-gray-50 dark:bg-neutral-900 shadow-2xl"
     >
-      <div class="max-h-[50vh] overflow-y-auto px-2 py-3">
+      <div class="max-h-[50vh] overflow-y-auto hide-scrollbar px-2 py-3">
         <div class="space-y-3">
           <div v-if="groups.contents.length">
             <p class="px-3 text-[11px] uppercase tracking-wide text-muted-400">
@@ -142,6 +142,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
           </div>
         </div>
       </div>
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-gray-50 dark:from-neutral-900 to-transparent" />
     </div>
   </Transition>
 </template>

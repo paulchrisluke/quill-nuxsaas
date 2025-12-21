@@ -39,7 +39,7 @@ export const getReferenceScopeError = (
 
   const allowedContentIds = scope?.allowedContentIds ?? new Set()
   const allowedSectionIds = scope?.allowedSectionIds ?? new Set()
-  const allowedFileIds = scope?.allowedFileIds ?? new Set()
+  const _allowedFileIds = scope?.allowedFileIds ?? new Set()
 
   if (toolInvocation.name === 'edit_section') {
     const args = toolInvocation.arguments as ChatToolInvocation<'edit_section'>['arguments']
@@ -69,11 +69,8 @@ export const getReferenceScopeError = (
 
   if (toolInvocation.name === 'insert_image') {
     const args = toolInvocation.arguments as ChatToolInvocation<'insert_image'>['arguments']
-    if (
-      !args.contentId ||
-      !allowedContentIds.has(args.contentId) ||
-      (args.fileId && !allowedFileIds.has(args.fileId))
-    ) {
+    // Require content scope; file validation happens in the insert_image tool itself.
+    if (!args.contentId || !allowedContentIds.has(args.contentId)) {
       return NO_REFERENCE_ERROR
     }
     return null

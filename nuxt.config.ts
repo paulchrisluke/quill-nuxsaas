@@ -46,20 +46,53 @@ function jsquashResolvePlugin(): RollupPlugin {
       }
 
       // Handle the problematic "../../.." import from workerHelpers.js
+      // This typically resolves to a WASM package directory (e.g., pkg-parallel/) containing squoosh_*.js files
       if (source === '../../..') {
         const importerDir = dirname(importer)
-        const pkgDir = resolve(importerDir, '../../..')
+        const targetDir = resolve(importerDir, '../../..')
 
         try {
-          if (existsSync(pkgDir)) {
-            // First, try to read package.json and use its "main" field
-            const packageJsonPath = resolve(pkgDir, 'package.json')
+          if (existsSync(targetDir)) {
+            // First, look for WASM package files matching common patterns
+            // This is the most common case for @jsquash packages where workerHelpers.js
+            // imports "../../.." to reach the WASM package directory (e.g., pkg-parallel/)
+            try {
+              const files = readdirSync(targetDir)
+              // Prioritize files matching WASM package patterns
+              const wasmPatterns = [
+                /^squoosh_.*\.js$/, // squoosh_*.js files (most common for @jsquash/png)
+                /.*_bg\.js$/, // *_bg.js files (WASM bindings)
+                /.*\.js$/ // Any .js file as last resort
+              ]
+
+              for (const pattern of wasmPatterns) {
+                const matchingFile = files.find((f: string) =>
+                  pattern.test(f) &&
+                  !f.includes('workerHelpers') &&
+                  !f.endsWith('.d.ts') &&
+                  !f.includes('snippets')
+                )
+                if (matchingFile) {
+                  const wasmFilePath = resolve(targetDir, matchingFile)
+                  if (existsSync(wasmFilePath)) {
+                    // Successfully resolved to WASM package file - this is the correct resolution
+                    return wasmFilePath
+                  }
+                }
+              }
+            } catch {
+              // If directory read fails, continue to next fallback
+            }
+
+            // Second, try to read package.json and use its "main" field
+            // This handles cases where "../../.." resolves to a package root
+            const packageJsonPath = resolve(targetDir, 'package.json')
             if (existsSync(packageJsonPath)) {
               try {
                 const packageJsonContent = readFileSync(packageJsonPath, 'utf-8')
                 const packageJson = JSON.parse(packageJsonContent)
                 if (packageJson.main) {
-                  const mainPath = resolve(pkgDir, packageJson.main)
+                  const mainPath = resolve(targetDir, packageJson.main)
                   if (existsSync(mainPath)) {
                     return mainPath
                   }
@@ -69,51 +102,17 @@ function jsquashResolvePlugin(): RollupPlugin {
               }
             }
 
-            // Second, explicitly check for index.js
-            const indexJsPath = resolve(pkgDir, 'index.js')
+            // Third, explicitly check for index.js
+            const indexJsPath = resolve(targetDir, 'index.js')
             if (existsSync(indexJsPath)) {
               return indexJsPath
             }
 
-            // Third fallback: look for WASM package files matching common patterns
-            // This is more targeted than alphabetical sorting - looks for files that
-            // match WASM package naming conventions (e.g., squoosh_*.js, *_bg.js)
-            try {
-              const files = readdirSync(pkgDir)
-              // Prioritize files matching WASM package patterns
-              const wasmPatterns = [
-                /^squoosh_.*\.js$/, // squoosh_*.js files
-                /.*_bg\.js$/, // *_bg.js files (WASM bindings)
-                /.*\.js$/ // Any .js file as last resort
-              ]
-
-              for (const pattern of wasmPatterns) {
-                const matchingFile = files.find((f: string) =>
-                  pattern.test(f) &&
-                  !f.includes('workerHelpers') &&
-                  !f.endsWith('.d.ts')
-                )
-                if (matchingFile) {
-                  const mainFilePath = resolve(pkgDir, matchingFile)
-                  if (existsSync(mainFilePath)) {
-                    console.warn('[jsquash-resolve] Resolved "../../.." import using pattern fallback (package.json main and index.js not found):', {
-                      importer,
-                      resolved: mainFilePath,
-                      pattern: pattern.toString()
-                    })
-                    return mainFilePath
-                  }
-                }
-              }
-            } catch {
-              // If directory read fails, continue to final fallback
-            }
-
             // Final fallback: log warning and return null to let other resolvers handle it
-            console.warn('[jsquash-resolve] Could not resolve "../../.." import: package.json main field missing, index.js not found, and no matching WASM package files found. Falling back to other resolvers.', {
+            console.warn('[jsquash-resolve] Could not resolve "../../.." import: no WASM package files, package.json main field, or index.js found. Falling back to other resolvers.', {
               importer,
               source,
-              pkgDir
+              targetDir
             })
             return null
           }

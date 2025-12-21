@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="messages.length"
-      class="flex-1 min-h-0 flex flex-col overflow-y-auto"
+      class="flex-1 min-h-0 flex flex-col overflow-y-auto hide-scrollbar"
     >
       <UChatMessages
         class="py-4"
@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
     >
       <template #body>
         <div class="space-y-3">
-          <p class="text-sm text-muted-700 dark:text-muted-200 whitespace-pre-wrap max-h-48 overflow-y-auto">
+          <p class="text-sm text-muted-700 dark:text-muted-200 whitespace-pre-wrap max-h-48 overflow-y-auto hide-scrollbar">
             {{ getMessageText(messageActionSheetTarget) }}
           </p>
           <div class="flex flex-col gap-2">

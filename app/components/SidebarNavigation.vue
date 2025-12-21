@@ -5,8 +5,9 @@ import { useContentList } from '~/composables/useContentList'
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
-const { useActiveOrganization } = useAuth()
+const { loggedIn, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
+const openWorkspace = inject<(() => void) | undefined>('openWorkspace')
 
 // Content list
 const {
@@ -18,10 +19,13 @@ const {
   loadInitial: loadContentInitial,
   loadMore: loadContentMore,
   remove: _removeContent,
-  refresh: _refreshContent
+  refresh: _refreshContent,
+  reset: resetContent
 } = useContentList({ pageSize: 40 })
 
 const initializeContent = async () => {
+  if (!loggedIn.value)
+    return
   try {
     await loadContentInitial()
   } catch {
@@ -31,6 +35,14 @@ const initializeContent = async () => {
 
 onMounted(() => {
   initializeContent()
+})
+
+watch(loggedIn, (isLoggedIn) => {
+  if (isLoggedIn) {
+    initializeContent()
+  } else {
+    resetContent()
+  }
 })
 
 // Active content/conversation detection
@@ -60,8 +72,13 @@ const resolveContentPath = (contentId?: string | null) => {
 
 const openContent = (contentId: string | null) => {
   const path = resolveContentPath(contentId || undefined)
-  if (path)
+  if (path) {
     router.push(localePath(path))
+    // Open workspace drawer on mobile
+    if (typeof openWorkspace === 'function') {
+      openWorkspace()
+    }
+  }
 }
 </script>
 
@@ -75,7 +92,18 @@ const openContent = (contentId: string | null) => {
       </div>
 
       <div class="space-y-1">
-        <template v-if="contentInitialized && contentItems.length > 0">
+        <template v-if="!loggedIn">
+          <UButton
+            block
+            variant="ghost"
+            :to="localePath('/signin')"
+            class="justify-start"
+          >
+            Sign in to view content
+          </UButton>
+        </template>
+
+        <template v-else-if="contentInitialized && contentItems.length > 0">
           <div
             v-for="content in contentItems"
             :key="content.id"
