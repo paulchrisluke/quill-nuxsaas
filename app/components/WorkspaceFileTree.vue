@@ -10,7 +10,6 @@ const emit = defineEmits<{
 }>()
 
 const { loggedIn, useActiveOrganization } = useAuth()
-const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()

@@ -23,7 +23,7 @@ export interface WorkspaceFilePayload {
   fullMdx: string
   contentId: string
   slug: string
-  diffStats?: { additions: number; deletions: number } | null
+  diffStats?: { additions: number, deletions: number } | null
 }
 
 const safeSlug = (input?: string | null) => {
@@ -147,7 +147,7 @@ export function buildWorkspaceFilesPayload(
   const contentSlug = typeof content.slug === 'string' ? content.slug : filenameSlug
 
   // Extract diff stats from frontmatter if available
-  const frontmatterDiff = frontmatter?.diffStats as { additions?: number; deletions?: number } | undefined
+  const frontmatterDiff = frontmatter?.diffStats as { additions?: number, deletions?: number } | undefined
   const diffStats = frontmatterDiff && (frontmatterDiff.additions !== undefined || frontmatterDiff.deletions !== undefined)
     ? {
         additions: frontmatterDiff.additions !== undefined ? Number(frontmatterDiff.additions) || 0 : 0,

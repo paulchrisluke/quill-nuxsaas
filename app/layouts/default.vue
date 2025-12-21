@@ -52,6 +52,12 @@ const isAuthPage = computed(() => {
 
 const isPublicPage = computed(() => route.meta?.auth === false)
 
+// Sidebar drawer open state (for mobile hamburger menu)
+const isSidebarOpen = ref(false)
+
+// Workspace drawer open state (for mobile workspace view)
+const isWorkspaceOpen = ref(false)
+
 // Provide function to open workspace drawer on mobile
 provide('openWorkspace', () => {
   if (import.meta.client && window.innerWidth < 1024) {
@@ -65,11 +71,11 @@ const isWorkspaceRoute = computed(() => {
     return false
   const path = pathWithoutLocale.value
   // Workspace routes: /[slug]/content, /[slug]/conversations, etc.
-  return /^\/[^/]+\/(content|conversations)/.test(path)
+  return /^\/[^/]+\/(?:content|conversations)/.test(path)
 })
 
 // Open workspace drawer on mobile when navigating to workspace routes
-watch(() => route.path, (newPath) => {
+watch(() => route.path, (_newPath) => {
   if (import.meta.client && window.innerWidth < 1024 && isWorkspaceRoute.value) {
     isWorkspaceOpen.value = true
   }
@@ -78,12 +84,6 @@ watch(() => route.path, (newPath) => {
 // Sidebar is collapsed when: on auth pages, or on public pages when logged in
 // Sidebar always renders (guests need it for navigation)
 const isSidebarCollapsed = computed(() => isAuthPage.value || (loggedIn.value && isPublicPage.value))
-
-// Sidebar drawer open state (for mobile hamburger menu)
-const isSidebarOpen = ref(false)
-
-// Workspace drawer open state (for mobile workspace view)
-const isWorkspaceOpen = ref(false)
 
 // Chat panel shows when logged in, not on auth pages, not on public pages
 const shouldShowChatPanel = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value && route.meta?.renderChatWidget !== false)

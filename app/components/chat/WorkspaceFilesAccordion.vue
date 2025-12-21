@@ -83,7 +83,7 @@ const getFileSlug = (file: WorkspaceFilePayload): string => {
   return match ? match[1] : file.filename.replace(/\.mdx$/, '')
 }
 
-const formatDiffStats = (diffStats: { additions: number; deletions: number } | null | undefined) => {
+const formatDiffStats = (diffStats: { additions: number, deletions: number } | null | undefined) => {
   if (!diffStats || (diffStats.additions === 0 && diffStats.deletions === 0))
     return null
   return `+${diffStats.additions} -${diffStats.deletions}`
