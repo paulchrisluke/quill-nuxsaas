@@ -82,7 +82,7 @@ watch(() => route.path, (_newPath) => {
 }, { immediate: true })
 
 // Sidebar is collapsed when: on auth pages, or on public pages when logged in
-// Sidebar always renders (guests need it for navigation)
+// Sidebar is hidden on auth pages; guests use it elsewhere for navigation
 const isSidebarCollapsed = computed(() => isAuthPage.value || (loggedIn.value && isPublicPage.value))
 
 // Chat panel shows when logged in, not on auth pages, not on public pages

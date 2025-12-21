@@ -143,7 +143,7 @@ export function buildWorkspaceFilesPayload(
   })
 
   // Extract slug from filename or use content slug
-  const filenameSlug = filename.replace(/^content\/[^/]+\//, '').replace(/\.mdx$/, '')
+  const filenameSlug = filename.replace(/^content\/([^/]+\/)?/, '').replace(/\.mdx$/, '')
   const contentSlug = typeof content.slug === 'string' ? content.slug : filenameSlug
 
   // Extract diff stats from frontmatter if available

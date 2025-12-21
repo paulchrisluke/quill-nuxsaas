@@ -30,7 +30,9 @@ const lookupContentId = async (versionId: string): Promise<string> => {
 const resolveFilePaths = async () => {
   const slug = activeOrg.value?.data?.slug
   if (!slug || slug === NON_ORG_SLUG) {
-    throw new Error(`[WorkspaceFilesAccordion] Missing organization slug. ActiveOrg: ${JSON.stringify(activeOrg.value)}`)
+    // Organization not yet loaded or invalid - wait for watcher to re-trigger
+    pathsReady.value = false
+    return
   }
 
   if (!props.files || props.files.length === 0) {
@@ -61,10 +63,6 @@ const resolveFilePaths = async () => {
 watch(() => [props.files, activeOrg.value?.data?.slug], async () => {
   await resolveFilePaths()
 }, { immediate: true })
-
-onMounted(async () => {
-  await resolveFilePaths()
-})
 
 const getContentPath = (file: WorkspaceFilePayload): string => {
   const path = filePaths.value[file.id]

@@ -29,7 +29,8 @@ const {
   initialized: contentInitialized,
   loadInitial: loadContentInitial,
   remove: removeContent,
-  refresh: refreshContent
+  refresh: refreshContent,
+  reset: resetContent
 } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const {
@@ -39,7 +40,8 @@ const {
   initialized: fileInitialized,
   loadInitial: loadFileInitial,
   refresh: refreshFileList,
-  remove: removeFile
+  remove: removeFile,
+  reset: resetFileList
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const expandedPaths = ref<Set<string>>(new Set(['files', 'content']))
@@ -329,6 +331,9 @@ onMounted(() => {
 watch(loggedIn, (isLoggedIn) => {
   if (isLoggedIn) {
     initializeData()
+  } else {
+    resetContent()
+    resetFileList()
   }
 })
 
@@ -393,7 +398,7 @@ watch([fileItems, fileInitialized], () => {
         </div>
 
         <ul
-          v-else-if="tree.length"
+          v-else-if="!isEmptyState"
           class="space-y-0.5"
         >
           <WorkspaceFileTreeNode

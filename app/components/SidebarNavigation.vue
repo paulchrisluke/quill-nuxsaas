@@ -18,7 +18,8 @@ const {
   loadInitial: loadContentInitial,
   loadMore: loadContentMore,
   remove: _removeContent,
-  refresh: _refreshContent
+  refresh: _refreshContent,
+  reset: resetContent
 } = useContentList({ pageSize: 40 })
 
 const initializeContent = async () => {
@@ -38,6 +39,8 @@ onMounted(() => {
 watch(loggedIn, (isLoggedIn) => {
   if (isLoggedIn) {
     initializeContent()
+  } else {
+    resetContent()
   }
 })
 

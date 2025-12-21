@@ -48,15 +48,24 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const isHomePage = to.path === '/' || to.path === localePath('/')
   if (isHomePage && loggedIn.value && to.meta?.auth === false) {
     // Fetch organizations and redirect to first org's conversations page
-    const { data: orgs } = await useAsyncData('user-organizations-redirect', async () => {
+    const { data: orgs, error } = await useAsyncData('user-organizations-redirect', async () => {
       const { data } = await organization.list()
       return data
     }, {
       getCachedData: () => undefined
     })
 
+    if (error.value) {
+      console.error('Failed to fetch organizations for redirect:', error.value)
+      return
+    }
+
     if (orgs.value && orgs.value.length > 0) {
       const firstOrg = orgs.value[0]
+      if (!firstOrg?.slug) {
+        console.error('First organization missing slug')
+        return
+      }
       const targetPath = localePath(`/${firstOrg.slug}/conversations`)
       if (to.path !== targetPath) {
         return navigateTo(targetPath)
