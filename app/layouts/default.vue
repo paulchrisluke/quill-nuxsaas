@@ -75,8 +75,15 @@ const isWorkspaceRoute = computed(() => {
 })
 
 // Open workspace drawer on mobile when navigating to workspace routes
+// But not on conversations empty state (redundant on mobile)
 watch(() => route.path, (_newPath) => {
-  if (import.meta.client && window.innerWidth < 1024 && isWorkspaceRoute.value) {
+  if (!import.meta.client || window.innerWidth >= 1024)
+    return
+  const path = pathWithoutLocale.value
+  // Don't open drawer on conversations empty state (exactly /[slug]/conversations)
+  if (/^\/[^/]+\/conversations$/.test(path)) {
+    isWorkspaceOpen.value = false
+  } else if (isWorkspaceRoute.value) {
     isWorkspaceOpen.value = true
   }
 }, { immediate: true })
