@@ -587,8 +587,46 @@ const canExpandConversationList = computed(() => {
         </div>
       </div>
 
-      <!-- Mobile: Workspace in drawer -->
+      <!-- Mobile: Direct content view (for non-workspace routes like homepage) -->
+      <div
+        v-if="!isWorkspaceRoute"
+        class="lg:hidden flex min-h-0 flex-1 flex-col"
+      >
+        <UDashboardNavbar
+          v-if="(pageTitle || (!loggedIn && !isAuthPage)) && !contentRouteMatch"
+          :title="pageTitle || undefined"
+        >
+          <template
+            v-if="!loggedIn && !isAuthPage"
+            #right
+          >
+            <div class="flex items-center gap-2">
+              <UButton
+                :to="localePath('/signin')"
+                size="sm"
+                variant="ghost"
+              >
+                {{ t('global.auth.signIn') }}
+              </UButton>
+              <UButton
+                :to="localePath('/signup')"
+                size="sm"
+              >
+                {{ t('global.auth.signUp') }}
+              </UButton>
+            </div>
+          </template>
+        </UDashboardNavbar>
+        <div
+          class="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
+        >
+          <slot />
+        </div>
+      </div>
+
+      <!-- Mobile: Workspace in drawer (for workspace routes) -->
       <UDrawer
+        v-if="isWorkspaceRoute"
         v-model:open="isWorkspaceOpen"
         :handle="false"
       >
