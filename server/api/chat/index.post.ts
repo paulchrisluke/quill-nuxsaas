@@ -121,6 +121,9 @@ async function composeWorkspaceCompletionMessages(
   const summaryBullets = toSummaryBullets(workspaceSummary)
   const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Content updated.']).map(item => `- ${item}`)].join('\n')
   const filesPayload = buildWorkspaceFilesPayload(content, version, sourceContent)
+  console.log('[composeWorkspaceCompletionMessages] filesPayload:', JSON.stringify(filesPayload, null, 2))
+  console.log('[composeWorkspaceCompletionMessages] content.id:', content.id)
+  console.log('[composeWorkspaceCompletionMessages] filesPayload[0]?.contentId:', filesPayload[0]?.contentId)
   const filesText = ['**Files**', ...filesPayload.map(file => `- ${file.filename}`)].join('\n')
 
   const recentUploads = await db
@@ -2767,10 +2770,12 @@ export default defineEventHandler(async (event) => {
         }
 
         if (completionMessages?.files) {
-          await persistAssistantMessage(
+          console.log('[persistAssistantMessage] files payload before persist:', JSON.stringify(completionMessages.files.payload, null, 2))
+          const message = await persistAssistantMessage(
             completionMessages.files.content,
             completionMessages.files.payload ?? null
           )
+          console.log('[persistAssistantMessage] message after persist:', JSON.stringify(message.payload, null, 2))
         }
 
         if (completionMessages?.uploads) {

@@ -21,6 +21,9 @@ export interface WorkspaceFilePayload {
   sourceDetails: typeof schema.sourceContent.$inferSelect | null
   sourceLink: string | null
   fullMdx: string
+  contentId: string
+  slug: string
+  diffStats?: { additions: number; deletions: number } | null
 }
 
 const safeSlug = (input?: string | null) => {
@@ -139,6 +142,19 @@ export function buildWorkspaceFilesPayload(
     sections: sections as any
   })
 
+  // Extract slug from filename or use content slug
+  const filenameSlug = filename.replace(/^content\/[^/]+\//, '').replace(/\.mdx$/, '')
+  const contentSlug = typeof content.slug === 'string' ? content.slug : filenameSlug
+
+  // Extract diff stats from frontmatter if available
+  const frontmatterDiff = frontmatter?.diffStats as { additions?: number; deletions?: number } | undefined
+  const diffStats = frontmatterDiff && (frontmatterDiff.additions !== undefined || frontmatterDiff.deletions !== undefined)
+    ? {
+        additions: frontmatterDiff.additions !== undefined ? Number(frontmatterDiff.additions) || 0 : 0,
+        deletions: frontmatterDiff.deletions !== undefined ? Number(frontmatterDiff.deletions) || 0 : 0
+      }
+    : null
+
   return [
     {
       id: version.id || filename,
@@ -157,7 +173,10 @@ export function buildWorkspaceFilesPayload(
       generatorStages,
       sourceDetails: sourceContent,
       sourceLink: resolveSourceLink(sourceContent, version.assets),
-      fullMdx
+      fullMdx,
+      contentId: content.id,
+      slug: contentSlug,
+      diffStats
     }
   ]
 }

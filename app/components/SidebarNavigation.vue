@@ -5,7 +5,8 @@ import { useContentList } from '~/composables/useContentList'
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
-const { useActiveOrganization } = useAuth()
+const { t } = useI18n()
+const { loggedIn, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
 
 // Content list
@@ -22,6 +23,8 @@ const {
 } = useContentList({ pageSize: 40 })
 
 const initializeContent = async () => {
+  if (!loggedIn.value)
+    return
   try {
     await loadContentInitial()
   } catch {
@@ -31,6 +34,12 @@ const initializeContent = async () => {
 
 onMounted(() => {
   initializeContent()
+})
+
+watch(loggedIn, (isLoggedIn) => {
+  if (isLoggedIn) {
+    initializeContent()
+  }
 })
 
 // Active content/conversation detection
@@ -60,8 +69,12 @@ const resolveContentPath = (contentId?: string | null) => {
 
 const openContent = (contentId: string | null) => {
   const path = resolveContentPath(contentId || undefined)
-  if (path)
+  if (path) {
     router.push(localePath(path))
+    // Open workspace drawer on mobile
+    const openWorkspace = inject<() => void>('openWorkspace', () => {})
+    openWorkspace()
+  }
 }
 </script>
 
@@ -75,7 +88,18 @@ const openContent = (contentId: string | null) => {
       </div>
 
       <div class="space-y-1">
-        <template v-if="contentInitialized && contentItems.length > 0">
+        <template v-if="!loggedIn">
+          <UButton
+            block
+            variant="ghost"
+            :to="localePath('/signin')"
+            class="justify-start"
+          >
+            Sign in to view content
+          </UButton>
+        </template>
+
+        <template v-else-if="contentInitialized && contentItems.length > 0">
           <div
             v-for="content in contentItems"
             :key="content.id"

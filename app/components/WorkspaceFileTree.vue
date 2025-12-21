@@ -9,7 +9,8 @@ const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
 }>()
 
-const { useActiveOrganization } = useAuth()
+const { loggedIn, useActiveOrganization } = useAuth()
+const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
@@ -227,8 +228,12 @@ const openNode = (node: FileTreeNode) => {
     window.open(metadata.url, '_blank')
   } else if (metadata.contentId) {
     const path = resolveContentPath(metadata.contentId)
-    if (path)
+    if (path) {
       router.push(localePath(path))
+      // Open workspace drawer on mobile
+      const openWorkspace = inject<() => void>('openWorkspace', () => {})
+      openWorkspace()
+    }
   }
 }
 
@@ -311,9 +316,21 @@ const archiveContent = async (node: FileTreeNode) => {
   }
 }
 
-onMounted(() => {
+const initializeData = async () => {
+  if (!loggedIn.value)
+    return
   loadContentInitial().catch(() => {})
   loadFileInitial().catch(() => {})
+}
+
+onMounted(() => {
+  initializeData()
+})
+
+watch(loggedIn, (isLoggedIn) => {
+  if (isLoggedIn) {
+    initializeData()
+  }
 })
 
 const isEmptyState = computed(() => {
@@ -334,59 +351,92 @@ watch([fileItems, fileInitialized], () => {
     role="tree"
   >
     <div class="flex-1 overflow-y-auto px-1 pb-4">
-      <div v-if="contentPending || filePending">
-        <div
-          v-for="n in 6"
-          :key="n"
-          class="px-2 py-1.5"
-        >
-          <USkeleton class="h-4 w-3/4" />
+      <template v-if="!loggedIn">
+        <div class="space-y-2 px-2">
+          <div class="space-y-1">
+            <p class="text-xs uppercase tracking-wide text-muted-foreground px-2">
+              Content
+            </p>
+            <UButton
+              block
+              variant="ghost"
+              :to="localePath('/signin')"
+              class="justify-start"
+            >
+              Sign in to view content
+            </UButton>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs uppercase tracking-wide text-muted-foreground px-2">
+              Files
+            </p>
+            <UButton
+              block
+              variant="ghost"
+              :to="localePath('/signin')"
+              class="justify-start"
+            >
+              Sign in to view files
+            </UButton>
+          </div>
         </div>
-      </div>
+      </template>
 
-      <ul
-        v-else-if="tree.length"
-        class="space-y-0.5"
-      >
-        <WorkspaceFileTreeNode
-          v-for="node in tree"
-          :key="node.path"
-          :node="node"
-          :expanded-paths="expandedPaths"
-          :active-content-id="activeContentId"
-          :archiving-file-ids="archivingFiles"
-          :archiving-content-ids="archivingContent"
-          @toggle="toggleFolder"
-          @select="openNode"
-          @archive-file="archiveFile"
-          @archive-content="archiveContent"
-        />
-      </ul>
+      <template v-else>
+        <div v-if="contentPending || filePending">
+          <div
+            v-for="n in 6"
+            :key="n"
+            class="px-2 py-1.5"
+          >
+            <USkeleton class="h-4 w-3/4" />
+          </div>
+        </div>
 
-      <div
-        v-else-if="isEmptyState"
-        class="px-3 py-2 text-sm text-muted-foreground"
-      >
-        No workspace files yet.
-      </div>
+        <ul
+          v-else-if="tree.length"
+          class="space-y-0.5"
+        >
+          <WorkspaceFileTreeNode
+            v-for="node in tree"
+            :key="node.path"
+            :node="node"
+            :expanded-paths="expandedPaths"
+            :active-content-id="activeContentId"
+            :archiving-file-ids="archivingFiles"
+            :archiving-content-ids="archivingContent"
+            @toggle="toggleFolder"
+            @select="openNode"
+            @archive-file="archiveFile"
+            @archive-content="archiveContent"
+          />
+        </ul>
 
-      <div
-        v-if="contentError || fileError"
-        class="px-3 space-y-2"
-      >
-        <UAlert
-          v-if="contentError"
-          color="error"
-          variant="soft"
-          :title="contentError"
-        />
-        <UAlert
-          v-if="fileError"
-          color="error"
-          variant="soft"
-          :title="fileError"
-        />
-      </div>
+        <div
+          v-else-if="isEmptyState"
+          class="px-3 py-2 text-sm text-muted-foreground"
+        >
+          No workspace files yet.
+        </div>
+
+        <div
+          v-if="contentError || fileError"
+          class="px-3 space-y-2"
+        >
+          <UAlert
+            v-if="contentError"
+            color="error"
+            variant="soft"
+            :title="contentError"
+          />
+          <UAlert
+            v-if="fileError"
+            color="error"
+            variant="soft"
+            :title="fileError"
+          />
+        </div>
+      </template>
     </div>
   </div>
 </template>

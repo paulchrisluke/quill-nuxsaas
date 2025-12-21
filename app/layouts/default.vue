@@ -52,12 +52,41 @@ const isAuthPage = computed(() => {
 
 const isPublicPage = computed(() => route.meta?.auth === false)
 
-const shouldRenderAppShell = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value)
+// Provide function to open workspace drawer on mobile
+provide('openWorkspace', () => {
+  if (import.meta.client && window.innerWidth < 1024) {
+    isWorkspaceOpen.value = true
+  }
+})
 
-// Sidebar should be in DOM when logged in (for mobile drawer), but hidden on desktop for public pages
-const shouldShowSidebar = computed(() => loggedIn.value && !isAuthPage.value)
+// Check if current route is a workspace route (content, conversations, etc.)
+const isWorkspaceRoute = computed(() => {
+  if (!loggedIn.value || isAuthPage.value || isPublicPage.value)
+    return false
+  const path = pathWithoutLocale.value
+  // Workspace routes: /[slug]/content, /[slug]/conversations, etc.
+  return /^\/[^/]+\/(content|conversations)/.test(path)
+})
 
-const shouldShowChatPanel = computed(() => shouldRenderAppShell.value && route.meta?.renderChatWidget !== false)
+// Open workspace drawer on mobile when navigating to workspace routes
+watch(() => route.path, (newPath) => {
+  if (import.meta.client && window.innerWidth < 1024 && isWorkspaceRoute.value) {
+    isWorkspaceOpen.value = true
+  }
+}, { immediate: true })
+
+// Sidebar is collapsed when: on auth pages, or on public pages when logged in
+// Sidebar always renders (guests need it for navigation)
+const isSidebarCollapsed = computed(() => isAuthPage.value || (loggedIn.value && isPublicPage.value))
+
+// Sidebar drawer open state (for mobile hamburger menu)
+const isSidebarOpen = ref(false)
+
+// Workspace drawer open state (for mobile workspace view)
+const isWorkspaceOpen = ref(false)
+
+// Chat panel shows when logged in, not on auth pages, not on public pages
+const shouldShowChatPanel = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value && route.meta?.renderChatWidget !== false)
 
 const contentRouteMatch = computed(() => pathWithoutLocale.value.match(/^\/[^/]+\/content\/([^/]+)(?:\/|$)/))
 
@@ -283,18 +312,14 @@ const canExpandConversationList = computed(() => {
 
 <template>
   <div class="relative min-h-screen bg-white dark:bg-neutral-950 lg:h-screen lg:overflow-hidden">
-    <UDashboardGroup
-      v-if="shouldShowSidebar"
-      :ui="{
-        wrapper: 'flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row'
-      }"
-    >
+    <UDashboardGroup>
       <UDashboardSidebar
-        :class="[
-          { 'lg:!hidden': !shouldRenderAppShell }
-        ]"
+        v-if="!isAuthPage"
+        mode="drawer"
+        :collapsed="isSidebarCollapsed"
+        :open="isSidebarOpen"
         :ui="{
-          root: 'h-full bg-neutral-100 dark:bg-neutral-950 border-none flex-shrink-0 w-full border-b border-neutral-200/70 dark:border-neutral-800/60 lg:h-full lg:w-64 lg:border-b-0 lg:border-r border-neutral-200/70 dark:border-neutral-800/60 xl:w-72'
+          root: 'bg-neutral-100 dark:bg-neutral-950 border-neutral-200/70 dark:border-neutral-800/60'
         }"
       >
         <template #header>
@@ -309,32 +334,36 @@ const canExpandConversationList = computed(() => {
         </template>
 
         <template #default>
-          <slot name="sidebar" />
+          <slot name="sidebar">
+            <!-- Guest navigation -->
+            <div
+              v-if="!loggedIn"
+              class="p-4 space-y-2"
+            >
+              <UButton
+                block
+                variant="outline"
+                icon="i-lucide-file-plus"
+                @click="authModalMode = 'signup'; authModalOpen = true"
+              >
+                Create Content
+              </UButton>
+              <UButton
+                block
+                variant="ghost"
+                icon="i-lucide-upload"
+                @click="authModalMode = 'signup'; authModalOpen = true"
+              >
+                Add Files
+              </UButton>
+            </div>
+          </slot>
         </template>
-
-        <template #footer />
       </UDashboardSidebar>
 
-      <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
-        <div
-          v-if="pageTitle"
-          class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]"
-        >
-          <h1 class="text-sm font-semibold text-left truncate">
-            {{ pageTitle }}
-          </h1>
-        </div>
-
-        <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-          <div class="h-full w-full">
-            <slot />
-          </div>
-        </div>
-      </div>
-
       <aside
         v-if="shouldShowChatPanel"
-        class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-[60vh] lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l"
+        class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-full lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l lg:border-r"
       >
         <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 h-[40px] dark:border-neutral-800/60">
           <UButton
@@ -344,6 +373,16 @@ const canExpandConversationList = computed(() => {
             size="xs"
             icon="i-lucide-arrow-left"
             @click="toggleChatView"
+          />
+          <UButton
+            v-if="!isAuthPage"
+            aria-label="Menu"
+            variant="ghost"
+            color="neutral"
+            size="xs"
+            icon="i-lucide-menu"
+            class="lg:hidden"
+            @click="isSidebarOpen = !isSidebarOpen"
           />
           <p class="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
             {{ chatTitle }}
@@ -507,214 +546,71 @@ const canExpandConversationList = computed(() => {
             :sync-route="false"
             :use-route-conversation-id="false"
             :show-messages="chatView !== 'list'"
-            embedded
           />
         </div>
       </aside>
+
+      <!-- Desktop: Workspace (right side) -->
+      <div
+        class="hidden lg:flex min-h-0 flex-1 flex-col"
+        :class="{ 'lg:border-l border-neutral-200/70 dark:border-neutral-800/60': shouldShowChatPanel }"
+      >
+        <UDashboardNavbar
+          v-if="pageTitle || (!loggedIn && !isAuthPage)"
+          :title="pageTitle || undefined"
+        >
+          <template
+            v-if="!loggedIn && !isAuthPage"
+            #right
+          >
+            <div class="flex items-center gap-2">
+              <UButton
+                :to="localePath('/signin')"
+                size="sm"
+                variant="ghost"
+              >
+                {{ t('global.auth.signIn') }}
+              </UButton>
+              <UButton
+                :to="localePath('/signup')"
+                size="sm"
+              >
+                {{ t('global.auth.signUp') }}
+              </UButton>
+            </div>
+          </template>
+        </UDashboardNavbar>
+        <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+          <slot />
+        </div>
+      </div>
+
+      <!-- Mobile: Workspace in drawer -->
+      <UDrawer
+        v-model:open="isWorkspaceOpen"
+        :handle="false"
+      >
+        <template #header>
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold">
+              {{ pageTitle || 'Workspace' }}
+            </h2>
+            <UButton
+              icon="i-lucide-x"
+              variant="ghost"
+              color="neutral"
+              size="xs"
+              @click="isWorkspaceOpen = false"
+            />
+          </div>
+        </template>
+        <template #content>
+          <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+            <slot />
+          </div>
+        </template>
+      </UDrawer>
     </UDashboardGroup>
-
-    <!-- Fallback layout when sidebar shouldn't be shown -->
-    <div
-      v-else
-      class="flex min-h-screen flex-col lg:h-full lg:min-h-0 lg:flex-row"
-    >
-      <div class="flex min-h-0 flex-1 flex-col border-l border-neutral-200/70 dark:border-neutral-800/60">
-        <div
-          v-if="pageTitle"
-          class="flex items-center border-b border-neutral-200/70 dark:border-neutral-800/60 px-2 h-[40px]"
-        >
-          <h1 class="text-sm font-semibold text-left truncate">
-            {{ pageTitle }}
-          </h1>
-        </div>
-
-        <div class="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-          <div class="h-full w-full">
-            <slot />
-          </div>
-        </div>
-      </div>
-
-      <aside
-        v-if="shouldShowChatPanel"
-        class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-[60vh] lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l"
-      >
-        <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 h-[40px] dark:border-neutral-800/60">
-          <UButton
-            aria-label="Back"
-            variant="ghost"
-            color="neutral"
-            size="xs"
-            icon="i-lucide-arrow-left"
-            @click="toggleChatView"
-          />
-          <p class="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-            {{ chatTitle }}
-          </p>
-          <UButton
-            v-if="contentId"
-            aria-label="Download content"
-            variant="ghost"
-            color="neutral"
-            size="xs"
-            icon="i-lucide-download"
-            :loading="isDownloading"
-            :disabled="isDownloading"
-            @click="handleDownloadContent"
-          />
-          <UDropdownMenu
-            v-if="loggedIn"
-            :items="userMenuItems"
-          >
-            <UButton
-              aria-label="Settings"
-              variant="ghost"
-              color="neutral"
-              size="xs"
-              icon="i-lucide-settings"
-            />
-          </UDropdownMenu>
-          <UButton
-            aria-label="New chat"
-            variant="ghost"
-            color="neutral"
-            size="xs"
-            icon="i-lucide-square-pen"
-            @click="startNewChat"
-          />
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div
-            v-if="chatView === 'list'"
-            class="flex-1 min-h-0 overflow-y-auto"
-          >
-            <div class="p-3">
-              <UAlert
-                v-if="conversationError"
-                color="error"
-                variant="soft"
-                title="Failed to load conversations"
-                :description="conversationError"
-              />
-            </div>
-
-            <div class="space-y-1 px-2 pb-2">
-              <template v-if="conversationInitialized && visibleConversationItems.length">
-                <div
-                  v-for="entry in visibleConversationItems"
-                  :key="entry.id"
-                  class="group relative w-full rounded-md border border-transparent transition-colors"
-                  :class="conversation.conversationId.value === entry.id
-                    ? 'bg-neutral-100/80 dark:bg-neutral-800/60'
-                    : 'hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40'"
-                >
-                  <button
-                    type="button"
-                    class="w-full rounded-md px-3 py-2 text-left"
-                    @click="selectConversation(entry.id)"
-                  >
-                    <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
-                      <p class="text-sm font-semibold truncate">
-                        {{ entry.displayLabel }}
-                      </p>
-                      <div class="flex items-center justify-end gap-2 font-mono text-xs tabular-nums">
-                        <span
-                          v-if="(entry.additions || 0) > 0"
-                          class="text-emerald-500 dark:text-emerald-400"
-                        >
-                          +{{ entry.additions }}
-                        </span>
-                        <span
-                          v-if="(entry.deletions || 0) > 0"
-                          class="text-rose-500 dark:text-rose-400"
-                        >
-                          -{{ entry.deletions }}
-                        </span>
-                      </div>
-                      <p class="text-xs text-muted-foreground text-right">
-                        {{ entry.updatedAgo }}
-                      </p>
-                    </div>
-                  </button>
-                  <UButton
-                    icon="i-lucide-archive"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    class="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label="Archive conversation"
-                    @click="archiveConversation(entry.id, $event)"
-                  />
-                </div>
-              </template>
-
-              <template v-else-if="conversationPending && !conversationInitialized">
-                <div
-                  v-for="n in 8"
-                  :key="n"
-                  class="rounded-md border border-neutral-200/60 dark:border-neutral-800/60 px-3 py-2"
-                >
-                  <USkeleton class="h-4 w-3/4" />
-                  <USkeleton class="h-3 w-1/3 mt-2" />
-                </div>
-              </template>
-
-              <p
-                v-else
-                class="text-sm text-muted-foreground px-3 py-6 text-center"
-              >
-                No conversations yet.
-              </p>
-            </div>
-
-            <div class="flex justify-center px-3 pb-2">
-              <UButton
-                v-if="canExpandConversationList"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                @click="conversationsExpanded = true"
-              >
-                View all
-              </UButton>
-              <UButton
-                v-else-if="conversationsExpanded && conversationItems.length > 3"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                @click="conversationsExpanded = false"
-              >
-                Show less
-              </UButton>
-            </div>
-
-            <div class="flex justify-center px-3 pb-4">
-              <UButton
-                v-if="conversationsExpanded && conversationHasMore"
-                color="neutral"
-                variant="outline"
-                size="sm"
-                :loading="conversationPending"
-                @click="loadConversationMore()"
-              >
-                Load more
-              </UButton>
-            </div>
-          </div>
-
-          <QuillioWidget
-            class="flex-1 min-h-0"
-            :content-id="contentId"
-            :conversation-id="conversation.conversationId.value"
-            :sync-route="false"
-            :use-route-conversation-id="false"
-            :show-messages="chatView !== 'list'"
-            embedded
-          />
-        </div>
-      </aside>
-    </div>
     <OnboardingModal />
     <AuthModal
       v-model:open="authModalOpen"

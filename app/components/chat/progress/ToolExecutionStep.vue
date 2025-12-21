@@ -129,7 +129,7 @@ const showResult = computed(() => props.step.status === 'success' && formattedRe
       <summary class="cursor-pointer text-muted-600 dark:text-muted-400 hover:text-muted-900 dark:hover:text-muted-100">
         Arguments
       </summary>
-      <pre class="mt-1 p-2 rounded bg-muted/30 dark:bg-muted-700/30 font-mono text-xs overflow-x-auto">{{ formattedArgs }}</pre>
+      <pre class="mt-1 p-2 rounded bg-muted/30 dark:bg-muted-700/30 font-mono text-xs overflow-x-auto hide-scrollbar">{{ formattedArgs }}</pre>
     </details>
 
     <!-- Success Result -->
@@ -140,7 +140,7 @@ const showResult = computed(() => props.step.status === 'success' && formattedRe
       <summary class="cursor-pointer text-success-600 dark:text-success-400 hover:text-success-900 dark:hover:text-success-100">
         Result
       </summary>
-      <pre class="mt-1 p-2 rounded bg-success-50 dark:bg-success-900/20 font-mono text-xs overflow-x-auto max-h-32 overflow-y-auto">{{ formattedResult }}</pre>
+      <pre class="mt-1 p-2 rounded bg-success-50 dark:bg-success-900/20 font-mono text-xs overflow-x-auto max-h-32 overflow-y-auto hide-scrollbar">{{ formattedResult }}</pre>
     </details>
 
     <!-- Error Display -->

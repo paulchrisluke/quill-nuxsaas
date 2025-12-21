@@ -49,6 +49,9 @@ const handleShellLoading = () => {
     setWidgetStatus('loading')
 }
 const handleResetError = (resetError: () => void) => {
+  if (typeof resetError !== 'function') {
+    throw new Error(`[QuillioWidget] resetError is not a function. Received: ${typeof resetError}, value: ${JSON.stringify(resetError)}`)
+  }
   setWidgetStatus('loading')
   resetError()
 }

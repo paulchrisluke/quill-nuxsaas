@@ -107,7 +107,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
       ref="rootRef"
       class="rounded-3xl border border-neutral-200/70 dark:border-neutral-800/60 bg-gray-50 dark:bg-neutral-900 shadow-2xl"
     >
-      <div class="max-h-[50vh] overflow-y-auto px-2 py-3">
+      <div class="max-h-[50vh] overflow-y-auto hide-scrollbar px-2 py-3">
         <div class="space-y-3">
           <div v-if="groups.contents.length">
             <p class="px-3 text-[11px] uppercase tracking-wide text-muted-400">

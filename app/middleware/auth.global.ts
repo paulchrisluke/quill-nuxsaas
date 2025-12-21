@@ -36,17 +36,38 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return
   }
 
-  // If auth is disabled, skip middleware
-  if (to.meta?.auth === false) {
-    return
-  }
-  const { loggedIn, user, fetchSession } = useAuth()
+  const { loggedIn, user, fetchSession, organization } = useAuth()
   const redirectOptions = useRuntimeConfig().public.auth
   const { only, redirectUserTo, redirectGuestTo } = defu(to.meta?.auth, redirectOptions)
 
   await fetchSession()
 
   const localePath = useLocalePath()
+
+  // Special case: redirect logged-in users from home page (even if auth: false)
+  const isHomePage = to.path === '/' || to.path === localePath('/')
+  if (isHomePage && loggedIn.value && to.meta?.auth === false) {
+    // Fetch organizations and redirect to first org's conversations page
+    const { data: orgs } = await useAsyncData('user-organizations-redirect', async () => {
+      const { data } = await organization.list()
+      return data
+    }, {
+      getCachedData: () => undefined
+    })
+
+    if (orgs.value && orgs.value.length > 0) {
+      const firstOrg = orgs.value[0]
+      const targetPath = localePath(`/${firstOrg.slug}/conversations`)
+      if (to.path !== targetPath) {
+        return navigateTo(targetPath)
+      }
+    }
+  }
+
+  // If auth is disabled, skip rest of middleware (but we already handled home page redirect above)
+  if (to.meta?.auth === false) {
+    return
+  }
 
   if (only === 'guest') {
     if (loggedIn.value) {
