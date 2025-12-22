@@ -3,8 +3,6 @@ import { auditLog } from '~~/server/db/schema/auditLog'
 import { auditLogQueue } from '~~/server/db/schema/auditLogQueue'
 import { getDB } from './db'
 
-const AUDIT_LOG_TIMEOUT_MS = 2000 // 2 second timeout for critical audit events
-
 export async function logAuditEvent(data: {
   userId?: string
   category: 'auth' | 'email' | 'payment' | string
@@ -16,19 +14,17 @@ export async function logAuditEvent(data: {
   status?: 'success' | 'failure' | 'pending'
   details?: string
 }, options?: {
-  timeout?: number
   queueOnFailure?: boolean
   throwOnFailure?: boolean
 }) {
-  const timeout = options?.timeout ?? AUDIT_LOG_TIMEOUT_MS
   const queueOnFailure = options?.queueOnFailure ?? true
   const throwOnFailure = options?.throwOnFailure ?? true
 
   try {
     const db = getDB()
 
-    // Use Promise.race to implement timeout
-    const insertPromise = db.insert(auditLog).values({
+    // Insert audit log directly - no timeout in Cloudflare Workers
+    await db.insert(auditLog).values({
       userId: data.userId,
       category: data.category,
       action: data.action,
@@ -40,17 +36,6 @@ export async function logAuditEvent(data: {
       details: data.details,
       createdAt: new Date()
     })
-
-    let timeoutId: ReturnType<typeof setTimeout>
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`Audit log timeout after ${timeout}ms`)), timeout)
-    })
-
-    try {
-      await Promise.race([insertPromise, timeoutPromise])
-    } finally {
-      clearTimeout(timeoutId!)
-    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error('Failed to log audit event:', errorMessage)
