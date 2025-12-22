@@ -570,7 +570,6 @@ const canExpandConversationList = computed(() => {
       >
         <UDashboardNavbar
           v-if="(pageTitle || (!loggedIn && !isAuthPage)) && !contentRouteMatch"
-          :key="`navbar-${pageTitle || 'no-title'}-${loggedIn}`"
           :title="pageTitle || undefined"
         >
           <template
@@ -608,7 +607,6 @@ const canExpandConversationList = computed(() => {
       >
         <UDashboardNavbar
           v-if="(pageTitle || (!loggedIn && !isAuthPage)) && !contentRouteMatch"
-          :key="`navbar-${pageTitle || 'no-title'}-${loggedIn}`"
           :title="pageTitle || undefined"
         >
           <template

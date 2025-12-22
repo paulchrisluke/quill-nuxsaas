@@ -5,8 +5,13 @@ import { getPlanKeyFromId, PLAN_TIERS } from '~~/shared/utils/plans'
 const { session, useActiveOrganization, user } = useAuth()
 const { activeSub: activeStripeSubscription } = usePaymentStatus()
 
-// Match HouseOfBetterAuth behavior: fetch orgs directly via Better Auth API.
-const { data: organizations, status } = useUserOrganizations()
+// SSR enabled for the initial render, lazy on client navigations, and cached via shared state.
+const organizationsCache = useUserOrganizationsCache()
+const { data: organizations, status } = useUserOrganizations({
+  server: true,
+  lazy: true,
+  getCachedData: () => organizationsCache.value
+})
 
 const dropdownMenuUi = {
   content: 'w-60 cursor-pointer',
