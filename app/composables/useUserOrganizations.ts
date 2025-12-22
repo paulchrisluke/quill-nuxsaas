@@ -4,8 +4,7 @@ export const useUserOrganizations = () => {
   return useAsyncData('user-organizations', async () => {
     const { data, error } = await organization.list()
     if (error) {
-      console.error('[useUserOrganizations] Failed to load organizations', error)
-      return []
+      throw error
     }
     return data
   })
