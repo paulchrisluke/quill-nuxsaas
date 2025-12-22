@@ -23,10 +23,6 @@ useHead(() => ({
 
 // Page title state - pages can set this via provide
 const headerTitle = useState<string | null>('page-header-title', () => null)
-// Reset header title on route change
-watch(() => route.path, () => {
-  headerTitle.value = null
-})
 
 const pathWithoutLocale = computed(() => stripLocalePrefix(route.path, KNOWN_LOCALES))
 
