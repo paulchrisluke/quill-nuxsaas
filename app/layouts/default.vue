@@ -21,28 +21,15 @@ useHead(() => ({
   link: [...(i18nHead.value.link || [])]
 }))
 
-// Page title state - pages can set this via provide
-const headerTitle = useState<string | null>('page-header-title', () => null)
-
 const pathWithoutLocale = computed(() => stripLocalePrefix(route.path, KNOWN_LOCALES))
 
-// Simple page title
-// Set default page title based on route to prevent hydration mismatch
+// Simple page title - based on route only
 const pageTitle = computed(() => {
-  if (headerTitle.value) {
-    return headerTitle.value
-  }
-  // Set default titles for known routes to ensure SSR/client consistency
   const path = pathWithoutLocale.value
   if (path.match(/^\/[^/]+\/conversations/)) {
     return 'Conversations'
   }
   return null
-})
-
-// Provide function for pages to set header title
-provide('setHeaderTitle', (title: string | null) => {
-  headerTitle.value = title
 })
 
 const authRoutePrefixes = ['/signin', '/signup', '/forgot-password', '/reset-password']

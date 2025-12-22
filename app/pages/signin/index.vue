@@ -13,8 +13,6 @@ useHead({
   title: t('signIn.title')
 })
 
-const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
-setHeaderTitle?.(t('signIn.title'))
 const auth = useAuth()
 const toast = useToast()
 const route = useRoute()
