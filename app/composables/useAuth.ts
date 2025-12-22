@@ -67,6 +67,23 @@ export function useAuth() {
   const session = useState<InferSessionFromClient<ClientOptions> | null>('auth:session', () => null)
   const user = useState<User | null>('auth:user', () => null)
   const sessionFetching = import.meta.server ? ref(false) : useState('auth:sessionFetching', () => false)
+  type SessionWithActiveOrg = InferSessionFromClient<ClientOptions> & { activeOrganizationId?: string }
+  type SessionWithImpersonation = InferSessionFromClient<ClientOptions> & { impersonatedBy?: string | null }
+  const getActiveOrganizationId = () => {
+    const currentSession = session.value
+    if (currentSession && typeof currentSession === 'object' && 'activeOrganizationId' in currentSession) {
+      return (currentSession as SessionWithActiveOrg).activeOrganizationId ?? null
+    }
+    return null
+  }
+  const getImpersonatedBy = () => {
+    const currentSession = session.value
+    if (currentSession && typeof currentSession === 'object' && 'impersonatedBy' in currentSession) {
+      return (currentSession as SessionWithImpersonation).impersonatedBy ?? null
+    }
+    return null
+  }
+  const isImpersonating = computed(() => !!getImpersonatedBy())
 
   // Subscriptions are derived from the active org state
   const subscriptions = computed(() => {
@@ -74,40 +91,36 @@ export function useAuth() {
     return (activeOrgState.value?.data as any)?.subscriptions || []
   })
 
+  interface AuthSessionResponse {
+    session: InferSessionFromClient<ClientOptions> | null
+    user: User | null
+  }
+
+  const applyAuthSession = (data: AuthSessionResponse | null | undefined) => {
+    session.value = data?.session || null
+    user.value = data?.user
+      ? Object.assign({}, AUTH_USER_DEFAULTS, data.user)
+      : null
+  }
+
   const fetchSession = async () => {
     if (sessionFetching.value) {
       return
     }
     sessionFetching.value = true
 
-    // Use useFetch for better SSR support and hydration
-    const { data: sessionData } = await useFetch('/api/auth/get-session', {
-      headers: import.meta.server ? useRequestHeaders() : undefined,
-      key: 'auth-session',
-      retry: 0
-    })
-
-    const data = sessionData.value
-    session.value = data?.session || null
-
-    const userDefaults = {
-      image: null,
-      role: null,
-      banReason: null,
-      banned: null,
-      banExpires: null,
-      stripeCustomerId: null
-    }
-    user.value = data?.user
-      ? Object.assign({}, userDefaults, data.user)
-      : null
-
-    if (user.value) {
+    try {
+      const data = await $fetch<AuthSessionResponse>('/api/auth/get-session', {
+        headers: import.meta.server ? useRequestHeaders() : undefined,
+        retry: 0
+      })
+      applyAuthSession(data)
       // Subscriptions are now fetched via activeOrg (SSR)
       // No need to fetch them here separately
+      return data
+    } finally {
+      sessionFetching.value = false
     }
-    sessionFetching.value = false
-    return data
   }
 
   if (import.meta.client) {
@@ -194,6 +207,10 @@ export function useAuth() {
       })
     },
     fetchSession,
+    applyAuthSession,
+    getActiveOrganizationId,
+    getImpersonatedBy,
+    isImpersonating,
     payment
   }
 }

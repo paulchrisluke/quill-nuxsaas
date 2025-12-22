@@ -92,14 +92,18 @@ export const createBetterAuth = () => betterAuth({
     }
   },
   socialProviders: {
-    github: {
-      clientId: runtimeConfig.githubClientId!,
-      clientSecret: runtimeConfig.githubClientSecret!
-    },
-    google: {
-      clientId: runtimeConfig.googleClientId!,
-      clientSecret: runtimeConfig.googleClientSecret!
-    }
+    ...(runtimeConfig.githubClientId && runtimeConfig.githubClientSecret && {
+      github: {
+        clientId: runtimeConfig.githubClientId,
+        clientSecret: runtimeConfig.githubClientSecret
+      }
+    }),
+    ...(runtimeConfig.googleClientId && runtimeConfig.googleClientSecret && {
+      google: {
+        clientId: runtimeConfig.googleClientId,
+        clientSecret: runtimeConfig.googleClientSecret
+      }
+    })
   },
   account: {
     accountLinking: {
@@ -246,14 +250,44 @@ export const requireAdmin = async (event: H3Event) => {
   return user
 }
 
-export const getSessionOrganizationId = (session: any): string | null => {
+export interface SessionWithOrg {
+  session?: {
+    activeOrganizationId?: string
+  } | null
+  data?: {
+    session?: {
+      activeOrganizationId?: string
+    } | null
+  } | null
+  activeOrganizationId?: string
+}
+
+export interface AuthSessionLike extends SessionWithOrg {
+  user?: User | null
+}
+
+export const normalizeAuthSession = <TSession = unknown>(
+  authSession: AuthSessionLike | null | undefined
+) => {
+  if (!authSession) {
+    return { session: null as TSession | null, user: null }
+  }
+
+  const session = (authSession.session ?? authSession.data?.session ?? null) as TSession | null
+  return {
+    session,
+    user: authSession.user ?? null
+  }
+}
+
+export const getSessionOrganizationId = (session: SessionWithOrg | null | undefined): string | null => {
   if (!session) {
     return null
   }
   // Try to get activeOrganizationId from session (Better Auth's organization plugin sets this)
-  return (session?.session as any)?.activeOrganizationId
-    ?? (session?.data as any)?.session?.activeOrganizationId
-    ?? (session as any)?.activeOrganizationId
+  return session.session?.activeOrganizationId
+    ?? session.data?.session?.activeOrganizationId
+    ?? session.activeOrganizationId
     ?? null
 }
 

@@ -28,7 +28,7 @@ watch(() => route.query.ref, (refParam) => {
   }
 }, { immediate: true })
 
-const { session, user, client } = useAuth()
+const { user, client, isImpersonating } = useAuth()
 
 watch(user, (u) => {
   if (u) {
@@ -36,7 +36,6 @@ watch(user, (u) => {
   }
 })
 
-const isImpersonating = computed(() => !!(session.value as any)?.impersonatedBy)
 const stoppingImpersonation = ref(false)
 
 const stopImpersonating = async () => {
