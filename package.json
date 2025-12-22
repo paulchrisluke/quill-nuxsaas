@@ -25,7 +25,6 @@
     "db:migrate": "drizzle-kit migrate --config ./server/db/drizzle.config.ts",
     "build": "nuxt build",
     "serve": "node .output/server/index.mjs",
-    "preview:cf": "wrangler dev --x-remote-bindings",
     "deploy": "wrangler deploy",
     "sync:upstream": "./scripts/sync-upstream.sh",
     "sync:upstream:dry-run": "./scripts/sync-upstream.sh --dry-run",
