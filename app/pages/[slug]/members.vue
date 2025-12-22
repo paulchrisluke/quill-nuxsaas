@@ -17,7 +17,7 @@ useHead({
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
 setHeaderTitle?.('Members')
 
-const { organization, useActiveOrganization, session, user, fetchSession } = useAuth()
+const { organization, useActiveOrganization, user, fetchSession, getActiveOrganizationId } = useAuth()
 const { activeSub: billingSubscription, refresh: refreshBillingState } = usePaymentStatus()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
@@ -46,7 +46,7 @@ const isPro = computed(() => {
 
 // Check if we need to set an active org on mount
 onMounted(async () => {
-  if (!(session.value as any)?.activeOrganizationId) {
+  if (!getActiveOrganizationId()) {
     const { data } = await organization.list()
     if (data && data.length > 0 && data[0]?.id) {
       await organization.setActive({ organizationId: data[0].id })

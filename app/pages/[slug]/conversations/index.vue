@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import WhatsNewRow from '~/components/WhatsNewRow.vue'
 
+// Set header title immediately to prevent hydration mismatch
+// Use onMounted for client-side, but set it synchronously for SSR
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
-setHeaderTitle?.('Conversations')
+if (setHeaderTitle) {
+  setHeaderTitle('Conversations')
+}
 
 useHead({
   title: 'Conversations'

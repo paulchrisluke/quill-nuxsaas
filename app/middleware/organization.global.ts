@@ -1,35 +1,19 @@
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
-
 export default defineNuxtRouteMiddleware(async (to) => {
-  const { loggedIn, organization, fetchSession, session } = useAuth()
+  const { loggedIn, organization, fetchSession, refreshActiveOrg, getActiveOrganizationId } = useAuth()
 
   if (!loggedIn.value)
     return
 
   const routeSlug = to.params.slug as string
-  if (!routeSlug || routeSlug === NON_ORG_SLUG)
-    return
-
-  // Only run on organization-scoped routes (Nuxt pages under `app/pages/[slug]/...`).
-  // This avoids accidentally running on other routes that might also have a `slug` param.
-  const isOrganizationRoute = to.matched.some(record =>
-    record.path === '/:slug'
-    || record.path.startsWith('/:slug/')
-  )
-  if (!isOrganizationRoute)
+  const isOrgRoute = typeof to.name === 'string' && to.name.startsWith('slug-')
+  if (!routeSlug || routeSlug === 't' || !isOrgRoute)
     return
 
   // Check if we need to switch organization
-  const activeOrgId = (session.value as any)?.activeOrganizationId
+  const activeOrgId = getActiveOrganizationId()
 
-  // Always fetch a fresh org list (disable useAsyncData caching).
-  const { data: orgs } = await useAsyncData('user-organizations', async () => {
-    const { data } = await organization.list()
-    return data
-  }, {
-    // Returning `undefined` opts out of cached data so this fetch runs on every call.
-    getCachedData: () => undefined
-  })
+  // Cache org list for the duration of the session to avoid refetching on every navigation
+  const { data: orgs } = await useUserOrganizations()
 
   if (!orgs.value || orgs.value.length === 0)
     return
@@ -41,10 +25,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
       // Organization mismatch, set active organization
       await organization.setActive({ organizationId: targetOrg.id })
       await fetchSession()
+
+      await refreshActiveOrg()
     }
   } else {
     // Invalid slug, redirect to first available org or handle error
-    // Redirect to an org landing page if the user has access to any orgs
+    // We can redirect to the first org's dashboard if the user has access to any orgs
     const firstOrg = orgs.value?.[0]
     if (firstOrg) {
       // Prevent infinite redirect if we are already redirected
