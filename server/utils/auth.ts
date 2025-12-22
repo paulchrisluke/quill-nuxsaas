@@ -2,7 +2,6 @@ import type { H3Event } from 'h3'
 import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { admin, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
@@ -109,71 +108,6 @@ export const createBetterAuth = () => betterAuth({
     accountLinking: {
       enabled: true
     }
-  },
-  hooks: {
-    after: createAuthMiddleware(async (ctx) => {
-      const ipAddress = ctx.getHeader('x-forwarded-for')
-        || ctx.getHeader('remoteAddress') || undefined
-      const userAgent = ctx.getHeader('user-agent') || undefined
-
-      let targetType
-      let targetId
-      if (ctx.context.session || ctx.context.newSession) {
-        targetType = 'user'
-        targetId = ctx.context.session?.user.id || ctx.context.newSession?.user.id
-      } else if (['/sign-in/email', '/sign-up/email', 'forget-password'].includes(ctx.path)) {
-        targetType = 'email'
-        targetId = ctx.body.email || ''
-      }
-      const returned = ctx.context.returned
-      if (returned && returned instanceof APIError) {
-        const userId = ctx.context.newSession?.user.id
-        if (ctx.path == '/callback/:id' && returned.status == 'FOUND' && userId) {
-          const provider = ctx.params.id
-          await logAuditEvent({
-            userId,
-            category: 'auth',
-            action: ctx.path.replace(':id', provider),
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'success'
-          })
-        } else {
-          await logAuditEvent({
-            userId: ctx.context.session?.user.id,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'failure',
-            details: returned.body?.message
-          })
-        }
-      } else {
-        if (['/sign-in/email', '/sign-up/email', '/forget-password', '/reset-password'].includes(ctx.path)) {
-          let userId: string | undefined
-          if (['/sign-in/email', '/sign-up/email'].includes(ctx.path)) {
-            userId = ctx.context.newSession?.user.id
-          } else {
-            userId = ctx.context.session?.user.id
-          }
-          await logAuditEvent({
-            userId,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'success'
-          })
-        }
-      }
-    })
   },
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
