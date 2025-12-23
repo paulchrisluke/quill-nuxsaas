@@ -6,37 +6,34 @@ import * as schema from '~~/server/db/schema'
 import { getPgPool } from './drivers'
 import { runtimeConfig } from './runtimeConfig'
 
-type DatabaseInstance = NodePgDatabase<typeof schema>
-
-const createDB = (dbSchema: typeof schema = schema) => {
-  return drizzle({
-    client: getPgPool(),
-    schema: dbSchema
-  })
+const createDB = (dbSchema?: typeof schema) => {
+  return drizzle({ client: getPgPool(), schema: dbSchema })
 }
 
 let db: ReturnType<typeof createDB>
 
-export const getDB = (): DatabaseInstance => {
-  // Reuse a DB instance in node-server, but create new instances elsewhere
-  // (e.g. tests, cloudflare module builds).
-  if (runtimeConfig.preset === 'node-server') {
-    if (!db)
+export const getDB = () => {
+  if (runtimeConfig.preset == 'node-server') {
+    if (!db) {
       db = createDB()
+    }
     return db
+  } else {
+    return createDB()
   }
-
-  return createDB()
 }
 
-export const useDB = async (event?: H3Event<EventHandlerRequest>): Promise<DatabaseInstance> => {
-  if (event?.context.db)
-    return event.context.db as DatabaseInstance
-
+// use db with schema
+export const useDB = async (event?: H3Event<EventHandlerRequest>): Promise<NodePgDatabase<typeof schema>> => {
+  // If the event has a context with a db property, return it
+  if (event && event.context.db) {
+    return event.context.db
+  }
+  // Otherwise, create a new connection to the database
   const dbInstance = createDB(schema)
-  if (event)
+  if (event) {
     event.context.db = dbInstance
-
+  }
   return dbInstance
 }
 
