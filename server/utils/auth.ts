@@ -1,25 +1,49 @@
 import type { H3Event } from 'h3'
-import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, apiKey, openAPI, organization } from 'better-auth/plugins'
+import { createAccessControl } from 'better-auth/plugins/access'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
-import { ac, admin, member, owner } from '~~/shared/utils/permissions'
-import { logAuditEvent } from './auditLogger'
 import { getDB } from './db'
-import { cacheClient, resendInstance } from './drivers'
-import { renderDeleteAccount, renderResetPassword, renderTeamInvite, renderVerifyEmail } from './email'
+import { cacheClient } from './drivers'
 import { runtimeConfig } from './runtimeConfig'
-import { createStripeClient, setupStripe } from './stripe'
 
-console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
-console.log('Schema keys:', Object.keys(schema))
+// Minimal access control for Better Auth organization plugin
+const statement = {
+  organization: ['update', 'delete', 'view', 'leave'],
+  member: ['create', 'update', 'delete', 'view'],
+  invitation: ['create', 'cancel', 'resend'],
+  billing: ['manage', 'view'],
+  settings: ['view', 'update']
+} as const
+
+const ac = createAccessControl(statement)
+const member = ac.newRole({
+  organization: ['view', 'leave'],
+  member: ['view'],
+  settings: ['view']
+})
+const admin = ac.newRole({
+  organization: ['update', 'view', 'leave'],
+  member: ['create', 'update', 'delete', 'view'],
+  invitation: ['create', 'cancel', 'resend'],
+  settings: ['view', 'update']
+})
+const owner = ac.newRole({
+  organization: ['update', 'delete', 'view'],
+  member: ['create', 'update', 'delete', 'view'],
+  invitation: ['create', 'cancel', 'resend'],
+  billing: ['manage', 'view'],
+  settings: ['view', 'update']
+})
+
+type User = typeof schema.user.$inferSelect
 
 export const createBetterAuth = () => betterAuth({
-  baseURL: runtimeConfig.public.baseURL,
+  baseURL: runtimeConfig.public.baseURL || 'http://localhost:3000',
   trustedOrigins: [
     'http://localhost:8787',
     'http://localhost:3000',
@@ -30,9 +54,9 @@ export const createBetterAuth = () => betterAuth({
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:4000',
-    runtimeConfig.public.baseURL
-  ],
-  secret: runtimeConfig.betterAuthSecret,
+    runtimeConfig.public.baseURL || 'http://localhost:3000'
+  ].filter(Boolean),
+  secret: runtimeConfig.betterAuthSecret || 'change-me-in-production',
   session: {
     cookieCache: {
       enabled: true,
@@ -58,19 +82,7 @@ export const createBetterAuth = () => betterAuth({
       enabled: true
     },
     deleteUser: {
-      enabled: true,
-      async sendDeleteAccountVerification({ user, url }) {
-        if (resendInstance) {
-          const name = user.name || user.email.split('@')[0]
-          const html = await renderDeleteAccount(name, url)
-          await resendInstance.emails.send({
-            from: runtimeConfig.emailFrom!,
-            to: user.email,
-            subject: 'Confirm account deletion',
-            html
-          })
-        }
-      }
+      enabled: true
     },
     additionalFields: {
       lastActiveOrganizationId: {
@@ -88,9 +100,9 @@ export const createBetterAuth = () => betterAuth({
     user: {
       create: {
         before: async (user, ctx) => {
-          if (ctx.path.startsWith('/callback')) {
+          if (ctx?.path?.startsWith('/callback') && ctx) {
             try {
-              const additionalData = await getOAuthState(ctx)
+              const additionalData = await getOAuthState()
               if (additionalData?.referralCode) {
                 return {
                   data: {
@@ -106,47 +118,8 @@ export const createBetterAuth = () => betterAuth({
         }
       },
       update: {
-        after: async (user) => {
-          // When user email changes, update Stripe customer email for orgs they own
-          console.log('[Auth] User update hook triggered:', { userId: user.id, email: user.email, emailVerified: user.emailVerified })
-
-          // Always sync email to Stripe when user is updated (email is verified by the change-email flow)
-          if (user.email) {
-            try {
-              const db = getDB()
-              // Find all orgs where this user is owner and has a Stripe customer
-              const ownedOrgs = await db
-                .select()
-                .from(schema.member)
-                .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
-                .where(and(
-                  eq(schema.member.userId, user.id),
-                  eq(schema.member.role, 'owner')
-                ))
-
-              console.log('[Auth] Found owned orgs:', ownedOrgs.length)
-
-              if (ownedOrgs.length > 0) {
-                const stripe = createStripeClient()
-                for (const row of ownedOrgs) {
-                  const org = row.organization
-                  if (org.stripeCustomerId) {
-                    // Update customer email (used for receipts and communications)
-                    // Also ensure customer name stays as org name (not cardholder name)
-                    await stripe.customers.update(org.stripeCustomerId, {
-                      email: user.email,
-                      name: org.name
-                    })
-                    console.log(`[Auth] Updated Stripe customer ${org.stripeCustomerId} email to ${user.email}, name to "${org.name}"`)
-                  } else {
-                    console.log(`[Auth] Org ${org.id} has no stripeCustomerId`)
-                  }
-                }
-              }
-            } catch (e) {
-              console.error('[Auth] Failed to update Stripe customer email:', e)
-            }
-          }
+        after: async (_user) => {
+          // Stripe sync disabled for minimal setup
         }
       }
     },
@@ -215,7 +188,7 @@ export const createBetterAuth = () => betterAuth({
     },
     organization: {
       create: {
-        before: async (org, ctx) => {
+        before: async (org: any, ctx: any) => {
           const session = ctx.session || ctx.context?.session
           if (session?.user?.id) {
             const db = getDB()
@@ -234,32 +207,32 @@ export const createBetterAuth = () => betterAuth({
         }
       },
       update: {
-        before: async (org: any) => {
-          console.log('[Auth Hook] Organization Update Payload:', JSON.stringify(org, null, 2))
+        before: async (_org: any) => {
+          // Logging disabled for minimal setup
         }
       }
     },
     member: {
       create: {
         after: async (_member: any) => {
-          // await syncSubscriptionQuantity(member.organizationId)
+          // Stripe sync disabled for minimal setup
         }
       },
       delete: {
         after: async (_member: any) => {
-          // await syncSubscriptionQuantity(member.organizationId)
+          // Stripe sync disabled for minimal setup
         }
       }
     },
     invitation: {
       create: {
         after: async (_invitation: any) => {
-          // await syncSubscriptionQuantity(invitation.organizationId)
+          // Stripe sync disabled for minimal setup
         }
       },
       delete: {
         after: async (_invitation: any) => {
-          // await syncSubscriptionQuantity(invitation.organizationId)
+          // Stripe sync disabled for minimal setup
         }
       }
     }
@@ -267,70 +240,11 @@ export const createBetterAuth = () => betterAuth({
   secondaryStorage: cacheClient,
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true,
-    sendResetPassword: async ({ user, url }) => {
-      const name = user.name || user.email.split('@')[0]
-      const html = await renderResetPassword(name, url)
-      const response = await resendInstance.emails.send({
-        from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-        to: user.email,
-        subject: 'Reset your password',
-        html
-      })
-      await logAuditEvent({
-        userId: user.id,
-        category: 'email',
-        action: 'reset_password',
-        targetType: 'email',
-        targetId: user.email,
-        status: response.error ? 'failure' : 'success',
-        details: response.error?.message
-      })
-      if (response.error) {
-        console.error(`Failed to send reset password email: ${response.error.message}`)
-        throw createError({
-          statusCode: 500,
-          statusMessage: 'Internal Server Error'
-        })
-      }
-    }
+    requireEmailVerification: false
   },
   emailVerification: {
-    sendOnSignUp: true,
-    autoSignInAfterVerification: true,
-    sendVerificationEmail: async ({ user, url }) => {
-      console.log('>>> EMAIL VERIFICATION LINK <<<')
-      console.log(`To: ${user.email}`)
-      console.log(url)
-      console.log('>>> ------------------------ <<<')
-      try {
-        const name = user.name || user.email.split('@')[0]
-        const html = await renderVerifyEmail(name, url)
-        const response = await resendInstance.emails.send({
-          from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-          to: user.email,
-          subject: 'Verify your email address',
-          html
-        })
-        await logAuditEvent({
-          userId: user.id,
-          category: 'email',
-          action: 'verification',
-          targetType: 'email',
-          targetId: user.email,
-          status: response.error ? 'failure' : 'success',
-          details: response.error?.message
-        })
-        if (response.error) {
-          throw new Error(response.error.message)
-        }
-      } catch (e) {
-        console.warn('Failed to send verification email:', e)
-        console.log('>>> MANUAL VERIFICATION LINK <<<')
-        console.log(url)
-        console.log('>>> ------------------------ <<<')
-      }
-    }
+    sendOnSignUp: false,
+    autoSignInAfterVerification: true
   },
   socialProviders: {
     github: {
@@ -348,72 +262,8 @@ export const createBetterAuth = () => betterAuth({
     }
   },
   hooks: {
-    after: createAuthMiddleware(async (_ctx) => {
-      // Temporarily disabled audit logging to debug "No request state found" error
-      // TODO: Re-enable once the issue is resolved
-      /*
-      const ipAddress = ctx.getHeader('x-forwarded-for')
-        || ctx.getHeader('remoteAddress') || undefined
-      const userAgent = ctx.getHeader('user-agent') || undefined
-
-      let targetType
-      let targetId
-      if (ctx.context.session || ctx.context.newSession) {
-        targetType = 'user'
-        targetId = ctx.context.session?.user.id || ctx.context.newSession?.user.id
-      } else if (['/sign-in/email', '/sign-up/email', 'forget-password'].includes(ctx.path)) {
-        targetType = 'email'
-        targetId = ctx.body.email || ''
-      }
-      const returned = ctx.context.returned
-      if (returned && returned instanceof APIError) {
-        const userId = ctx.context.newSession?.user.id
-        if (ctx.path == '/callback/:id' && returned.status == 'FOUND' && userId) {
-          const provider = ctx.params.id
-          await logAuditEvent({
-            userId,
-            category: 'auth',
-            action: ctx.path.replace(':id', provider),
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'success'
-          })
-        } else {
-          await logAuditEvent({
-            userId: ctx.context.session?.user.id,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'failure',
-            details: returned.body?.message
-          })
-        }
-      } else {
-        if (['/sign-in/email', '/sign-up/email', '/forget-password', '/reset-password'].includes(ctx.path)) {
-          let userId: string | undefined
-          if (['/sign-in/email', '/sign-up/email'].includes(ctx.path)) {
-            userId = ctx.context.newSession?.user.id
-          } else {
-            userId = ctx.context.session?.user.id
-          }
-          await logAuditEvent({
-            userId,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'success'
-          })
-        }
-      }
-      */
+    after: createAuthMiddleware(async () => {
+      // Audit logging disabled for minimal setup
     })
   },
   plugins: [
@@ -426,20 +276,7 @@ export const createBetterAuth = () => betterAuth({
         admin,
         member
       },
-      enableMetadata: true,
-      async sendInvitationEmail({ email, inviter, organization, invitation }) {
-        if (resendInstance) {
-          const inviterName = inviter.user.name || inviter.user.email.split('@')[0]
-          const inviteUrl = `${runtimeConfig.public.baseURL}/invite/${invitation.id}`
-          const html = await renderTeamInvite(inviterName, organization.name, inviteUrl)
-          await resendInstance.emails.send({
-            from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-            to: email,
-            subject: `You're invited to join ${organization.name}`,
-            html
-          })
-        }
-      }
+      enableMetadata: true
     }),
     apiKey({
       enableMetadata: true,
@@ -448,8 +285,7 @@ export const createBetterAuth = () => betterAuth({
           modelName: 'apiKey'
         }
       }
-    }),
-    setupStripe()
+    })
   ]
 })
 

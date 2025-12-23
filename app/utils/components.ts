@@ -1,7 +1,0 @@
-export { default as UAccordion } from '@nuxt/ui/runtime/components/Accordion.vue'
-export { default as UAvatar } from '@nuxt/ui/runtime/components/Avatar.vue'
-export { default as UBadge } from '@nuxt/ui/runtime/components/Badge.vue'
-export { default as UButton } from '@nuxt/ui/runtime/components/Button.vue'
-export { default as UDropdownMenu } from '@nuxt/ui/runtime/components/DropdownMenu.vue'
-export { default as UTable } from '@nuxt/ui/runtime/components/Table.vue'
-export { default as UTooltip } from '@nuxt/ui/runtime/components/Tooltip.vue'
