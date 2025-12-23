@@ -8,7 +8,7 @@ declare module '@nuxt/schema' {
   }
 }
 
-let runtimeConfigInstance: NitroRuntimeConfig
+let runtimeConfigInstance: NitroRuntimeConfig | null = null
 
 export const generateRuntimeConfig = () => ({
   preset: (process.env.NODE_ENV === 'development' && !process.env.NUXT_FORCE_CLOUDFLARE_DEV)
@@ -69,12 +69,26 @@ export const generateRuntimeConfig = () => ({
   }
 })
 
-if (typeof useRuntimeConfig !== 'undefined') {
-  runtimeConfigInstance = useRuntimeConfig()
-} else {
-  // for cli: npm run auth:schema
+// In Cloudflare Workers, useRuntimeConfig() requires request context
+// At module load time (e.g., when Better Auth is initialized), we must use generateRuntimeConfig()
+// to avoid "No request state found" error
+// For CLI commands (e.g., npm run auth:schema), also use generateRuntimeConfig()
+if (typeof useRuntimeConfig === 'undefined') {
+  // CLI mode - use generateRuntimeConfig()
   config()
   runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
+} else {
+  // In Cloudflare Workers, always use generateRuntimeConfig() at module load time
+  // useRuntimeConfig() will be used at request time when needed
+  // This prevents "No request state found" errors when Better Auth is initialized at module load time
+  const preset = process.env.NUXT_NITRO_PRESET || (process.env.NODE_ENV === 'development' && !process.env.NUXT_FORCE_CLOUDFLARE_DEV ? 'node-server' : undefined)
+  if (preset === 'cloudflare-module') {
+    // Cloudflare Workers mode - use generateRuntimeConfig() to avoid accessing bindings at module load time
+    runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
+  } else {
+    // Node server mode - use useRuntimeConfig() as normal
+    runtimeConfigInstance = useRuntimeConfig()
+  }
 }
 
 export const runtimeConfig = runtimeConfigInstance

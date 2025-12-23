@@ -1,57 +1,5 @@
 <script lang="ts" setup>
-import type { zodLocales } from './utils/types'
-import { useStorage } from '@vueuse/core'
-import { z } from 'zod'
-import WorkspaceFileTree from '~/components/WorkspaceFileTree.vue'
-
 const { t } = useI18n()
-
-// Zod locale configuration
-const { locale } = useI18n()
-
-const updateZodLocale = (newLocale: string) => {
-  const localeKey = newLocale.replace('-', '') as keyof typeof zodLocales
-  if (z.locales[localeKey]) {
-    z.config(z.locales[localeKey]())
-  } else {
-    console.warn(`Zod locale "${localeKey}" not found, falling back to English.`)
-    z.config(z.locales.en())
-  }
-}
-
-const route = useRoute()
-const referralCode = useStorage<string | null>('referralCode', null)
-
-watch(() => route.query.ref, (refParam) => {
-  if (refParam) {
-    referralCode.value = refParam as string
-  }
-}, { immediate: true })
-
-const { user, client, isImpersonating } = useAuth()
-
-watch(user, (u) => {
-  if (u) {
-    referralCode.value = null
-  }
-})
-
-const stoppingImpersonation = ref(false)
-
-const stopImpersonating = async () => {
-  stoppingImpersonation.value = true
-  try {
-    await client.admin.stopImpersonating()
-    window.location.href = '/admin/user'
-  } catch (e) {
-    console.error(e)
-    stoppingImpersonation.value = false
-  }
-}
-
-watchEffect(() => {
-  updateZodLocale(locale.value)
-})
 
 useHead({
   titleTemplate: (title) => {
@@ -74,28 +22,7 @@ useSeoMeta({
 <template>
   <UApp>
     <NuxtLayout>
-      <template #sidebar>
-        <WorkspaceFileTree />
-      </template>
       <NuxtPage />
     </NuxtLayout>
-    <div
-      v-if="isImpersonating"
-      class="bg-amber-500 text-white px-6 py-3 flex justify-between items-center gap-4 fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full shadow-lg z-[100]"
-    >
-      <span class="font-medium whitespace-nowrap">
-        Impersonating {{ user?.email }}
-      </span>
-      <UButton
-        color="white"
-        variant="solid"
-        size="xs"
-        :loading="stoppingImpersonation"
-        class="rounded-full"
-        @click="stopImpersonating"
-      >
-        Stop
-      </UButton>
-    </div>
   </UApp>
 </template>

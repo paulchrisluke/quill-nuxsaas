@@ -1,14 +1,20 @@
-import type { Hyperdrive } from '@cloudflare/workers-types'
 import { kv } from 'hub:kv'
 import pg from 'pg'
 import { Resend } from 'resend'
 import { runtimeConfig } from './runtimeConfig'
 
 const getDatabaseUrl = () => {
-  // @ts-expect-error globalThis.__env__ is not defined
-  const hyperdrive = (process.env.HYPERDRIVE || globalThis.__env__?.HYPERDRIVE || globalThis.HYPERDRIVE) as Hyperdrive | undefined
-  // Use Hyperdrive if available (prod Cloudflare), otherwise DATABASE_URL
-  return hyperdrive?.connectionString || runtimeConfig.databaseUrl
+  // In Cloudflare Workers, bindings are only available within request context
+  // When Better Auth is initialized at module load time, we must use DATABASE_URL
+  // and NOT try to access Hyperdrive bindings, as that will throw "No request state found"
+  if (runtimeConfig.preset === 'cloudflare-module') {
+    // At module load time (when Better Auth is initialized), Hyperdrive bindings are not available
+    // We must use DATABASE_URL directly. Hyperdrive will be used at request time via getPgPool()
+    // which is called from within request handlers where bindings are available
+    return runtimeConfig.databaseUrl
+  }
+  // For node-server preset, always use DATABASE_URL
+  return runtimeConfig.databaseUrl
 }
 
 const createPgPool = () => new pg.Pool({

@@ -3,7 +3,14 @@
   "extends": "./.nuxt/tsconfig.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "jsxImportSource": "react",
-    "allowArbitraryExtensions": true
-  }
+    "jsxImportSource": "react"
+  },
+  "include": [
+    ".nuxt/**/*.d.ts",
+    "server/types/**/*.d.ts",
+    "nuxt.config.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.vue"
+  ]
 }

@@ -1,30 +1,12 @@
-import { relations, sql } from 'drizzle-orm'
+import { relations } from 'drizzle-orm'
 import {
   boolean,
-  check,
   index,
   integer,
   pgTable,
   text,
-  timestamp,
-  uniqueIndex
+  timestamp
 } from 'drizzle-orm/pg-core'
-
-export const organization = pgTable('organization', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  slug: text('slug').notNull().unique(),
-  logo: text('logo'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  metadata: text('metadata'),
-  stripeCustomerId: text('stripe_customer_id'),
-  referralCode: text('referral_code'),
-  deviceFingerprint: text('device_fingerprint'),
-  isAnonymous: boolean('is_anonymous').default(false).notNull(),
-  lastSyncedAt: timestamp('last_synced_at')
-}, table => [
-  index('organization_device_fingerprint_idx').on(table.deviceFingerprint)
-])
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -41,11 +23,8 @@ export const user = pgTable('user', {
   banned: boolean('banned').default(false),
   banReason: text('ban_reason'),
   banExpires: timestamp('ban_expires'),
-  referralCode: text('referral_code').unique(),
-  defaultOrganizationId: text('default_organization_id').references(() => organization.id, {
-    onDelete: 'set null'
-  }),
-  isAnonymous: boolean('is_anonymous').default(false).notNull()
+  lastActiveOrganizationId: text('last_active_organization_id'),
+  referralCode: text('referral_code')
 })
 
 export const account = pgTable(
@@ -66,14 +45,10 @@ export const account = pgTable(
     password: text('password'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
-      .defaultNow()
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull()
   },
-  table => [
-    index('account_userId_idx').on(table.userId),
-    uniqueIndex('account_provider_unique_idx').on(table.providerId, table.accountId)
-  ]
+  table => [index('account_userId_idx').on(table.userId)]
 )
 
 export const verification = pgTable(
@@ -92,6 +67,17 @@ export const verification = pgTable(
   table => [index('verification_identifier_idx').on(table.identifier)]
 )
 
+export const organization = pgTable('organization', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  logo: text('logo'),
+  createdAt: timestamp('created_at').notNull(),
+  metadata: text('metadata'),
+  stripeCustomerId: text('stripe_customer_id'),
+  referralCode: text('referral_code')
+})
+
 export const member = pgTable(
   'member',
   {
@@ -103,12 +89,11 @@ export const member = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: 'cascade' }),
     role: text('role').default('member').notNull(),
-    createdAt: timestamp('created_at').defaultNow().notNull()
+    createdAt: timestamp('created_at').notNull()
   },
   table => [
     index('member_organizationId_idx').on(table.organizationId),
-    index('member_userId_idx').on(table.userId),
-    uniqueIndex('member_unique_idx').on(table.organizationId, table.userId)
+    index('member_userId_idx').on(table.userId)
   ]
 )
 
@@ -130,61 +115,39 @@ export const invitation = pgTable(
   },
   table => [
     index('invitation_organizationId_idx').on(table.organizationId),
-    index('invitation_email_idx').on(table.email),
-    uniqueIndex('invitation_unique_idx').on(table.organizationId, table.email)
+    index('invitation_email_idx').on(table.email)
   ]
 )
 
-export const subscription = pgTable(
-  'subscription',
-  {
-    id: text('id').primaryKey(),
-    plan: text('plan').notNull(),
-    referenceId: text('reference_id')
-      .notNull()
-      .references(() => organization.id, { onDelete: 'cascade' }),
-    stripeCustomerId: text('stripe_customer_id'),
-    stripeSubscriptionId: text('stripe_subscription_id'),
-    status: text('status').default('incomplete'),
-    periodStart: timestamp('period_start'),
-    periodEnd: timestamp('period_end'),
-    trialStart: timestamp('trial_start'),
-    trialEnd: timestamp('trial_end'),
-    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
-    seats: integer('seats'),
-    scheduledPlanId: text('scheduled_plan_id'),
-    scheduledPlanInterval: text('scheduled_plan_interval'),
-    scheduledPlanSeats: integer('scheduled_plan_seats')
-  },
-  table => [
-    index('subscription_stripe_customer_id_idx').on(table.stripeCustomerId),
-    index('subscription_stripe_subscription_id_idx').on(table.stripeSubscriptionId),
-    check('subscription_seats_check', sql`${table.seats} IS NULL OR ${table.seats} > 0`)
-  ]
-)
+export const subscription = pgTable('subscription', {
+  id: text('id').primaryKey(),
+  plan: text('plan').notNull(),
+  referenceId: text('reference_id').notNull(),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  status: text('status').default('incomplete'),
+  periodStart: timestamp('period_start'),
+  periodEnd: timestamp('period_end'),
+  trialStart: timestamp('trial_start'),
+  trialEnd: timestamp('trial_end'),
+  cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false),
+  seats: integer('seats')
+})
 
-export const session = pgTable(
-  'session',
-  {
-    id: text('id').primaryKey(),
-    expiresAt: timestamp('expires_at').notNull(),
-    token: text('token').notNull().unique(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at')
-      .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
-    ipAddress: text('ip_address'),
-    userAgent: text('user_agent'),
-    userId: text('user_id')
-      .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
-    activeOrganizationId: text('active_organization_id')
-      .references(() => organization.id, { onDelete: 'set null' }),
-    impersonatedBy: text('impersonated_by')
-  },
-  table => [index('session_user_id_idx').on(table.userId)]
-)
+export const session = pgTable('session', {
+  id: text('id').primaryKey(),
+  expiresAt: timestamp('expires_at').notNull(),
+  token: text('token').notNull().unique(),
+  createdAt: timestamp('created_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  userId: text('user_id')
+    .notNull()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  activeOrganizationId: text('active_organization_id'),
+  impersonatedBy: text('impersonated_by')
+})
 
 export const apiKey = pgTable('apiKey', {
   id: text('id').primaryKey(),
@@ -206,11 +169,8 @@ export const apiKey = pgTable('apiKey', {
   remaining: integer('remaining'),
   lastRequest: timestamp('last_request'),
   expiresAt: timestamp('expires_at'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at')
-    .defaultNow()
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
+  createdAt: timestamp('created_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull(),
   permissions: text('permissions'),
   metadata: text('metadata')
 })
@@ -219,15 +179,7 @@ export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   members: many(member),
   invitations: many(invitation),
-  sessions: many(session),
-  apiKeys: many(apiKey)
-}))
-
-export const apiKeyRelations = relations(apiKey, ({ one }) => ({
-  user: one(user, {
-    fields: [apiKey.userId],
-    references: [user.id]
-  })
+  sessions: many(session)
 }))
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -247,7 +199,7 @@ export const accountRelations = relations(account, ({ one }) => ({
 export const organizationRelations = relations(organization, ({ many }) => ({
   members: many(member),
   invitations: many(invitation),
-  subscriptions: many(subscription)
+  apiKeys: many(apiKey)
 }))
 
 export const memberRelations = relations(member, ({ one }) => ({
@@ -269,12 +221,5 @@ export const invitationRelations = relations(invitation, ({ one }) => ({
   user: one(user, {
     fields: [invitation.inviterId],
     references: [user.id]
-  })
-}))
-
-export const subscriptionRelations = relations(subscription, ({ one }) => ({
-  organization: one(organization, {
-    fields: [subscription.referenceId],
-    references: [organization.id]
   })
 }))
