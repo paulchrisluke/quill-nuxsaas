@@ -7,26 +7,23 @@
 import { useClipboard } from '@vueuse/core'
 
 definePageMeta({
-  layout: 'settings'
+  layout: 'dashboard'
 })
 
-useHead({
-  title: 'Members'
-})
-
-const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
-setHeaderTitle?.('Members')
-
-const { organization, useActiveOrganization, user, fetchSession, getActiveOrganizationId } = useAuth()
-const { activeSub: billingSubscription, refresh: refreshBillingState } = usePaymentStatus()
+const { organization, useActiveOrganization, session, user, fetchSession, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
 
 const loading = ref(false)
 
-// Get subscription data from usePaymentStatus() via billingSubscription
-const subscriptionData = computed(() => billingSubscription.value)
+// Get subscription data from activeOrg
+const subscriptionData = computed(() => {
+  const subs = (activeOrg.value?.data as any)?.subscriptions
+  if (!subs || !Array.isArray(subs))
+    return null
+  return subs.find((s: any) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due')
+})
 
 // Check if current user is admin or owner
 const currentUserRole = computed(() => {
@@ -46,13 +43,13 @@ const isPro = computed(() => {
 
 // Check if we need to set an active org on mount
 onMounted(async () => {
-  if (!getActiveOrganizationId()) {
+  if (!session.value?.activeOrganizationId) {
     const { data } = await organization.list()
-    if (data && data.length > 0 && data[0]?.id) {
+    if (data && data.length > 0) {
       await organization.setActive({ organizationId: data[0].id })
       await fetchSession()
     } else {
-      await navigateTo('/')
+      navigateTo('/onboarding')
     }
   }
 })
@@ -78,7 +75,7 @@ async function refreshPage() {
   loading.value = true
   try {
     await fetchSession()
-    await refreshBillingState()
+    await refreshActiveOrg()
     toast.add({ title: 'Data refreshed', color: 'success' })
   } catch {
     toast.add({ title: 'Error refreshing data', color: 'error' })
@@ -107,7 +104,7 @@ async function updateMemberRole(memberId: string, newRole: string) {
 
     toast.add({ title: 'Role updated', color: 'success' })
     await fetchSession()
-    await refreshBillingState()
+    await refreshActiveOrg()
   } catch (e: any) {
     toast.add({
       title: 'Error updating role',
@@ -138,7 +135,7 @@ async function removeMember(memberId: string) {
 
     toast.add({ title: 'Member removed', color: 'success' })
     await fetchSession()
-    await refreshBillingState()
+    await refreshActiveOrg()
   } catch (e: any) {
     toast.add({
       title: 'Error removing member',
@@ -166,7 +163,7 @@ async function revokeInvitation(invitationId: string) {
 
     toast.add({ title: 'Invitation revoked', color: 'success' })
     await fetchSession()
-    await refreshBillingState()
+    await refreshActiveOrg()
   } catch (e: any) {
     toast.add({
       title: 'Error revoking invitation',
@@ -186,7 +183,7 @@ const roles = [
 </script>
 
 <template>
-  <div class="py-8 px-4">
+  <div class="max-w-4xl mx-auto py-8 px-4">
     <div class="flex justify-between items-center mb-8">
       <h1 class="text-3xl font-semibold">
         Team Members
@@ -194,7 +191,7 @@ const roles = [
       <UButton
         icon="i-lucide-refresh-cw"
         variant="ghost"
-        color="neutral"
+        color="gray"
         :loading="loading"
         @click="refreshPage"
       />

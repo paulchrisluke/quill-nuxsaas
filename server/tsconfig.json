@@ -1,3 +1,8 @@
 {
-  "extends": "../.nuxt/tsconfig.server.json"
+  "extends": "../.nuxt/tsconfig.server.json",
+  "include": [
+    "../.nuxt/**/*.d.ts",
+    "../server/types/**/*.d.ts",
+    "./**/*.ts"
+  ]
 }

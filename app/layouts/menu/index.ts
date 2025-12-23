@@ -20,11 +20,6 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
         to: localePath('/admin/organization')
       },
       {
-        label: t('menu.chats'),
-        icon: 'i-lucide-messages-square',
-        to: localePath('/admin/chats')
-      },
-      {
         label: t('menu.subscriptions'),
         icon: 'i-lucide-credit-card',
         to: localePath('/admin/subscription')
@@ -58,6 +53,11 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
     ],
     [
       {
+        label: t('menu.home'),
+        icon: 'i-lucide-home',
+        to: localePath('/')
+      },
+      {
         label: 'GitHub',
         icon: 'i-lucide-github',
         to: appRepo,
@@ -67,16 +67,15 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
   ]
 }
 
-export const getUserMenus = (localePath: LocalePathFunction, slug: string, userRole?: 'owner' | 'admin' | 'member', needsUpgrade = false): NavigationMenuItem[][] => {
+export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string, slug: string, userRole?: 'owner' | 'admin' | 'member', needsUpgrade = false): NavigationMenuItem[][] => {
   const items: NavigationMenuItem[] = []
 
-  items.push({
-    label: 'General',
-    icon: 'i-lucide-sliders-horizontal',
-    to: localePath(`/${slug}/settings/general`)
-  })
-
   if (!needsUpgrade) {
+    items.push({
+      label: t('menu.dashboard'),
+      icon: 'i-lucide-layout-dashboard',
+      to: localePath(`/${slug}/dashboard`)
+    })
     items.push({
       label: 'Members',
       icon: 'i-lucide-users',
@@ -96,17 +95,20 @@ export const getUserMenus = (localePath: LocalePathFunction, slug: string, userR
   // Owners and admins can see settings (using permissions system)
   if (hasPermission(userRole, 'VIEW_SETTINGS_NAV')) {
     items.push({
-      label: 'Integrations',
-      icon: 'i-lucide-plug-zap',
-      to: localePath(`/${slug}/integrations`)
-    })
-
-    items.push({
       label: 'Settings',
       icon: 'i-lucide-settings',
       to: localePath(`/${slug}/settings`)
     })
   }
 
-  return [items]
+  return [
+    items,
+    [
+      {
+        label: t('menu.home'),
+        icon: 'i-lucide-home',
+        to: localePath('/')
+      }
+    ]
+  ]
 }

@@ -2,7 +2,7 @@ import type { H3Event } from 'h3'
 import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
+import { createAuthMiddleware, getOAuthState } from 'better-auth/api'
 import { admin as adminPlugin, apiKey, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
@@ -64,7 +64,7 @@ export const createBetterAuth = () => betterAuth({
           const name = user.name || user.email.split('@')[0]
           const html = await renderDeleteAccount(name, url)
           await resendInstance.emails.send({
-            from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
+            from: runtimeConfig.emailFrom!,
             to: user.email,
             subject: 'Confirm account deletion',
             html
@@ -348,7 +348,10 @@ export const createBetterAuth = () => betterAuth({
     }
   },
   hooks: {
-    after: createAuthMiddleware(async (ctx) => {
+    after: createAuthMiddleware(async (_ctx) => {
+      // Temporarily disabled audit logging to debug "No request state found" error
+      // TODO: Re-enable once the issue is resolved
+      /*
       const ipAddress = ctx.getHeader('x-forwarded-for')
         || ctx.getHeader('remoteAddress') || undefined
       const userAgent = ctx.getHeader('user-agent') || undefined
@@ -410,6 +413,7 @@ export const createBetterAuth = () => betterAuth({
           })
         }
       }
+      */
     })
   },
   plugins: [

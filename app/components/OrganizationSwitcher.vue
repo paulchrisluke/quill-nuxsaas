@@ -1,22 +1,16 @@
 <script setup lang="ts">
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { getPlanKeyFromId, PLAN_TIERS } from '~~/shared/utils/plans'
 
-const { session, useActiveOrganization, user } = useAuth()
-const { activeSub: activeStripeSubscription } = usePaymentStatus()
+const { organization, session, useActiveOrganization, user } = useAuth()
 
-// SSR enabled for the initial render, lazy on client navigations, and cached via shared state.
-const organizationsCache = useUserOrganizationsCache()
-const { data: organizations, status } = useUserOrganizations({
-  server: true,
-  lazy: true,
-  getCachedData: () => organizationsCache.value
+// Use lazy fetch for organizations to not block navigation
+// getCachedData returns undefined to ensure fresh data on each full page load
+const { data: organizations, status } = await useLazyAsyncData('user-organizations', async () => {
+  const { data } = await organization.list()
+  return data
+}, {
+  getCachedData: () => undefined
 })
-
-const dropdownMenuUi = {
-  content: 'w-60 cursor-pointer',
-  item: 'cursor-pointer data-[active=true]:bg-gray-100 dark:data-[active=true]:bg-gray-800 data-[active=true]:text-gray-900 dark:data-[active=true]:text-white'
-}
 
 const isPending = computed(() => status.value === 'pending')
 const activeOrg = useActiveOrganization()
@@ -26,7 +20,7 @@ const route = useRoute()
 const activeOrgId = computed(() => {
   // Use route slug first for immediate reactivity
   const routeSlug = route.params.slug as string
-  if (routeSlug && routeSlug !== NON_ORG_SLUG && organizations.value) {
+  if (routeSlug && routeSlug !== 't' && organizations.value) {
     const org = organizations.value.find((o: any) => o.slug === routeSlug)
     if (org?.id)
       return org.id
@@ -53,6 +47,25 @@ const activeOrgName = computed(() => {
 })
 
 // Compute active subscription from activeOrg state (populated by layout)
+const activeStripeSubscription = computed(() => {
+  const data = activeOrg.value?.data
+
+  // Check if the data matches the currently selected org
+  // If not, it means we are switching and still have stale data
+  if (!data || data.id !== activeOrgId.value) {
+    return null
+  }
+
+  const subs = (data as any)?.subscriptions || []
+
+  if (!subs || !Array.isArray(subs))
+    return null
+
+  return subs.find(
+    (sub: any) => sub.status === 'active' || sub.status === 'trialing'
+  )
+})
+
 // Check if current user is owner or admin
 const _canManageTeam = computed(() => {
   if (!activeOrg.value?.data?.members || !user.value?.id)
@@ -64,14 +77,14 @@ const _canManageTeam = computed(() => {
 // Get the tier display name from the subscription plan
 const tierBadgeLabel = computed(() => {
   if (!activeStripeSubscription.value?.plan)
-    return 'Free'
+    return 'Pro'
   const tierKey = getPlanKeyFromId(activeStripeSubscription.value.plan)
   if (tierKey === 'free')
-    return 'Free'
+    return 'Pro' // Fallback
   return PLAN_TIERS[tierKey]?.name || 'Pro'
 })
 
-const activeOrgSlug = computed(() => activeOrg.value?.data?.slug || NON_ORG_SLUG)
+const activeOrgSlug = computed(() => activeOrg.value?.data?.slug || 't')
 const switching = ref(false)
 const { start, finish } = useLoadingIndicator()
 
@@ -101,7 +114,7 @@ async function handleOrgChange(orgId: string) {
       newPath = newPath.replace('/t/', `/${org.slug}/`)
     } else {
       // Fallback if not in a team route
-      newPath = `/${org.slug}/members`
+      newPath = `/${org.slug}/dashboard`
     }
 
     // Set active organization and wait for it to complete
@@ -162,12 +175,12 @@ const dropdownItems = computed(() => {
   >
     <UDropdownMenu
       :items="dropdownItems"
-      :ui="dropdownMenuUi"
+      :ui="{ content: 'w-60 cursor-pointer', item: { base: 'cursor-pointer', active: 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' } }"
       arrow
     >
       <button class="flex items-center justify-between w-full px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors group outline-none cursor-pointer">
         <div class="flex items-center gap-2 min-w-0">
-          <div class="w-5 h-5 rounded bg-amber-500 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
+          <div class="w-5 h-5 rounded bg-green-500 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
             {{ activeOrgName.charAt(0).toUpperCase() }}
           </div>
           <span class="font-medium text-sm truncate">{{ activeOrgName }}</span>

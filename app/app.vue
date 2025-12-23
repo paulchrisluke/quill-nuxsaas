@@ -1,13 +1,16 @@
 <script lang="ts" setup>
-import type { zodLocales } from './utils/types'
 import { useStorage } from '@vueuse/core'
-import { z } from 'zod'
-import WorkspaceFileTree from '~/components/WorkspaceFileTree.vue'
+import { registerTheme } from 'echarts/core'
+// Credit: https://github.com/nuxt/ui/issues/978#issuecomment-3025809129
+import NuxtUITheme from './assets/echarts-theme.json'
 
 const { t } = useI18n()
 
 // Zod locale configuration
 const { locale } = useI18n()
+
+registerTheme('nuxtui-chart', NuxtUITheme)
+provide(THEME_KEY, 'nuxtui-chart')
 
 const updateZodLocale = (newLocale: string) => {
   const localeKey = newLocale.replace('-', '') as keyof typeof zodLocales
@@ -20,7 +23,7 @@ const updateZodLocale = (newLocale: string) => {
 }
 
 const route = useRoute()
-const referralCode = useStorage<string | null>('referralCode', null)
+const referralCode = useStorage('referralCode', '')
 
 watch(() => route.query.ref, (refParam) => {
   if (refParam) {
@@ -28,7 +31,7 @@ watch(() => route.query.ref, (refParam) => {
   }
 }, { immediate: true })
 
-const { user, client, isImpersonating } = useAuth()
+const { session, user, client } = useAuth()
 
 watch(user, (u) => {
   if (u) {
@@ -36,6 +39,7 @@ watch(user, (u) => {
   }
 })
 
+const isImpersonating = computed(() => !!(session.value as any)?.impersonatedBy)
 const stoppingImpersonation = ref(false)
 
 const stopImpersonating = async () => {
@@ -74,9 +78,6 @@ useSeoMeta({
 <template>
   <UApp>
     <NuxtLayout>
-      <template #sidebar>
-        <WorkspaceFileTree />
-      </template>
       <NuxtPage />
     </NuxtLayout>
     <div
@@ -90,7 +91,7 @@ useSeoMeta({
         color="white"
         variant="solid"
         size="xs"
-        :loading="stoppingImpersonation"
+        :loading="stoppingImpersonating"
         class="rounded-full"
         @click="stopImpersonating"
       >

@@ -7,7 +7,6 @@
 const { organization, useActiveOrganization, fetchSession, user } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
-const { showOnboarding } = useOnboarding()
 
 const leaveLoading = ref(false)
 const deleteLoading = ref(false)
@@ -50,14 +49,12 @@ async function leaveTeam() {
 
     // Refresh and redirect
     const { data: orgs } = await organization.list()
-    if (orgs && orgs.length > 0 && orgs[0]?.id && orgs[0]?.slug) {
+    if (orgs && orgs.length > 0) {
       await organization.setActive({ organizationId: orgs[0].id })
       await fetchSession()
-      window.location.href = `/${orgs[0].slug}/members`
+      window.location.href = `/${orgs[0].slug}/dashboard`
     } else {
-      await fetchSession()
-      await showOnboarding()
-      await navigateTo('/')
+      window.location.href = '/onboarding'
     }
   } catch (e: any) {
     toast.add({ title: 'Error leaving team', description: e.message, color: 'error' })
@@ -94,14 +91,12 @@ async function deleteTeam() {
     // Fetch remaining teams to determine where to redirect
     const { data: orgs } = await organization.list()
 
-    if (orgs && orgs.length > 0 && orgs[0]?.id && orgs[0]?.slug) {
+    if (orgs && orgs.length > 0) {
       await organization.setActive({ organizationId: orgs[0].id })
       await fetchSession()
-      window.location.href = `/${orgs[0].slug}/members`
+      window.location.href = `/${orgs[0].slug}/dashboard`
     } else {
-      await fetchSession()
-      await showOnboarding()
-      await navigateTo('/')
+      window.location.href = '/onboarding'
     }
   } catch (e: any) {
     toast.add({
@@ -130,7 +125,7 @@ async function deleteTeam() {
       </p>
 
       <UButton
-        color="error"
+        color="red"
         variant="outline"
         icon="i-lucide-log-out"
         :loading="leaveLoading"
@@ -154,7 +149,7 @@ async function deleteTeam() {
       </p>
 
       <UButton
-        color="error"
+        color="red"
         variant="outline"
         icon="i-lucide-trash-2"
         :loading="deleteLoading"

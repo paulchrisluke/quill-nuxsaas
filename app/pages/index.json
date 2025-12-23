@@ -1,50 +1,40 @@
 {
   "en": {
     "home": {
-      "slogan": "Create SEO-ready blogs from YouTube",
+      "slogan": "Production-Ready Nuxt SaaS Starter with Better Auth & Stripe",
+      "getStarted": "Get Started",
+      "viewOnGithub": "View on GitHub",
       "features": {
-        "title": "Features",
+        "title": "Everything You Need to Launch",
         "items": {
-          "youtube": {
-            "title": "YouTube Integration",
-            "description": "Automatically extract transcripts, metadata, and content from YouTube videos. Support for any public YouTube video URL."
+          "billing": {
+            "title": "Stripe Billing",
+            "description": "Seat-based subscriptions with proration previews, legacy pricing support, failed payment handling with grace periods, and invoice history with PDF downloads."
           },
-          "ai-generation": {
-            "title": "AI-Powered Generation",
-            "description": "Transform video content into well-structured blog posts with proper headings, sections, and formatting. Maintains the authentic voice of the original content."
+          "emails": {
+            "title": "Transactional Emails",
+            "description": "10+ email templates via React Email + Resend: verification, password reset, team invites, trial notifications, subscription updates, payment failures, and more."
           },
-          "seo": {
-            "title": "SEO Optimization",
-            "description": "Automatic SEO metadata generation including optimized titles, descriptions, keywords, and schema markup for better search engine visibility."
+          "teams": {
+            "title": "Teams & Organizations",
+            "description": "Multi-org support with 14-day trial (first org), Owner/Admin/Member roles, invite links that work for both new and existing users, and per-org timezone settings."
           },
-          "chat": {
-            "title": "Interactive Chat",
-            "description": "Refine and customize generated content through an intuitive chat interface. Edit sections, adjust tone, and iterate on your blog posts."
+          "auth": {
+            "title": "Auth & Profile",
+            "description": "Better Auth with Google/GitHub OAuth, profile picture upload, link/unlink accounts, session management, and email changes that sync to Stripe."
           },
-          "editing": {
-            "title": "Content Editor",
-            "description": "Full-featured content editor with section-by-section editing, markdown support, and version control for your blog content."
+          "admin": {
+            "title": "Admin Panel",
+            "description": "User impersonation for support, soft-ban accounts, audit logs, and full subscription & organization management."
           },
-          "search": {
-            "title": "Semantic Search",
-            "description": "Vector-based search across all your ingested video content to find relevant context and improve content quality."
+          "ssr": {
+            "title": "SSR Optimized",
+            "description": "Server-rendered pages with minimal client API calls. Data prefetching and smart caching for snappy navigation."
           },
-          "collaboration": {
-            "title": "Team Collaboration",
-            "description": "Multi-tenant workspaces with team members, role-based permissions, and collaborative content creation workflows."
+          "stack": {
+            "title": "Modern Stack",
+            "description": "Nuxt 4, Vue 3, TypeScript, PostgreSQL, Drizzle ORM, and Cloudflare (Hyperdrive, R2, Workers) for edge deployment."
           }
-        },
-        "aiConversations": {
-          "title": "AI Conversations",
-          "description": "Chat with AI to generate and refine your content through natural conversations."
-        },
-        "contentManagement": {
-          "title": "Content Management",
-          "description": "Organize and manage all your generated content in one place."
-        },
-        "fastEfficient": {
-          "title": "Fast & Efficient",
-          "description": "Streamlined workflow to create and publish content faster than ever."
         }
       },
       "screenshots": {
@@ -59,53 +49,79 @@
   },
   "zh-CN": {
     "home": {
-      "slogan": "从 YouTube 创建 SEO 就绪的博客",
-      "description": "通过 AI 驱动的对话创建、编辑和管理您的内容。开始对话以生成内容或继续之前的工作。",
-      "startConversation": "开始对话",
-      "viewContent": "查看内容",
+      "slogan": "Nuxt.js 全栈 SaaS 起步工具包 - 免费开源",
+      "getStarted": "开始使用",
+      "viewOnGithub": "在 GitHub 上查看",
       "features": {
-        "title": "功能特性",
+        "title": "为您的 SaaS 成功打造坚实基础",
+        "categories": {
+          "foundation": "基础架构",
+          "integration": "集成功能",
+          "admin": "管理功能",
+          "experience": "用户体验",
+          "developer": "开发者友好"
+        },
         "items": {
-          "youtube": {
-            "title": "YouTube 集成",
-            "description": "自动从 YouTube 视频中提取转录文本、元数据和内容。支持任何公开的 YouTube 视频 URL。"
+          "modernTechStack": {
+            "title": "现代技术栈",
+            "description": "使用 Nuxt 构建，支持 Nuxt v4、TypeScript 和 Vue 3 组合式 API"
           },
-          "ai-generation": {
-            "title": "AI 驱动生成",
-            "description": "将视频内容转换为结构良好的博客文章，包含适当的标题、章节和格式。保持原始内容的真实声音。"
+          "secureAuth": {
+            "title": "安全认证",
+            "description": "由 Better Auth 提供支持的强大身份验证系统，支持 OAuth2 社交登录（Google、GitHub 等）、登录/注册和基于邮件的密码重置功能。"
           },
-          "seo": {
-            "title": "SEO 优化",
-            "description": "自动生成 SEO 元数据，包括优化的标题、描述、关键词和结构化标记，以提高搜索引擎可见性。"
+          "enterpriseDatabase": {
+            "title": "企业级数据库",
+            "description": "使用 PostgreSQL 和 Drizzle ORM 实现类型安全的数据操作"
           },
-          "chat": {
-            "title": "交互式聊天",
-            "description": "通过直观的聊天界面细化和自定义生成的内容。编辑章节、调整语调，并迭代您的博客文章。"
+          "emailIntegration": {
+            "title": "邮件集成",
+            "description": "内置 Resend 集成用于发送交易邮件"
           },
-          "editing": {
-            "title": "内容编辑器",
-            "description": "功能齐全的内容编辑器，支持逐章节编辑、Markdown 支持和博客内容的版本控制。"
+          "paymentReady": {
+            "title": "支付就绪",
+            "description": "集成 Stripe 实现订阅管理"
           },
-          "search": {
-            "title": "语义搜索",
-            "description": "对所有已摄取视频内容进行基于向量的搜索，以找到相关上下文并提高内容质量。"
+          "noVendorLockIn": {
+            "title": "无供应商锁定",
+            "description": "模块化架构，组件可互换"
           },
-          "collaboration": {
-            "title": "团队协作",
-            "description": "多租户工作空间，支持团队成员、基于角色的权限和协作内容创建工作流程。"
+          "dashboard": {
+            "title": "仪表盘",
+            "description": "功能强大的管理仪表盘，配备精美图表"
+          },
+          "advancedTables": {
+            "title": "高级表格",
+            "description": "类似 Notion/Airtable 的高级筛选、排序和分页功能，内置通用列表 API"
+          },
+          "userSubscriptionManagement": {
+            "title": "用户/订阅管理",
+            "description": "即用型的用户和订阅管理页面"
+          },
+          "modernUIDesign": {
+            "title": "现代化界面设计",
+            "description": "使用 Nuxt UI 和 TailwindCSS 构建的精美组件"
+          },
+          "i18nReady": {
+            "title": "多语言支持",
+            "description": "内置多语言支持功能"
+          },
+          "responsiveLayout": {
+            "title": "响应式布局",
+            "description": "针对所有设备和屏幕尺寸优化"
+          },
+          "developerFriendly": {
+            "title": "开发者友好",
+            "description": "使用 ESLint + TypeScript 提供更好的开发体验"
+          },
+          "quickSetup": {
+            "title": "快速搭建",
+            "description": "几分钟内即可开始开发"
+          },
+          "customizable": {
+            "title": "易于定制",
+            "description": "轻松扩展和自定义组件"
           }
-        },
-        "aiConversations": {
-          "title": "AI 对话",
-          "description": "与 AI 聊天，通过自然对话生成和完善您的内容。"
-        },
-        "contentManagement": {
-          "title": "内容管理",
-          "description": "在一个地方组织和管理所有生成的内容。"
-        },
-        "fastEfficient": {
-          "title": "快速高效",
-          "description": "简化的工作流程，比以往更快地创建和发布内容。"
         }
       },
       "screenshots": {
@@ -120,53 +136,79 @@
   },
   "ja": {
     "home": {
-      "slogan": "YouTubeからSEO対応のブログを作成",
-      "description": "AIを活用した会話でコンテンツを作成、編集、管理します。会話を開始してコンテンツを生成するか、前回の続きから始めます。",
-      "startConversation": "会話を開始",
-      "viewContent": "コンテンツを表示",
+      "slogan": "Nuxt.js フルスタック SaaS スターターキット - 無料＆オープンソース",
+      "getStarted": "始めましょう",
+      "viewOnGithub": "GitHub で見る",
       "features": {
-        "title": "機能",
+        "title": "SaaS の成功のための堅固な基盤",
+        "categories": {
+          "foundation": "基盤",
+          "integration": "統合機能",
+          "admin": "管理機能",
+          "experience": "ユーザー体験",
+          "developer": "開発者向け"
+        },
         "items": {
-          "youtube": {
-            "title": "YouTube統合",
-            "description": "YouTube動画から自動的に文字起こし、メタデータ、コンテンツを抽出。公開されている任意のYouTube動画URLをサポート。"
+          "modernTechStack": {
+            "title": "モダン技術スタック",
+            "description": "Nuxt で構築され、Nuxt v4、TypeScript、Vue 3 Composition API に対応"
           },
-          "ai-generation": {
-            "title": "AI駆動生成",
-            "description": "動画コンテンツを適切な見出し、セクション、フォーマットを持つ構造化されたブログ記事に変換。元のコンテンツの本物の声を維持。"
+          "secureAuth": {
+            "title": "セキュア認証",
+            "description": "Better Auth による堅牢な認証システム。OAuth2 ソーシャルログイン（Google、GitHub など）、サインイン/アップ、メールベースのパスワードリセット機能を提供。"
           },
-          "seo": {
-            "title": "SEO最適化",
-            "description": "最適化されたタイトル、説明、キーワード、構造化マークアップを含むSEOメタデータの自動生成により、検索エンジンの可視性を向上。"
+          "enterpriseDatabase": {
+            "title": "エンタープライズデータベース",
+            "description": "PostgreSQL と Drizzle ORM による型安全な操作"
           },
-          "chat": {
-            "title": "インタラクティブチャット",
-            "description": "直感的なチャットインターフェースを通じて生成されたコンテンツを細かく調整し、カスタマイズ。セクションを編集し、トーンを調整し、ブログ記事を反復改善。"
+          "emailIntegration": {
+            "title": "メール統合",
+            "description": "トランザクションメール用の Resend 統合機能搭載"
           },
-          "editing": {
-            "title": "コンテンツエディター",
-            "description": "セクションごとの編集、Markdownサポート、ブログコンテンツのバージョン管理を備えたフル機能のコンテンツエディター。"
+          "paymentReady": {
+            "title": "決済対応",
+            "description": "サブスクリプション管理用の Stripe 統合"
           },
-          "search": {
-            "title": "セマンティック検索",
-            "description": "取り込んだすべての動画コンテンツに対してベクトルベースの検索を実行し、関連するコンテキストを見つけてコンテンツの品質を向上。"
+          "noVendorLockIn": {
+            "title": "ベンダーロックインなし",
+            "description": "交換可能なコンポーネントによるモジュラーアーキテクチャ"
           },
-          "collaboration": {
-            "title": "チームコラボレーション",
-            "description": "チームメンバー、ロールベースの権限、コラボレーティブなコンテンツ作成ワークフローを備えたマルチテナントワークスペース。"
+          "dashboard": {
+            "title": "ダッシュボード",
+            "description": "美しいチャートを備えた強力な管理ダッシュボード"
+          },
+          "advancedTables": {
+            "title": "高度なテーブル",
+            "description": "Notion/Airtable のような高度なフィルタリング、ソート、ページネーション機能とすぐに使える汎用リスト API"
+          },
+          "userSubscriptionManagement": {
+            "title": "ユーザー/サブスクリプション管理",
+            "description": "すぐに使えるユーザーとサブスクリプション管理ページ"
+          },
+          "modernUIDesign": {
+            "title": "モダンな UI デザイン",
+            "description": "Nuxt UI と TailwindCSS による美しいコンポーネント"
+          },
+          "i18nReady": {
+            "title": "多言語対応",
+            "description": "複数言語のサポートを標準搭載"
+          },
+          "responsiveLayout": {
+            "title": "レスポンシブレイアウト",
+            "description": "すべてのデバイスと画面サイズに最適化"
+          },
+          "developerFriendly": {
+            "title": "開発者フレンドリー",
+            "description": "ESLint + TypeScript でより良い開発体験"
+          },
+          "quickSetup": {
+            "title": "クイックセットアップ",
+            "description": "数分で開発を開始可能"
+          },
+          "customizable": {
+            "title": "カスタマイズ可能",
+            "description": "コンポーネントの拡張とカスタマイズが容易"
           }
-        },
-        "aiConversations": {
-          "title": "AI会話",
-          "description": "AIとチャットして、自然な会話を通じてコンテンツを生成し、改善します。"
-        },
-        "contentManagement": {
-          "title": "コンテンツ管理",
-          "description": "生成されたすべてのコンテンツを一箇所で整理・管理します。"
-        },
-        "fastEfficient": {
-          "title": "高速で効率的",
-          "description": "これまで以上に速くコンテンツを作成・公開できる合理化されたワークフロー。"
         }
       },
       "screenshots": {
@@ -181,53 +223,79 @@
   },
   "fr": {
     "home": {
-      "slogan": "Créez des blogs optimisés SEO à partir de YouTube",
-      "description": "Créez, modifiez et gérez votre contenu avec des conversations alimentées par l'IA. Démarrez une conversation pour générer du contenu ou continuez où vous vous êtes arrêté.",
-      "startConversation": "Démarrer une conversation",
-      "viewContent": "Voir le contenu",
+      "slogan": "Kit de Démarrage SaaS Full-Stack Nuxt.js - Gratuit et Open Source",
+      "getStarted": "Commencer",
+      "viewOnGithub": "Voir sur GitHub",
       "features": {
-        "title": "Fonctionnalités",
+        "title": "Base solide pour votre succès SaaS",
+        "categories": {
+          "foundation": "Fondation",
+          "integration": "Intégration",
+          "admin": "Administration",
+          "experience": "Expérience",
+          "developer": "Développeur"
+        },
         "items": {
-          "youtube": {
-            "title": "Intégration YouTube",
-            "description": "Extrayez automatiquement les transcriptions, métadonnées et contenu des vidéos YouTube. Prise en charge de n'importe quelle URL de vidéo YouTube publique."
+          "modernTechStack": {
+            "title": "Stack Technologique Moderne",
+            "description": "Construit avec Nuxt, prêt pour Nuxt v4, TypeScript et Vue 3 Composition API"
           },
-          "ai-generation": {
-            "title": "Génération par IA",
-            "description": "Transformez le contenu vidéo en articles de blog bien structurés avec des titres, sections et formatage appropriés. Maintient la voix authentique du contenu original."
+          "secureAuth": {
+            "title": "Authentification Sécurisée",
+            "description": "Un système d'authentification robuste propulsé par Better Auth, offrant des connexions sociales OAuth2 (Google, GitHub, etc.), connexion/inscription, et réinitialisation de mot de passe par email."
           },
-          "seo": {
-            "title": "Optimisation SEO",
-            "description": "Génération automatique de métadonnées SEO incluant des titres optimisés, descriptions, mots-clés et balisage de schéma pour une meilleure visibilité dans les moteurs de recherche."
+          "enterpriseDatabase": {
+            "title": "Base de Données Enterprise",
+            "description": "PostgreSQL avec Drizzle ORM pour des opérations sûres"
           },
-          "chat": {
-            "title": "Chat Interactif",
-            "description": "Affinez et personnalisez le contenu généré via une interface de chat intuitive. Modifiez les sections, ajustez le ton et itérez sur vos articles de blog."
+          "emailIntegration": {
+            "title": "Intégration Email",
+            "description": "Intégration Resend intégrée pour les emails transactionnels"
           },
-          "editing": {
-            "title": "Éditeur de Contenu",
-            "description": "Éditeur de contenu complet avec édition section par section, support Markdown et contrôle de version pour votre contenu de blog."
+          "paymentReady": {
+            "title": "Prêt pour le Paiement",
+            "description": "Intégration Stripe pour la gestion des abonnements"
           },
-          "search": {
-            "title": "Recherche Sémantique",
-            "description": "Recherche basée sur les vecteurs dans tout votre contenu vidéo ingéré pour trouver un contexte pertinent et améliorer la qualité du contenu."
+          "noVendorLockIn": {
+            "title": "Pas de Dépendance Fournisseur",
+            "description": "Architecture modulaire avec composants interchangeables"
           },
-          "collaboration": {
-            "title": "Collaboration d'Équipe",
-            "description": "Espaces de travail multi-locataires avec membres d'équipe, permissions basées sur les rôles et flux de travail de création de contenu collaboratif."
+          "dashboard": {
+            "title": "Tableau de Bord",
+            "description": "Un tableau de bord d'administration puissant avec de beaux graphiques"
+          },
+          "advancedTables": {
+            "title": "Tables Avancées",
+            "description": "Filtrage avancé, tri et pagination comme Notion/Airtable, avec API de liste générique intégrée"
+          },
+          "userSubscriptionManagement": {
+            "title": "Gestion Utilisateurs/Abonnements",
+            "description": "Page de gestion des utilisateurs et des abonnements prête à l'emploi"
+          },
+          "modernUIDesign": {
+            "title": "Design UI Moderne",
+            "description": "Beaux composants avec Nuxt UI et TailwindCSS"
+          },
+          "i18nReady": {
+            "title": "Prêt pour l'I18n",
+            "description": "Support intégré pour plusieurs langues"
+          },
+          "responsiveLayout": {
+            "title": "Mise en Page Responsive",
+            "description": "Optimisé pour tous les appareils et tailles d'écran"
+          },
+          "developerFriendly": {
+            "title": "Adapté aux Développeurs",
+            "description": "ESLint + TypeScript pour un meilleur développement"
+          },
+          "quickSetup": {
+            "title": "Configuration Rapide",
+            "description": "Commencez à développer en quelques minutes"
+          },
+          "customizable": {
+            "title": "Personnalisable",
+            "description": "Étendez et personnalisez facilement les composants"
           }
-        },
-        "aiConversations": {
-          "title": "Conversations IA",
-          "description": "Discutez avec l'IA pour générer et affiner votre contenu grâce à des conversations naturelles."
-        },
-        "contentManagement": {
-          "title": "Gestion de contenu",
-          "description": "Organisez et gérez tout votre contenu généré en un seul endroit."
-        },
-        "fastEfficient": {
-          "title": "Rapide et efficace",
-          "description": "Workflow rationalisé pour créer et publier du contenu plus rapidement que jamais."
         }
       },
       "screenshots": {

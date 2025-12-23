@@ -2,24 +2,14 @@
 import type { PlanInterval, PlanKey } from '~~/shared/utils/plans'
 import { getPlanKeyFromId, getPlanPricing, getTierForInterval, PLAN_TIERS } from '~~/shared/utils/plans'
 
-const { formatDateShort } = useDate()
-
 definePageMeta({
-  layout: 'settings'
+  layout: 'dashboard'
 })
 
-useHead({
-  title: 'Billing'
-})
-
-const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', null)
-setHeaderTitle?.('Billing')
-
-const { useActiveOrganization, subscription: stripeSubscription, client } = useAuth()
+const { useActiveOrganization, subscription: stripeSubscription, client, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
 const router = useRouter()
 const toast = useToast()
-const runtimeConfig = useRuntimeConfig()
 const loading = ref(false)
 const billingInterval = ref<'month' | 'year'>('month')
 const route = useRoute()
@@ -33,17 +23,9 @@ const showTierChangePreview = ref(false)
 const pendingTierChange = ref<{ tierKey: Exclude<PlanKey, 'free'>, interval: PlanInterval } | null>(null)
 
 // Show upgrade modal if showUpgrade query param is present or if upgrade is needed
-const {
-  subscriptions,
-  activeSub,
-  hasUsedTrial: _hasUsedTrial,
-  isPaymentFailed,
-  refresh: refreshBillingState,
-  needsUpgrade
-} = usePaymentStatus()
-
 watchEffect(() => {
-  if (route.query.showUpgrade === 'true' || needsUpgrade.value) {
+  const needsUpgrade = (activeOrg.value?.data as any)?.needsUpgrade
+  if (route.query.showUpgrade === 'true' || needsUpgrade) {
     showUpgradeModal.value = true
   }
 })
@@ -56,22 +38,20 @@ onMounted(async () => {
     // Poll for up to 10 seconds (5 attempts x 2s)
     let attempts = 0
     const maxAttempts = 5
-    let foundPro = false
 
     while (attempts < maxAttempts) {
       // Wait 2s between checks
       await new Promise(resolve => setTimeout(resolve, 2000))
 
       console.log(`Checking for subscription update... (Attempt ${attempts + 1}/${maxAttempts})`)
-      await refreshBillingState()
+      await refreshActiveOrg()
 
       // Check if we have a Pro subscription now
-      const currentSubs = subscriptions.value || []
+      const currentSubs = (activeOrg.value?.data as any)?.subscriptions || []
       const hasPro = currentSubs.some((s: any) => s.status === 'active' || s.status === 'trialing')
 
       if (hasPro) {
         console.log('Pro subscription found!')
-        foundPro = true
         break
       }
 
@@ -85,13 +65,15 @@ onMounted(async () => {
     delete newQuery.success
 
     // Handle redirect if present
-    const redirectParam = newQuery.redirect as string | undefined
-    if (redirectParam) {
+    const redirectUrl = newQuery.redirect
+    if (redirectUrl) {
       delete newQuery.redirect
-      const target = decodeURIComponent(redirectParam)
+      const target = decodeURIComponent(redirectUrl as string)
 
-      // Only allow in-app relative redirects to avoid open-redirects
-      if (target.startsWith('/')) {
+      if (target.startsWith('http')) {
+        window.location.href = target
+        return
+      } else {
         router.push(target)
         return
       }
@@ -99,30 +81,33 @@ onMounted(async () => {
 
     router.replace({ query: newQuery })
 
-    // Only show success toast if Pro subscription was found
-    if (foundPro) {
-      toast.add({
-        title: 'Subscription updated',
-        description: 'Your plan has been successfully updated.',
-        color: 'success'
-      })
-    } else {
-      toast.add({
-        title: 'Subscription update failed',
-        description: 'Unable to verify subscription update. Please check your billing status.',
-        color: 'error'
-      })
-    }
+    toast.add({
+      title: 'Subscription updated',
+      description: 'Your plan has been successfully updated.',
+      color: 'success'
+    })
   }
 })
 
-// Subscriptions are loaded via usePaymentStatus (backed by Better Auth's Stripe plugin)
-const _subscriptions = computed(() => subscriptions.value || [])
+// We don't need to fetch subscriptions here because:
+// 1. The layout already fetches 'get-full-organization' via SSR
+// 2. That endpoint includes subscriptions
+// 3. We just fixed useActiveOrganization() to use global state populated by the layout
+// So we can just read the data directly!
+const _subscriptions = computed(() => {
+  const data = activeOrg.value?.data
+  // Check both direct subscriptions property (from get-full-organization response)
+  // and if it's nested inside data (depending on how activeOrg is structured)
+  return (data as any)?.subscriptions || []
+})
 
 // Refresh function for after mutations - re-fetches the whole org data
 const refresh = async () => {
-  await refreshBillingState()
+  await refreshActiveOrg()
 }
+
+// Use shared payment status composable for consistent behavior
+const { activeSub, hasUsedTrial: _hasUsedTrial, isPaymentFailed } = usePaymentStatus()
 
 // Sync billingInterval with active subscription
 watch(activeSub, (sub) => {
@@ -135,23 +120,9 @@ const activePlan = computed(() => {
   return getTierForInterval('pro', billingInterval.value)
 })
 
-// Get the current tier key from subscription plan ID
-const currentTierKey = computed<PlanKey>(() => {
-  if (!activeSub.value?.plan)
-    return 'free'
-  return getPlanKeyFromId(activeSub.value.plan)
-})
-
-// Get current interval from subscription
-const currentBillingInterval = computed<PlanInterval>(() => {
-  if (!activeSub.value?.plan)
-    return 'month'
-  return activeSub.value.plan.includes('year') ? 'year' : 'month'
-})
-
 // Find the config for the user's actual current plan (handles legacy pricing)
 const currentSubPlanConfig = computed(() => {
-  if (!activeSub.value?.plan)
+  if (!activeSub.value)
     return null
   const pricing = getPlanPricing(activeSub.value.plan)
   if (pricing) {
@@ -161,15 +132,19 @@ const currentSubPlanConfig = computed(() => {
       interval: pricing.interval
     }
   }
-  // Fallback to derived current tier pricing
-  const fallbackTierKey = (currentTierKey.value === 'free' ? 'pro' : currentTierKey.value) as Exclude<PlanKey, 'free'>
-  const fallbackInterval = currentBillingInterval.value
-  const fallbackPlan = getTierForInterval(fallbackTierKey, fallbackInterval)
+  // Fallback to current plan pricing
   return {
-    price: fallbackPlan.price,
-    seatPrice: fallbackPlan.seatPrice,
-    interval: fallbackInterval
+    price: activePlan.value.price,
+    seatPrice: activePlan.value.seatPrice,
+    interval: billingInterval.value
   }
+})
+
+// Get the current tier key from subscription plan ID
+const currentTierKey = computed<PlanKey>(() => {
+  if (!activeSub.value?.plan)
+    return 'free'
+  return getPlanKeyFromId(activeSub.value.plan)
 })
 
 const currentPlan = computed(() => {
@@ -177,6 +152,13 @@ const currentPlan = computed(() => {
     return currentTierKey.value === 'free' ? 'pro' : currentTierKey.value
   }
   return 'free'
+})
+
+// Get current interval from subscription
+const currentBillingInterval = computed<PlanInterval>(() => {
+  if (!activeSub.value?.plan)
+    return 'month'
+  return activeSub.value.plan.includes('year') ? 'year' : 'month'
 })
 
 // Get current plan features from PLAN_TIERS
@@ -261,7 +243,7 @@ async function confirmTierChange() {
     }
 
     // Refresh to get updated subscription
-    await refreshBillingState()
+    await refreshActiveOrg()
   } catch (e: any) {
     console.error('Tier change error:', e)
     toast.add({
@@ -296,13 +278,13 @@ const trialInfo = computed(() => {
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
   return {
     daysLeft: diffDays > 0 ? diffDays : 0,
-    endDate: formatDateShort(trialEnd)
+    endDate: trialEnd.toLocaleDateString()
   }
 })
 
 const nextChargeDate = computed(() => {
   if (activeSub.value?.periodEnd) {
-    return formatDateShort(new Date(activeSub.value.periodEnd))
+    return new Date(activeSub.value.periodEnd).toLocaleDateString()
   }
   return null
 })
@@ -330,7 +312,6 @@ const costBreakdown = computed(() => {
   return {
     baseCost,
     seatCost,
-    seatPrice: plan.seatPrice,
     additionalSeats,
     totalSeats: seats,
     totalCost,
@@ -383,8 +364,7 @@ async function handleUpgradeWithTier(tierKey: Exclude<PlanKey, 'free'>) {
       planName = `${planName}-no-trial`
     }
 
-    const rawRedirect = route.query.redirect as string | undefined
-    const redirectParam = rawRedirect ? `&redirect=${encodeURIComponent(rawRedirect)}` : ''
+    const redirectParam = route.query.redirect ? `&redirect=${route.query.redirect}` : ''
 
     const { error } = await stripeSubscription.upgrade({
       plan: planName,
@@ -798,7 +778,7 @@ async function confirmPlanChange() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-8">
+  <div class="flex flex-col gap-8 max-w-5xl">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">
@@ -838,7 +818,7 @@ async function confirmPlanChange() {
 
     <!-- Current Plan Section -->
     <UCard>
-      <div class="flex flex-col gap-6 justify-between">
+      <div class="flex flex-col md:flex-row gap-6 justify-between">
         <div>
           <div class="flex items-center gap-3 mb-2">
             <h2 class="text-xl font-bold">
@@ -890,7 +870,7 @@ async function confirmPlanChange() {
                 v-if="costBreakdown.additionalSeats > 0"
                 class="flex justify-between"
               >
-                <span class="text-muted-foreground">Additional Seats ({{ costBreakdown.additionalSeats }} × ${{ costBreakdown.seatPrice.toFixed(2) }})</span>
+                <span class="text-muted-foreground">Additional Seats ({{ costBreakdown.additionalSeats }} × ${{ activePlan.seatPrice.toFixed(2) }})</span>
                 <span class="font-medium">${{ costBreakdown.seatCost.toFixed(2) }}</span>
               </div>
               <div class="flex justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
@@ -924,10 +904,7 @@ async function confirmPlanChange() {
           </div>
 
           <!-- Payment Failed - Show focused fix payment UI -->
-          <BillingPaymentFailedCard
-            v-if="isPaymentFailed"
-            :support-email="runtimeConfig.public.appNotifyEmail"
-          />
+          <BillingPaymentFailedCard support-email="support@example.com" />
 
           <!-- Normal plan management (hide when payment failed) -->
           <template v-if="!isPaymentFailed">
@@ -1038,7 +1015,7 @@ async function confirmPlanChange() {
             >
               <UIcon
                 name="i-lucide-check"
-                class="w-4 h-4 text-amber-500 mt-0.5 shrink-0"
+                class="w-4 h-4 text-green-500 mt-0.5 shrink-0"
               />
               <span>{{ feature }}</span>
             </div>
@@ -1072,14 +1049,14 @@ async function confirmPlanChange() {
     <!-- Upgrade Section - Show all plans -->
     <div
       v-if="currentPlan === 'free'"
-      class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 border border-primary/20 p-6"
+      class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 border border-primary/20 p-6 md:p-8"
     >
       <!-- Background decoration -->
       <div class="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
 
       <div class="relative">
-        <!-- Header with toggle -->
-        <div class="flex flex-col gap-4 mb-6">
+        <!-- Header -->
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <div class="flex items-center gap-2 mb-1">
               <UIcon
@@ -1093,8 +1070,11 @@ async function confirmPlanChange() {
             </h2>
           </div>
 
-          <!-- Billing Toggle -->
-          <div class="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-full p-1 shadow-sm border border-gray-200 dark:border-gray-700">
+          <!-- Billing Toggle (only show if multiple tiers) -->
+          <div
+            v-if="Object.keys(PLAN_TIERS).length > 1"
+            class="flex items-center gap-2 bg-white dark:bg-gray-800 rounded-full p-1 shadow-sm border border-gray-200 dark:border-gray-700"
+          >
             <button
               class="px-4 py-2 text-sm font-medium rounded-full transition-all"
               :class="billingInterval === 'month' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'"
@@ -1110,7 +1090,7 @@ async function confirmPlanChange() {
               Yearly
               <span
                 v-if="billingInterval !== 'year'"
-                class="absolute -top-2 -right-2 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                class="absolute -top-2 -right-2 bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full"
               >
                 Save
               </span>
@@ -1118,8 +1098,105 @@ async function confirmPlanChange() {
           </div>
         </div>
 
-        <!-- Plan Cards Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Single Tier: Show Monthly/Yearly side by side -->
+        <div
+          v-if="Object.keys(PLAN_TIERS).length === 1"
+          class="grid grid-cols-1 md:grid-cols-2 gap-6"
+        >
+          <div
+            v-for="interval in (['month', 'year'] as PlanInterval[])"
+            :key="interval"
+            class="relative bg-white dark:bg-gray-900 rounded-xl shadow-lg border overflow-hidden transition-all hover:shadow-xl cursor-pointer"
+            :class="billingInterval === interval ? 'border-primary ring-2 ring-primary' : 'border-gray-200 dark:border-gray-700'"
+            @click="billingInterval = interval"
+          >
+            <!-- Save Badge for Yearly -->
+            <div
+              v-if="interval === 'year'"
+              class="absolute top-0 right-0"
+            >
+              <div class="bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
+                Save
+              </div>
+            </div>
+
+            <div class="p-6">
+              <!-- Plan Header -->
+              <div class="mb-4">
+                <h3 class="text-xl font-bold">
+                  {{ Object.values(PLAN_TIERS)[0].name }} {{ interval === 'month' ? 'Monthly' : 'Yearly' }}
+                </h3>
+                <p class="text-sm text-muted-foreground">
+                  {{ interval === 'month' ? 'Pay month-to-month' : 'Best value' }}
+                </p>
+              </div>
+
+              <!-- Price -->
+              <div class="mb-4">
+                <div class="flex items-baseline gap-1">
+                  <span class="text-4xl font-bold">${{ getTierForInterval(Object.values(PLAN_TIERS)[0].key as Exclude<PlanKey, 'free'>, interval).price.toFixed(2) }}</span>
+                  <span class="text-muted-foreground">/ {{ interval === 'year' ? 'year' : 'month' }}</span>
+                </div>
+                <p class="text-sm text-muted-foreground mt-1">
+                  + ${{ getTierForInterval(Object.values(PLAN_TIERS)[0].key as Exclude<PlanKey, 'free'>, interval).seatPrice.toFixed(2) }}/seat
+                </p>
+                <div
+                  v-if="!hasUsedTrial"
+                  class="flex items-center gap-2 mt-2"
+                >
+                  <UIcon
+                    name="i-lucide-shield-check"
+                    class="w-4 h-4 text-green-500"
+                  />
+                  <span class="text-xs text-green-600 dark:text-green-400 font-medium">{{ Object.values(PLAN_TIERS)[0].trialDays }}-day free trial</span>
+                </div>
+              </div>
+
+              <!-- CTA Button -->
+              <UButton
+                size="lg"
+                :label="hasUsedTrial ? `Start ${Object.values(PLAN_TIERS)[0].name} Trial` : `Start ${Object.values(PLAN_TIERS)[0].name} Trial`"
+                :color="billingInterval === interval ? 'primary' : 'neutral'"
+                :variant="billingInterval === interval ? 'solid' : 'outline'"
+                :loading="loading && selectedUpgradeTier === Object.values(PLAN_TIERS)[0].key"
+                class="w-full mb-4"
+                @click.stop="billingInterval = interval; handleUpgradeWithTier(Object.values(PLAN_TIERS)[0].key as Exclude<PlanKey, 'free'>)"
+              >
+                <template #trailing>
+                  <UIcon name="i-lucide-arrow-right" />
+                </template>
+              </UButton>
+
+              <!-- Features -->
+              <div class="space-y-2">
+                <p class="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  What's included:
+                </p>
+                <ul class="space-y-2">
+                  <li
+                    v-for="(feature, i) in Object.values(PLAN_TIERS)[0].features"
+                    :key="i"
+                    class="flex items-start gap-2 text-sm"
+                  >
+                    <div class="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                      <UIcon
+                        name="i-lucide-check"
+                        class="w-3 h-3 text-primary"
+                      />
+                    </div>
+                    <span>{{ feature }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Multiple Tiers: Show toggle + tier cards -->
+        <div
+          v-else
+          class="grid grid-cols-1 md:grid-cols-2 gap-6"
+        >
           <div
             v-for="tier in Object.values(PLAN_TIERS).sort((a, b) => a.order - b.order)"
             :key="tier.key"
@@ -1162,7 +1239,7 @@ async function confirmPlanChange() {
                 >
                   <UIcon
                     name="i-lucide-shield-check"
-                    class="w-4 h-4 text-amber-500"
+                    class="w-4 h-4 text-green-500"
                   />
                   <span class="text-xs text-green-600 dark:text-green-400 font-medium">{{ tier.trialDays }}-day free trial</span>
                 </div>
@@ -1457,25 +1534,23 @@ async function confirmPlanChange() {
       :ui="{ content: 'max-w-3xl' }"
     >
       <template #body>
-        <div class="relative">
-          <BillingTierSelector
-            :current-tier-key="currentTierKey"
-            :current-interval="currentBillingInterval"
-            :is-trialing="activeSub?.status === 'trialing'"
-            @select="handleTierSelect"
-          />
+        <BillingTierSelector
+          :current-tier-key="currentTierKey"
+          :current-interval="currentBillingInterval"
+          :is-trialing="activeSub?.status === 'trialing'"
+          @select="handleTierSelect"
+        />
 
-          <div
-            v-if="tierChangeLoading"
-            class="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center"
-          >
-            <div class="flex items-center gap-2">
-              <UIcon
-                name="i-lucide-loader-2"
-                class="w-5 h-5 animate-spin"
-              />
-              <span>Loading preview...</span>
-            </div>
+        <div
+          v-if="tierChangeLoading"
+          class="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center"
+        >
+          <div class="flex items-center gap-2">
+            <UIcon
+              name="i-lucide-loader-2"
+              class="w-5 h-5 animate-spin"
+            />
+            <span>Loading preview...</span>
           </div>
         </div>
       </template>

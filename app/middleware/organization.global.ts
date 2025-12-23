@@ -1,19 +1,27 @@
 export default defineNuxtRouteMiddleware(async (to) => {
-  const { loggedIn, organization, fetchSession, refreshActiveOrg, getActiveOrganizationId } = useAuth()
+  const { loggedIn, organization, useActiveOrganization, fetchSession, session } = useAuth()
 
   if (!loggedIn.value)
     return
 
   const routeSlug = to.params.slug as string
-  const isOrgRoute = typeof to.name === 'string' && to.name.startsWith('slug-')
-  if (!routeSlug || routeSlug === 't' || !isOrgRoute)
+  if (!routeSlug || routeSlug === 't')
     return
 
-  // Check if we need to switch organization
-  const activeOrgId = getActiveOrganizationId()
+  // Don't run on non-dashboard routes if they happen to have a slug param but aren't organization related
+  // Assuming all routes with :slug are organization routes based on app structure
 
-  // Cache org list for the duration of the session to avoid refetching on every navigation
-  const { data: orgs } = await useUserOrganizations()
+  // Check if we need to switch organization
+  const activeOrgId = (session.value as any)?.activeOrganizationId
+
+  // Use cached org list to avoid fetching on every navigation
+  // getCachedData returns undefined to ensure fresh data on each full page load
+  const { data: orgs } = await useAsyncData('user-organizations', async () => {
+    const { data } = await organization.list()
+    return data
+  }, {
+    getCachedData: () => undefined
+  })
 
   if (!orgs.value || orgs.value.length === 0)
     return
@@ -26,7 +34,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
       await organization.setActive({ organizationId: targetOrg.id })
       await fetchSession()
 
-      await refreshActiveOrg()
+      // Update activeOrg ref immediately to update UI
+      const activeOrg = useActiveOrganization()
+      if (activeOrg.value) {
+        activeOrg.value.data = targetOrg
+      }
     }
   } else {
     // Invalid slug, redirect to first available org or handle error
@@ -35,7 +47,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
     if (firstOrg) {
       // Prevent infinite redirect if we are already redirected
       const localePath = useLocalePath()
-      const targetPath = localePath(`/${firstOrg.slug}/conversations`)
+      const targetPath = localePath(`/${firstOrg.slug}/dashboard`)
       if (to.path !== targetPath) {
         return navigateTo(targetPath)
       }

@@ -10,9 +10,8 @@ definePageMeta({
 const { t } = useI18n()
 
 useHead({
-  title: t('signIn.title')
+  title: t('signIn.signIn')
 })
-
 const auth = useAuth()
 const toast = useToast()
 const route = useRoute()
@@ -53,44 +52,25 @@ async function onSubmit(event: FormSubmitEvent<Schema>) {
     return
   loading.value = true
   loadingAction.value = 'submit'
-
-  try {
-    const { error, data } = await auth.signIn.email({
-      email: event.data.email,
-      password: event.data.password,
-      rememberMe: event.data.rememberMe,
-      callbackURL: redirectTo.value
-    })
-
-    if (error) {
-      if (error.code === auth.errorCodes.EMAIL_NOT_VERIFIED) {
-        unverifiedEmail = event.data.email
-        isEmailVerifyModalOpen.value = true
-        return
-      }
-      toast.add({
-        title: error.message,
-        color: 'error'
-      })
+  const { error } = await auth.signIn.email({
+    email: event.data.email,
+    password: event.data.password,
+    rememberMe: event.data.rememberMe,
+    callbackURL: redirectTo.value
+  })
+  if (error) {
+    if (error.code === auth.errorCodes.EMAIL_NOT_VERIFIED) {
+      unverifiedEmail = event.data.email
+      isEmailVerifyModalOpen.value = true
+      loading.value = false
       return
     }
-
-    if (data && !error) {
-      await auth.fetchSession()
-      await nextTick()
-      // Always navigate after a successful sign-in to avoid getting stuck on the guest page
-      await navigateTo(redirectTo.value)
-    }
-  } catch (err: any) {
-    console.error('[signin] Failed to sign in:', err)
     toast.add({
-      title: err?.message || t('signIn.errors.generalError'),
+      title: error.message,
       color: 'error'
     })
-  } finally {
-    loading.value = false
-    loadingAction.value = ''
   }
+  loading.value = false
 }
 
 async function handleResendEmail() {
@@ -119,7 +99,7 @@ async function handleResendEmail() {
 </script>
 
 <template>
-  <UContainer class="flex items-center justify-center">
+  <UContainer class="flex items-center justify-center sm:p-4 sm:min-w-160">
     <UCard class="w-full max-w-md">
       <template #header>
         <div class="text-center p-4">
@@ -129,7 +109,7 @@ async function handleResendEmail() {
         </div>
       </template>
       <div class="space-y-4">
-        <div class="grid grid-cols-1 gap-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <UButton
             color="neutral"
             variant="outline"
@@ -189,7 +169,7 @@ async function handleResendEmail() {
             />
           </UFormField>
 
-          <div class="flex flex-col items-start justify-between gap-2">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <UFormField name="rememberMe">
               <UCheckbox
                 v-model="state.rememberMe"

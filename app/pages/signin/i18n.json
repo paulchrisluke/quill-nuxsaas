@@ -1,7 +1,6 @@
 {
   "en": {
     "signIn": {
-      "title": "Sign In",
       "welcome": "Welcome to {name}",
       "email": "Email",
       "password": "Password",
@@ -16,8 +15,7 @@
       "signInSuccess": "Sign in Success",
       "errors": {
         "invalidEmail": "Invalid email address",
-        "passwordLength": "Password must be at least {min} characters",
-        "generalError": "An error occurred during sign in. Please try again."
+        "passwordLength": "Password must be at least {min} characters"
       },
       "emailNotVerified": "Email Not Verified",
       "emailNotVerifiedDesc": "Please verify your email address to continue.",
@@ -28,7 +26,6 @@
   },
   "zh-CN": {
     "signIn": {
-      "title": "登录",
       "welcome": "欢迎使用 {name}",
       "email": "邮箱",
       "password": "密码",
@@ -43,8 +40,7 @@
       "signInSuccess": "登录成功",
       "errors": {
         "invalidEmail": "无效的邮箱地址",
-        "passwordLength": "密码长度至少为{min}个字符",
-        "generalError": "登录时发生错误。请重试。"
+        "passwordLength": "密码长度至少为{min}个字符"
       },
       "emailNotVerified": "邮箱未验证",
       "emailNotVerifiedDesc": "请验证您的邮箱地址以继续。",
@@ -58,7 +54,6 @@
   },
   "ja": {
     "signIn": {
-      "title": "ログイン",
       "welcome": "{name}へようこそ",
       "email": "メールアドレス",
       "password": "パスワード",
@@ -73,8 +68,7 @@
       "signInSuccess": "ログインに成功しました",
       "errors": {
         "invalidEmail": "無効なメールアドレス",
-        "passwordLength": "パスワードは{min}文字以上である必要があります",
-        "generalError": "ログイン中にエラーが発生しました。もう一度お試しください。"
+        "passwordLength": "パスワードは{min}文字以上である必要があります"
       },
       "emailNotVerified": "メールアドレス未確認",
       "emailNotVerifiedDesc": "続行するにはメールアドレスを確認してください。",
@@ -88,7 +82,6 @@
   },
   "fr": {
     "signIn": {
-      "title": "Se connecter",
       "welcome": "Bienvenue sur {name}",
       "email": "E-mail",
       "password": "Mot de passe",
@@ -103,8 +96,7 @@
       "signInSuccess": "Connexion réussie",
       "errors": {
         "invalidEmail": "Adresse e-mail invalide",
-        "passwordLength": "Le mot de passe doit contenir au moins {min} caractères",
-        "generalError": "Une erreur s'est produite lors de la connexion. Veuillez réessayer."
+        "passwordLength": "Le mot de passe doit contenir au moins {min} caractères"
       },
       "emailNotVerified": "Email non vérifié",
       "emailNotVerifiedDesc": "Veuillez vérifier votre adresse e-mail pour continuer.",

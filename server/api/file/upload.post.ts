@@ -1,3 +1,5 @@
+// Commented out - requireActiveOrganization not in template
+/*
 import { readMultipartFormData } from 'h3'
 import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
@@ -233,3 +235,4 @@ export default defineEventHandler(async (event) => {
     })
   }
 })
+*/

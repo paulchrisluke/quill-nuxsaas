@@ -6,7 +6,6 @@
       "dashboard": "Dashboard",
       "users": "Users",
       "organizations": "Organizations",
-      "chats": "Chats",
       "subscriptions": "Subscriptions",
       "maintenance": "Maintenance",
       "dbStats": "Database Status",
@@ -14,12 +13,6 @@
       "auditLog": "Audit Log",
       "migration": "Data Migration",
       "files": "Files"
-    },
-    "admin": {
-      "navigation": {
-        "title": "Admin navigation",
-        "description": "Browse administrative sections."
-      }
     }
   },
   "zh-CN": {
@@ -29,7 +22,6 @@
       "dashboard": "仪表板",
       "users": "用户",
       "organizations": "组织",
-      "chats": "聊天",
       "subscriptions": "订阅管理",
       "maintenance": "系统维护",
       "dbStats": "数据库状态",
@@ -37,12 +29,6 @@
       "auditLog": "审计日志",
       "migration": "数据迁移",
       "files": "文件管理"
-    },
-    "admin": {
-      "navigation": {
-        "title": "管理导航",
-        "description": "浏览管理部分。"
-      }
     }
   },
   "ja": {
@@ -52,7 +38,6 @@
       "dashboard": "ダッシュボード",
       "users": "ユーザー",
       "organizations": "組織",
-      "chats": "チャット",
       "subscriptions": "サブスクリプション",
       "maintenance": "メンテナンス",
       "dbStats": "データベース状態",
@@ -60,12 +45,6 @@
       "auditLog": "監査ログ",
       "migration": "データ移行",
       "files": "ファイル"
-    },
-    "admin": {
-      "navigation": {
-        "title": "管理ナビゲーション",
-        "description": "管理セクションを閲覧します。"
-      }
     }
   },
   "fr": {
@@ -75,7 +54,6 @@
       "dashboard": "Tableau de bord",
       "users": "Utilisateurs",
       "organizations": "Organisations",
-      "chats": "Chats",
       "subscriptions": "Abonnements",
       "maintenance": "Maintenance",
       "dbStats": "État de la base de données",
@@ -83,12 +61,6 @@
       "auditLog": "Journal d'audit",
       "migration": "Migration de Données",
       "files": "Fichiers"
-    },
-    "admin": {
-      "navigation": {
-        "title": "Navigation administrateur",
-        "description": "Parcourir les sections administratives."
-      }
     }
   }
 }

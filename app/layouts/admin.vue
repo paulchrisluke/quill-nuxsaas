@@ -1,8 +1,6 @@
 <i18n src="./menu/i18n.json"></i18n>
 
 <script setup lang="ts">
-import UserNavigation from '~/components/UserNavigation.vue'
-import { useSidebarCollapse } from '~/composables/useSidebarCollapse'
 import SearchPalette from './components/SearchPalette.vue'
 import { getMenus } from './menu'
 
@@ -12,19 +10,21 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { isCollapsed, toggle } = useSidebarCollapse()
+const isCollapsed = ref(false)
 const runtimeConfig = useRuntimeConfig()
 
 defineShortcuts({
   'g-1': () => router.push(localePath('/admin/dashboard')),
   'g-2': () => router.push(localePath('/admin/user'))
 })
+const pathNameItemMap: StringDict<NavigationMenuItem> = {}
 const pathNameParentMap: StringDict<NavigationMenuItem | undefined> = {}
 
 const menus = getMenus(t, localePath, runtimeConfig.public.appRepo)
 const menuIterator = (menus: NavigationMenuItem[], parent?: NavigationMenuItem) => {
   for (const menu of menus) {
     const to = `${menu.to}`
+    pathNameItemMap[to] = menu!
     pathNameParentMap[to] = parent
     if (menu.to == route.path) {
       if (pathNameParentMap[to]) {
@@ -48,7 +48,7 @@ const clickSignOut = () => {
 <template>
   <div>
     <aside
-      class="fixed top-0 left-0 transition-all duration-300 hidden"
+      class="fixed top-0 left-0 transition-all duration-300 hidden sm:block"
       :class="[isCollapsed ? 'w-15' : 'w-64']"
     >
       <div class="h-screen flex flex-col px-3 py-4 bg-neutral-100 dark:bg-neutral-800">
@@ -74,18 +74,6 @@ const clickSignOut = () => {
           <SearchPalette
             :collapsed="isCollapsed"
             :t="t"
-          />
-        </div>
-        <div
-          class="flex justify-end mb-2"
-          :class="{ 'pl-2 pr-2': !isCollapsed }"
-        >
-          <UButton
-            :icon="isCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
-            class="w-8 h-8"
-            color="neutral"
-            variant="ghost"
-            @click="toggle()"
           />
         </div>
         <UNavigationMenu
@@ -139,18 +127,17 @@ const clickSignOut = () => {
         </div>
       </div>
     </aside>
-    <!-- Main content: No margin offset needed since sidebar is always hidden (drawer-only pattern) -->
     <div
       class="p-2 h-screen bg-white dark:bg-neutral-900 transition-all duration-300 overflow-hidden flex flex-col"
+      :class="[isCollapsed ? 'sm:ml-15' : 'sm:ml-64']"
     >
       <FlexThreeColumn class="mb-2 flex-none">
         <template #left>
-          <!-- Drawer button always visible - sidebar is always hidden, so drawer is the only navigation method -->
-          <USlideover
-            side="left"
+          <UDrawer
+            class="sm:hidden"
+            direction="left"
+            as="aside"
             :handle="false"
-            :title="t('admin.navigation.title')"
-            :description="t('admin.navigation.description')"
           >
             <UButton
               icon="i-lucide-menu"
@@ -159,37 +146,35 @@ const clickSignOut = () => {
               variant="ghost"
             />
             <template #content>
-              <div class="w-[60vw] h-full flex flex-col p-4 bg-white dark:bg-neutral-900 border-r border-neutral-200/70 dark:border-neutral-800/60 overflow-y-auto">
-                <!-- Logo and App Name -->
-                <div class="flex items-center gap-2 mb-4">
-                  <Logo class="h-6 w-6" />
-                  <span class="text-xl font-semibold whitespace-nowrap dark:text-white">
-                    {{ t('global.appNameShort') }}
-                  </span>
-                </div>
-                <!-- Search -->
-                <div class="mb-4">
-                  <SearchPalette
-                    :collapsed="false"
-                    :t="t"
-                  />
-                </div>
+              <div class="w-[60vw] p-4">
                 <UNavigationMenu
                   orientation="vertical"
                   :items="menus"
-                  class="data-[orientation=vertical]:w-full flex-1"
+                  class="data-[orientation=vertical]:w-full"
                 />
               </div>
             </template>
-          </USlideover>
+          </UDrawer>
+          <UButton
+            :icon="isCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'"
+            class="w-8 h-8 hidden sm:block"
+            color="neutral"
+            variant="ghost"
+            @click="isCollapsed = !isCollapsed"
+          />
+          <title>{{ pathNameItemMap[$route.path]?.label }}</title>
+          <h1>{{ pathNameItemMap[$route.path]?.label }} </h1>
           <slot name="navLeft" />
         </template>
         <template #middle>
           <slot name="navMiddle" />
         </template>
         <template #right>
-          <UserNavigation />
           <slot name="navRight" />
+          <LocaleToggler />
+          <ClientOnly>
+            <ColorModeToggler />
+          </ClientOnly>
         </template>
       </FlexThreeColumn>
       <div class="p-2 border-2 border-neutral-200 border-dashed rounded-lg dark:border-neutral-700 flex-1 overflow-auto">
