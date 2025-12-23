@@ -2,342 +2,79 @@ import type { NitroRuntimeConfig } from 'nitropack/types'
 import type { FileManagerConfig, StorageProviderType } from '~~/server/services/file/types'
 import { config } from 'dotenv'
 
-// Inline getAppUrl to avoid import issues during config time
-const LOOPBACK_HOSTS = new Set(['localhost', '::1'])
-const INVALID_PRODUCTION_HOSTS = new Set(['0.0.0.0'])
-const IPV4_LOOPBACK_REGEX = /^127(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/
-
-const isInvalidProductionHostname = (hostname: string) => {
-  return LOOPBACK_HOSTS.has(hostname) || INVALID_PRODUCTION_HOSTS.has(hostname) || IPV4_LOOPBACK_REGEX.test(hostname)
-}
-
-const assertValidProductionUrl = (value: string) => {
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error(`NUXT_APP_URL must be a valid absolute URL. Received: ${value}`)
-  }
-
-  if (isInvalidProductionHostname(parsed.hostname)) {
-    throw new Error('NUXT_APP_URL cannot be a localhost/loopback/wildcard address in production.')
-  }
-}
-
-const isValidStorageProvider = (value: string | undefined): value is StorageProviderType => {
-  return value === 'local' || value === 'r2'
-}
-
-const getAppUrl = (): string => {
-  const nodeEnv = process.env.NODE_ENV || 'development'
-
-  if (nodeEnv === 'test') {
-    return process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
-  }
-
-  if (nodeEnv === 'production') {
-    // In production, use NUXT_APP_URL (should be https://getquillio.com)
-    // Fallback to getquillio.com if not set (though it should always be set)
-    const url = process.env.NUXT_APP_URL || 'https://getquillio.com'
-    assertValidProductionUrl(url)
-    return url
-  }
-
-  // In development, always use localhost:3000 regardless of NUXT_APP_URL
-  // This ensures OAuth callbacks work correctly in local development
-  return 'http://localhost:3000'
-}
-
 declare module '@nuxt/schema' {
   interface RuntimeConfig {
     fileManager: FileManagerConfig
   }
 }
 
-let runtimeConfigInstance: NitroRuntimeConfig | null = null
-let _resolvedFromNuxt = false
-let _resolvedFromEnv = false
-let dotenvLoaded = false
+let runtimeConfigInstance: NitroRuntimeConfig
 
-const callUseRuntimeConfig = () => (useRuntimeConfig as () => NitroRuntimeConfig)()
+export const generateRuntimeConfig = () => ({
+  preset: (process.env.NODE_ENV === 'development' && !process.env.NUXT_FORCE_CLOUDFLARE_DEV)
+    ? 'node-server'
+    : process.env.NUXT_NITRO_PRESET,
+  betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
+  // Stripe
+  stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
+  stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,
 
-const tryResolveFromNuxt = () => {
-  if (_resolvedFromNuxt || typeof useRuntimeConfig === 'undefined') {
-    return false
-  }
-
-  try {
-    runtimeConfigInstance = callUseRuntimeConfig()
-    _resolvedFromNuxt = true
-    _resolvedFromEnv = false
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Validates R2 configuration when R2 is selected as the storage provider.
- * In development: automatically switches to 'local' storage if R2 config is missing.
- * In non-development: throws an error if R2 config is missing.
- */
-function validateR2Config(config: NitroRuntimeConfig) {
-  if (config.fileManager.storage.provider !== 'r2') {
-    return
-  }
-
-  let r2Config = config.fileManager.storage.r2
-  if (!r2Config) {
-    // Treat missing r2Config as an object with missing fields so validation can run
-    r2Config = {
-      accountId: '',
-      accessKeyId: '',
-      secretAccessKey: '',
-      bucketName: '',
-      publicUrl: ''
-    }
-    config.fileManager.storage.r2 = r2Config
-  }
-
-  const missingFields: string[] = []
-
-  if (!r2Config.accountId || r2Config.accountId.trim() === '') {
-    missingFields.push('NUXT_CF_ACCOUNT_ID')
-  }
-  if (!r2Config.accessKeyId || r2Config.accessKeyId.trim() === '') {
-    missingFields.push('NUXT_CF_ACCESS_KEY_ID')
-  }
-  if (!r2Config.secretAccessKey || r2Config.secretAccessKey.trim() === '') {
-    missingFields.push('NUXT_CF_SECRET_ACCESS_KEY')
-  }
-  if (!r2Config.bucketName || r2Config.bucketName.trim() === '') {
-    missingFields.push('NUXT_CF_R2_BUCKET_NAME')
-  }
-
-  if (missingFields.length > 0) {
-    const nodeEnv = process.env.NODE_ENV || 'development'
-    const isDevelopment = nodeEnv === 'development'
-
-    const missingVarsList = missingFields.join(', ')
-    const message = `R2 storage provider is configured but required environment variables are missing: ${missingVarsList}. ` +
-      `Please set these variables in your environment configuration. ` +
-      `See configuration documentation for details.`
-
-    if (isDevelopment) {
-      // In development, automatically fallback to local storage
-      config.fileManager.storage.provider = 'local'
-      config.fileManager.storage.r2 = undefined
-      console.warn(`[R2 Config Validation] ${message} Storage provider has been automatically switched to 'local' as a fallback.`)
-    } else {
-      throw new Error(`[R2 Config Validation] ${message}`)
-    }
-  }
-}
-
-export const generateRuntimeConfig = () => {
-  const parsedAllowedMimeTypes = (process.env.NUXT_FILE_ALLOWED_MIME_TYPES || '')
-    .split(',')
-    .map(entry => entry.trim())
-    .filter(Boolean)
-
-  const defaultAllowedMimeTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/avif',
-    'image/gif',
-    'image/svg+xml',
-    'application/pdf',
-    'text/plain',
-    'text/markdown',
-    'application/json',
-    'video/mp4',
-    'video/webm',
-    'audio/mpeg',
-    'audio/wav'
-  ]
-
-  const allowedMimeTypes = (parsedAllowedMimeTypes.length > 0 ? parsedAllowedMimeTypes : defaultAllowedMimeTypes)
-    .filter((value, index, array) => array.indexOf(value) === index)
-
-  const config = {
-    preset: process.env.NUXT_NITRO_PRESET,
-    betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
-    // Feature Flags
-    enableYoutubeIngestion: process.env.NUXT_ENABLE_YOUTUBE_INGESTION !== 'false',
-    // LLM / Cloudflare AI Gateway
-    cfAccountId: process.env.NUXT_CF_ACCOUNT_ID,
-    cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
-    cfVectorizeIndex: process.env.NUXT_CF_VECTORIZE_INDEX,
-    cfVectorizeApiToken: process.env.NUXT_CF_VECTORIZE_API_TOKEN,
-    cfEmbedModel: process.env.NUXT_CF_EMBED_MODEL || '@cf/baai/bge-base-en-v1.5',
-    openAiApiKey: process.env.NUXT_OPENAI_API_KEY,
-    openAiBlogModel: process.env.NUXT_OPENAI_BLOG_MODEL,
-    openAiBlogTemperature: (() => {
-      const parsed = Number.parseFloat(process.env.NUXT_OPENAI_BLOG_TEMPERATURE ?? '')
-      return Number.isFinite(parsed) ? parsed : 0.7
-    })(),
-    openAiBlogMaxOutputTokens: (() => {
-      const parsed = Number.parseInt(process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS ?? '', 10)
-      return Number.isFinite(parsed) ? parsed : 1000
-    })(),
-    // Stripe
-    stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
-    stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,
-
-    // Resend
-    resendApiKey: process.env.NUXT_RESEND_API_KEY,
-    // Github
-    githubClientId: process.env.NUXT_GH_CLIENT_ID,
-    githubClientSecret: process.env.NUXT_GH_CLIENT_SECRET,
-    // Google
-    googleClientId: process.env.NUXT_GOOGLE_CLIENT_ID,
-    googleClientSecret: process.env.NUXT_GOOGLE_CLIENT_SECRET,
-    googleOAuthTokenTimeout: (() => {
-      const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_TIMEOUT_MS ?? '', 10)
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 30000 // Default 30 seconds
-    })(),
-    googleOAuthTokenMaxRetries: (() => {
-      const parsed = Number.parseInt(process.env.NUXT_GOOGLE_OAUTH_TOKEN_MAX_RETRIES ?? '', 10)
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 3 // Default 3 retries
-    })(),
-    // Worker API
-    workerApiUrl: process.env.WORKER_API_URL || 'https://api-service.getquillio.com',
-    // DB
-    redisUrl: process.env.NUXT_REDIS_URL,
-    databaseUrl: process.env.DATABASE_URL,
-    // File
-    fileManager: {
-      maxFileSize: (() => {
-        const parsed = Number.parseInt(process.env.NUXT_FILE_MAX_SIZE ?? '', 10)
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : 10 * 1024 * 1024
-      })(),
-      allowedMimeTypes,
-      image: {
-        sizes: (process.env.NUXT_IMAGE_SIZES || '150,400,800,1200,1600')
-          .split(',')
-          .map(entry => Number.parseInt(entry.trim(), 10))
-          .filter(value => Number.isFinite(value) && value > 0),
-        formats: (() => {
-          const filtered = (process.env.NUXT_IMAGE_FORMATS || 'webp')
-            .split(',')
-            .map(entry => entry.trim())
-            .filter((value): value is 'webp' | 'avif' => value === 'webp' || value === 'avif')
-          return filtered.length > 0 ? filtered : ['webp']
-        })(),
-        quality: (() => {
-          const parsed = Number.parseInt(process.env.NUXT_IMAGE_QUALITY ?? '', 10)
-          if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100) {
-            return parsed
-          }
-          return 80
-        })(),
-        maxProxyWidth: (() => {
-          const parsed = Number.parseInt(process.env.NUXT_IMAGE_MAX_PROXY_WIDTH ?? '', 10)
-          return Number.isFinite(parsed) && parsed > 0 ? parsed : 2000
-        })(),
-        enableProxy: process.env.NUXT_IMAGE_ENABLE_PROXY !== 'false',
-        requireAltText: process.env.NUXT_IMAGE_REQUIRE_ALT_TEXT === 'true',
-        altTextPlaceholder: process.env.NUXT_IMAGE_ALT_TEXT_PLACEHOLDER || 'TODO: describe image'
+  // Resend
+  resendApiKey: process.env.NUXT_RESEND_API_KEY,
+  // Github
+  githubClientId: process.env.NUXT_GH_CLIENT_ID,
+  githubClientSecret: process.env.NUXT_GH_CLIENT_SECRET,
+  // Google
+  googleClientId: process.env.NUXT_GOOGLE_CLIENT_ID,
+  googleClientSecret: process.env.NUXT_GOOGLE_CLIENT_SECRET,
+  // Google Maps
+  googleMapsApiKey: process.env.NUXT_GOOGLE_MAPS_API_KEY,
+  // DB
+  redisUrl: process.env.NUXT_REDIS_URL,
+  databaseUrl: process.env.DATABASE_URL,
+  // File
+  fileManager: {
+    storage: {
+      provider: process.env.NUXT_APP_STORAGE as StorageProviderType || 'r2',
+      local: { // provider: 'local'
+        uploadDir: process.env.NUXT_LOCAL_UPLOAD_DIR || './uploads',
+        publicPath: process.env.NUXT_LOCAL_PUBLIC_PATH || '/uploads'
       },
-      storage: {
-        provider: (() => {
-          const envValue = process.env.NUXT_APP_STORAGE
-          if (isValidStorageProvider(envValue)) {
-            console.log(`[Storage Config] Using storage provider: ${envValue}`)
-            return envValue
-          }
-          if (envValue) {
-            console.warn(`Invalid NUXT_APP_STORAGE value "${envValue}". Valid values are: 'local', 'r2'. Falling back to 'local'.`)
-          } else {
-            console.warn('[Storage Config] NUXT_APP_STORAGE is not set, falling back to "local"')
-          }
-          console.log('[Storage Config] Using storage provider: local (fallback)')
-          return 'local' as StorageProviderType
-        })(),
-        local: { // provider: 'local'
-          uploadDir: process.env.NUXT_LOCAL_UPLOAD_DIR || './uploads',
-          publicPath: process.env.NUXT_LOCAL_PUBLIC_PATH || '/uploads'
-        },
-        r2: { // provider: 'r2'
-          accountId: process.env.NUXT_CF_ACCOUNT_ID ?? '',
-          accessKeyId: process.env.NUXT_CF_ACCESS_KEY_ID ?? '',
-          secretAccessKey: process.env.NUXT_CF_SECRET_ACCESS_KEY ?? '',
-          bucketName: process.env.NUXT_CF_R2_BUCKET_NAME ?? '',
-          publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL ?? ''
-        }
-      },
-      uploadRateLimit: {
-        maxUploadsPerWindow: 100,
-        windowSizeMinutes: 1
+      r2: { // provider: 'r2'
+        accountId: process.env.NUXT_CF_ACCOUNT_ID!,
+        accessKeyId: process.env.NUXT_CF_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.NUXT_CF_SECRET_ACCESS_KEY!,
+        bucketName: process.env.NUXT_CF_R2_BUCKET_NAME!,
+        publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL!
       }
-    } satisfies FileManagerConfig,
-    public: {
-      baseURL: getAppUrl(),
-      appName: process.env.NUXT_APP_NAME,
-      appEnv: process.env.NODE_ENV,
-      appRepo: process.env.NUXT_APP_REPO,
-      appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
-      appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
-      payment: process.env.NUXT_PAYMENT || 'stripe',
-      googlePickerApiKey: process.env.NUXT_GOOGLE_PICKER_API_KEY || '',
-      auth: {
-        redirectUserTo: '/',
-        redirectGuestTo: '/signin'
-      }
+    },
+    uploadRateLimit: {
+      maxUploadsPerWindow: 100,
+      windowSizeMinutes: 1
     }
-  }
-
-  // Validate R2 configuration if R2 is the selected storage provider
-  validateR2Config(config as NitroRuntimeConfig)
-
-  return config
-}
-
-const resolveRuntimeConfig = () => {
-  if (!runtimeConfigInstance && tryResolveFromNuxt()) {
-    return runtimeConfigInstance
-  }
-
-  if (runtimeConfigInstance && !_resolvedFromNuxt) {
-    if (tryResolveFromNuxt()) {
-      return runtimeConfigInstance
+  } satisfies FileManagerConfig,
+  public: {
+    baseURL: process.env.NUXT_APP_URL,
+    appName: process.env.NUXT_APP_NAME,
+    appEnv: process.env.NODE_ENV,
+    appRepo: process.env.NUXT_APP_REPO,
+    appNotifyEmail: process.env.NUXT_APP_NOTIFY_EMAIL,
+    appContactEmail: process.env.NUXT_APP_CONTACT_EMAIL,
+    googleMapsApiKeyPublic: process.env.NUXT_GOOGLE_MAPS_API_KEY_PUBLIC,
+    payment: process.env.NUXT_PAYMENT || 'stripe',
+    auth: {
+      redirectUserTo: '/',
+      redirectGuestTo: '/signin'
     }
-  }
-
-  if (!runtimeConfigInstance) {
-    // CLI or early usage before Nuxt initializes - fall back to env config
-    if (!dotenvLoaded) {
-      config()
-      dotenvLoaded = true
-    }
-    runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
-    _resolvedFromEnv = true
-  }
-
-  return runtimeConfigInstance
-}
-
-export const runtimeConfig = new Proxy({} as NitroRuntimeConfig, {
-  get(_, prop) {
-    const instance = resolveRuntimeConfig()
-    return (instance as any)[prop]
-  },
-  set(_, prop, value) {
-    const instance = resolveRuntimeConfig()
-    ;(instance as any)[prop] = value
-    return true
-  },
-  has(_, prop) {
-    const instance = resolveRuntimeConfig()
-    return prop in instance
-  },
-  ownKeys() {
-    const instance = resolveRuntimeConfig()
-    return Reflect.ownKeys(instance)
-  },
-  getOwnPropertyDescriptor(_, prop) {
-    const instance = resolveRuntimeConfig()
-    return Object.getOwnPropertyDescriptor(instance, prop as any)
   }
 })
+
+if (typeof useRuntimeConfig !== 'undefined') {
+  runtimeConfigInstance = useRuntimeConfig()
+} else {
+  // for cli: npm run auth:schema
+  config()
+  runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
+}
+
+export const runtimeConfig = runtimeConfigInstance
