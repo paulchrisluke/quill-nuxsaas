@@ -17,7 +17,15 @@ console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 
 export const createBetterAuth = () => betterAuth({
   baseURL: runtimeConfig.public.baseURL,
-  trustedOrigins: ['http://localhost:8787', runtimeConfig.public.baseURL],
+  trustedOrigins: [
+    'http://localhost:3000',
+    'http://localhost:8787',
+    'https://quill-nuxt-saas-v1.pages.dev',
+    'https://getquillio.com',
+    'https://quill-nuxt-saas-v1.nuxt.dev',
+    'https://quillio-worker.mrjoeelia.workers.dev',
+    runtimeConfig.public.baseURL
+  ],
   secret: runtimeConfig.betterAuthSecret,
   database: drizzleAdapter(
     getDB(),

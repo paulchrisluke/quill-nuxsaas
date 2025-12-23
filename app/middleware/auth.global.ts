@@ -1,7 +1,4 @@
-import { useLocalePath } from '#i18n'
 import { defu } from 'defu'
-import { KNOWN_LOCALES } from '~~/shared/constants/routing'
-import { isAnonymousWorkspaceConversationRoute, stripLocalePrefix } from '~~/shared/utils/routeMatching'
 
 type MiddlewareOptions = false | {
   /**
@@ -31,52 +28,17 @@ declare module 'vue-router' {
 }
 
 export default defineNuxtRouteMiddleware(async (to) => {
-  // Exclude API documentation routes from auth
-  if (to.path.startsWith('/api-reference') || to.path.startsWith('/docs') || to.path.startsWith('/_nitro/openapi')) {
+  // If auth is disabled, skip middleware
+  if (to.meta?.auth === false) {
     return
   }
-
-  const { loggedIn, user, fetchSession, organization } = useAuth()
+  const { loggedIn, user, fetchSession } = useAuth()
   const redirectOptions = useRuntimeConfig().public.auth
   const { only, redirectUserTo, redirectGuestTo } = defu(to.meta?.auth, redirectOptions)
 
   await fetchSession()
 
   const localePath = useLocalePath()
-
-  // Special case: redirect logged-in users from home page (even if auth: false)
-  const isHomePage = to.path === '/' || to.path === localePath('/')
-  if (isHomePage && loggedIn.value && to.meta?.auth === false) {
-    // Fetch organizations and redirect to first org's conversations page
-    const { data: orgs, error } = await useAsyncData('user-organizations-redirect', async () => {
-      const { data } = await organization.list()
-      return data
-    }, {
-      getCachedData: () => undefined
-    })
-
-    if (error.value) {
-      console.error('Failed to fetch organizations for redirect:', error.value)
-      return
-    }
-
-    if (orgs.value && orgs.value.length > 0) {
-      const firstOrg = orgs.value[0]
-      if (!firstOrg?.slug) {
-        console.error('First organization missing slug')
-        return
-      }
-      const targetPath = localePath(`/${firstOrg.slug}/conversations`)
-      if (to.path !== targetPath) {
-        return navigateTo(targetPath)
-      }
-    }
-  }
-
-  // If auth is disabled, skip rest of middleware (but we already handled home page redirect above)
-  if (to.meta?.auth === false) {
-    return
-  }
 
   if (only === 'guest') {
     if (loggedIn.value) {
@@ -92,29 +54,8 @@ export default defineNuxtRouteMiddleware(async (to) => {
     }
   }
 
-  // If not authenticated, check if route allows anonymous access
-  // Allow root route and *anonymous* slug-based conversation routes
-  const isAnonymousAllowedRoute = (() => {
-    const path = to.path
-    const pathWithoutLocale = stripLocalePrefix(path, KNOWN_LOCALES)
-    // Allow root route
-    if (path === '/' || path === localePath('/'))
-      return true
-    // Allow only anonymous workspace conversation routes: /anonymous-*/conversations
-    // Strip locale prefix (if present) before extracting the workspace slug.
-    if (isAnonymousWorkspaceConversationRoute(path, KNOWN_LOCALES))
-      return true
-
-    // Allow /t/conversations routes which are aliases to the active anonymous workspace
-    if (pathWithoutLocale.startsWith('/t/conversations'))
-      return true
-    return false
-  })()
-
+  // If not authenticated, redirect to home
   if (!loggedIn.value) {
-    if (isAnonymousAllowedRoute) {
-      return
-    }
     // Avoid infinite redirect
     if (to.path === localePath(redirectGuestTo)) {
       return
