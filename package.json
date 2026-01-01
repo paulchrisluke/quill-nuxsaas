@@ -17,7 +17,7 @@
     "coverage": "vitest run --coverage",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "node scripts/fix-eslint-config.js && node scripts/fix-eslint-unicorn.js && nuxt prepare",
+    "postinstall": "nuxt prepare",
     "lint": "cross-env NODE_OPTIONS=\"--experimental-json-modules\" eslint .",
     "lint:fix": "cross-env NODE_OPTIONS=\"--experimental-json-modules\" eslint --fix .",
     "auth:schema": "npx @better-auth/cli generate --config server/utils/auth.ts --output server/db/schema/auth.ts -y",
