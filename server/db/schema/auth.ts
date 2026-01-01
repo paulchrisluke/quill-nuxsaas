@@ -45,6 +45,7 @@ export const user = pgTable('user', {
   defaultOrganizationId: text('default_organization_id').references(() => organization.id, {
     onDelete: 'set null'
   }),
+  lastActiveOrganizationId: text('last_active_organization_id'),
   isAnonymous: boolean('is_anonymous').default(false).notNull()
 })
 

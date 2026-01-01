@@ -90,8 +90,9 @@ export const createBetterAuth = () => betterAuth({
     user: {
       create: {
         before: async (user, ctx) => {
-          if (ctx.path.startsWith('/callback')) {
+          if (ctx?.path?.startsWith('/callback')) {
             try {
+              // @ts-expect-error: better-auth types mismatch
               const additionalData = await getOAuthState(ctx)
               if (additionalData?.referralCode) {
                 return {
@@ -217,7 +218,7 @@ export const createBetterAuth = () => betterAuth({
     },
     organization: {
       create: {
-        before: async (org, ctx) => {
+        before: async (org: any, ctx: any) => {
           const session = ctx.session || ctx.context?.session
           if (session?.user?.id) {
             const db = getDB()
@@ -301,6 +302,7 @@ export const createBetterAuth = () => betterAuth({
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
+      console.log('[Auth] sendVerificationEmail triggered for:', user.email)
       console.log('>>> EMAIL VERIFICATION LINK <<<')
       console.log(`To: ${user.email}`)
       console.log(url)
@@ -308,12 +310,14 @@ export const createBetterAuth = () => betterAuth({
       try {
         const name = user.name || user.email.split('@')[0]
         const html = await renderVerifyEmail(name, url)
+        console.log('[Auth] Rendering verification email...')
         const response = await resendInstance.emails.send({
           from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
           to: user.email,
           subject: 'Verify your email address',
           html
         })
+        console.log('[Auth] Resend response:', JSON.stringify(response))
         await logAuditEvent({
           userId: user.id,
           category: 'email',
@@ -324,10 +328,11 @@ export const createBetterAuth = () => betterAuth({
           details: response.error?.message
         })
         if (response.error) {
+          console.error('[Auth] Resend error:', response.error)
           throw new Error(response.error.message)
         }
       } catch (e) {
-        console.warn('Failed to send verification email:', e)
+        console.error('[Auth] Failed to send verification email:', e)
         console.log('>>> MANUAL VERIFICATION LINK <<<')
         console.log(url)
         console.log('>>> ------------------------ <<<')
@@ -351,6 +356,7 @@ export const createBetterAuth = () => betterAuth({
   },
   hooks: {
     after: createAuthMiddleware(async (ctx) => {
+      console.log(`[Auth Hook] ${ctx.path} request handled.`)
       const ipAddress = ctx.getHeader('x-forwarded-for')
         || ctx.getHeader('remoteAddress') || undefined
       const userAgent = ctx.getHeader('user-agent') || undefined
@@ -366,6 +372,7 @@ export const createBetterAuth = () => betterAuth({
       }
       const returned = ctx.context.returned
       if (returned && returned instanceof APIError) {
+        console.error(`[Auth Hook Error] Path: ${ctx.path}, Status: ${returned.status}, Message: ${returned.body?.message || 'No message'}`)
         const userId = ctx.context.newSession?.user.id
         if (ctx.path == '/callback/:id' && returned.status == 'FOUND' && userId) {
           const provider = ctx.params.id
@@ -380,17 +387,21 @@ export const createBetterAuth = () => betterAuth({
             status: 'success'
           })
         } else {
-          await logAuditEvent({
-            userId: ctx.context.session?.user.id,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'failure',
-            details: returned.body?.message
-          })
+          try {
+            await logAuditEvent({
+              userId: ctx.context.session?.user.id,
+              category: 'auth',
+              action: ctx.path,
+              targetType,
+              targetId,
+              ipAddress,
+              userAgent,
+              status: 'failure',
+              details: returned.body?.message
+            })
+          } catch (logError) {
+            console.error('[Auth Hook] Failed to log audit event after error:', logError)
+          }
         }
       } else {
         if (['/sign-in/email', '/sign-up/email', '/forget-password', '/reset-password'].includes(ctx.path)) {
@@ -400,16 +411,20 @@ export const createBetterAuth = () => betterAuth({
           } else {
             userId = ctx.context.session?.user.id
           }
-          await logAuditEvent({
-            userId,
-            category: 'auth',
-            action: ctx.path,
-            targetType,
-            targetId,
-            ipAddress,
-            userAgent,
-            status: 'success'
-          })
+          try {
+            await logAuditEvent({
+              userId,
+              category: 'auth',
+              action: ctx.path,
+              targetType,
+              targetId,
+              ipAddress,
+              userAgent,
+              status: 'success'
+            })
+          } catch (logError) {
+            console.error('[Auth Hook] Failed to log audit event after success:', logError)
+          }
         }
       }
     })

@@ -1,2 +1,0 @@
--- Index creation moved to migration 0003 to avoid conflicts
--- The indexes will be created in migration 0003 with proper DESC NULLS LAST ordering

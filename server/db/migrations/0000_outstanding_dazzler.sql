@@ -1,9 +1,11 @@
+CREATE TYPE "public"."audit_log_status" AS ENUM('pending', 'success', 'failure');--> statement-breakpoint
 CREATE TYPE "public"."conversation_log_type" AS ENUM('info', 'warning', 'error', 'debug');--> statement-breakpoint
 CREATE TYPE "public"."conversation_role" AS ENUM('user', 'assistant', 'system', 'function');--> statement-breakpoint
 CREATE TYPE "public"."conversation_status" AS ENUM('active', 'archived', 'completed');--> statement-breakpoint
 CREATE TYPE "public"."content_status" AS ENUM('draft', 'in_review', 'ready_for_publish', 'published', 'archived');--> statement-breakpoint
 CREATE TYPE "public"."content_type" AS ENUM('blog_post', 'recipe', 'faq_page', 'course', 'how_to');--> statement-breakpoint
 CREATE TYPE "public"."publication_status" AS ENUM('pending', 'published', 'failed');--> statement-breakpoint
+CREATE TYPE "public"."file_optimization_status" AS ENUM('pending', 'processing', 'done', 'failed', 'skipped');--> statement-breakpoint
 CREATE TYPE "public"."ingest_status" AS ENUM('pending', 'processing', 'ingested', 'failed');--> statement-breakpoint
 CREATE TABLE "audit_log" (
 	"id" serial PRIMARY KEY NOT NULL,
@@ -16,6 +18,23 @@ CREATE TABLE "audit_log" (
 	"user_agent" text,
 	"status" text DEFAULT 'success' NOT NULL,
 	"details" text,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "audit_log_queue" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"user_id" text,
+	"category" text NOT NULL,
+	"action" text NOT NULL,
+	"target_type" text,
+	"target_id" text,
+	"ip_address" text,
+	"user_agent" text,
+	"status" "audit_log_status" DEFAULT 'pending' NOT NULL,
+	"details" text,
+	"error" text,
+	"retry_count" integer DEFAULT 0 NOT NULL,
+	"last_retry_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -87,6 +106,9 @@ CREATE TABLE "organization" (
 	"metadata" text,
 	"stripe_customer_id" text,
 	"referral_code" text,
+	"device_fingerprint" text,
+	"is_anonymous" boolean DEFAULT false NOT NULL,
+	"last_synced_at" timestamp,
 	CONSTRAINT "organization_slug_unique" UNIQUE("slug")
 );
 --> statement-breakpoint
@@ -117,6 +139,9 @@ CREATE TABLE "subscription" (
 	"trial_end" timestamp,
 	"cancel_at_period_end" boolean DEFAULT false,
 	"seats" integer,
+	"scheduled_plan_id" text,
+	"scheduled_plan_interval" text,
+	"scheduled_plan_seats" integer,
 	CONSTRAINT "subscription_seats_check" CHECK ("subscription"."seats" IS NULL OR "subscription"."seats" > 0)
 );
 --> statement-breakpoint
@@ -132,9 +157,10 @@ CREATE TABLE "user" (
 	"banned" boolean DEFAULT false,
 	"ban_reason" text,
 	"ban_expires" timestamp,
-	"last_active_organization_id" text,
 	"referral_code" text,
-	"is_anonymous" boolean DEFAULT false,
+	"default_organization_id" text,
+	"last_active_organization_id" text,
+	"is_anonymous" boolean DEFAULT false NOT NULL,
 	CONSTRAINT "user_email_unique" UNIQUE("email"),
 	CONSTRAINT "user_referral_code_unique" UNIQUE("referral_code")
 );
@@ -154,7 +180,7 @@ CREATE TABLE "conversation" (
 	"source_content_id" uuid,
 	"created_by_user_id" text,
 	"status" "conversation_status" DEFAULT 'active' NOT NULL,
-	"metadata" jsonb DEFAULT NULL,
+	"metadata" jsonb DEFAULT 'null'::jsonb,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -165,7 +191,7 @@ CREATE TABLE "conversation_log" (
 	"organization_id" text NOT NULL,
 	"type" "conversation_log_type" DEFAULT 'info' NOT NULL,
 	"message" text NOT NULL,
-	"payload" jsonb DEFAULT NULL,
+	"payload" jsonb DEFAULT 'null'::jsonb,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -175,7 +201,7 @@ CREATE TABLE "conversation_message" (
 	"organization_id" text NOT NULL,
 	"role" "conversation_role" NOT NULL,
 	"content" text NOT NULL,
-	"payload" jsonb DEFAULT NULL,
+	"payload" jsonb DEFAULT 'null'::jsonb,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -188,8 +214,8 @@ CREATE TABLE "chunk" (
 	"end_char" integer NOT NULL,
 	"text" text NOT NULL,
 	"text_preview" text,
-	"embedding" jsonb DEFAULT NULL,
-	"metadata" jsonb DEFAULT NULL,
+	"embedding" jsonb DEFAULT 'null'::jsonb,
+	"metadata" jsonb DEFAULT 'null'::jsonb,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "uq_chunk_source_content_chunk_index" UNIQUE("source_content_id","chunk_index")
 );
@@ -220,12 +246,12 @@ CREATE TABLE "content_version" (
 	"version" integer NOT NULL,
 	"created_by_user_id" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
-	"frontmatter" jsonb DEFAULT NULL,
+	"frontmatter" jsonb DEFAULT 'null'::jsonb,
 	"body_mdx" text NOT NULL,
 	"body_html" text,
-	"sections" jsonb DEFAULT NULL,
-	"assets" jsonb DEFAULT NULL,
-	"seo_snapshot" jsonb DEFAULT NULL
+	"sections" jsonb DEFAULT 'null'::jsonb,
+	"assets" jsonb DEFAULT 'null'::jsonb,
+	"seo_snapshot" jsonb DEFAULT 'null'::jsonb
 );
 --> statement-breakpoint
 CREATE TABLE "publication" (
@@ -233,12 +259,12 @@ CREATE TABLE "publication" (
 	"organization_id" text NOT NULL,
 	"content_id" uuid NOT NULL,
 	"content_version_id" uuid NOT NULL,
-	"integration_id" text,
+	"integration_id" uuid,
 	"external_id" text,
 	"status" "publication_status" DEFAULT 'pending' NOT NULL,
 	"published_at" timestamp,
-	"payload_snapshot" jsonb DEFAULT NULL,
-	"response_snapshot" jsonb DEFAULT NULL,
+	"payload_snapshot" jsonb DEFAULT 'null'::jsonb,
+	"response_snapshot" jsonb DEFAULT 'null'::jsonb,
 	"error_message" text,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
@@ -250,26 +276,38 @@ CREATE TABLE "file" (
 	"mime_type" text NOT NULL,
 	"file_type" text NOT NULL,
 	"size" bigint NOT NULL,
+	"width" integer,
+	"height" integer,
+	"blur_data_url" text,
+	"variants" jsonb,
+	"optimization_status" "file_optimization_status" DEFAULT 'pending' NOT NULL,
+	"optimization_error" text,
+	"optimized_at" timestamp with time zone,
+	"optimization_started_at" timestamp with time zone,
 	"path" text NOT NULL,
 	"url" text,
 	"storage_provider" text NOT NULL,
+	"organization_id" text,
 	"uploaded_by" text,
 	"content_id" uuid,
 	"is_active" boolean DEFAULT true NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "quota_usage_log" (
-	"id" serial PRIMARY KEY NOT NULL,
+CREATE TABLE "integration" (
+	"id" uuid PRIMARY KEY NOT NULL,
 	"organization_id" text NOT NULL,
-	"quota_limit" integer,
-	"used" integer NOT NULL,
-	"remaining" integer,
-	"profile" text,
-	"label" text,
-	"unlimited" boolean DEFAULT false NOT NULL,
-	"created_at" timestamp DEFAULT now() NOT NULL
+	"type" text NOT NULL,
+	"name" text NOT NULL,
+	"auth_type" text NOT NULL,
+	"account_id" text,
+	"base_url" text,
+	"config" jsonb DEFAULT 'null'::jsonb,
+	"capabilities" jsonb DEFAULT 'null'::jsonb,
+	"is_active" boolean DEFAULT true,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "source_content" (
@@ -280,13 +318,14 @@ CREATE TABLE "source_content" (
 	"external_id" text,
 	"title" text,
 	"source_text" text,
-	"metadata" jsonb DEFAULT NULL,
+	"metadata" jsonb DEFAULT 'null'::jsonb,
 	"ingest_status" "ingest_status" DEFAULT 'pending' NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "audit_log_queue" ADD CONSTRAINT "audit_log_queue_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "apiKey" ADD CONSTRAINT "apiKey_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -296,7 +335,7 @@ ALTER TABLE "member" ADD CONSTRAINT "member_user_id_user_id_fk" FOREIGN KEY ("us
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_active_organization_id_organization_id_fk" FOREIGN KEY ("active_organization_id") REFERENCES "public"."organization"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription" ADD CONSTRAINT "subscription_reference_id_organization_id_fk" FOREIGN KEY ("reference_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "user" ADD CONSTRAINT "user_last_active_organization_id_organization_id_fk" FOREIGN KEY ("last_active_organization_id") REFERENCES "public"."organization"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "user" ADD CONSTRAINT "user_default_organization_id_organization_id_fk" FOREIGN KEY ("default_organization_id") REFERENCES "public"."organization"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "conversation" ADD CONSTRAINT "conversation_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "conversation" ADD CONSTRAINT "conversation_source_content_id_source_content_id_fk" FOREIGN KEY ("source_content_id") REFERENCES "public"."source_content"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "conversation" ADD CONSTRAINT "conversation_created_by_user_id_user_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -315,10 +354,12 @@ ALTER TABLE "content_version" ADD CONSTRAINT "content_version_created_by_user_id
 ALTER TABLE "publication" ADD CONSTRAINT "publication_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "publication" ADD CONSTRAINT "publication_content_id_content_id_fk" FOREIGN KEY ("content_id") REFERENCES "public"."content"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "publication" ADD CONSTRAINT "publication_content_version_id_content_version_id_fk" FOREIGN KEY ("content_version_id") REFERENCES "public"."content_version"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "publication" ADD CONSTRAINT "publication_integration_id_account_id_fk" FOREIGN KEY ("integration_id") REFERENCES "public"."account"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "publication" ADD CONSTRAINT "publication_integration_id_integration_id_fk" FOREIGN KEY ("integration_id") REFERENCES "public"."integration"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "file" ADD CONSTRAINT "file_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "file" ADD CONSTRAINT "file_uploaded_by_user_id_fk" FOREIGN KEY ("uploaded_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "file" ADD CONSTRAINT "file_content_id_content_id_fk" FOREIGN KEY ("content_id") REFERENCES "public"."content"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "quota_usage_log" ADD CONSTRAINT "quota_usage_log_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "integration" ADD CONSTRAINT "integration_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "integration" ADD CONSTRAINT "integration_account_id_account_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."account"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "source_content" ADD CONSTRAINT "source_content_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "source_content" ADD CONSTRAINT "source_content_created_by_user_id_user_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
@@ -329,11 +370,13 @@ CREATE UNIQUE INDEX "invitation_unique_idx" ON "invitation" USING btree ("organi
 CREATE INDEX "member_organizationId_idx" ON "member" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "member_userId_idx" ON "member" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "member_unique_idx" ON "member" USING btree ("organization_id","user_id");--> statement-breakpoint
+CREATE INDEX "organization_device_fingerprint_idx" ON "organization" USING btree ("device_fingerprint");--> statement-breakpoint
 CREATE INDEX "session_user_id_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "subscription_stripe_customer_id_idx" ON "subscription" USING btree ("stripe_customer_id");--> statement-breakpoint
 CREATE INDEX "subscription_stripe_subscription_id_idx" ON "subscription" USING btree ("stripe_subscription_id");--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
 CREATE INDEX "conversation_org_idx" ON "conversation" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "conversation_org_updated_idx" ON "conversation" USING btree ("organization_id","updated_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "conversation_source_idx" ON "conversation" USING btree ("source_content_id");--> statement-breakpoint
 CREATE INDEX "conversation_log_conversation_idx" ON "conversation_log" USING btree ("conversation_id");--> statement-breakpoint
 CREATE INDEX "conversation_log_org_idx" ON "conversation_log" USING btree ("organization_id");--> statement-breakpoint
@@ -341,10 +384,14 @@ CREATE INDEX "conversation_log_type_idx" ON "conversation_log" USING btree ("typ
 CREATE INDEX "conversation_message_conversation_idx" ON "conversation_message" USING btree ("conversation_id");--> statement-breakpoint
 CREATE INDEX "conversation_message_org_idx" ON "conversation_message" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "conversation_message_created_idx" ON "conversation_message" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "conversation_message_conv_org_created_idx" ON "conversation_message" USING btree ("conversation_id","organization_id","created_at");--> statement-breakpoint
+CREATE INDEX "conversation_message_conv_created_idx" ON "conversation_message" USING btree ("conversation_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "idx_chunk_organization_id" ON "chunk" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "idx_chunk_source_content_id" ON "chunk" USING btree ("source_content_id");--> statement-breakpoint
 CREATE INDEX "content_organization_idx" ON "content" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "content_conversation_idx" ON "content" USING btree ("conversation_id");--> statement-breakpoint
+CREATE INDEX "content_conv_org_updated_idx" ON "content" USING btree ("conversation_id","organization_id","updated_at");--> statement-breakpoint
+CREATE INDEX "content_conversation_updated_idx" ON "content" USING btree ("conversation_id","updated_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "content_status_idx" ON "content" USING btree ("status");--> statement-breakpoint
 CREATE UNIQUE INDEX "content_org_slug_idx" ON "content" USING btree ("organization_id","slug");--> statement-breakpoint
 CREATE INDEX "content_org_status_idx" ON "content" USING btree ("organization_id","status");--> statement-breakpoint
@@ -355,8 +402,13 @@ CREATE UNIQUE INDEX "content_version_unique_idx" ON "content_version" USING btre
 CREATE INDEX "publication_organization_idx" ON "publication" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "publication_content_idx" ON "publication" USING btree ("content_id");--> statement-breakpoint
 CREATE INDEX "publication_status_idx" ON "publication" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "quota_usage_log_org_idx" ON "quota_usage_log" USING btree ("organization_id");--> statement-breakpoint
-CREATE INDEX "quota_usage_log_created_idx" ON "quota_usage_log" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "file_organization_idx" ON "file" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "file_organization_active_idx" ON "file" USING btree ("organization_id","is_active");--> statement-breakpoint
+CREATE INDEX "file_optimization_status_idx" ON "file" USING btree ("optimization_status");--> statement-breakpoint
+CREATE INDEX "file_optimization_status_created_at_idx" ON "file" USING btree ("optimization_status","created_at");--> statement-breakpoint
+CREATE INDEX "integration_org_idx" ON "integration" USING btree ("organization_id");--> statement-breakpoint
+CREATE INDEX "integration_type_idx" ON "integration" USING btree ("type");--> statement-breakpoint
+CREATE UNIQUE INDEX "integration_org_type_unique_idx" ON "integration" USING btree ("organization_id","type");--> statement-breakpoint
 CREATE INDEX "source_content_organization_idx" ON "source_content" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "source_content_type_idx" ON "source_content" USING btree ("source_type");--> statement-breakpoint
 CREATE UNIQUE INDEX "source_content_org_type_external_idx" ON "source_content" USING btree ("organization_id","source_type","external_id") WHERE "source_content"."external_id" IS NOT NULL;--> statement-breakpoint
