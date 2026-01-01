@@ -581,13 +581,14 @@ watch([latestCreated, () => activeOrg.value?.data?.slug, isBusy], ([created, slu
     return
   }
 
-  const targetPath = `/${slug}/content/${created.contentId}`
+  const targetPath = stripLocalePrefix(resolveContentPath(slug, created.contentId), KNOWN_LOCALES)
   const currentPath = stripLocalePrefix(route.path, KNOWN_LOCALES)
-  lastAutoOpenedContentId.value = created.contentId
   if (currentPath === targetPath) {
+    lastAutoOpenedContentId.value = created.contentId
     return
   }
 
+  lastAutoOpenedContentId.value = created.contentId
   router.push(resolveContentPath(slug, created.contentId))
 })
 

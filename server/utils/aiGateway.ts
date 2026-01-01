@@ -144,16 +144,6 @@ export async function callChatCompletionsRaw({
       })
     }
 
-    if (shouldUseGateway && !CF_AI_GATEWAY_TOKEN) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Cloudflare AI Gateway token not configured',
-        data: {
-          message: 'NUXT_CF_AI_GATEWAY_TOKEN environment variable is required when AI Gateway is enabled'
-        }
-      })
-    }
-
     const modelName = shouldUseGateway
       ? (model.startsWith('openai/') ? model : `openai/${model}`)
       : (model.startsWith('openai/') ? model.slice(7) : model)
@@ -237,16 +227,6 @@ export async function* callChatCompletionsStream({
         statusMessage: 'OpenAI API key not configured',
         data: {
           message: 'NUXT_OPENAI_API_KEY environment variable is required'
-        }
-      })
-    }
-
-    if (shouldUseGateway && !CF_AI_GATEWAY_TOKEN) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Cloudflare AI Gateway token not configured',
-        data: {
-          message: 'NUXT_CF_AI_GATEWAY_TOKEN environment variable is required when AI Gateway is enabled'
         }
       })
     }

@@ -31,8 +31,8 @@ export const generateRuntimeConfig = () => ({
   // AI / LLM
   openAiApiKey: process.env.NUXT_OPENAI_API_KEY,
   openAiBlogModel: process.env.NUXT_OPENAI_BLOG_MODEL || 'gpt-4o-mini',
-  openAiBlogTemperature: process.env.NUXT_OPENAI_BLOG_TEMPERATURE || 0.6,
-  openAiBlogMaxOutputTokens: process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS || 2200,
+  openAiBlogTemperature: Number(process.env.NUXT_OPENAI_BLOG_TEMPERATURE) || 0.6,
+  openAiBlogMaxOutputTokens: Number(process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS) || 2200,
   cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
   cfAiGatewayName: process.env.NUXT_CF_AI_GATEWAY_NAME || 'quill',
   cfAccountId: process.env.NUXT_CF_ACCOUNT_ID,
