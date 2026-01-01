@@ -110,33 +110,55 @@ export const createBetterAuth = () => betterAuth({
         after: async (user) => {
           console.log('[Auth] User created, auto-creating personal organization for:', user.email)
           const db = getDB()
+
           try {
-            const orgId = uuidv7()
-            const orgName = 'Personal'
-            const slug = `${orgName.toLowerCase()}-${uuidv7().slice(0, 8)}`
+            // Use transaction for atomicity
+            await db.transaction(async (tx) => {
+              // Check if user already has an organization (idempotency)
+              const existingMembers = await tx
+                .select()
+                .from(schema.member)
+                .where(eq(schema.member.userId, user.id))
+                .limit(1)
 
-            await db.insert(schema.organization).values({
-              id: orgId,
-              name: orgName,
-              slug,
-              createdAt: new Date()
+              if (existingMembers.length > 0) {
+                console.log(`[Auth] User ${user.id} already has organization memberships, skipping auto-create`)
+                return
+              }
+
+              // Generate IDs before transaction operations
+              const orgId = uuidv7()
+              const memberId = uuidv7()
+              const orgName = 'Personal'
+              const slug = `${orgName.toLowerCase()}-${orgId.slice(0, 8)}`
+
+              // All operations in single transaction
+              await tx.insert(schema.organization).values({
+                id: orgId,
+                name: orgName,
+                slug,
+                createdAt: new Date()
+              })
+
+              await tx.insert(schema.member).values({
+                id: memberId,
+                organizationId: orgId,
+                userId: user.id,
+                role: 'owner',
+                createdAt: new Date()
+              })
+
+              await tx
+                .update(schema.user)
+                .set({ lastActiveOrganizationId: orgId })
+                .where(eq(schema.user.id, user.id))
+
+              console.log(`[Auth] Auto-created organization ${orgId} for user ${user.id}`)
             })
-
-            await db.insert(schema.member).values({
-              id: uuidv7(),
-              organizationId: orgId,
-              userId: user.id,
-              role: 'owner',
-              createdAt: new Date()
-            })
-
-            await db.update(schema.user)
-              .set({ lastActiveOrganizationId: orgId })
-              .where(eq(schema.user.id, user.id))
-
-            console.log(`[Auth] Auto-created organization ${orgId} for user ${user.id}`)
           } catch (e) {
-            console.error('[Auth] Failed to auto-create organization:', e)
+            console.error('[Auth] Failed to auto-create organization, aborting user creation:', e)
+            // Rethrow to propagate error and abort user creation
+            throw new Error(`Organization creation failed: ${e instanceof Error ? e.message : String(e)}`)
           }
         }
       },

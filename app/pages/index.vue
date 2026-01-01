@@ -27,9 +27,14 @@ onMounted(async () => {
       const { data: orgs } = await useAuth().organization.list()
       if (orgs && orgs.length > 0) {
         const target = localePath(`/${orgs[0].slug}/conversations`)
-        await navigateTo(target)
-        if (import.meta.client) {
-          window.location.href = target
+        try {
+          await navigateTo(target)
+        } catch (navError) {
+          // Fallback to hard reload only if navigateTo fails
+          if (import.meta.client) {
+            console.warn('navigateTo failed, falling back to hard reload:', navError)
+            window.location.href = target
+          }
         }
       }
     } catch (err) {
