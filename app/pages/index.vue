@@ -12,6 +12,9 @@ const localePath = useLocalePath()
 // Navigation lock to prevent concurrent redirects
 let isNavigating = false
 
+// Track whether redirect has been handled to prevent race between watcher and onMounted
+let hasRedirected = false
+
 // Shared navigation helper with error handling and fallback
 async function performRedirect(targetSlug: string) {
   if (isNavigating) {
@@ -35,12 +38,15 @@ async function performRedirect(targetSlug: string) {
   }
 }
 
-// Watch for subsequent changes to login/org state (not initial load)
+// Watch for changes to login/org state (including initial load)
 watch([loggedIn, activeOrg], async () => {
+  if (hasRedirected)
+    return
   if (loggedIn.value && activeOrg.value?.data?.slug) {
+    hasRedirected = true
     await performRedirect(activeOrg.value.data.slug)
   }
-})
+}, { immediate: true })
 
 // Handle initial redirect on mount
 onMounted(async () => {
@@ -48,18 +54,13 @@ onMounted(async () => {
     await fetchSession()
   }
 
-  if (loggedIn.value) {
+  // Only handle fallback if watcher didn't handle it
+  if (loggedIn.value && !hasRedirected) {
     try {
-      // Prefer activeOrg if available
-      if (activeOrg.value?.data?.slug) {
-        await performRedirect(activeOrg.value.data.slug)
-        return
-      }
-
       // Otherwise fetch orgs and use first one
       const { data: orgs } = await useAuth().organization.list()
       if (orgs && orgs.length > 0) {
-        // Use first org as fallback
+        hasRedirected = true
         await performRedirect(orgs[0].slug)
       }
     } catch (err) {
