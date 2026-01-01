@@ -77,9 +77,9 @@ watch(() => route.path, (_newPath) => {
   }
 }, { immediate: true })
 
-// Sidebar is collapsed when: on auth pages
-// Guests use it elsewhere for navigation, users use it for workspace access
-const isSidebarCollapsed = computed(() => isAuthPage.value)
+// Sidebar is never collapsed (only hidden on auth pages via v-if)
+// The collapse prop is for mobile drawer behavior, not visibility control
+const isSidebarCollapsed = computed(() => false)
 
 // Chat panel shows when logged in, not on auth pages, not on public pages
 const shouldShowChatPanel = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value && route.meta?.renderChatWidget !== false)
