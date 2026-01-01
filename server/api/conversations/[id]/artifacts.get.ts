@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { createError, getQuery, getRouterParams } from 'h3'
 import * as schema from '~~/server/db/schema'
-import { getConversationById } from '~~/server/services/conversation'
+import { getConversationByIdForUser } from '~~/server/services/conversation'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { createPaginatedResponse } from '~~/server/utils/responses'
@@ -15,14 +15,14 @@ const MAX_LIMIT = 100
  */
 export default defineEventHandler(async (event) => {
   try {
-    await requireAuth(event, { allowAnonymous: true })
+    const user = await requireAuth(event, { allowAnonymous: true })
     const { organizationId } = await requireActiveOrganization(event, { allowAnonymous: true })
     const db = getDB()
 
     const { id } = getRouterParams(event)
     const conversationId = validateUUID(id, 'id')
 
-    const conversation = await getConversationById(db, conversationId, organizationId)
+    const conversation = await getConversationByIdForUser(db, conversationId, organizationId, user)
 
     if (!conversation) {
       throw createError({

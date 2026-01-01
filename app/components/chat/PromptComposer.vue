@@ -150,6 +150,8 @@ const isBoundaryChar = (value: string | undefined) => {
   return /\s/.test(value) || /[.,!?;:()[\]{}<>"']/.test(value)
 }
 
+const referenceTokenSanitizer = /[^\p{L}\p{N}._\u002f-]+/gu
+
 const normalizeReferenceToken = (value: string | null | undefined): string => {
   const trimmed = (value ?? '').trim()
   if (!trimmed) {
@@ -157,7 +159,7 @@ const normalizeReferenceToken = (value: string | null | undefined): string => {
   }
   return trimmed
     .replace(/\s+/g, '-')
-    .replace(/[^\w./-]+/g, '')
+    .replace(referenceTokenSanitizer, '')
     .replace(/-+/g, '-')
 }
 

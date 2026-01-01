@@ -176,7 +176,7 @@ export function useAuth() {
     subscriptions,
     loggedIn: computed(() => !!session.value),
     isAnonymousUser: computed(() => Boolean(user.value?.isAnonymous)),
-    isAuthenticatedUser: computed(() => !!session.value && !user.value?.isAnonymous),
+    isAuthenticatedUser: computed(() => !!session.value && !!user.value && !user.value.isAnonymous),
     activeStripeSubscription: computed(() => {
       const activeOrgState = useActiveOrgState()
       const subs = (activeOrgState.value?.data as any)?.subscriptions || []

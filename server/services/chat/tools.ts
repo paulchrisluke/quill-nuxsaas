@@ -32,7 +32,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
           contentId: string
           sectionId?: string | null
           sectionTitle?: string | null
-          instructions?: string | null
+          instructions: string
           temperature?: number | null
         }
       : TName extends 'source_ingest'
@@ -102,7 +102,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
                             ? {
                                 contentId: string
                                 fileId?: string | null
-                                position?: string | number | null
+                                position?: string | null
                                 altText?: string | null
                               }
                             : never

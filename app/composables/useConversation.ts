@@ -185,12 +185,35 @@ export function useConversation() {
       return
     if (!key)
       return
-    if (key === 'auth')
+
+    const legacyId = legacyConversationId.value
+    const authFallbackId = conversationIdMap.value.auth ?? null
+
+    if (key === 'auth') {
+      if (!conversationIdMap.value[key] && legacyId) {
+        conversationIdMap.value = {
+          ...conversationIdMap.value,
+          [key]: legacyId
+        }
+        legacyConversationId.value = null
+      }
       return
-    if (!conversationIdMap.value[key] && legacyConversationId.value) {
+    }
+
+    if (conversationIdMap.value[key])
+      return
+
+    if (authFallbackId) {
+      const next = { ...conversationIdMap.value, [key]: authFallbackId }
+      delete next.auth
+      conversationIdMap.value = next
+      return
+    }
+
+    if (legacyId) {
       conversationIdMap.value = {
         ...conversationIdMap.value,
-        [key]: legacyConversationId.value
+        [key]: legacyId
       }
       legacyConversationId.value = null
     }

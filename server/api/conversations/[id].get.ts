@@ -1,5 +1,5 @@
 import { createError, getRouterParams } from 'h3'
-import { getConversationById } from '~~/server/services/conversation'
+import { getConversationByIdForUser } from '~~/server/services/conversation'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { getDB } from '~~/server/utils/db'
 import { validateUUID } from '~~/server/utils/validation'
@@ -8,14 +8,14 @@ import { validateUUID } from '~~/server/utils/validation'
  * Get conversation metadata
  */
 export default defineEventHandler(async (event) => {
-  await requireAuth(event, { allowAnonymous: true })
+  const user = await requireAuth(event, { allowAnonymous: true })
   const { organizationId } = await requireActiveOrganization(event, { allowAnonymous: true })
   const db = getDB()
 
   const { id } = getRouterParams(event)
   const conversationId = validateUUID(id, 'id')
 
-  const conversation = await getConversationById(db, conversationId, organizationId)
+  const conversation = await getConversationByIdForUser(db, conversationId, organizationId, user)
 
   if (!conversation) {
     throw createError({

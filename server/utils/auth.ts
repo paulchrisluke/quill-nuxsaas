@@ -3,7 +3,6 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
-import { setCookieToHeader } from 'better-auth/cookies'
 import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
@@ -606,8 +605,19 @@ export const requireAuth = async (event: H3Event, options: { allowAnonymous?: bo
     }
 
     const mergedHeaders = new Headers(headers)
-    if (anonResponse?.headers) {
-      setCookieToHeader(mergedHeaders)({ response: { headers: anonResponse.headers } })
+    const cookiesFromSetCookie: string[] = []
+    if (setCookieValues && setCookieValues.length > 0) {
+      cookiesFromSetCookie.push(...setCookieValues)
+    } else if (setCookieHeader) {
+      cookiesFromSetCookie.push(...setCookieHeader.split(','))
+    }
+
+    const cookieHeader = cookiesFromSetCookie
+      .map(value => value.split(';')[0].trim())
+      .filter(Boolean)
+      .join('; ')
+    if (cookieHeader) {
+      mergedHeaders.set('cookie', cookieHeader)
     }
 
     const anonymousSession = await serverAuth.api.getSession({

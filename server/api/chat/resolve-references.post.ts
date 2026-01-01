@@ -64,10 +64,10 @@ export default defineEventHandler(async (event) => {
   if (process.env.NODE_ENV !== 'production') {
     console.log('[resolve-references] response', {
       organizationId,
-      tokenCount: result.tokens.length,
-      resolvedCount: result.resolved.length,
-      ambiguousCount: result.ambiguous.length,
-      unresolvedCount: result.unresolved.length
+      tokenCount: result.tokens?.length ?? 0,
+      resolvedCount: result.resolved?.length ?? 0,
+      ambiguousCount: result.ambiguous?.length ?? 0,
+      unresolvedCount: result.unresolved?.length ?? 0
     })
   }
   return result

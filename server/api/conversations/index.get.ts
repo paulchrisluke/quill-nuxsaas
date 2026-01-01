@@ -2,6 +2,7 @@ import { and, desc, eq, lt, or, sql } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
+import { buildConversationAccessClauses } from '~~/server/services/conversation'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 
@@ -174,7 +175,8 @@ export default defineEventHandler(async (event) => {
       cursorDate = parsedDate
     }
 
-    const whereClauses = [eq(schema.conversation.organizationId, organizationId)]
+    const accessClauses = buildConversationAccessClauses({ organizationId, user })
+    const whereClauses = [...accessClauses]
     if (cursorDate && cursorId) {
       whereClauses.push(or(
         lt(schema.conversation.updatedAt, cursorDate),
