@@ -6,10 +6,6 @@ import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 
 console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
 
-const effectiveNitroPreset = (process.env.NODE_ENV === 'development')
-  ? 'node-server'
-  : (process.env.NUXT_NITRO_PRESET || (process.env.VERCEL ? 'vercel' : 'node-server'))
-
 export default defineNuxtConfig({
   compatibilityDate: '2025-12-10',
   devtools: { enabled: true },
@@ -112,10 +108,6 @@ export default defineNuxtConfig({
     }
   },
   nitro: {
-    preset: effectiveNitroPreset,
-    rollupConfig: {
-      external: effectiveNitroPreset != 'node-server' ? ['pg-native'] : undefined
-    },
     esbuild: {
       options: {
         jsx: 'automatic',
