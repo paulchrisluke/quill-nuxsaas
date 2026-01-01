@@ -9,6 +9,7 @@ import { generateContentDeeplink } from '../content/diff'
 export interface ChatAgentInput {
   conversationHistory: ChatCompletionMessage[]
   userMessage: string
+  organizationSlug?: string | null
   contextBlocks?: string[]
   referenceContext?: string
   onRetry?: (toolInvocation: ChatToolInvocation, retryCount: number) => Promise<void> | void
@@ -87,7 +88,8 @@ const MAX_TOOL_RETRIES = 2
  */
 function generateSummaryFromToolHistory(
   toolHistory: MultiPassAgentResult['toolHistory'],
-  iteration: number
+  iteration: number,
+  organizationSlug?: string | null
 ): string {
   const successfulTools = toolHistory.filter(entry => entry.result.success)
   const failedTools = toolHistory.filter(entry => !entry.result.success)
@@ -119,7 +121,7 @@ function generateSummaryFromToolHistory(
       if (result.result.lineRange && contentId) {
         try {
           const { start, end } = result.result.lineRange
-          const deeplink = generateContentDeeplink(contentId, result.result.lineRange)
+          const deeplink = generateContentDeeplink(contentId, result.result.lineRange, { orgSlug: organizationSlug })
           summary += ` ([lines ${start}-${end}](${deeplink}))`
         } catch (error) {
           console.error('[Agent] Failed to generate deeplink:', error)
@@ -135,7 +137,14 @@ function generateSummaryFromToolHistory(
     } else if (toolName === 'content_write' && result.result) {
       if (invocation.arguments.action === 'create') {
         const title = result.result.content?.title || 'new content'
-        summaries.push(`Created new content: "${title}"`)
+        const contentId = result.result.content?.id
+
+        let link = `"${title}"`
+        if (contentId && organizationSlug) {
+          link = `["${title}"](/${organizationSlug}/content/${contentId})`
+        }
+
+        summaries.push(`Created new content: ${link}`)
       } else if (invocation.arguments.action === 'enrich') {
         const title = result.result.content?.title || 'content'
         summaries.push(`Refreshed metadata and structured data for "${title}"`)
@@ -222,6 +231,7 @@ export async function runChatAgentWithMultiPassStream({
   mode,
   conversationHistory,
   userMessage,
+  organizationSlug,
   contextBlocks = [],
   referenceContext,
   onLLMChunk,
@@ -444,6 +454,7 @@ export async function runChatAgentWithMultiPassStream({
 
     if (accumulatedToolCalls.length === 0) {
       const finalMessage = accumulatedContent || null
+
       if (finalMessage && onFinalMessage) {
         onFinalMessage(finalMessage)
       }
@@ -558,6 +569,7 @@ export async function runChatAgentWithMultiPassStream({
       let toolResultMessage = ''
       if (toolResult.success) {
         toolResultMessage = `Tool ${toolInvocation.name} executed successfully.`
+
         if (toolResult.result) {
           toolResultMessage += ` Result: ${JSON.stringify(toolResult.result)}`
         }
@@ -635,7 +647,7 @@ export async function runChatAgentWithMultiPassStream({
   }
 
   // Max iterations reached
-  const finalMessage = generateSummaryFromToolHistory(toolHistory, iteration)
+  const finalMessage = generateSummaryFromToolHistory(toolHistory, iteration, organizationSlug)
   if (onFinalMessage) {
     onFinalMessage(finalMessage)
   }

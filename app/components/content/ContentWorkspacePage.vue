@@ -3,6 +3,7 @@ import type { ContentStatus, ContentType } from '~~/server/types/content'
 import { nextTick } from 'vue'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
+import { useContentUpdates } from '~/composables/useContentUpdates'
 
 const route = useRoute()
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', () => {})
@@ -103,6 +104,7 @@ const isPending = computed(() => {
 })
 const toast = useToast()
 const { remove: removeContent } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+const { latestUpdate } = useContentUpdates()
 
 const contentEntry = computed<ContentEntry | null>(() => {
   if (!contentData.value)
@@ -313,22 +315,14 @@ watch([contentEntry, error], () => {
   setHeaderTitle?.(null)
 }, { immediate: true })
 
-// Listen for content updates via window events (for cross-component communication)
-// Only refresh if we don't have unsaved changes to avoid disrupting the user
-if (import.meta.client) {
-  const handleContentUpdate = (event: CustomEvent) => {
-    const updatedContentId = event.detail?.contentId
-    if (updatedContentId === contentId.value && saveStatus.value === 'saved') {
-      refreshContent()
-    }
+watch(latestUpdate, (update) => {
+  if (!update) {
+    return
   }
-
-  window.addEventListener('content:updated', handleContentUpdate as EventListener)
-
-  onBeforeUnmount(() => {
-    window.removeEventListener('content:updated', handleContentUpdate as EventListener)
-  })
-}
+  if (update.contentId === contentId.value && saveStatus.value === 'saved') {
+    refreshContent()
+  }
+})
 </script>
 
 <template>

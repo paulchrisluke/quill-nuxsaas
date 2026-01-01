@@ -40,10 +40,10 @@ export function useContentList(options?: { pageSize?: number, stateKey?: string,
   const oldResolveKey = (segment: string) => `content-list:${oldBaseKey}:${segment}`
 
   // Always initialize old state (unconditional for SSR consistency)
-  const oldItemsState = useState<ContentListItem[]>(oldResolveKey('items'))
-  const oldCursorState = useState<string | null>(oldResolveKey('cursor'))
-  const oldHasMoreState = useState<boolean>(oldResolveKey('has-more'))
-  const oldInitializedState = useState<boolean>(oldResolveKey('initialized'))
+  const oldItemsState = useState<ContentListItem[]>(oldResolveKey('items'), () => [])
+  const oldCursorState = useState<string | null>(oldResolveKey('cursor'), () => null)
+  const oldHasMoreState = useState<boolean>(oldResolveKey('has-more'), () => true)
+  const oldInitializedState = useState<boolean>(oldResolveKey('initialized'), () => false)
 
   // Only migrate to the 'active' state (includeArchived: false) since old data didn't include archived content
   // Only migrate when using default key (not custom stateKey) and new state is empty

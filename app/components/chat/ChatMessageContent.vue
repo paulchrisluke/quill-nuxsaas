@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage, MessagePart } from '#shared/utils/types'
 import { computed } from 'vue'
+import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import AgentProgressTracker from './progress/AgentProgressTracker.vue'
 import WorkspaceFilesAccordion from './WorkspaceFilesAccordion.vue'
 
@@ -15,6 +16,9 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const { currentActivity, activeToolActivities } = useConversation()
+const { useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
+const localePath = useLocalePath()
 
 const liveToolActivities = computed(() => {
   const activities = activeToolActivities.value ?? []
@@ -111,6 +115,23 @@ const payload = computed(() => (props.message.payload as Record<string, any> | n
 const preview = computed(() => payload.value?.preview ?? null)
 const isError = computed(() => payload.value?.type === 'agent_failure' || payload.value?.type === 'error')
 const errorDetails = computed(() => payload.value?.error || null)
+const createdContentItems = computed(() => {
+  if (payload.value?.type !== 'created_content') {
+    return []
+  }
+  const items = payload.value?.items
+  if (!Array.isArray(items)) {
+    return []
+  }
+  return items
+    .filter(item => item && typeof item.id === 'string' && item.id.length > 0)
+    .map(item => ({
+      id: item.id,
+      title: typeof item.title === 'string' && item.title.trim().length > 0
+        ? item.title.trim()
+        : 'Untitled content'
+    }))
+})
 
 const safeEmbedUrl = computed(() => {
   const embedUrl = preview.value?.embedUrl
@@ -156,11 +177,55 @@ function toSummaryBullets(summary: string | null | undefined) {
   const sentences = normalized.split(/(?<=[.!?])\s+/).map(line => line.trim()).filter(Boolean)
   return sentences.length ? sentences : [normalized]
 }
+
+const resolveCreatedContentPath = (contentId: string) => {
+  const slug = activeOrg.value?.data?.slug
+  if (!slug || slug === NON_ORG_SLUG) {
+    return null
+  }
+  return localePath(`/${slug}/content/${contentId}`)
+}
 </script>
 
 <template>
   <div
-    v-if="payload?.type === 'workspace_summary'"
+    v-if="payload?.type === 'created_content'"
+    class="space-y-2"
+  >
+    <p class="text-xs uppercase tracking-wide text-muted-foreground">
+      Created content
+    </p>
+    <div class="space-y-2">
+      <template
+        v-for="item in createdContentItems"
+        :key="item.id"
+      >
+        <NuxtLink
+          v-if="resolveCreatedContentPath(item.id)"
+          :to="resolveCreatedContentPath(item.id)"
+          class="flex items-center justify-between gap-2 rounded-lg border border-surface-200/60 dark:border-surface-800/60 p-3 transition-colors hover:bg-surface-50 dark:hover:bg-surface-900/50 cursor-pointer"
+        >
+          <p class="font-medium truncate text-sm text-foreground">
+            {{ item.title }}
+          </p>
+          <UIcon
+            name="i-lucide-chevron-right"
+            class="h-4 w-4 text-muted-foreground flex-shrink-0"
+          />
+        </NuxtLink>
+        <div
+          v-else
+          class="flex items-center justify-between gap-2 rounded-lg border border-surface-200/60 dark:border-surface-800/60 p-3"
+        >
+          <p class="font-medium truncate text-sm text-foreground">
+            {{ item.title }}
+          </p>
+        </div>
+      </template>
+    </div>
+  </div>
+  <div
+    v-else-if="payload?.type === 'workspace_summary'"
     :class="baseClass"
   >
     <p class="text-sm font-semibold">

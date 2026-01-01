@@ -6,6 +6,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import { KNOWN_LOCALES } from '~~/shared/constants/routing'
 import { stripLocalePrefix } from '~~/shared/utils/routeMatching'
+import { useContentUpdates } from '~/composables/useContentUpdates'
 import { useFileList } from '~/composables/useFileList'
 import { useFileManager } from '~/composables/useFileManager'
 import ChatConversationMessages from './ChatConversationMessages.vue'
@@ -106,6 +107,8 @@ const pendingConversationLoad = ref<string | null>(null)
 const conversationLoadToken = ref(0)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const googlePickerOpening = ref(false)
+const { latestCreated } = useContentUpdates()
+const lastAutoOpenedContentId = useState<string | null>('chat/auto-opened-content', () => null)
 
 const uiStatus = computed(() => status.value)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
@@ -559,6 +562,34 @@ const isValidUUID = (id: string | null): boolean => {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
   return uuidRegex.test(id)
 }
+
+const resolveContentPath = (slug: string, contentId: string) => {
+  return localePath(`/${slug}/content/${contentId}`)
+}
+
+watch([latestCreated, () => activeOrg.value?.data?.slug, isBusy], ([created, slug, busy]) => {
+  if (!props.syncRoute) {
+    return
+  }
+  if (busy) {
+    return
+  }
+  if (!created || !slug) {
+    return
+  }
+  if (lastAutoOpenedContentId.value === created.contentId) {
+    return
+  }
+
+  const targetPath = `/${slug}/content/${created.contentId}`
+  const currentPath = stripLocalePrefix(route.path, KNOWN_LOCALES)
+  lastAutoOpenedContentId.value = created.contentId
+  if (currentPath === targetPath) {
+    return
+  }
+
+  router.push(resolveContentPath(slug, created.contentId))
+})
 
 interface ContentConversationMessage {
   id: string

@@ -3,6 +3,8 @@ import type { ChatMessage, MessagePart, NonEmptyArray } from '#shared/utils/type
 import { useState } from '#app'
 import { useLocalStorage } from '@vueuse/core'
 import { computed, toRaw } from 'vue'
+import { useContentList } from '~/composables/useContentList'
+import { useContentUpdates } from '~/composables/useContentUpdates'
 
 export type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
@@ -175,6 +177,15 @@ export function useConversation() {
 
   const activeToolActivities = useState<Map<string, ActiveToolActivity>>('chat/active-tool-activities', () => new Map())
   const activeToolActivitiesList = computed(() => Array.from(activeToolActivities.value.values()))
+
+  const { upsert: upsertContentList, refresh: refreshContentList } = useContentList({ pageSize: 40 })
+  const contentUpdateToolNames = new Set([
+    'content_write',
+    'edit_section',
+    'edit_metadata',
+    'insert_image'
+  ])
+  const { notifyUpdated, notifyCreated } = useContentUpdates()
 
   const upsertToolActivity = (
     toolCallId: string | null | undefined,
@@ -628,12 +639,30 @@ export function useConversation() {
                       }
                     }
 
-                    // Dispatch content:updated event for content-modifying tools
-                    if (eventData.success && eventData.result?.contentId && import.meta.client) {
+                    if (eventData.success && eventData.result?.contentId && contentUpdateToolNames.has(eventData.toolName)) {
                       const contentId = eventData.result.contentId
-                      window.dispatchEvent(new CustomEvent('content:updated', {
-                        detail: { contentId }
-                      }))
+                      notifyUpdated(contentId)
+                      if (
+                        eventData.toolName === 'content_write'
+                        && typeof eventData.result?.content?.slug === 'string'
+                        && eventData.result.content.slug.trim().length > 0
+                      ) {
+                        notifyCreated(contentId)
+                      }
+                      const contentTitle = typeof eventData.result?.content?.title === 'string'
+                        ? eventData.result.content.title.trim()
+                        : ''
+                      if (contentTitle) {
+                        upsertContentList({
+                          id: contentId,
+                          displayLabel: contentTitle,
+                          updatedAgo: 'Just now'
+                        })
+                      } else {
+                        refreshContentList().catch((error) => {
+                          console.error('[useConversation] Failed to refresh content list', error)
+                        })
+                      }
                     }
 
                     if (activeToolActivities.value.size === 0 && currentAssistantMessageText) {
