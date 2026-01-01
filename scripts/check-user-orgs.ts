@@ -7,11 +7,14 @@ async function checkOrgs() {
   const db = getDB()
 
   // Accept email from CLI argument or environment variable
-  const email = process.argv[2] || process.env.CHECK_USER_EMAIL
+  let email = process.argv[2] || process.env.CHECK_USER_EMAIL
 
   if (!email || email.trim() === '') {
     throw new Error('Email is required. Usage: tsx scripts/check-user-orgs.ts <email> or set CHECK_USER_EMAIL env var')
   }
+
+  // Trim email to ensure consistent lookups
+  email = email.trim()
 
   // Redact email for logging (show first 2 chars + domain)
   const atIndex = email.indexOf('@')

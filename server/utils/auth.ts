@@ -112,7 +112,9 @@ export const createBetterAuth = () => betterAuth({
           const db = getDB()
 
           try {
-            // Use transaction for atomicity
+            // Use transaction for atomicity of org creation
+            // Note: This runs AFTER user is committed, so failures here leave orphan users
+            // A reconciliation job should periodically find and fix users without organizations
             await db.transaction(async (tx) => {
               // Check if user already has an organization (idempotency)
               const existingMembers = await tx
@@ -156,9 +158,11 @@ export const createBetterAuth = () => betterAuth({
               console.log(`[Auth] Auto-created organization ${orgId} for user ${user.id}`)
             })
           } catch (e) {
-            console.error('[Auth] Failed to auto-create organization, aborting user creation:', e)
-            // Rethrow to propagate error and abort user creation
-            throw new Error(`Organization creation failed: ${e instanceof Error ? e.message : String(e)}`)
+            // Cannot abort user creation here (user already committed)
+            // Log error and let user exist without org - reconciliation job should fix this
+            console.error('[Auth] CRITICAL: Failed to auto-create organization for user', user.id, '- user exists without org:', e)
+            // TODO: Add alert/monitoring for this condition
+            // TODO: Implement reconciliation job to find and fix orphan users
           }
         }
       },
