@@ -420,7 +420,7 @@ watch([fileItems, fileInitialized], () => {
 
         <div
           v-else-if="isEmptyState"
-          class="px-3 py-2 text-sm text-muted-foreground"
+          class="px-3 py-2 text-sm text-muted-foreground truncate whitespace-nowrap"
         >
           No workspace files yet.
         </div>

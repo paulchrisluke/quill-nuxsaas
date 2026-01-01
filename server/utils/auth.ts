@@ -106,6 +106,38 @@ export const createBetterAuth = () => betterAuth({
               // ignore
             }
           }
+        },
+        after: async (user) => {
+          console.log('[Auth] User created, auto-creating personal organization for:', user.email)
+          const db = getDB()
+          try {
+            const orgId = uuidv7()
+            const orgName = 'Personal'
+            const slug = `${orgName.toLowerCase()}-${uuidv7().slice(0, 8)}`
+
+            await db.insert(schema.organization).values({
+              id: orgId,
+              name: orgName,
+              slug,
+              createdAt: new Date()
+            })
+
+            await db.insert(schema.member).values({
+              id: uuidv7(),
+              organizationId: orgId,
+              userId: user.id,
+              role: 'owner',
+              createdAt: new Date()
+            })
+
+            await db.update(schema.user)
+              .set({ lastActiveOrganizationId: orgId })
+              .where(eq(schema.user.id, user.id))
+
+            console.log(`[Auth] Auto-created organization ${orgId} for user ${user.id}`)
+          } catch (e) {
+            console.error('[Auth] Failed to auto-create organization:', e)
+          }
         }
       },
       update: {

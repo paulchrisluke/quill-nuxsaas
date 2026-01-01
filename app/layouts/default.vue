@@ -77,9 +77,9 @@ watch(() => route.path, (_newPath) => {
   }
 }, { immediate: true })
 
-// Sidebar is collapsed when: on auth pages, or on public pages when logged in
-// Sidebar is hidden on auth pages; guests use it elsewhere for navigation
-const isSidebarCollapsed = computed(() => isAuthPage.value || (loggedIn.value && isPublicPage.value))
+// Sidebar is collapsed when: on auth pages
+// Guests use it elsewhere for navigation, users use it for workspace access
+const isSidebarCollapsed = computed(() => isAuthPage.value)
 
 // Chat panel shows when logged in, not on auth pages, not on public pages
 const shouldShowChatPanel = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value && route.meta?.renderChatWidget !== false)
@@ -311,11 +311,10 @@ const canExpandConversationList = computed(() => {
     <UDashboardGroup>
       <UDashboardSidebar
         v-if="!isAuthPage"
-        mode="drawer"
         :collapsed="isSidebarCollapsed"
         :open="isSidebarOpen"
         :ui="{
-          root: 'bg-neutral-100 dark:bg-neutral-950 border-neutral-200/70 dark:border-neutral-800/60'
+          root: 'bg-neutral-100 dark:bg-neutral-950 border-neutral-200/70 dark:border-neutral-800/60 w-[260px] min-w-[260px]'
         }"
       >
         <template #header>
@@ -324,7 +323,15 @@ const canExpandConversationList = computed(() => {
               :to="localePath('/')"
               class="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              <span class="text-sm font-semibold">{{ t('global.appName') }}</span>
+              <span
+                v-if="!isSidebarCollapsed"
+                class="text-sm font-semibold whitespace-nowrap"
+              >{{ t('global.appName') }}</span>
+              <UIcon
+                v-else
+                name="i-lucide-box"
+                class="w-5 h-5"
+              />
             </NuxtLink>
           </div>
         </template>
