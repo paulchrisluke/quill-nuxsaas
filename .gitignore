@@ -45,3 +45,4 @@ cookie.txt
 debug-endpoint-analysis.json
 *-endpoint-analysis.json
 *debug*.json
+.vercel
