@@ -18,7 +18,7 @@ async function checkOrgs() {
 
   // Redact email for logging (show first 2 chars + domain)
   const atIndex = email.indexOf('@')
-  const redactedEmail = atIndex > 2
+  const redactedEmail = atIndex >= 2 && atIndex !== -1
     ? `${email.slice(0, 2)}***${email.slice(atIndex)}`
     : '***'
   console.log('Checking user:', redactedEmail)
@@ -57,4 +57,7 @@ async function checkOrgs() {
   }
 }
 
-checkOrgs().catch(console.error)
+checkOrgs().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

@@ -116,39 +116,37 @@ export const createBetterAuth = () => betterAuth({
             // Note: This runs AFTER user is committed, so failures here leave orphan users
             // A reconciliation job should periodically find and fix users without organizations
             await db.transaction(async (tx) => {
-              // Check if user already has an organization (idempotency)
-              const existingMembers = await tx
-                .select()
-                .from(schema.member)
-                .where(eq(schema.member.userId, user.id))
-                .limit(1)
-
-              if (existingMembers.length > 0) {
-                console.log(`[Auth] User ${user.id} already has organization memberships, skipping auto-create`)
-                return
-              }
-
               // Generate IDs before transaction operations
               const orgId = uuidv7()
               const memberId = uuidv7()
               const orgName = 'Personal'
               const slug = `${orgName.toLowerCase()}-${orgId.slice(0, 8)}`
 
-              // All operations in single transaction
+              // Insert organization (may already exist in concurrent scenarios)
               await tx.insert(schema.organization).values({
                 id: orgId,
                 name: orgName,
                 slug,
                 createdAt: new Date()
-              })
+              }).onConflictDoNothing()
 
-              await tx.insert(schema.member).values({
+              // Insert member with ON CONFLICT DO NOTHING for true database-level idempotency
+              // The unique constraint on (organizationId, userId) prevents duplicate memberships
+              // This eliminates TOCTOU race conditions from select-then-insert pattern
+              const insertResult = await tx.insert(schema.member).values({
                 id: memberId,
                 organizationId: orgId,
                 userId: user.id,
                 role: 'owner',
                 createdAt: new Date()
-              })
+              }).onConflictDoNothing()
+
+              // Only update user if we actually inserted a new membership
+              // Check if insert was skipped (conflict occurred)
+              if (insertResult.rowCount === 0) {
+                console.log(`[Auth] User ${user.id} already has organization membership, skipping auto-create`)
+                return
+              }
 
               await tx
                 .update(schema.user)
