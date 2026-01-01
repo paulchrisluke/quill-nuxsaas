@@ -1,5 +1,6 @@
 import type { ConversationIntentSnapshot, IntentGap, IntentOrchestratorAction } from '#shared/utils/intent'
 import type { ChatMessage, MessagePart, NonEmptyArray } from '#shared/utils/types'
+import type { RemovableRef } from '@vueuse/core'
 import { useState } from '#app'
 import { useLocalStorage } from '@vueuse/core'
 import { computed, toRaw, watch } from 'vue'
@@ -168,9 +169,13 @@ export function useConversation() {
   const legacyConversationId = useLocalStorage<string | null>('chat/conversation-id', null, {
     initOnMounted: true
   })
-  const conversationIdMap = useLocalStorage<Record<string, string | null>>('chat/conversation-id-map', {}, {
-    initOnMounted: true
-  })
+  const conversationIdMap = useLocalStorage<Record<string, string | null>>(
+    'chat/conversation-id-map',
+    {} as Record<string, string | null>,
+    {
+      initOnMounted: true
+    }
+  ) as RemovableRef<Record<string, string | null>>
   const conversationId = computed<string | null>({
     get: () => conversationIdMap.value[activeOrgKey.value] ?? null,
     set: (value) => {
@@ -187,7 +192,7 @@ export function useConversation() {
       return
 
     const legacyId = legacyConversationId.value
-    const authFallbackId = conversationIdMap.value.auth ?? null
+    const authFallbackId = (conversationIdMap.value as Record<string, string | null>).auth ?? null
 
     if (key === 'auth') {
       if (!conversationIdMap.value[key] && legacyId) {
@@ -204,7 +209,7 @@ export function useConversation() {
       return
 
     if (authFallbackId) {
-      const next = { ...conversationIdMap.value, [key]: authFallbackId }
+      const next = { ...conversationIdMap.value, [key]: authFallbackId } as Record<string, string | null>
       delete next.auth
       conversationIdMap.value = next
       return

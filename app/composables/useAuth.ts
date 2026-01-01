@@ -16,7 +16,6 @@ export const AUTH_USER_DEFAULTS: Partial<User> = {
   banReason: null,
   banned: null,
   banExpires: null,
-  stripeCustomerId: null,
   isAnonymous: false
 }
 
@@ -190,7 +189,7 @@ export function useAuth() {
     refreshActiveOrg,
     signIn: client.signIn,
     signUp: client.signUp,
-    forgetPassword: client.forgetPassword,
+    forgetPassword: client.requestPasswordReset,
     resetPassword: client.resetPassword,
     sendVerificationEmail: client.sendVerificationEmail,
     errorCodes: client.$ERROR_CODES,

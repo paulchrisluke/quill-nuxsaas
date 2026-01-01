@@ -1,7 +1,7 @@
 import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 
-const jsonImportPattern = /^import\s+(\w+)\s+from\s+(['"])([^'"]+\.json)\2\s+assert\s+\{\s*type\s*:\s*(['"])json\4\s*\};?$/gm
+const jsonImportPattern = /^import\s+(\w+)\s+from\s+(['"])([^'"]+\.json)\2\s+(?:with|assert)\s+\{\s*type\s*:\s*(['"])json\4\s*\};?$/gm
 const fsImport = 'import { readFileSync } from \'node:fs\';'
 
 let files = []
@@ -16,7 +16,7 @@ try {
     .map(line => line.trim())
     .filter(line => line.length > 0)
 } catch (error) {
-  console.error(`Failed to locate files with 'with' import assertions: ${error.message}`)
+  console.error(`Failed to locate files with JSON import assertions: ${error.message}`)
 }
 
 for (const filePath of files) {
@@ -31,7 +31,7 @@ for (const filePath of files) {
       return `const ${varName} = JSON.parse(readFileSync(new URL('${jsonPath}', import.meta.url), 'utf8'));`
     })
 
-    if (!patched.includes(fsImport)) {
+    if (!/import\s*\{[^}]*\breadFileSync\b[^}]*\}\s*from\s*['"]node:fs['"]/.test(patched)) {
       patched = `${fsImport}\n${patched}`
     }
 

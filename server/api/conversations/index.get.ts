@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm'
 import { and, desc, eq, lt, or, sql } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
@@ -176,18 +177,26 @@ export default defineEventHandler(async (event) => {
     }
 
     const accessClauses = buildConversationAccessClauses({ organizationId, user })
-    const whereClauses = [...accessClauses]
+    const whereClauses: SQL<unknown>[] = [...accessClauses]
     if (cursorDate && cursorId) {
-      whereClauses.push(or(
+      const cursorClause = or(
         lt(schema.conversation.updatedAt, cursorDate),
         and(
           eq(schema.conversation.updatedAt, cursorDate),
           lt(schema.conversation.id, cursorId)
         )
-      ))
+      )!
+      whereClauses.push(cursorClause)
     }
 
-    const whereClause = whereClauses.length === 1 ? whereClauses[0] : and(...whereClauses)
+    if (whereClauses.length === 0) {
+      throw createError({
+        statusCode: 500,
+        statusMessage: 'Internal Server Error',
+        message: 'Conversation access constraints not resolved'
+      })
+    }
+    const whereClause = whereClauses.length === 1 ? whereClauses[0] : and(...whereClauses)!
     console.log('[Conversations API] Executing database query')
 
     const results = await db

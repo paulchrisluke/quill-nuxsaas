@@ -37,7 +37,7 @@ export const buildConversationAccessClauses = (params: {
   user: User
 }) => {
   const clauses = [eq(schema.conversation.organizationId, params.organizationId)]
-  if (params.user?.isAnonymous) {
+  if (params.user.isAnonymous) {
     clauses.push(eq(schema.conversation.createdByUserId, params.user.id))
   }
   return clauses
@@ -145,7 +145,7 @@ export async function addMessageToConversation(
 export interface AddConversationLogInput {
   conversationId: string
   organizationId: string
-  type?: string
+  type?: typeof schema.conversationLog.$inferSelect['type']
   message: string
   payload?: Record<string, any> | null
 }
