@@ -5,7 +5,7 @@ import { useContentList } from '~/composables/useContentList'
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
-const { loggedIn, useActiveOrganization } = useAuth()
+const { isAuthenticatedUser, useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
 const openWorkspace = inject<(() => void) | undefined>('openWorkspace')
 
@@ -22,7 +22,7 @@ const {
 } = useContentList({ pageSize: 40 })
 
 const initializeContent = async () => {
-  if (!loggedIn.value)
+  if (!isAuthenticatedUser.value)
     return
   try {
     await loadContentInitial()
@@ -35,7 +35,7 @@ onMounted(() => {
   initializeContent()
 })
 
-watch(loggedIn, (isLoggedIn) => {
+watch(isAuthenticatedUser, (isLoggedIn) => {
   if (isLoggedIn) {
     initializeContent()
   } else {
@@ -61,7 +61,11 @@ const isContentActive = (id: string) => {
 }
 
 const resolveContentPath = (contentId?: string | null) => {
-  const slug = activeOrg.value?.data?.slug
+  const param = route.params.slug
+  const routeSlug = Array.isArray(param) ? param[0] : param
+  const slug = routeSlug && routeSlug !== NON_ORG_SLUG
+    ? routeSlug
+    : activeOrg.value?.data?.slug
   if (!slug || slug === NON_ORG_SLUG)
     return null
   const base = `/${slug}/content`
@@ -90,7 +94,7 @@ const openContent = (contentId: string | null) => {
       </div>
 
       <div class="space-y-1">
-        <template v-if="!loggedIn">
+        <template v-if="!isAuthenticatedUser">
           <UButton
             block
             variant="ghost"

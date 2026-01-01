@@ -40,7 +40,7 @@ const props = withDefaults(defineProps<{
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
-const { loggedIn, signIn, useActiveOrganization } = useAuth()
+const { signIn, useActiveOrganization, isAuthenticatedUser } = useAuth()
 const activeOrg = useActiveOrganization()
 const runtimeConfig = useRuntimeConfig()
 const googlePickerApiKey = runtimeConfig.public.googlePickerApiKey || ''
@@ -85,17 +85,17 @@ const {
 
 if (props.initialMode)
   mode.value = props.initialMode
-if (!loggedIn.value && mode.value === 'agent')
+if (!isAuthenticatedUser.value && mode.value === 'agent')
   mode.value = 'chat'
 
-watch([loggedIn, () => mode.value], ([isLoggedIn, currentMode]) => {
+watch([isAuthenticatedUser, () => mode.value], ([isLoggedIn, currentMode]) => {
   if (!isLoggedIn && currentMode === 'agent')
     mode.value = 'chat'
 }, { immediate: true })
 
 const modeItems = computed(() => [
   { value: 'chat', label: 'Chat', icon: 'i-lucide-message-circle' },
-  { value: 'agent', label: 'Agent', icon: 'i-lucide-bot', disabled: !loggedIn.value }
+  { value: 'agent', label: 'Agent', icon: 'i-lucide-bot', disabled: !isAuthenticatedUser.value }
 ])
 
 const promptSubmitting = ref(false)
@@ -433,7 +433,7 @@ const handlePromptSubmit = async (value?: string, selections?: Array<{ type: 'fi
   promptSubmitting.value = true
   prompt.value = ''
   try {
-    await sendMessage(trimmed, { referenceSelections: selections })
+    await sendMessage(trimmed, { referenceSelections: selections, contentId: props.contentId || null })
   } catch (error) {
     prompt.value = trimmed
     console.error('Failed to send prompt', error)
@@ -632,7 +632,33 @@ const loadConversationMessages = async (conversationId: string, options?: { forc
     }) as ChatMessage[]
 
     hydrateConversation({ conversationId, messages: converted })
-  } catch (error) {
+  } catch (error: any) {
+    const statusCode = error?.statusCode || error?.response?.status || error?.data?.statusCode
+    const statusMessage = error?.data?.statusMessage || error?.statusMessage || error?.message
+    const isNotFound = statusCode === 404 || statusMessage === 'Conversation not found'
+
+    if (isNotFound) {
+      const slugParam = route.params.slug
+      const slug = Array.isArray(slugParam) ? slugParam[0] : slugParam
+      resetConversation()
+      activeConversationId.value = null
+      if (props.syncRoute) {
+        if (slug) {
+          await navigateTo(localePath(`/${slug}/conversations`))
+        } else {
+          await navigateTo(localePath('/'))
+        }
+      } else {
+        toast.add({
+          title: 'Conversation unavailable',
+          description: 'That conversation could not be found. Starting a new chat.',
+          color: 'error',
+          icon: 'i-lucide-alert-triangle'
+        })
+      }
+      return
+    }
+
     if (!cached) {
       console.error('Unable to load conversation messages', error)
       toast.add({
@@ -829,7 +855,7 @@ async function handleShare(message: ChatMessage) {
 
 if (import.meta.client) {
   watch(mode, (newMode) => {
-    if (newMode === 'agent' && !loggedIn.value) {
+    if (newMode === 'agent' && !isAuthenticatedUser.value) {
       mode.value = 'chat'
       showAgentModeLoginModal.value = true
     }
@@ -907,8 +933,8 @@ if (import.meta.client) {
                 @change="handleFileSelect"
               >
               <component
-                :is="!loggedIn ? 'UTooltip' : 'div'"
-                v-bind="!loggedIn ? { text: 'Sign in to unlock agent mode' } : {}"
+                :is="!isAuthenticatedUser ? 'UTooltip' : 'div'"
+                v-bind="!isAuthenticatedUser ? { text: 'Sign in to unlock agent mode' } : {}"
               >
                 <UInputMenu
                   v-model="mode"
@@ -925,7 +951,7 @@ if (import.meta.client) {
                     <UIcon
                       :name="mode === 'agent' ? 'i-lucide-bot' : 'i-lucide-message-circle'"
                       class="w-4 h-4"
-                      :class="{ 'opacity-50': mode === 'agent' && !loggedIn }"
+                      :class="{ 'opacity-50': mode === 'agent' && !isAuthenticatedUser }"
                     />
                   </template>
                 </UInputMenu>
@@ -935,7 +961,7 @@ if (import.meta.client) {
         </PromptComposer>
 
         <i18n-t
-          v-if="!loggedIn"
+          v-if="!isAuthenticatedUser"
           keypath="global.legal.chatDisclaimer"
           tag="p"
           class="text-xs text-muted-600 dark:text-muted-400 text-center mt-2"

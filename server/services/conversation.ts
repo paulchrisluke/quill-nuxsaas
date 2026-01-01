@@ -1,5 +1,6 @@
 import type { ChatMessage } from '#shared/utils/types'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import type { User } from '~~/shared/utils/types'
 import { and, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
@@ -25,6 +26,36 @@ export async function getConversationById(
     .where(and(
       eq(schema.conversation.id, conversationId),
       eq(schema.conversation.organizationId, organizationId)
+    ))
+    .limit(1)
+
+  return conv ?? null
+}
+
+export const buildConversationAccessClauses = (params: {
+  organizationId: string
+  user: User
+}) => {
+  const clauses = [eq(schema.conversation.organizationId, params.organizationId)]
+  if (params.user.isAnonymous) {
+    clauses.push(eq(schema.conversation.createdByUserId, params.user.id))
+  }
+  return clauses
+}
+
+export async function getConversationByIdForUser(
+  db: NodePgDatabase<typeof schema>,
+  conversationId: string,
+  organizationId: string,
+  user: User
+) {
+  const accessClauses = buildConversationAccessClauses({ organizationId, user })
+  const [conv] = await db
+    .select()
+    .from(schema.conversation)
+    .where(and(
+      eq(schema.conversation.id, conversationId),
+      ...accessClauses
     ))
     .limit(1)
 
@@ -114,7 +145,7 @@ export async function addMessageToConversation(
 export interface AddConversationLogInput {
   conversationId: string
   organizationId: string
-  type?: string
+  type?: typeof schema.conversationLog.$inferSelect['type']
   message: string
   payload?: Record<string, any> | null
 }

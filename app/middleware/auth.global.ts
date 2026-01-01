@@ -40,8 +40,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   const localePath = useLocalePath()
 
+  const isAnonymous = Boolean(user.value?.isAnonymous)
+
   if (only === 'guest') {
-    if (loggedIn.value) {
+    if (loggedIn.value && !isAnonymous) {
       // Guest-only routes: redirect authenticated users to specified path
       // Avoid infinite redirect
       if (to.path === localePath(redirectUserTo)) {
@@ -55,7 +57,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   // If not authenticated, redirect to home
-  if (!loggedIn.value) {
+  if (!loggedIn.value || isAnonymous) {
     // Avoid infinite redirect
     if (to.path === localePath(redirectGuestTo)) {
       return

@@ -32,6 +32,10 @@ export function buildContextBlock(params: {
         `- Size: ${meta.size} bytes`,
         `- URL: ${meta.url}`
       ]
+      const isImage = meta.fileType === 'image' || (meta.mimeType || '').startsWith('image/')
+      if (isImage) {
+        details.push(`- Hint: Use insert_image with fileId "${meta.id}" to place this image in content.`)
+      }
       if (ref.textContent) {
         details.push(`- Text preview${ref.truncated ? ' (truncated)' : ''}:\n\n\`\`\`\n${ref.textContent}\n\`\`\``)
       }

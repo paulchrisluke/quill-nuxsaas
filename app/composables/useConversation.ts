@@ -1,8 +1,9 @@
 import type { ConversationIntentSnapshot, IntentGap, IntentOrchestratorAction } from '#shared/utils/intent'
 import type { ChatMessage, MessagePart, NonEmptyArray } from '#shared/utils/types'
+import type { RemovableRef } from '@vueuse/core'
 import { useState } from '#app'
 import { useLocalStorage } from '@vueuse/core'
-import { computed, toRaw } from 'vue'
+import { computed, toRaw, watch } from 'vue'
 import { useContentList } from '~/composables/useContentList'
 import { useContentUpdates } from '~/composables/useContentUpdates'
 
@@ -158,9 +159,70 @@ export function useConversation() {
   const messages = useState<ChatMessage[]>('chat/messages', () => [])
   const status = useState<ChatStatus>('chat/status', () => 'ready')
   const errorMessage = useState<string | null>('chat/error', () => null)
-  const conversationId = useLocalStorage<string | null>('chat/conversation-id', null, {
+  const { useActiveOrganization, isAuthenticatedUser } = useAuth()
+  const activeOrg = useActiveOrganization()
+  const activeOrgKey = computed(() => {
+    if (!isAuthenticatedUser.value)
+      return 'anon'
+    return activeOrg.value?.data?.id ?? 'auth'
+  })
+  const legacyConversationId = useLocalStorage<string | null>('chat/conversation-id', null, {
     initOnMounted: true
   })
+  const conversationIdMap = useLocalStorage<Record<string, string | null>>(
+    'chat/conversation-id-map',
+    {} as Record<string, string | null>,
+    {
+      initOnMounted: true
+    }
+  ) as RemovableRef<Record<string, string | null>>
+  const conversationId = computed<string | null>({
+    get: () => conversationIdMap.value[activeOrgKey.value] ?? null,
+    set: (value) => {
+      conversationIdMap.value = {
+        ...conversationIdMap.value,
+        [activeOrgKey.value]: value
+      }
+    }
+  })
+  watch(activeOrgKey, (key) => {
+    if (!import.meta.client)
+      return
+    if (!key)
+      return
+
+    const legacyId = legacyConversationId.value
+    const authFallbackId = (conversationIdMap.value as Record<string, string | null>).auth ?? null
+
+    if (key === 'auth') {
+      if (!conversationIdMap.value[key] && legacyId) {
+        conversationIdMap.value = {
+          ...conversationIdMap.value,
+          [key]: legacyId
+        }
+        legacyConversationId.value = null
+      }
+      return
+    }
+
+    if (conversationIdMap.value[key])
+      return
+
+    if (authFallbackId) {
+      const next = { ...conversationIdMap.value, [key]: authFallbackId } as Record<string, string | null>
+      delete next.auth
+      conversationIdMap.value = next
+      return
+    }
+
+    if (legacyId) {
+      conversationIdMap.value = {
+        ...conversationIdMap.value,
+        [key]: legacyId
+      }
+      legacyConversationId.value = null
+    }
+  }, { immediate: true })
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
   const prompt = useState<string>('chat/prompt', () => '')

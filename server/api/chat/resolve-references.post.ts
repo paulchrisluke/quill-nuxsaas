@@ -32,6 +32,15 @@ export default defineEventHandler(async (event) => {
 
   const mode = body.mode === 'agent' ? 'agent' : 'chat'
   const { organizationId } = await requireActiveOrganization(event)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[resolve-references] request', {
+      organizationId,
+      bodyOrganizationId: body.organizationId,
+      currentContentId: body.currentContentId ?? null,
+      mode,
+      messageLength: body.message.length
+    })
+  }
 
   if (organizationId !== body.organizationId) {
     throw createError({
@@ -45,11 +54,21 @@ export default defineEventHandler(async (event) => {
   const session = await getAuthSession(event)
   const tokens = parseReferences(body.message)
 
-  return await resolveReferences(tokens, {
+  const result = await resolveReferences(tokens, {
     db,
     organizationId,
     currentContentId: body.currentContentId ?? null,
     userId: session?.user?.id ?? null,
     mode
   })
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[resolve-references] response', {
+      organizationId,
+      tokenCount: result.tokens?.length ?? 0,
+      resolvedCount: result.resolved?.length ?? 0,
+      ambiguousCount: result.ambiguous?.length ?? 0,
+      unresolvedCount: result.unresolved?.length ?? 0
+    })
+  }
+  return result
 })

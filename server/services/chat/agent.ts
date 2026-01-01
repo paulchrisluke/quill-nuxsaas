@@ -39,7 +39,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
   const basePrompt = `You are an autonomous content-creation assistant.`
 
   if (mode === 'chat') {
-    return `${basePrompt}
+    const prompt = `${basePrompt}
 
 - You are in **read-only mode**. You can use read tools to explore the workspace:
   - read_content: Fetch a content item and its current version
@@ -53,6 +53,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 - You MUST NOT perform actions that modify content or ingest new data.
 - If the user asks you to make changes, explain what you would do and suggest switching to agent mode for actual changes.
 - Keep replies concise (2-4 sentences) and helpful.`
+    return referenceContext ? `${prompt}\n\n---\n${referenceContext}` : prompt
   }
 
   const prompt = `${basePrompt}
@@ -60,6 +61,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 - Always analyze the user's intent from natural language.
 - When users reference uploaded files by name, use read_files to find the matching fileId before taking action.
 - Use insert_image to place uploaded images in content; map natural-language placement (e.g., "featured image", "above the conclusion") to a specific section heading or line number.
+- If the user references an image file (via @filename or fileId), you MUST use insert_image for placement. Do not insert images via edit_section.
 - When the user asks you to create content, update sections, or otherwise modify workspace artifacts, prefer calling the appropriate tool instead of replying with text.
 - Only respond with text when the user is chatting, asking questions, or when no tool action is required.
 - Keep replies concise (2-4 sentences) and actionable.
@@ -67,6 +69,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 **Tool Selection Guidelines:**
 - For simple edits to metadata (title, slug, status, primaryKeyword, targetLocale, contentType) on existing content items, use edit_metadata. Examples: "make the title shorter", "change the status to published", "update the slug".
 - For editing specific sections of existing content, use edit_section. Examples: "make the introduction more engaging", "rewrite the conclusion".
+- When using edit_section you MUST provide either sectionId or sectionTitle. If the user wants changes across the whole document, read the content sections and call edit_section once per section.
 - For creating new content items from source content (context, YouTube video, etc.), use content_write with action="create". This tool only creates new content - it cannot update existing content.
 - For refreshing an existing content item's frontmatter and JSON-LD structured data, use content_write with action="enrich".
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".

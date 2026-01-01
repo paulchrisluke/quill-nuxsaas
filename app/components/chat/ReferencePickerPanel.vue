@@ -45,6 +45,13 @@ const offsets = computed(() => ({
   files: props.groups.contents.length
 }))
 
+const emptyMessage = computed(() => {
+  if (props.query) {
+    return 'No matches found.'
+  }
+  return 'Start typing to search for content or files.'
+})
+
 const focusInput = async () => {
   await nextTick()
   if (inputRef.value) {
@@ -72,6 +79,12 @@ const handleKeyDown = (event: KeyboardEvent) => {
     if (item) {
       emit('select', item)
     }
+  } else if (event.key === 'Tab') {
+    event.preventDefault()
+    const item = flatItems.value[props.activeIndex]
+    if (item) {
+      emit('select', item)
+    }
   } else if (event.key === 'Escape') {
     event.preventDefault()
     emit('close')
@@ -88,28 +101,34 @@ const handleKeyDown = (event: KeyboardEvent) => {
     leave-from-class="opacity-100 translate-y-0"
     leave-to-class="opacity-0 translate-y-2"
   >
-    <!-- Show just the input when query is empty -->
-    <input
-      v-if="open && !query"
-      v-bind="attrs"
-      ref="inputRef"
-      :value="query"
-      type="text"
-      placeholder="Type to search for files"
-      class="px-3 py-2 rounded-2xl border border-neutral-200/70 dark:border-neutral-800/60 bg-gray-50 dark:bg-neutral-900 text-sm text-muted-900 dark:text-muted-100 placeholder:text-muted-400 focus:outline-none"
-      @keydown="handleKeyDown"
-      @input="emit('queryChange', ($event.target as HTMLInputElement).value)"
-    >
-
-    <!-- Show menu card when query has characters and items exist -->
     <div
-      v-else-if="open && query && flatItems.length > 0"
+      v-if="open"
       v-bind="attrs"
       ref="rootRef"
       class="relative rounded-3xl border border-neutral-200/70 dark:border-neutral-800/60 bg-gray-50 dark:bg-neutral-900 shadow-2xl"
     >
+      <div class="border-b border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2">
+        <input
+          ref="inputRef"
+          :value="query"
+          type="text"
+          placeholder="Search content or files"
+          class="w-full bg-transparent text-sm text-muted-900 dark:text-muted-100 placeholder:text-muted-400 focus:outline-none"
+          @keydown="handleKeyDown"
+          @input="emit('queryChange', ($event.target as HTMLInputElement).value)"
+        >
+      </div>
       <div class="max-h-[50vh] overflow-y-auto hide-scrollbar px-2 py-3">
-        <div class="space-y-3">
+        <p
+          v-if="flatItems.length === 0"
+          class="px-3 py-4 text-sm text-muted-500"
+        >
+          {{ emptyMessage }}
+        </p>
+        <div
+          v-else
+          class="space-y-3"
+        >
           <div v-if="groups.contents.length">
             <p class="px-3 text-[11px] uppercase tracking-wide text-muted-400">
               Content

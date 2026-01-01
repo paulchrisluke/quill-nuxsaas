@@ -21,7 +21,7 @@ const metadataSchema = z.union([
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuth(event, { allowAnonymous: true })
-  const { organizationId } = await requireActiveOrganization(event)
+  const { organizationId } = await requireActiveOrganization(event, { allowAnonymous: true })
   const db = getDB()
 
   const [organization] = await db
