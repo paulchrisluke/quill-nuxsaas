@@ -6,7 +6,7 @@ import { sourceContent } from './sourceContent'
 
 export const conversationStatusEnum = pgEnum('conversation_status', ['active', 'archived', 'completed'])
 export const conversationRoleEnum = pgEnum('conversation_role', ['user', 'assistant', 'system', 'function'])
-export const conversationLogTypeEnum = pgEnum('conversation_log_type', ['info', 'warning', 'error', 'debug'])
+export const conversationLogTypeEnum = pgEnum('conversation_log_type', ['info', 'warning', 'error', 'debug', 'tool_started', 'tool_retrying', 'tool_succeeded', 'tool_failed'])
 
 export const conversation = pgTable('conversation', {
   id: uuid('id').primaryKey().$default(() => uuidv7()),

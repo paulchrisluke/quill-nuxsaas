@@ -18,8 +18,6 @@ const {
   initialized: contentInitialized,
   loadInitial: loadContentInitial,
   loadMore: loadContentMore,
-  remove: _removeContent,
-  refresh: _refreshContent,
   reset: resetContent
 } = useContentList({ pageSize: 40 })
 

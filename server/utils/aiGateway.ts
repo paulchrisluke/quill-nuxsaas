@@ -38,8 +38,10 @@ interface CallChatCompletionsOptions {
 
 const CF_ACCOUNT_ID = runtimeConfig.cfAccountId
 const CF_AI_GATEWAY_TOKEN = process.env.NUXT_CF_AI_GATEWAY_TOKEN || runtimeConfig.cfAiGatewayToken
+const CF_AI_GATEWAY_NAME = process.env.NUXT_CF_AI_GATEWAY_NAME || 'quill'
 const OPENAI_API_KEY = process.env.NUXT_OPENAI_API_KEY || runtimeConfig.openAiApiKey
-const OPENAI_BLOG_MODEL = process.env.NUXT_OPENAI_BLOG_MODEL || runtimeConfig.openAiBlogModel || 'gpt-4.1-mini'
+const OPENAI_BLOG_MODEL = process.env.NUXT_OPENAI_BLOG_MODEL || runtimeConfig.openAiBlogModel || 'gpt-4o-mini'
+const BYPASS_AI_GATEWAY = process.env.NUXT_BYPASS_AI_GATEWAY === 'true'
 
 const parseNumberWithFallback = (value: string | number | undefined, fallback: number) => {
   const parsed = typeof value === 'number' ? value : Number(value)
@@ -56,7 +58,13 @@ const OPENAI_BLOG_MAX_OUTPUT_TOKENS = parseNumberWithFallback(
   parseNumberWithFallback(runtimeConfig.openAiBlogMaxOutputTokens, 2200)
 )
 
-const gatewayBase = `https://gateway.ai.cloudflare.com/v1/${CF_ACCOUNT_ID}/quill/compat`
+// Determine the base URL for AI calls
+const shouldUseGateway = !BYPASS_AI_GATEWAY && !!CF_ACCOUNT_ID && !!CF_AI_GATEWAY_TOKEN
+const gatewayBase = shouldUseGateway
+  ? `https://gateway.ai.cloudflare.com/v1/${CF_ACCOUNT_ID}/${CF_AI_GATEWAY_NAME}/compat`
+  : 'https://api.openai.com/v1'
+
+console.log(`[AI] Using ${shouldUseGateway ? 'Cloudflare AI Gateway' : 'Direct OpenAI API'} at ${gatewayBase}`)
 
 interface CallChatCompletionsRawOptions extends CallChatCompletionsOptions {
   tools?: ChatCompletionToolDefinition[]
@@ -136,17 +144,9 @@ export async function callChatCompletionsRaw({
       })
     }
 
-    if (!CF_AI_GATEWAY_TOKEN) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Cloudflare AI Gateway token not configured',
-        data: {
-          message: 'NUXT_CF_AI_GATEWAY_TOKEN environment variable is required'
-        }
-      })
-    }
-
-    const modelName = model.startsWith('openai/') ? model : `openai/${model}`
+    const modelName = shouldUseGateway
+      ? (model.startsWith('openai/') ? model : `openai/${model}`)
+      : (model.startsWith('openai/') ? model.slice(7) : model)
     const url = `${gatewayBase}/chat/completions`
 
     const systemMessageIndex = messages.findIndex(message => message.role === 'system')
@@ -168,30 +168,39 @@ export async function callChatCompletionsRaw({
       }
     }
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`
+    }
+
+    if (shouldUseGateway && CF_AI_GATEWAY_TOKEN) {
+      headers['cf-aig-authorization'] = `Bearer ${CF_AI_GATEWAY_TOKEN}`
+    }
+
     const response = await $fetch<ChatCompletionResponse>(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'cf-aig-authorization': `Bearer ${CF_AI_GATEWAY_TOKEN}`
-      },
+      headers,
       body
     })
 
     return response
   } catch (error: any) {
-    console.error('AI Gateway request failed', {
+    const isDev = process.env.NODE_ENV === 'development'
+    const status = error?.statusCode || error?.status || 502
+
+    console.error('[AI Gateway Raw] request failed:', {
       model,
-      temperature,
-      maxTokens,
-      error: error?.message || error
+      status,
+      message: error?.message,
+      data: error?.data
     })
 
     throw createError({
-      statusCode: 502,
-      statusMessage: 'Failed to reach AI Gateway',
+      statusCode: status,
+      statusMessage: `AI Gateway request failed: ${error?.message || 'Unknown error'}`,
       data: {
-        message: error?.message || 'Unknown AI Gateway error'
+        message: error?.message || 'Unknown AI Gateway error',
+        ...(isDev ? { details: error?.data, hint: status === 404 ? `Check if gateway name "${CF_AI_GATEWAY_NAME}" exists in Cloudflare for account ${CF_ACCOUNT_ID}` : undefined } : {})
       }
     })
   }
@@ -206,7 +215,9 @@ export async function* callChatCompletionsStream({
   toolChoice
 }: CallChatCompletionsRawOptions): AsyncGenerator<ChatCompletionChunk, void, unknown> {
   // Declare url outside try block so it's available in catch block for error logging
-  const modelName = model.startsWith('openai/') ? model : `openai/${model}`
+  const modelName = shouldUseGateway
+    ? (model.startsWith('openai/') ? model : `openai/${model}`)
+    : (model.startsWith('openai/') ? model.slice(7) : model)
   const url = `${gatewayBase}/chat/completions`
 
   try {
@@ -216,16 +227,6 @@ export async function* callChatCompletionsStream({
         statusMessage: 'OpenAI API key not configured',
         data: {
           message: 'NUXT_OPENAI_API_KEY environment variable is required'
-        }
-      })
-    }
-
-    if (!CF_AI_GATEWAY_TOKEN) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Cloudflare AI Gateway token not configured',
-        data: {
-          message: 'NUXT_CF_AI_GATEWAY_TOKEN environment variable is required'
         }
       })
     }
@@ -268,13 +269,18 @@ export async function* callChatCompletionsStream({
       messageRoles: messages.map(m => m.role)
     })
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${OPENAI_API_KEY}`
+    }
+
+    if (shouldUseGateway && CF_AI_GATEWAY_TOKEN) {
+      headers['cf-aig-authorization'] = `Bearer ${CF_AI_GATEWAY_TOKEN}`
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'cf-aig-authorization': `Bearer ${CF_AI_GATEWAY_TOKEN}`
-      },
+      headers,
       body: JSON.stringify(body)
     })
 
@@ -296,11 +302,14 @@ export async function* callChatCompletionsStream({
 
       throw createError({
         statusCode: response.status,
-        statusMessage: 'AI Gateway request failed',
+        statusMessage: `AI Gateway request failed (${response.status} ${response.statusText})`,
         data: {
-          message: 'AI Gateway request failed',
+          message: `AI Gateway request failed: ${response.status} ${response.statusText}`,
           ...(process.env.NODE_ENV === 'development'
-            ? { details: errorDetails }
+            ? {
+                details: errorDetails,
+                hint: response.status === 404 ? `Check if gateway name "${CF_AI_GATEWAY_NAME}" exists in Cloudflare for account ${CF_ACCOUNT_ID}` : undefined
+              }
             : {})
         }
       })

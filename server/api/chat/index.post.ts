@@ -1906,6 +1906,7 @@ export default defineEventHandler(async (event) => {
 
         // Organization Resolution Strategy
         let organizationId: string | null = null
+        let organizationSlug: string | null = null
 
         if (!user.isAnonymous) {
         // STRATEGY 1: Signed-In User
@@ -1926,14 +1927,18 @@ export default defineEventHandler(async (event) => {
 
           if (sessionOrgId) {
           // Verify existence (fast query by PK)
-            const [orgExists] = await db
-              .select({ id: schema.organization.id })
+            const [orgDetails] = await db
+              .select({
+                id: schema.organization.id,
+                slug: schema.organization.slug
+              })
               .from(schema.organization)
               .where(eq(schema.organization.id, sessionOrgId))
               .limit(1)
 
-            if (orgExists) {
+            if (orgDetails) {
               organizationId = sessionOrgId
+              organizationSlug = orgDetails.slug
             }
           }
 
@@ -1986,6 +1991,19 @@ export default defineEventHandler(async (event) => {
 
         if (!organizationId) {
           throw createValidationError('No active organization found. Please create an account or select an organization.')
+        }
+
+        // Ensure we have the slug if it wasn't fetched yet
+        if (!organizationSlug) {
+          const [orgDetails] = await db
+            .select({ slug: schema.organization.slug })
+            .from(schema.organization)
+            .where(eq(schema.organization.id, organizationId))
+            .limit(1)
+
+          if (orgDetails) {
+            organizationSlug = orgDetails.slug
+          }
         }
 
         const message = typeof body.message === 'string' ? body.message : ''
@@ -2397,6 +2415,7 @@ export default defineEventHandler(async (event) => {
                 mode,
                 hasConversationId: !!activeConversation.id,
                 hasOrganizationId: !!organizationId,
+                hasOrganizationSlug: !!organizationSlug,
                 hasUserId: !!user.id,
                 userMessageLength: trimmedMessage.length,
                 conversationHistoryLength: conversationHistory.length,
@@ -2407,6 +2426,7 @@ export default defineEventHandler(async (event) => {
 
               multiPassResult = await runChatAgentWithMultiPassStream({
                 mode,
+                organizationSlug,
                 conversationHistory,
                 userMessage: trimmedMessage,
                 contextBlocks,
@@ -2711,6 +2731,21 @@ export default defineEventHandler(async (event) => {
           await persistAssistantMessage(errorMessage.content, errorMessage.payload ?? null)
         }
 
+        const createdContentItems = (multiPassResult?.toolHistory ?? [])
+          .filter(toolExec =>
+            toolExec.toolName === 'content_write'
+            && toolExec.invocation.arguments.action === 'create'
+            && toolExec.result.success
+            && toolExec.result.result?.content
+          )
+          .map(toolExec => ({
+            id: toolExec.result.result.content.id,
+            title: toolExec.result.result.content.title,
+            slug: toolExec.result.result.content.slug
+          }))
+          .filter(item => typeof item?.id === 'string' && item.id.length > 0)
+          .filter((item, index, list) => list.findIndex(other => other.id === item.id) === index)
+
         // Check if any tools created content that needs completion messages
         let completionMessages: Awaited<ReturnType<typeof composeWorkspaceCompletionMessages>> | null = null
         if (multiPassResult && multiPassResult.toolHistory.length > 0) {
@@ -2810,6 +2845,16 @@ export default defineEventHandler(async (event) => {
         // Save agent's reply if available (use the same message ID from streaming to avoid duplicates)
         if (agentAssistantReply) {
           await persistAssistantMessage(agentAssistantReply, null, { id: currentMessageId || undefined })
+        }
+
+        if (createdContentItems.length > 0) {
+          await persistAssistantMessage(
+            'Created content.',
+            {
+              type: 'created_content',
+              items: createdContentItems
+            }
+          )
         }
 
         if (completionMessages?.summary) {

@@ -276,58 +276,58 @@ function buildContentWriteParameters(): ParameterSchema {
       },
       // For action='create':
       sourceContentId: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Source content ID to generate from (required for action="create" if no sourceText/context).'
       },
       sourceText: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Inline source text to use directly for generation (for action="create"). If provided without sourceContentId, will create source content first.'
       },
       context: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Alias for sourceText (for action="create"). Raw context text to use for generating content. If both sourceText and context are provided, sourceText takes precedence.'
       },
       title: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional working title for the content item (for action="create").'
       },
       slug: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional slug for the content item (for action="create").'
       },
       status: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Desired content status (draft, review, published, etc.) (for action="create").'
       },
       primaryKeyword: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Primary keyword for SEO (for action="create").'
       },
       targetLocale: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Target locale (e.g., en-US) (for action="create").'
       },
       contentType: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Content type identifier (blog_post, newsletter, etc.) (for action="create").'
       },
       systemPrompt: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Custom system prompt overrides when the user provides style guidance (for action="create").'
       },
       temperature: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 0,
         maximum: 2,
         description: 'Sampling temperature for creative control (default 1) (for action="create").'
       },
       // For action='enrich':
       contentId: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Content ID (UUID format) of the content item (required for action="enrich"). Must be a valid UUID - use read_content_list to find content IDs.'
       },
       baseUrl: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional base URL for generating absolute URLs in JSON-LD structured data (for action="enrich").'
       }
     },
@@ -344,19 +344,19 @@ function buildEditSectionParameters(): ParameterSchema {
         description: 'Content ID (UUID format) of the content item to edit. Must be a valid UUID - use read_content_list to find content IDs.'
       },
       sectionId: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Unique identifier of the section to patch.'
       },
       sectionTitle: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Human readable section title when no sectionId is present.'
       },
       instructions: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'User instructions describing the requested edits.'
       },
       temperature: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 0,
         maximum: 2
       }
@@ -375,19 +375,19 @@ function buildSourceIngestParameters(): ParameterSchema {
         description: 'Type of source to ingest. Use "youtube" to fetch captions from a YouTube video, or "context" to save pasted text as source content.'
       },
       youtubeUrl: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'YouTube video URL to ingest (required if sourceType="youtube"). Example: https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID.'
       },
       titleHint: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional title hint for YouTube source content (only used when sourceType="youtube").'
       },
       context: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Raw context text to save as source content (required if sourceType="context").'
       },
       title: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional title for context source content (only used when sourceType="context").'
       }
     },
@@ -404,27 +404,27 @@ function buildEditMetadataParameters(): ParameterSchema {
         description: 'Content ID (UUID format) of the content item to update. Must be a valid UUID - use read_content_list to find content IDs.'
       },
       title: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'New title for the content item.'
       },
       slug: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'New slug for the content item (will be auto-slugified).'
       },
       status: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'New status (draft, in_review, ready_for_publish, published, archived).'
       },
       primaryKeyword: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'New primary keyword for SEO.'
       },
       targetLocale: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'New target locale (e.g., en-US, es-ES).'
       },
       contentType: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'New content type (blog_post, newsletter, etc.).'
       }
     },
@@ -480,32 +480,32 @@ function buildReadContentListParameters(): ParameterSchema {
     type: 'object',
     properties: {
       status: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Filter by content status (draft, in_review, ready_for_publish, published, archived).'
       },
       contentType: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Filter by content type (blog_post, newsletter, etc.).'
       },
       limit: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 1,
         maximum: 100,
         description: 'Maximum number of items to return (default: 20, max: 100).'
       },
       offset: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 0,
         description: 'Number of items to skip for pagination (default: 0).'
       },
       orderBy: {
-        type: ['string', 'null'],
-        enum: ['updatedAt', 'createdAt', 'title', null],
+        type: 'string',
+        enum: ['updatedAt', 'createdAt', 'title'],
         description: 'Field to sort by (default: updatedAt).'
       },
       orderDirection: {
-        type: ['string', 'null'],
-        enum: ['asc', 'desc', null],
+        type: 'string',
+        enum: ['asc', 'desc'],
         description: 'Sort direction (default: desc).'
       }
     }
@@ -517,32 +517,32 @@ function buildReadSourceListParameters(): ParameterSchema {
     type: 'object',
     properties: {
       sourceType: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Filter by source type (youtube, context, etc.).'
       },
       ingestStatus: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Filter by ingest status (ingested, ingesting, failed, etc.).'
       },
       limit: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 1,
         maximum: 100,
         description: 'Maximum number of items to return (default: 20, max: 100).'
       },
       offset: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 0,
         description: 'Number of items to skip for pagination (default: 0).'
       },
       orderBy: {
-        type: ['string', 'null'],
-        enum: ['updatedAt', 'createdAt', 'title', null],
+        type: 'string',
+        enum: ['updatedAt', 'createdAt', 'title'],
         description: 'Field to sort by (default: updatedAt).'
       },
       orderDirection: {
-        type: ['string', 'null'],
-        enum: ['asc', 'desc', null],
+        type: 'string',
+        enum: ['asc', 'desc'],
         description: 'Sort direction (default: desc).'
       }
     }
@@ -580,15 +580,15 @@ function buildReadFilesParameters(): ParameterSchema {
     type: 'object',
     properties: {
       contentId: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional content ID (UUID) to filter files linked to a specific content item.'
       },
       fileType: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional file type filter (e.g., "image").'
       },
       limit: {
-        type: ['number', 'null'],
+        type: 'number',
         minimum: 1,
         maximum: 100,
         description: 'Maximum number of files to return (default: 20, max: 100).'
@@ -606,15 +606,15 @@ function buildInsertImageParameters(): ParameterSchema {
         description: 'Content ID (UUID format) where the image should be inserted.'
       },
       fileId: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional file ID of the uploaded image to insert. If omitted, the latest image attached to the content will be used.'
       },
       position: {
-        type: ['string', 'number', 'null'],
+        type: ['string', 'number'],
         description: 'Where to insert the image: a line number, a sectionId, or natural language like "above the conclusion" or "as the featured image".'
       },
       altText: {
-        type: ['string', 'null'],
+        type: 'string',
         description: 'Optional alt text for the image.'
       }
     },

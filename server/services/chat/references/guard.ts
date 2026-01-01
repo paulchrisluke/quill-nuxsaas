@@ -61,6 +61,12 @@ export const getReferenceScopeError = (
 
   if (toolInvocation.name === 'content_write') {
     const args = toolInvocation.arguments as ChatToolInvocation<'content_write'>['arguments']
+    // Creating new content doesn't require a content reference.
+    if (args.action === 'create') {
+      return null
+    }
+
+    // Enriching existing content requires a content reference.
     if (!args.contentId || !allowedContentIds.has(args.contentId)) {
       return NO_REFERENCE_ERROR
     }

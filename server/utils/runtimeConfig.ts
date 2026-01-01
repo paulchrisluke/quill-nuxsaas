@@ -28,6 +28,15 @@ export const generateRuntimeConfig = () => ({
   // Google
   googleClientId: process.env.NUXT_GOOGLE_CLIENT_ID,
   googleClientSecret: process.env.NUXT_GOOGLE_CLIENT_SECRET,
+  // AI / LLM
+  openAiApiKey: process.env.NUXT_OPENAI_API_KEY,
+  openAiBlogModel: process.env.NUXT_OPENAI_BLOG_MODEL || 'gpt-4o-mini',
+  openAiBlogTemperature: Number(process.env.NUXT_OPENAI_BLOG_TEMPERATURE) || 0.6,
+  openAiBlogMaxOutputTokens: Number(process.env.NUXT_OPENAI_BLOG_MAX_OUTPUT_TOKENS) || 2200,
+  cfAiGatewayToken: process.env.NUXT_CF_AI_GATEWAY_TOKEN,
+  cfAiGatewayName: process.env.NUXT_CF_AI_GATEWAY_NAME || 'quill',
+  cfAccountId: process.env.NUXT_CF_ACCOUNT_ID,
+
   // Google Maps
   googleMapsApiKey: process.env.NUXT_GOOGLE_MAPS_API_KEY,
   // DB
