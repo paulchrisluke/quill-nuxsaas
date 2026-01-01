@@ -116,13 +116,20 @@ const fetchContentCandidates = async (context: ResolveContext, identifier: strin
       id: schema.content.id,
       slug: schema.content.slug,
       title: schema.content.title,
+      versionTitle: sql<string | null>`${schema.contentVersion.frontmatter}->>'title'`,
       status: schema.content.status,
       currentVersionId: schema.content.currentVersionId
     })
     .from(schema.content)
+    .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
     .where(and(
       eq(schema.content.organizationId, context.organizationId),
-      sql`lower(${schema.content.slug}) like ${`%${escaped}%`} escape '\\'`
+      or(
+        sql`lower(${schema.content.slug}) like ${`%${escaped}%`} escape '\\'`,
+        sql`lower(${schema.content.title}) like ${`%${escaped}%`} escape '\\'`,
+        sql`lower(${schema.contentVersion.frontmatter}->>'title') like ${`%${escaped}%`} escape '\\'`,
+        sql`lower(cast(${schema.content.id} as text)) like ${`%${escaped}%`} escape '\\'`
+      )
     ))
     .orderBy(sql`${schema.content.updatedAt} DESC`)
     .limit(LIMIT_MATCHES)
@@ -210,7 +217,12 @@ const resolveFileToken = async (token: ReferenceToken, context: ResolveContext) 
 
 const resolveContentToken = async (token: ReferenceToken, context: ResolveContext) => {
   const candidates = await fetchContentCandidates(context, token.identifier)
-  const match = selectBestMatch(token.identifier, candidates, candidate => [candidate.slug])
+  const match = selectBestMatch(token.identifier, candidates, candidate => [
+    candidate.slug,
+    candidate.title,
+    candidate.versionTitle,
+    candidate.id
+  ])
 
   if (match.match) {
     const content = match.match

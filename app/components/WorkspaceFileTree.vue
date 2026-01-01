@@ -9,7 +9,7 @@ const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
 }>()
 
-const { loggedIn, useActiveOrganization } = useAuth()
+const { isAuthenticatedUser, useActiveOrganization } = useAuth()
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
@@ -17,10 +17,12 @@ const activeOrg = useActiveOrganization()
 const openWorkspace = inject<(() => void) | undefined>('openWorkspace')
 
 const orgSlug = computed(() => {
-  const slug = activeOrg.value?.data?.slug
-  if (!slug || slug === NON_ORG_SLUG)
-    return null
-  return slug
+  const param = route.params.slug
+  const routeSlug = Array.isArray(param) ? param[0] : param
+  if (routeSlug && routeSlug !== NON_ORG_SLUG)
+    return routeSlug
+  const fallback = activeOrg.value?.data?.slug
+  return fallback && fallback !== NON_ORG_SLUG ? fallback : null
 })
 
 const {
@@ -320,7 +322,7 @@ const archiveContent = async (node: FileTreeNode) => {
 }
 
 const initializeData = async () => {
-  if (!loggedIn.value)
+  if (!isAuthenticatedUser.value)
     return
   loadContentInitial().catch(() => {})
   loadFileInitial().catch(() => {})
@@ -330,7 +332,7 @@ onMounted(() => {
   initializeData()
 })
 
-watch(loggedIn, (isLoggedIn) => {
+watch(isAuthenticatedUser, (isLoggedIn) => {
   if (isLoggedIn) {
     initializeData()
   } else {
@@ -342,13 +344,6 @@ watch(loggedIn, (isLoggedIn) => {
 const isEmptyState = computed(() => {
   return contentInitialized.value && fileInitialized.value && !contentItems.value.length && !fileItems.value.length
 })
-
-// Debug: log file count for troubleshooting
-watch([fileItems, fileInitialized], () => {
-  if (fileInitialized.value) {
-    console.log('[WorkspaceFileTree] Files loaded:', fileItems.value.length, fileItems.value)
-  }
-}, { immediate: true })
 </script>
 
 <template>
@@ -357,7 +352,7 @@ watch([fileItems, fileInitialized], () => {
     role="tree"
   >
     <div class="flex-1 overflow-y-auto px-1 pb-4">
-      <template v-if="!loggedIn">
+      <template v-if="!isAuthenticatedUser">
         <div class="space-y-2 px-2">
           <div class="space-y-1">
             <p class="text-xs uppercase tracking-wide text-muted-foreground px-2">

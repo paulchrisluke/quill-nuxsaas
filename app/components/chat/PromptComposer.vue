@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useContentList } from '~/composables/useContentList'
+import { useFileList } from '~/composables/useFileList'
 import ReferencePickerPanel from './ReferencePickerPanel.vue'
 
 const props = withDefaults(defineProps<{
@@ -114,6 +116,21 @@ const { useActiveOrganization } = useAuth()
 const activeOrganization = useActiveOrganization()
 const organizationId = computed(() => activeOrganization.value?.data?.id || null)
 
+const {
+  items: sidebarContentItems,
+  initialized: sidebarContentInitialized
+} = useContentList({ pageSize: 40 })
+
+const {
+  items: treeContentItems,
+  initialized: treeContentInitialized
+} = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+
+const {
+  items: treeFileItems,
+  initialized: treeFileInitialized
+} = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+
 const combinedSuggestions = computed(() => {
   if (!activeMention.value) {
     return { files: [], contents: [], sections: [] }
@@ -131,6 +148,86 @@ const isBoundaryChar = (value: string | undefined) => {
     return true
   }
   return /\s/.test(value) || /[.,!?;:()[\]{}<>"']/.test(value)
+}
+
+const normalizeReferenceToken = (value: string | null | undefined): string => {
+  const trimmed = (value ?? '').trim()
+  if (!trimmed) {
+    return ''
+  }
+  return trimmed
+    .replace(/\s+/g, '-')
+    .replace(/[^\w./-]+/g, '')
+    .replace(/-+/g, '-')
+}
+
+const mergeLocalContentItems = () => {
+  const seen = new Set<string>()
+  const merged: Array<{ id: string, displayLabel: string }> = []
+
+  for (const item of sidebarContentItems.value) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id)
+      merged.push({ id: item.id, displayLabel: item.displayLabel })
+    }
+  }
+
+  for (const item of treeContentItems.value) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id)
+      merged.push({ id: item.id, displayLabel: item.displayLabel })
+    }
+  }
+
+  return merged
+}
+
+const matchesQuery = (query: string, values: Array<string | null | undefined>) => {
+  if (!query) {
+    return true
+  }
+  const normalizedQuery = query.toLowerCase()
+  return values.some((value) => {
+    if (!value) {
+      return false
+    }
+    const raw = value.toLowerCase()
+    if (raw.includes(normalizedQuery)) {
+      return true
+    }
+    const tokenized = normalizeReferenceToken(value).toLowerCase()
+    return tokenized.includes(normalizedQuery)
+  })
+}
+
+const buildLocalSuggestions = (query: string) => {
+  const trimmed = query.trim().toLowerCase()
+  const localContents = mergeLocalContentItems()
+    .filter(item => matchesQuery(trimmed, [item.displayLabel, item.id]))
+    .slice(0, 10)
+    .map(item => ({
+      id: item.id,
+      label: item.displayLabel,
+      insertText: normalizeReferenceToken(item.displayLabel) || item.id,
+      type: 'content' as const
+    }))
+
+  const localFiles = treeFileItems.value
+    .filter(file => matchesQuery(trimmed, [file.originalName, file.fileName, file.id]))
+    .slice(0, 10)
+    .map(file => ({
+      id: file.id,
+      label: file.originalName || file.fileName || file.id,
+      subtitle: file.fileName && file.originalName && file.fileName !== file.originalName ? file.fileName : undefined,
+      insertText: normalizeReferenceToken(file.originalName || file.fileName || file.id) || file.id,
+      type: 'file' as const
+    }))
+
+  return {
+    files: localFiles,
+    contents: localContents,
+    sections: []
+  }
 }
 
 const updatePanelPosition = () => {
@@ -235,8 +332,30 @@ const applySuggestion = (item: ReferenceSuggestionItem) => {
   }
 }
 
+const handleQueryChange = (value: string) => {
+  const mention = activeMention.value
+  if (!mention) {
+    return
+  }
+  const nextQuery = value.replace(/\s+/g, '')
+  const mentionEnd = mention.startIndex + 1 + mention.query.length
+  const currentValue = modelValue.value
+  const before = currentValue.slice(0, mention.startIndex + 1)
+  const after = currentValue.slice(mentionEnd)
+
+  modelValue.value = `${before}${nextQuery}${after}`
+  activeMention.value = { startIndex: mention.startIndex, query: nextQuery }
+  highlightedIndex.value = 0
+  cursorIndex.value = mention.startIndex + 1 + nextQuery.length
+}
+
 const handleKeyDown = (event: KeyboardEvent) => {
   if (isComposing.value) {
+    return
+  }
+  if (isAutocompleteOpen.value && event.key === 'Escape') {
+    event.preventDefault()
+    closeAutocomplete()
     return
   }
   const flatSuggestions = [
@@ -259,9 +378,6 @@ const handleKeyDown = (event: KeyboardEvent) => {
     if (item) {
       applySuggestion(item)
     }
-  } else if (event.key === 'Escape') {
-    event.preventDefault()
-    closeAutocomplete()
   }
 }
 
@@ -311,8 +427,23 @@ function setTextareaRef() {
 }
 
 const fetchSuggestions = async (query?: string) => {
+  const queryValue = query ?? ''
+  const localSuggestions = buildLocalSuggestions(queryValue)
+  const hasLocalResults = localSuggestions.files.length > 0 || localSuggestions.contents.length > 0
+  const localReady = sidebarContentInitialized.value || treeContentInitialized.value || treeFileInitialized.value
+
+  if (hasLocalResults) {
+    suggestionGroups.value = localSuggestions
+    return
+  }
+
+  if (localReady && !queryValue) {
+    suggestionGroups.value = localSuggestions
+    return
+  }
+
   if (!organizationId.value) {
-    suggestionGroups.value = { files: [], contents: [], sections: [] }
+    suggestionGroups.value = localSuggestions
     return
   }
 
@@ -320,7 +451,7 @@ const fetchSuggestions = async (query?: string) => {
     const data = await $fetch('/api/chat/reference-suggestions', {
       query: {
         contentId: props.contentId || undefined,
-        q: query || undefined
+        q: queryValue || undefined
       }
     }) as {
       files: Array<{ id: string, label: string, subtitle?: string, insertText: string }>
@@ -511,31 +642,39 @@ const scheduleSuggestionFetch = (query?: string) => {
 }
 
 watch([organizationId, () => props.contentId], () => {
-  if (isAutocompleteOpen.value && activeMention.value && activeMention.value.query && activeMention.value.query.length > 0) {
-    scheduleSuggestionFetch(activeMention.value.query)
+  if (isAutocompleteOpen.value && activeMention.value) {
+    refreshSuggestions(activeMention.value.query)
   } else {
     suggestionGroups.value = { files: [], contents: [], sections: [] }
   }
 }, { immediate: true })
 
-watch(() => activeMention.value?.query, (query) => {
+function refreshSuggestions(query?: string) {
   if (!isAutocompleteOpen.value) {
     return
   }
-  // Only fetch when user starts typing (query has at least one character)
-  if (query && query.length > 0) {
-    scheduleSuggestionFetch(query)
-  } else {
-    // Clear suggestions when query is empty
-    suggestionGroups.value = { files: [], contents: [], sections: [] }
-  }
+  scheduleSuggestionFetch(query ?? '')
   updatePanelPosition()
+}
+
+watch(() => activeMention.value?.query, (query) => {
+  refreshSuggestions(query)
 })
 
 watch(combinedSuggestions, (value) => {
   const flat = [...value.files, ...value.contents]
   if (highlightedIndex.value >= flat.length) {
     highlightedIndex.value = 0
+  }
+})
+
+watch([
+  () => sidebarContentItems.value.length,
+  () => treeContentItems.value.length,
+  () => treeFileItems.value.length
+], () => {
+  if (isAutocompleteOpen.value && activeMention.value) {
+    refreshSuggestions(activeMention.value.query)
   }
 })
 
@@ -549,24 +688,6 @@ const handleNavigate = (delta: number) => {
     return
   }
   highlightedIndex.value = (highlightedIndex.value + delta + flat.length) % flat.length
-}
-
-const handleQueryChange = (value: string) => {
-  const mention = activeMention.value
-  if (!mention) {
-    return
-  }
-  const insertionStart = mention.startIndex + 1
-  const insertionEnd = mention.startIndex + 1 + mention.query.length
-  const currentValue = modelValue.value
-  const before = currentValue.slice(0, insertionStart)
-  const after = currentValue.slice(insertionEnd)
-  const nextValue = `${before}${value}${after}`
-  modelValue.value = nextValue
-  activeMention.value = { ...mention, query: value }
-  cursorIndex.value = insertionStart + value.length
-  highlightedIndex.value = 0
-  isAutocompleteOpen.value = true
 }
 </script>
 

@@ -5,7 +5,7 @@ definePageMeta({
   auth: false
 })
 
-const { loggedIn, fetchSession, useActiveOrganization } = useAuth()
+const { loggedIn, fetchSession, useActiveOrganization, isAuthenticatedUser } = useAuth()
 const activeOrg = useActiveOrganization()
 const localePath = useLocalePath()
 
@@ -39,10 +39,10 @@ async function performRedirect(targetSlug: string) {
 }
 
 // Watch for changes to login/org state (including initial load)
-watch([loggedIn, activeOrg], async () => {
+watch([isAuthenticatedUser, activeOrg], async () => {
   if (hasRedirected)
     return
-  if (loggedIn.value && activeOrg.value?.data?.slug) {
+  if (isAuthenticatedUser.value && activeOrg.value?.data?.slug) {
     hasRedirected = true
     await performRedirect(activeOrg.value.data.slug)
   }
@@ -55,7 +55,7 @@ onMounted(async () => {
   }
 
   // Only handle fallback if watcher didn't handle it
-  if (loggedIn.value && !hasRedirected) {
+  if (isAuthenticatedUser.value && !hasRedirected) {
     try {
       // Otherwise fetch orgs and use first one
       const { data: orgs } = await useAuth().organization.list()

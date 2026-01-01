@@ -16,7 +16,8 @@ export const AUTH_USER_DEFAULTS: Partial<User> = {
   banReason: null,
   banned: null,
   banExpires: null,
-  stripeCustomerId: null
+  stripeCustomerId: null,
+  isAnonymous: false
 }
 
 export function useAuth() {
@@ -174,6 +175,8 @@ export function useAuth() {
     subscription: client.subscription,
     subscriptions,
     loggedIn: computed(() => !!session.value),
+    isAnonymousUser: computed(() => Boolean(user.value?.isAnonymous)),
+    isAuthenticatedUser: computed(() => !!session.value && !user.value?.isAnonymous),
     activeStripeSubscription: computed(() => {
       const activeOrgState = useActiveOrgState()
       const subs = (activeOrgState.value?.data as any)?.subscriptions || []

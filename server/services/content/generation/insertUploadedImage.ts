@@ -262,7 +262,7 @@ const resolvePosition = (params: {
     const normalizedPhrase = trimmed.toLowerCase()
     const prefersAfter = /\b(?:after|below|under|following)\b/.test(normalizedPhrase)
     const prefersStart = /\b(?:featured|hero|cover|top|start|beginning)\b/.test(normalizedPhrase)
-    const prefersEnd = /\b(?:conclusion|summary|wrap-up|wrap up|final|ending)\b/.test(normalizedPhrase)
+    const prefersEnd = /\b(?:bottom|end|ending|conclusion|summary|wrap-up|wrap up|final)\b/.test(normalizedPhrase)
 
     // Keyword shortcuts
     const keywordSection = prefersEnd
@@ -271,7 +271,7 @@ const resolvePosition = (params: {
         ? resolveSectionByKeyword('introduction', sections) || resolveSectionByKeyword('summary', sections)
         : null
 
-    const matchedSection = keywordSection || resolveSectionByPhrase(trimmed, sections)
+    const matchedSection = keywordSection || (!prefersStart && !prefersEnd ? resolveSectionByPhrase(trimmed, sections) : null)
     if (matchedSection) {
       const headingLine = findHeadingLine(markdown, matchedSection.title || (matchedSection as any).section_title)
       const fallbackLine = Math.max(1, Math.round(maxLine * (matchedSection.index !== undefined ? matchedSection.index + 1 : sections.indexOf(matchedSection) + 1) / Math.max(sections.length, 1)))

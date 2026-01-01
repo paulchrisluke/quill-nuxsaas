@@ -1,7 +1,7 @@
 import type { ImageDataLike, ImageVariantMap } from './imageTypes'
 import { decode as decodeAvif, encode as encodeAvif } from '@jsquash/avif'
 import { decode as decodeJpeg } from '@jsquash/jpeg'
-import { decode as decodePng } from '@jsquash/png'
+import decodePng from '@jsquash/png/decode.js'
 import resize from '@jsquash/resize'
 import { decode as decodeWebp, encode as encodeWebp } from '@jsquash/webp'
 import { and, eq, inArray, lt, or } from 'drizzle-orm'

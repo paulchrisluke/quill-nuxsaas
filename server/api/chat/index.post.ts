@@ -320,6 +320,10 @@ async function executeChatTool(
     userId: string
     conversationId: string
     event: any
+    userMessage?: string
+    requestState?: {
+      insertedImageKeys: Set<string>
+    }
     onToolProgress?: (toolCallId: string, message: string) => void
     toolCallId?: string
     conversationMetadata?: Record<string, any> | null
@@ -332,6 +336,8 @@ async function executeChatTool(
     organizationId,
     userId,
     conversationId,
+    userMessage,
+    requestState,
     onToolProgress,
     toolCallId,
     conversationMetadata,
@@ -952,6 +958,18 @@ async function executeChatTool(
     }
 
     try {
+      const instructionsText = String(args.instructions || '')
+      const hasImageIntent = /\b(?:add|insert|place|include|attach)\b/i.test(instructionsText)
+        && (/\b(?:image|photo|picture|screenshot|graphic|illustration|cover|hero|featured|thumbnail)\b/i.test(instructionsText)
+          || /\.(?:png|jpe?g|gif|webp|svg|avif|bmp|heic|heif)\b/i.test(instructionsText))
+      const hasReferencedFiles = referenceScope?.allowedFileIds && referenceScope.allowedFileIds.size > 0
+      if (hasImageIntent && hasReferencedFiles) {
+        return {
+          success: false,
+          error: 'Image placement must use insert_image (provide contentId and fileId). Use edit_section only for text changes.'
+        }
+      }
+
       // Validate contentId is a valid UUID format
       const contentId = validateUUID(args.contentId, 'contentId')
       let sanitizedTemperature = 1
@@ -1128,6 +1146,30 @@ async function executeChatTool(
     const args = toolInvocation.arguments as ChatToolInvocation<'insert_image'>['arguments']
 
     try {
+      const normalizedMessage = (userMessage || '').toLowerCase()
+      const wantsTop = /\b(?:top|start|beginning|featured|hero|cover)\b/.test(normalizedMessage)
+      const wantsBottom = /\b(?:bottom|end|ending|conclusion|footer)\b/.test(normalizedMessage)
+      const bottomOnly = wantsBottom && !wantsTop
+      const topOnly = wantsTop && !wantsBottom
+
+      const positionText = typeof args.position === 'string' ? args.position.toLowerCase() : ''
+      const mentionsTop = /\b(?:top|start|beginning|featured|hero|cover)\b/.test(positionText)
+      const mentionsBottom = /\b(?:bottom|end|ending|conclusion|footer)\b/.test(positionText)
+
+      if (bottomOnly && mentionsTop) {
+        return {
+          success: false,
+          error: 'Image placement should be at the bottom only. Use a bottom/end position.'
+        }
+      }
+
+      if (topOnly && mentionsBottom) {
+        return {
+          success: false,
+          error: 'Image placement should be at the top only. Use a top/featured position.'
+        }
+      }
+
       const contentId = validateUUID(args.contentId, 'contentId')
       const fileId = validateOptionalUUID(args.fileId, 'fileId')
 
@@ -1145,6 +1187,23 @@ async function executeChatTool(
       }
 
       const altText = args.altText ? validateOptionalString(args.altText, 'altText') : null
+      const allowMultiplePlacements = wantsTop && wantsBottom
+      const baseImageKey = `${contentId}:${fileId || 'latest'}`
+      const positionKey = `${baseImageKey}:${typeof position === 'string' ? position.toLowerCase() : String(position ?? '')}`
+
+      if (requestState?.insertedImageKeys) {
+        const existingKey = allowMultiplePlacements ? positionKey : baseImageKey
+        if (requestState.insertedImageKeys.has(existingKey)) {
+          return {
+            success: true,
+            result: {
+              skipped: true,
+              reason: 'Image already inserted for this request.'
+            },
+            contentId
+          }
+        }
+      }
 
       const insertionResult = await insertUploadedImage(db, {
         organizationId,
@@ -1154,6 +1213,11 @@ async function executeChatTool(
         position,
         altText
       })
+
+      if (requestState?.insertedImageKeys) {
+        const key = allowMultiplePlacements ? positionKey : baseImageKey
+        requestState.insertedImageKeys.add(key)
+      }
 
       return {
         success: true,
@@ -1946,7 +2010,7 @@ export default defineEventHandler(async (event) => {
           if (!organizationId) {
           // Direct call - no try/catch wrapper needed for signed-in users
             safeLog('[Chat API] Falling back to requireActiveOrganization')
-            const orgPromise = requireActiveOrganization(event)
+            const orgPromise = requireActiveOrganization(event, { allowAnonymous: true })
             const orgTimeout = new Promise<{ organizationId: string }>((_, reject) => {
               setTimeout(() => reject(new Error('requireActiveOrganization timeout after 10s')), 10000)
             })
@@ -1967,7 +2031,7 @@ export default defineEventHandler(async (event) => {
         // We rely on requireActiveOrganization to handle guest/anonymous context creation.
           safeLog('[Chat API] Resolving organization for anonymous user')
           try {
-            const orgPromise = requireActiveOrganization(event)
+            const orgPromise = requireActiveOrganization(event, { allowAnonymous: true })
             const orgTimeout = new Promise<{ organizationId: string }>((_, reject) => {
               setTimeout(() => reject(new Error('requireActiveOrganization timeout after 10s (anonymous)')), 10000)
             })
@@ -2042,6 +2106,10 @@ export default defineEventHandler(async (event) => {
           : null
 
         const _initialSessionContentId = requestContentId
+
+        const requestToolState = {
+          insertedImageKeys: new Set<string>()
+        }
 
         // Declare multiPassResult variable for use later
         let multiPassResult: Awaited<ReturnType<typeof runChatAgentWithMultiPassStream>> | null = null
@@ -2260,6 +2328,10 @@ export default defineEventHandler(async (event) => {
               contextBlocks.push(`Ingestion failures:\n${failureSummary}`)
             }
 
+            if (requestContentId && requestContentId !== linkedContentId) {
+              contextBlocks.push(`Active content ID: ${requestContentId}`)
+            }
+
             return { conversationHistory, contextBlocks }
           })()
 
@@ -2284,7 +2356,7 @@ export default defineEventHandler(async (event) => {
               await addLogEntryToConversation(db, {
                 conversationId: activeConversation.id,
                 organizationId,
-                type: 'user_message',
+                type: 'info',
                 message: 'User sent a chat prompt'
               })
 
@@ -2362,6 +2434,9 @@ export default defineEventHandler(async (event) => {
             ])
 
             referenceScope = buildReferenceScope(combinedResolved)
+            if (requestContentId) {
+              referenceScope.allowedContentIds.add(requestContentId)
+            }
 
             const referenceContents = await loadReferenceContent(combinedResolved, {
               db,
@@ -2388,6 +2463,9 @@ export default defineEventHandler(async (event) => {
               error: error instanceof Error ? error.message : 'Unknown error'
             })
             referenceScope = buildReferenceScope([])
+            if (requestContentId) {
+              referenceScope.allowedContentIds.add(requestContentId)
+            }
           }
 
           // ============================================================================
@@ -2522,6 +2600,8 @@ export default defineEventHandler(async (event) => {
                     userId: user.id,
                     conversationId: activeConversation.id,
                     event,
+                    userMessage: trimmedMessage,
+                    requestState: requestToolState,
                     conversationMetadata: activeConversation.metadata as Record<string, any> | null,
                     referenceScope,
                     toolCallId,

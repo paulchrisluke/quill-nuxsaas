@@ -38,6 +38,13 @@ export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const contentId = typeof query.contentId === 'string' ? query.contentId : null
   const searchQuery = typeof query.q === 'string' ? query.q.trim().toLowerCase() : ''
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[reference-suggestions] request', {
+      organizationId,
+      contentId,
+      query: searchQuery
+    })
+  }
   const escapedQuery = searchQuery ? escapeLikePattern(searchQuery) : ''
   const likeQuery = escapedQuery ? `%${escapedQuery}%` : ''
 
@@ -55,6 +62,7 @@ export default defineEventHandler(async (event) => {
     id: string
     slug: string | null
     title: string | null
+    versionTitle?: string | null
     status: string | null
     updatedAt: Date | null
   }> = []
@@ -90,16 +98,19 @@ export default defineEventHandler(async (event) => {
           id: schema.content.id,
           slug: schema.content.slug,
           title: schema.content.title,
+          versionTitle: sql<string | null>`${schema.contentVersion.frontmatter}->>'title'`,
           status: schema.content.status,
           updatedAt: schema.content.updatedAt
         })
         .from(schema.content)
+        .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
         .where(and(
           eq(schema.content.organizationId, organizationId),
           ...(searchQuery
             ? [or(
                 sql`lower(${schema.content.slug}) like ${likeQuery} escape '\\'`,
-                sql`lower(${schema.content.title}) like ${likeQuery} escape '\\'`
+                sql`lower(${schema.content.title}) like ${likeQuery} escape '\\'`,
+                sql`lower(${schema.contentVersion.frontmatter}->>'title') like ${likeQuery} escape '\\'`
               )]
             : [])
         ))
@@ -196,6 +207,15 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[reference-suggestions] response', {
+      organizationId,
+      query: searchQuery,
+      fileCount: files.length,
+      contentCount: contents.length,
+      sectionCount: sections.length
+    })
+  }
   return {
     files: files.map(file => ({
       id: file.id,
@@ -203,12 +223,15 @@ export default defineEventHandler(async (event) => {
       subtitle: file.fileName && file.originalName && file.fileName !== file.originalName ? file.fileName : undefined,
       insertText: normalizeReferenceToken(file.originalName || file.fileName || file.id) || file.id
     })),
-    contents: contents.map(content => ({
-      id: content.id,
-      label: content.title || content.slug || content.id,
-      subtitle: content.slug && content.title && content.slug !== content.title ? content.slug : undefined,
-      insertText: normalizeReferenceToken(content.slug || content.title || content.id) || content.id
-    })),
+    contents: contents.map((content) => {
+      const title = content.title || content.versionTitle || content.slug || content.id
+      return {
+        id: content.id,
+        label: title,
+        subtitle: content.slug && content.slug !== title ? content.slug : undefined,
+        insertText: normalizeReferenceToken(content.slug || title || content.id) || content.id
+      }
+    }),
     sections: sections.map(section => ({
       id: section.id,
       label: section.title || section.type || section.id,

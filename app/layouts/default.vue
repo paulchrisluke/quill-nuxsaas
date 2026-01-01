@@ -7,7 +7,7 @@ import OnboardingModal from '~/components/OnboardingModal.vue'
 
 const { t } = useI18n()
 const localePath = useLocalePath()
-const { loggedIn, signOut, useActiveOrganization } = useAuth()
+const { signOut, useActiveOrganization, isAuthenticatedUser } = useAuth()
 const conversation = useConversation()
 const activeOrg = useActiveOrganization()
 
@@ -56,7 +56,7 @@ provide('openWorkspace', () => {
 
 // Check if current route is a workspace route (content, conversations, etc.)
 const isWorkspaceRoute = computed(() => {
-  if (!loggedIn.value || isAuthPage.value || isPublicPage.value)
+  if (!isAuthenticatedUser.value || isAuthPage.value || isPublicPage.value)
     return false
   const path = pathWithoutLocale.value
   // Workspace routes: /[slug]/content, /[slug]/conversations, etc.
@@ -82,7 +82,7 @@ watch(() => route.path, (_newPath) => {
 const isSidebarCollapsed = computed(() => false)
 
 // Chat panel shows when logged in, not on auth pages, not on public pages
-const shouldShowChatPanel = computed(() => loggedIn.value && !isAuthPage.value && !isPublicPage.value && route.meta?.renderChatWidget !== false)
+const shouldShowChatPanel = computed(() => isAuthenticatedUser.value && !isAuthPage.value && !isPublicPage.value && route.meta?.renderChatWidget !== false)
 
 const contentRouteMatch = computed(() => pathWithoutLocale.value.match(/^\/[^/]+\/content\/([^/]+)(?:\/|$)/))
 
@@ -215,7 +215,7 @@ onMounted(() => {
   })
 })
 
-watch(loggedIn, (value, previous) => {
+watch(isAuthenticatedUser, (value, previous) => {
   if (value === previous)
     return
   resetConversationList()
@@ -340,7 +340,7 @@ const canExpandConversationList = computed(() => {
           <slot name="sidebar">
             <!-- Guest navigation -->
             <div
-              v-if="!loggedIn"
+              v-if="!isAuthenticatedUser"
               class="p-4 space-y-2"
             >
               <UButton
@@ -402,7 +402,7 @@ const canExpandConversationList = computed(() => {
             @click="handleDownloadContent"
           />
           <UDropdownMenu
-            v-if="loggedIn"
+            v-if="isAuthenticatedUser"
             :items="userMenuItems"
           >
             <UButton
@@ -559,11 +559,11 @@ const canExpandConversationList = computed(() => {
         :class="{ 'lg:border-l border-neutral-200/70 dark:border-neutral-800/60': shouldShowChatPanel }"
       >
         <UDashboardNavbar
-          v-if="(pageTitle || (!loggedIn && !isAuthPage)) && !contentRouteMatch"
+          v-if="(pageTitle || (!isAuthenticatedUser && !isAuthPage)) && !contentRouteMatch"
           :title="pageTitle || undefined"
         >
           <template
-            v-if="!loggedIn && !isAuthPage"
+            v-if="!isAuthenticatedUser && !isAuthPage"
             #right
           >
             <div class="flex items-center gap-2">
@@ -596,11 +596,11 @@ const canExpandConversationList = computed(() => {
         class="lg:hidden flex min-h-0 flex-1 flex-col"
       >
         <UDashboardNavbar
-          v-if="(pageTitle || (!loggedIn && !isAuthPage)) && !contentRouteMatch"
+          v-if="(pageTitle || (!isAuthenticatedUser && !isAuthPage)) && !contentRouteMatch"
           :title="pageTitle || undefined"
         >
           <template
-            v-if="!loggedIn && !isAuthPage"
+            v-if="!isAuthenticatedUser && !isAuthPage"
             #right
           >
             <div class="flex items-center gap-2">

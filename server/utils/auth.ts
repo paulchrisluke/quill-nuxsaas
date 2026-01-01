@@ -3,7 +3,8 @@ import type { User } from '~~/shared/utils/types'
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api'
-import { admin as adminPlugin, apiKey, openAPI, organization } from 'better-auth/plugins'
+import { setCookieToHeader } from 'better-auth/cookies'
+import { admin as adminPlugin, anonymous, apiKey, openAPI, organization } from 'better-auth/plugins'
 import { and, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
@@ -490,6 +491,7 @@ export const createBetterAuth = () => betterAuth({
   },
   plugins: [
     ...(runtimeConfig.public.appEnv === 'development' ? [openAPI()] : []),
+    anonymous(),
     adminPlugin(),
     organization({
       ac,
@@ -551,6 +553,10 @@ export const getServerAuth = () => {
 }
 
 export const getAuthSession = async (event: H3Event) => {
+  if (event.context.session) {
+    return event.context.session
+  }
+
   const reqHeaders = getRequestHeaders(event)
   const headers = new Headers()
   for (const [key, value] of Object.entries(reqHeaders)) {
@@ -562,16 +568,62 @@ export const getAuthSession = async (event: H3Event) => {
   const session = await serverAuth.api.getSession({
     headers
   })
+  event.context.session = session
   return session
 }
 
-export const requireAuth = async (event: H3Event) => {
+export const requireAuth = async (event: H3Event, options: { allowAnonymous?: boolean } = {}) => {
   const session = await getAuthSession(event)
   if (!session || !session.user) {
-    throw createError({
-      statusCode: 401,
-      statusMessage: 'Unauthorized'
+    if (!options.allowAnonymous) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'Unauthorized'
+      })
+    }
+
+    const reqHeaders = getRequestHeaders(event)
+    const headers = new Headers()
+    for (const [key, value] of Object.entries(reqHeaders)) {
+      if (value)
+        headers.append(key, value)
+    }
+
+    const serverAuth = useServerAuth()
+    const anonResponse = await serverAuth.api.signInAnonymous({
+      headers,
+      returnHeaders: true,
+      returnStatus: true
     })
+
+    const headersWithSetCookie = anonResponse?.headers as (Headers & { getSetCookie?: () => string[] }) | undefined
+    const setCookieValues = headersWithSetCookie?.getSetCookie?.() ?? null
+    const setCookieHeader = anonResponse?.headers?.get('set-cookie')
+    if (setCookieValues && setCookieValues.length > 0) {
+      event.node.res.setHeader('set-cookie', setCookieValues)
+    } else if (setCookieHeader) {
+      event.node.res.setHeader('set-cookie', setCookieHeader)
+    }
+
+    const mergedHeaders = new Headers(headers)
+    if (anonResponse?.headers) {
+      setCookieToHeader(mergedHeaders)({ response: { headers: anonResponse.headers } })
+    }
+
+    const anonymousSession = await serverAuth.api.getSession({
+      headers: mergedHeaders
+    })
+
+    if (!anonymousSession?.user) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: 'Unauthorized'
+      })
+    }
+
+    event.context.session = anonymousSession
+    event.context.user = anonymousSession.user
+    return anonymousSession.user as User
   }
   // Save the session to the event context for later use
   event.context.user = session.user
@@ -600,9 +652,9 @@ export const getSessionOrganizationId = (session: any): string | null => {
     ?? null
 }
 
-export const requireActiveOrganization = async (event: H3Event) => {
-  const user = await requireAuth(event)
-  const session = await getAuthSession(event)
+export const requireActiveOrganization = async (event: H3Event, options: { allowAnonymous?: boolean } = {}) => {
+  const user = await requireAuth(event, options)
+  const session = event.context.session ?? await getAuthSession(event)
 
   const activeOrganizationId = getSessionOrganizationId(session)
 

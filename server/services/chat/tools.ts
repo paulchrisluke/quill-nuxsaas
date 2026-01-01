@@ -361,7 +361,7 @@ function buildEditSectionParameters(): ParameterSchema {
         maximum: 2
       }
     },
-    required: ['contentId']
+    required: ['contentId', 'instructions']
   }
 }
 
@@ -610,8 +610,8 @@ function buildInsertImageParameters(): ParameterSchema {
         description: 'Optional file ID of the uploaded image to insert. If omitted, the latest image attached to the content will be used.'
       },
       position: {
-        type: ['string', 'number'],
-        description: 'Where to insert the image: a line number, a sectionId, or natural language like "above the conclusion" or "as the featured image".'
+        type: 'string',
+        description: 'Where to insert the image: a line number (as a string), a sectionId, or natural language like "above the conclusion" or "as the featured image".'
       },
       altText: {
         type: 'string',

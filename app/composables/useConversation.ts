@@ -2,7 +2,7 @@ import type { ConversationIntentSnapshot, IntentGap, IntentOrchestratorAction } 
 import type { ChatMessage, MessagePart, NonEmptyArray } from '#shared/utils/types'
 import { useState } from '#app'
 import { useLocalStorage } from '@vueuse/core'
-import { computed, toRaw } from 'vue'
+import { computed, toRaw, watch } from 'vue'
 import { useContentList } from '~/composables/useContentList'
 import { useContentUpdates } from '~/composables/useContentUpdates'
 
@@ -158,9 +158,43 @@ export function useConversation() {
   const messages = useState<ChatMessage[]>('chat/messages', () => [])
   const status = useState<ChatStatus>('chat/status', () => 'ready')
   const errorMessage = useState<string | null>('chat/error', () => null)
-  const conversationId = useLocalStorage<string | null>('chat/conversation-id', null, {
+  const { useActiveOrganization, isAuthenticatedUser } = useAuth()
+  const activeOrg = useActiveOrganization()
+  const activeOrgKey = computed(() => {
+    if (!isAuthenticatedUser.value)
+      return 'anon'
+    return activeOrg.value?.data?.id ?? 'auth'
+  })
+  const legacyConversationId = useLocalStorage<string | null>('chat/conversation-id', null, {
     initOnMounted: true
   })
+  const conversationIdMap = useLocalStorage<Record<string, string | null>>('chat/conversation-id-map', {}, {
+    initOnMounted: true
+  })
+  const conversationId = computed<string | null>({
+    get: () => conversationIdMap.value[activeOrgKey.value] ?? null,
+    set: (value) => {
+      conversationIdMap.value = {
+        ...conversationIdMap.value,
+        [activeOrgKey.value]: value
+      }
+    }
+  })
+  watch(activeOrgKey, (key) => {
+    if (!import.meta.client)
+      return
+    if (!key)
+      return
+    if (key === 'auth')
+      return
+    if (!conversationIdMap.value[key] && legacyConversationId.value) {
+      conversationIdMap.value = {
+        ...conversationIdMap.value,
+        [key]: legacyConversationId.value
+      }
+      legacyConversationId.value = null
+    }
+  }, { immediate: true })
   const requestStartedAt = useState<Date | null>('chat/request-started-at', () => null)
   const activeController = useState<AbortController | null>('chat/active-controller', () => null)
   const prompt = useState<string>('chat/prompt', () => '')

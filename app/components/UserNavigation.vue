@@ -8,7 +8,7 @@ const emit = defineEmits<{
 const localePath = useLocalePath()
 const { t } = useI18n()
 const route = useRoute()
-const { loggedIn, signOut, user, useActiveOrganization } = useAuth()
+const { isAuthenticatedUser, signOut, user, useActiveOrganization } = useAuth()
 const { activeSub: activeStripeSubscription } = usePaymentStatus()
 const activeOrg = useActiveOrganization()
 
@@ -50,7 +50,7 @@ const tierBadgeLabel = computed(() => {
 </script>
 
 <template>
-  <template v-if="loggedIn">
+  <template v-if="isAuthenticatedUser">
     <UDropdownMenu>
       <UButton
         variant="ghost"

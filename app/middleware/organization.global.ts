@@ -1,7 +1,9 @@
 export default defineNuxtRouteMiddleware(async (to) => {
-  const { loggedIn, organization, fetchSession, refreshActiveOrg, getActiveOrganizationId } = useAuth()
+  const { loggedIn, organization, fetchSession, refreshActiveOrg, getActiveOrganizationId, user } = useAuth()
 
   if (!loggedIn.value)
+    return
+  if (user.value?.isAnonymous)
     return
 
   const routeSlug = to.params.slug as string
