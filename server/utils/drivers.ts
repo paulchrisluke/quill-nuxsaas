@@ -1,14 +1,10 @@
-import type { Hyperdrive } from '@cloudflare/workers-types'
-import { kv } from 'hub:kv'
+import Redis from 'ioredis'
 import pg from 'pg'
 import { Resend } from 'resend'
 import { runtimeConfig } from './runtimeConfig'
 
 const getDatabaseUrl = () => {
-  // @ts-expect-error globalThis.__env__ is not defined
-  const hyperdrive = (process.env.HYPERDRIVE || globalThis.__env__?.HYPERDRIVE || globalThis.HYPERDRIVE) as Hyperdrive | undefined
-  // Use Hyperdrive if available (prod Cloudflare), otherwise DATABASE_URL
-  return hyperdrive?.connectionString || runtimeConfig.databaseUrl
+  return runtimeConfig.databaseUrl
 }
 
 const createPgPool = () => new pg.Pool({
@@ -32,19 +28,31 @@ export const getPgPool = () => {
 }
 
 // Cache Client
+let redis: Redis | undefined
+if (runtimeConfig.redisUrl) {
+  redis = new Redis(runtimeConfig.redisUrl)
+}
+
 export const cacheClient = {
   get: async (key: string) => {
-    const value = await kv.get(key)
-    if (value == null) {
-      return null
+    if (redis) {
+      return await redis.get(key)
     }
-    return typeof value === 'string' ? value : JSON.stringify(value)
+    return null
   },
   set: async (key: string, value: string, ttl: number | undefined) => {
-    await kv.set(key, value, ttl ? { ttl } : undefined)
+    if (redis) {
+      if (ttl) {
+        await redis.set(key, value, 'EX', ttl)
+      } else {
+        await redis.set(key, value)
+      }
+    }
   },
   delete: async (key: string) => {
-    await kv.del(key)
+    if (redis) {
+      await redis.del(key)
+    }
   }
 }
 

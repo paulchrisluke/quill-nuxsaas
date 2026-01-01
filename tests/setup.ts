@@ -52,17 +52,6 @@ if (!process.env.NITRO_PRESET) {
   process.env.NITRO_PRESET = 'node-server'
 }
 
-// Cloudflare bindings that Nitro expects when using the CF preset
-if (!(globalThis as any).__STATIC_CONTENT_MANIFEST) {
-  ;(globalThis as any).__STATIC_CONTENT_MANIFEST = '{}'
-}
-if (!(globalThis as any).__STATIC_CONTENT) {
-  ;(globalThis as any).__STATIC_CONTENT = {}
-}
-if (!process.env.__STATIC_CONTENT_MANIFEST) {
-  process.env.__STATIC_CONTENT_MANIFEST = '{}'
-}
-
 // Provide a test-friendly handler for /api/auth/get-session so client composables don't 404 during Vitest runs
 const originalFetch = globalThis.fetch
 const defaultMockSession = { session: null, user: null }

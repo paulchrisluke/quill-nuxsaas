@@ -469,6 +469,11 @@ export const useServerAuth = () => {
   }
 }
 
+// Alias for backward compatibility
+export const getServerAuth = () => {
+  return useServerAuth()
+}
+
 export const getAuthSession = async (event: H3Event) => {
   const reqHeaders = getRequestHeaders(event)
   const headers = new Headers()
@@ -495,4 +500,64 @@ export const requireAuth = async (event: H3Event) => {
   // Save the session to the event context for later use
   event.context.user = session.user
   return session.user as User
+}
+
+export const requireAdmin = async (event: H3Event) => {
+  const user = await requireAuth(event)
+  if (user.role !== 'admin') {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden',
+      message: 'Admin access required.'
+    })
+  }
+  return user
+}
+
+export const getSessionOrganizationId = (session: any): string | null => {
+  if (!session) {
+    return null
+  }
+  return session.session?.activeOrganizationId
+    ?? session.data?.session?.activeOrganizationId
+    ?? session.activeOrganizationId
+    ?? null
+}
+
+export const requireActiveOrganization = async (event: H3Event) => {
+  const user = await requireAuth(event)
+  const session = await getAuthSession(event)
+
+  const activeOrganizationId = getSessionOrganizationId(session)
+
+  if (!activeOrganizationId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Bad Request',
+      message: 'No active organization found. Please select an organization.'
+    })
+  }
+
+  // Verify the user is a member of this organization
+  const db = getDB()
+  const [membership] = await db
+    .select()
+    .from(schema.member)
+    .where(
+      and(
+        eq(schema.member.organizationId, activeOrganizationId),
+        eq(schema.member.userId, user.id)
+      )
+    )
+    .limit(1)
+
+  if (!membership) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: 'Forbidden',
+      message: 'You are not a member of this organization.'
+    })
+  }
+
+  return { organizationId: activeOrganizationId }
 }

@@ -6,7 +6,7 @@ import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 
 console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
 
-const effectiveNitroPreset = (process.env.NODE_ENV === 'development' && !process.env.NUXT_FORCE_CLOUDFLARE_DEV)
+const effectiveNitroPreset = (process.env.NODE_ENV === 'development')
   ? 'node-server'
   : (process.env.NUXT_NITRO_PRESET || 'node-server')
 
@@ -20,14 +20,8 @@ export default defineNuxtConfig({
     '@nuxtjs/i18n',
     '@nuxtjs/seo',
     'nuxt-echarts',
-    ...(process.env.NODE_ENV === 'test' ? ['@nuxt/test-utils/module'] : []),
-    '@nuxthub/core'
+    ...(process.env.NODE_ENV === 'test' ? ['@nuxt/test-utils/module'] : [])
   ],
-  hub: {
-    db: 'postgresql',
-    kv: true,
-    blob: true
-  },
   i18n: {
     vueI18n: '~/i18n/i18n.config.ts',
     baseUrl: process.env.NUXT_APP_URL,
@@ -78,7 +72,7 @@ export default defineNuxtConfig({
     serverBundle: false,
     clientBundle: {
       scan: {
-        globInclude: ['**\/*.{vue,jsx,tsx,md,mdc,mdx}', 'app/**/*.ts']
+        globInclude: ['**/*.{vue,jsx,tsx,md,mdc,mdx}', 'app/**/*.ts']
       }
     }
   },
@@ -119,14 +113,6 @@ export default defineNuxtConfig({
   },
   nitro: {
     preset: effectiveNitroPreset,
-    ...(effectiveNitroPreset === 'cloudflare-module'
-      ? {
-          cloudflare: {
-            deployConfig: true,
-            nodeCompat: true
-          }
-        }
-      : {}),
     rollupConfig: {
       external: effectiveNitroPreset != 'node-server' ? ['pg-native'] : undefined
     },
