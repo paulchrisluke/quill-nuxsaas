@@ -15,6 +15,7 @@ export const generateRuntimeConfig = () => ({
     ? 'node-server'
     : process.env.NUXT_NITRO_PRESET,
   betterAuthSecret: process.env.NUXT_BETTER_AUTH_SECRET,
+  betterAuthTrustedOrigins: process.env.NUXT_BETTER_AUTH_TRUSTED_ORIGINS,
   // Stripe
   stripeSecretKey: process.env.NUXT_STRIPE_SECRET_KEY,
   stripeWebhookSecret: process.env.NUXT_STRIPE_WEBHOOK_SECRET,
@@ -74,7 +75,7 @@ if (typeof useRuntimeConfig !== 'undefined') {
 } else {
   // for cli: npm run auth:schema
   config()
-  runtimeConfigInstance = generateRuntimeConfig() as NitroRuntimeConfig
+  runtimeConfigInstance = generateRuntimeConfig() as unknown as NitroRuntimeConfig
 }
 
 export const runtimeConfig = runtimeConfigInstance

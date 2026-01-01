@@ -32,8 +32,11 @@ export const createBetterAuth = () => betterAuth({
     'http://127.0.0.1:4000',
     'https://quillio-iota.vercel.app',
     'https://quillio.vercel.app',
-    runtimeConfig.public.baseURL
-  ],
+    'https://getquillio.com',
+    'https://www.getquillio.com',
+    runtimeConfig.public.baseURL,
+    ...(runtimeConfig.betterAuthTrustedOrigins?.split(',').map((o: string) => o.trim()) || [])
+  ].filter(Boolean) as string[],
   secret: runtimeConfig.betterAuthSecret,
   session: {
     cookieCache: {
