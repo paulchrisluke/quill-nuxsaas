@@ -2149,9 +2149,13 @@ export default defineEventHandler(async (event) => {
 
         const requestContentIdentifier = typeof (body as any).contentIdentifier === 'string'
           ? (body as any).contentIdentifier
-          : (body as any).contentId
+          : null
 
-        const resolvedContent = await resolveContentContext(db, organizationId, requestContentIdentifier)
+        const resolvedContent = await resolveContentContext(
+          db,
+          organizationId,
+          requestContentIdentifier || (body as any).contentId || null
+        )
         const requestContentId = resolvedContent.contentId
         const requestContentScope = resolvedContent.scope
         const _initialSessionContentId = requestContentId

@@ -40,7 +40,12 @@ export default defineEventHandler(async (event) => {
   const contentIdentifier = typeof query.contentIdentifier === 'string'
     ? query.contentIdentifier
     : (typeof query.contentId === 'string' ? query.contentId : null)
-  const contentId = await resolveContentIdFromIdentifier(db, organizationId, contentIdentifier)
+  let contentId: string | null = null
+  try {
+    contentId = await resolveContentIdFromIdentifier(db, organizationId, contentIdentifier)
+  } catch (error) {
+    console.error('[reference-suggestions] Failed to resolve content identifier', contentIdentifier, error)
+  }
   const searchQuery = typeof query.q === 'string' ? query.q.trim().toLowerCase() : ''
   if (process.env.NODE_ENV !== 'production') {
     console.log('[reference-suggestions] request', {

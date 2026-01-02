@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage, MessagePart } from '#shared/utils/types'
 import { computed } from 'vue'
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+import { useContentPaths } from '~/composables/useContentPaths'
 import AgentProgressTracker from './progress/AgentProgressTracker.vue'
 import WorkspaceFilesAccordion from './WorkspaceFilesAccordion.vue'
 
@@ -16,9 +16,7 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const { currentActivity, activeToolActivities } = useConversation()
-const { useActiveOrganization } = useAuth()
-const activeOrg = useActiveOrganization()
-const localePath = useLocalePath()
+const { resolveCreatedContentPath } = useContentPaths()
 
 const liveToolActivities = computed(() => {
   const activities = activeToolActivities.value ?? []
@@ -177,14 +175,6 @@ function toSummaryBullets(summary: string | null | undefined) {
   const sentences = normalized.split(/(?<=[.!?])\s+/).map(line => line.trim()).filter(Boolean)
   return sentences.length ? sentences : [normalized]
 }
-
-const resolveCreatedContentPath = (contentId: string) => {
-  const slug = activeOrg.value?.data?.slug
-  if (!slug || slug === NON_ORG_SLUG) {
-    return null
-  }
-  return localePath(`/${slug}/content/${contentId}`)
-}
 </script>
 
 <template>
@@ -243,7 +233,7 @@ const resolveCreatedContentPath = (contentId: string) => {
   <div v-else-if="payload?.type === 'workspace_files' && Array.isArray(payload.files)">
     <WorkspaceFilesAccordion
       :files="payload.files"
-      :created-content="payload.createdContent"
+      :created-content="createdContentItems"
     />
   </div>
   <div

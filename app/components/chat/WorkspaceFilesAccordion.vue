@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { WorkspaceFilePayload } from '~/server/services/content/workspaceFiles'
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+import { useContentPaths } from '~/composables/useContentPaths'
 
 const props = defineProps<{
   files: WorkspaceFilePayload[]
@@ -10,6 +10,7 @@ const props = defineProps<{
 const { useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
 const localePath = useLocalePath()
+const { resolveCreatedContentPath } = useContentPaths()
 
 const contentIdCache = ref<Record<string, string>>({})
 const filePaths = ref<Record<string, string>>({})
@@ -90,14 +91,6 @@ const formatDiffStats = (diffStats: { additions: number, deletions: number } | n
   if (!diffStats || (diffStats.additions === 0 && diffStats.deletions === 0))
     return null
   return `+${diffStats.additions} -${diffStats.deletions}`
-}
-
-const resolveCreatedContentPath = (contentId: string) => {
-  const slug = activeOrg.value?.data?.slug
-  if (!slug || slug === NON_ORG_SLUG) {
-    return null
-  }
-  return localePath(`/${slug}/content/${contentId}`)
 }
 </script>
 

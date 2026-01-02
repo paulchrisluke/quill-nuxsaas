@@ -29,7 +29,15 @@ export async function resolveContentIdFromIdentifier(
     return null
   }
   if (isUuidIdentifier(trimmed)) {
-    return trimmed
+    const [record] = await db
+      .select({ id: schema.content.id })
+      .from(schema.content)
+      .where(and(
+        eq(schema.content.organizationId, organizationId),
+        eq(schema.content.id, trimmed)
+      ))
+      .limit(1)
+    return record?.id ?? null
   }
 
   const [record] = await db
