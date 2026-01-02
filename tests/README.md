@@ -76,7 +76,6 @@ pnpm coverage
 
 **`tests/integration/chat/content-write.test.ts`**
 - ✅ action="create" validation: Requires source
-- ✅ action="enrich" validation: Requires contentId
 - ✅ Discriminator enforcement: Tests action-specific requirements
 
 **`tests/integration/chat/execute-tool.test.ts`**

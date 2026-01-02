@@ -80,9 +80,9 @@ const getFileSlug = (file: WorkspaceFilePayload): string => {
   if (file.slug) {
     return file.slug
   }
-  // Extract slug from filename: content/[orgSlug]/[slug].mdx -> [slug]
-  const match = file.filename.match(/content\/[^/]+\/(.+)\.mdx$/)
-  return match ? match[1] : file.filename.replace(/\.mdx$/, '')
+  // Extract slug from filename: content/[orgSlug]/[slug].md -> [slug]
+  const match = file.filename.match(/content\/[^/]+\/(.+)\.md$/)
+  return match ? match[1] : file.filename.replace(/\.md$/, '')
 }
 
 const formatDiffStats = (diffStats: { additions: number, deletions: number } | null | undefined) => {

@@ -2,7 +2,6 @@ import type { ChatToolName } from '~~/server/services/chat/tools'
 import type { ChatCompletionToolCall } from '~~/server/utils/aiGateway'
 import { describe, expect, it } from 'vitest'
 import {
-
   getChatToolDefinitions,
   getToolKind,
   getToolsByKind,
@@ -11,9 +10,9 @@ import {
 
 describe('tool Registry', () => {
   describe('getChatToolDefinitions', () => {
-    it('should return exactly 10 tools', () => {
+    it('should return exactly 13 tools', () => {
       const tools = getChatToolDefinitions()
-      expect(tools).toHaveLength(10)
+      expect(tools).toHaveLength(13)
     })
 
     it('should include all expected read tools', () => {
@@ -26,7 +25,9 @@ describe('tool Registry', () => {
         'read_source',
         'read_content_list',
         'read_source_list',
-        'read_workspace_summary'
+        'read_workspace_summary',
+        'analyze_content_images',
+        'read_files'
       ]
 
       for (const toolName of expectedReadTools) {
@@ -41,7 +42,8 @@ describe('tool Registry', () => {
       const expectedWriteTools = [
         'content_write',
         'edit_section',
-        'edit_metadata'
+        'edit_metadata',
+        'insert_image'
       ]
 
       for (const toolName of expectedWriteTools) {
@@ -93,7 +95,9 @@ describe('tool Registry', () => {
         'read_source',
         'read_content_list',
         'read_source_list',
-        'read_workspace_summary'
+        'read_workspace_summary',
+        'analyze_content_images',
+        'read_files'
       ]
 
       for (const toolName of readTools) {
@@ -105,7 +109,8 @@ describe('tool Registry', () => {
       const writeTools: ChatToolName[] = [
         'content_write',
         'edit_section',
-        'edit_metadata'
+        'edit_metadata',
+        'insert_image'
       ]
 
       for (const toolName of writeTools) {
@@ -124,9 +129,9 @@ describe('tool Registry', () => {
   })
 
   describe('getToolsByKind', () => {
-    it('should return exactly 6 read tools', () => {
+    it('should return exactly 8 read tools', () => {
       const readTools = getToolsByKind('read')
-      expect(readTools).toHaveLength(6)
+      expect(readTools).toHaveLength(8)
 
       const toolNames = readTools.map(t => t.function.name)
       expect(toolNames).toContain('read_content')
@@ -135,16 +140,19 @@ describe('tool Registry', () => {
       expect(toolNames).toContain('read_content_list')
       expect(toolNames).toContain('read_source_list')
       expect(toolNames).toContain('read_workspace_summary')
+      expect(toolNames).toContain('analyze_content_images')
+      expect(toolNames).toContain('read_files')
     })
 
-    it('should return exactly 3 write tools', () => {
+    it('should return exactly 4 write tools', () => {
       const writeTools = getToolsByKind('write')
-      expect(writeTools).toHaveLength(3)
+      expect(writeTools).toHaveLength(4)
 
       const toolNames = writeTools.map(t => t.function.name)
       expect(toolNames).toContain('content_write')
       expect(toolNames).toContain('edit_section')
       expect(toolNames).toContain('edit_metadata')
+      expect(toolNames).toContain('insert_image')
     })
 
     it('should return exactly 1 ingest tool', () => {
@@ -161,6 +169,7 @@ describe('tool Registry', () => {
       expect(toolNames).not.toContain('edit_section')
       expect(toolNames).not.toContain('edit_metadata')
       expect(toolNames).not.toContain('source_ingest')
+      expect(toolNames).not.toContain('insert_image')
     })
   })
 })
@@ -187,28 +196,6 @@ describe('tool Parsing', () => {
       expect(result?.arguments.action).toBe('create')
       expect(result?.arguments.sourceText).toBe('Test context')
       expect(result?.arguments.title).toBe('Test Title')
-    })
-
-    it('should parse valid content_write with action=enrich', () => {
-      const toolCall: ChatCompletionToolCall = {
-        id: 'call_123',
-        type: 'function',
-        function: {
-          name: 'content_write',
-          arguments: JSON.stringify({
-            action: 'enrich',
-            contentId: 'content-123',
-            baseUrl: 'https://example.com'
-          })
-        }
-      }
-
-      const result = parseChatToolCall(toolCall)
-      expect(result).not.toBeNull()
-      expect(result?.name).toBe('content_write')
-      expect(result?.arguments.action).toBe('enrich')
-      expect(result?.arguments.contentId).toBe('content-123')
-      expect(result?.arguments.baseUrl).toBe('https://example.com')
     })
 
     it('should parse valid source_ingest with sourceType=context', () => {

@@ -1,7 +1,6 @@
 import type * as schema from '~~/server/db/schema'
 import type { ContentSection } from './generation/types'
 import { slugifyTitle } from '~~/server/utils/content'
-import { enrichMdxWithMetadata } from './generation'
 
 export interface WorkspaceFilePayload {
   id: string
@@ -20,7 +19,7 @@ export interface WorkspaceFilePayload {
   generatorStages: string[]
   sourceDetails: typeof schema.sourceContent.$inferSelect | null
   sourceLink: string | null
-  fullMdx: string
+  fullMarkdown: string
   contentId: string
   slug: string
   diffStats?: { additions: number, deletions: number } | null
@@ -84,7 +83,7 @@ export function resolveContentFilePath(
   }
   segments.push(resolvedSlug)
 
-  return `${segments.join('/')}.mdx`
+  return `${segments.join('/')}.md`
 }
 
 function resolveSourceLink(
@@ -111,7 +110,7 @@ export function buildWorkspaceFilesPayload(
   sourceContent: typeof schema.sourceContent.$inferSelect | null,
   options?: { organizationSlug?: string | null }
 ): WorkspaceFilePayload[] {
-  const body = version.bodyMdx || version.bodyHtml || ''
+  const body = version.bodyMarkdown || ''
   const sections = Array.isArray(version.sections) ? version.sections as ContentSection[] : []
   const frontmatter = version.frontmatter && typeof version.frontmatter === 'object'
     ? version.frontmatter as Record<string, any>
@@ -134,16 +133,10 @@ export function buildWorkspaceFilesPayload(
     return total + count
   }, 0) || body.split(/\s+/).filter(Boolean).length
 
-  const fullMdx = enrichMdxWithMetadata({
-    markdown: body,
-    frontmatter: frontmatter as any,
-    seoSnapshot,
-    baseUrl: undefined,
-    sections: sections as any
-  })
+  const fullMarkdown = body
 
   // Extract slug from filename or use content slug
-  const filenameSlug = filename.replace(/^content\/([^/]+\/)?/, '').replace(/\.mdx$/, '')
+  const filenameSlug = filename.replace(/^content\/([^/]+\/)?/, '').replace(/\.md$/, '')
   const contentSlug = typeof content.slug === 'string' ? content.slug : filenameSlug
 
   // Extract diff stats from frontmatter if available
@@ -173,7 +166,7 @@ export function buildWorkspaceFilesPayload(
       generatorStages,
       sourceDetails: sourceContent,
       sourceLink: resolveSourceLink(sourceContent, version.assets),
-      fullMdx,
+      fullMarkdown,
       contentId: content.id,
       slug: contentSlug,
       diffStats

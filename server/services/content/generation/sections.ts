@@ -6,7 +6,7 @@ import { slugifyTitle } from '~~/server/utils/content'
 import { findRelevantChunksForSection } from './chunking'
 import { countWords, parseAIResponseAsJSON } from './utils'
 
-export const CONTENT_SECTION_SYSTEM_PROMPT = 'You are a skilled writer creating well-structured content. Write in MDX-compatible markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
+export const CONTENT_SECTION_SYSTEM_PROMPT = 'You are a skilled writer creating well-structured content. Write in markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
 
 export const CONTENT_SECTION_UPDATE_SYSTEM_PROMPT = 'You are revising a single section of an existing article. Only update that section using the author instructions and contextual snippets. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
 
@@ -137,16 +137,16 @@ export const generateContentSectionsFromOutline = async (params: {
       temperature
     })
 
-    const parsed = parseAIResponseAsJSON<{ body?: string, body_mdx?: string, summary?: string }>(raw, `section ${item.title}`)
+    const parsed = parseAIResponseAsJSON<{ body?: string, summary?: string }>(raw, `section ${item.title}`)
 
-    if (!parsed.body && !parsed.body_mdx) {
+    if (!parsed.body) {
       throw createError({
         statusCode: 500,
         statusMessage: `Section "${item.title}" generation failed: missing body content`
       })
     }
 
-    const body = (parsed.body || parsed.body_mdx || '').trim()
+    const body = (parsed.body || '').trim()
     if (!body) {
       throw createError({
         statusCode: 500,
@@ -187,27 +187,24 @@ export const generateContentSectionsFromOutline = async (params: {
 
 export const extractSectionContent = (
   section: Record<string, any>,
-  bodyMdx: string | null
+  bodyMarkdown: string | null
 ) => {
-  if (typeof section.body_mdx === 'string' && section.body_mdx.trim().length > 0) {
-    return section.body_mdx
-  }
   if (typeof section.body === 'string' && section.body.trim().length > 0) {
     return section.body
   }
   if (
-    typeof bodyMdx === 'string' &&
+    typeof bodyMarkdown === 'string' &&
     Number.isFinite(section.startOffset) &&
     Number.isFinite(section.endOffset)
   ) {
-    return bodyMdx.slice(section.startOffset, section.endOffset).trim()
+    return bodyMarkdown.slice(section.startOffset, section.endOffset).trim()
   }
   return ''
 }
 
 export const normalizeContentSections = (
   sectionsData: any,
-  bodyMdx: string | null
+  bodyMarkdown: string | null
 ): ContentSection[] => {
   if (!Array.isArray(sectionsData)) {
     return []
@@ -216,7 +213,7 @@ export const normalizeContentSections = (
   return sectionsData.map((section: Record<string, any>, idx: number) => {
     const id = section.id || section.section_id || `section-${idx}`
     const title = section.title || `Section ${idx + 1}`
-    const body = extractSectionContent(section, bodyMdx)
+    const body = extractSectionContent(section, bodyMarkdown)
 
     return {
       id,

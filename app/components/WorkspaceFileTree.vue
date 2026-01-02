@@ -88,7 +88,7 @@ const normalizeSegment = (value: string | null | undefined) => {
 
 const buildContentFilename = (label: string, fallback: string) => {
   const slug = normalizeSegment(label) || normalizeSegment(fallback) || fallback
-  return `${slug}.mdx`
+  return `${slug}.md`
 }
 
 const buildTreeFromEntries = (entries: { path: string, metadata?: FileTreeNode['metadata'] }[]): FileTreeNode[] => {

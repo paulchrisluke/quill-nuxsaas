@@ -246,7 +246,7 @@ const tools = {
     { name: 'read_workspace_summary', display: 'Workspace Summary', description: 'Get a formatted summary of a content workspace. Returns a human-readable summary of the content, its version, sections, and source.', availableIn: ['chat', 'agent'] }
   ],
   write: [
-    { name: 'content_write', display: 'Write Content', description: 'Write or enrich content. Use action="create" to create new content from source, or action="enrich" to refresh frontmatter and JSON-LD structured data.', availableIn: ['agent'] },
+    { name: 'content_write', display: 'Write Content', description: 'Write new content from source. Use action="create" to create new content.', availableIn: ['agent'] },
     { name: 'edit_section', display: 'Edit Section', description: 'Edit a specific section of an existing content item using the user\'s instructions.', availableIn: ['agent'] },
     { name: 'edit_metadata', display: 'Update Metadata', description: 'Update metadata fields (title, slug, status, primaryKeyword, targetLocale, contentType) for an existing content item.', availableIn: ['agent'] }
   ],

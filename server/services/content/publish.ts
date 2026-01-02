@@ -105,7 +105,7 @@ export async function publishContentVersion(
   )
   const filePayload = filesPayload[0]
 
-  if (!filePayload || !filePayload.fullMdx.trim()) {
+  if (!filePayload || !filePayload.fullMarkdown.trim()) {
     throw createError({
       statusCode: 400,
       statusMessage: 'No content available to publish'
@@ -118,7 +118,7 @@ export async function publishContentVersion(
 
   let uploadedFile: typeof schema.file.$inferSelect | null = null
   try {
-    const buffer = new TextEncoder().encode(filePayload.fullMdx)
+    const buffer = new TextEncoder().encode(filePayload.fullMarkdown)
     uploadedFile = await fileService.uploadFile(
       buffer,
       filePayload.filename,

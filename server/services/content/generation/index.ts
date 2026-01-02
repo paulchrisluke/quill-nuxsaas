@@ -22,10 +22,7 @@ import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import { calculateDiffStats, findSectionLineRange } from '../diff'
 import { invalidateWorkspaceCache } from '../workspaceCache'
-import {
-  assembleMarkdownFromSections,
-  extractMarkdownFromEnrichedMdx
-} from './assembly'
+import { assembleMarkdownFromSections } from './assembly'
 import {
   ensureSourceContentChunksExist,
   findGlobalRelevantChunks
@@ -51,7 +48,6 @@ import {
 } from './sections'
 import {
   countWords,
-  isValidContentFrontmatter,
   parseAIResponseAsJSON
 } from './utils'
 
@@ -682,8 +678,7 @@ export const generateContentDraftFromSource = async (
           primaryKeyword,
           targetLocale
         },
-        bodyMdx: markdown,
-        bodyHtml: null,
+        bodyMarkdown: markdown,
         sections: assembled.sections,
         assets,
         seoSnapshot
@@ -910,7 +905,7 @@ export const updateContentSectionWithAI = async (
 
   const normalizedSections = normalizeContentSections(
     currentVersion.sections,
-    currentVersion.bodyMdx ?? null
+    currentVersion.bodyMarkdown ?? null
   )
 
   if (!normalizedSections.length) {
@@ -1025,8 +1020,8 @@ export const updateContentSectionWithAI = async (
   })
   await emitProgress('Section content generated.')
 
-  const parsed = parseAIResponseAsJSON<{ body?: string, body_mdx?: string, summary?: string }>(raw, 'section patch')
-  const updatedBody = (parsed.body ?? parsed.body_mdx ?? '').trim()
+  const parsed = parseAIResponseAsJSON<{ body?: string, summary?: string }>(raw, 'section patch')
+  const updatedBody = (parsed.body ?? '').trim()
 
   if (!updatedBody) {
     safeError('[updateContentSection] AI response parsing failed - no content returned', {
@@ -1134,8 +1129,7 @@ export const updateContentSectionWithAI = async (
             deletions: diffStats.deletions
           }
         },
-        bodyMdx: assembled.markdown,
-        bodyHtml: null,
+        bodyMarkdown: assembled.markdown,
         sections: assembled.sections,
         assets,
         seoSnapshot
@@ -1196,156 +1190,11 @@ export const updateContentSection = async (
   return updateContentSectionWithAI(db, input)
 }
 
-/**
- * Normalizes an existing content version so that bodyMdx stores raw markdown only.
- *
- * @param db - Database instance
- * @param params - Parameters for normalization
- * @param params.organizationId - Organization ID
- * @param params.userId - User ID
- * @param params.contentId - Content ID
- * @param params.baseUrl - Base URL for content (unused, kept for backwards compatibility)
- * @returns Updated content version with normalized markdown
- */
-export async function reEnrichContentVersion(
-  db: NodePgDatabase<typeof schema>,
-  params: {
-    organizationId: string
-    userId: string
-    contentId: string
-    baseUrl?: string
-  }
-): Promise<{
-  content: typeof schema.content.$inferSelect
-  version: typeof schema.contentVersion.$inferSelect
-  markdown: string
-}> {
-  const { organizationId, userId: _userId, contentId, baseUrl: _baseUrl } = params
-
-  // Fetch content and current version
-  const [record] = await db
-    .select({
-      content: schema.content,
-      version: schema.contentVersion
-    })
-    .from(schema.content)
-    .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
-    .where(and(
-      eq(schema.content.organizationId, organizationId),
-      eq(schema.content.id, contentId)
-    ))
-    .limit(1)
-
-  if (!record || !record.content) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: 'Content not found for this organization'
-    })
-  }
-
-  if (!record.version) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'This content has no version to enrich'
-    })
-  }
-
-  const currentVersion = record.version
-  const rawFrontmatter = currentVersion.frontmatter
-  const frontmatter = isValidContentFrontmatter(rawFrontmatter) ? rawFrontmatter : null
-
-  if (!frontmatter) {
-    safeError('[reEnrichContentVersion] Invalid or missing frontmatter', {
-      hasContentId: !!contentId,
-      hasVersionId: !!currentVersion.id
-    })
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Content version has no frontmatter to use for enrichment'
-    })
-  }
-
-  // Extract raw markdown from existing bodyMdx (handles both enriched and non-enriched)
-  if (!currentVersion.bodyMdx) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Content version has no body content to enrich'
-    })
-  }
-  const rawMarkdown = extractMarkdownFromEnrichedMdx(currentVersion.bodyMdx)
-
-  // Update the current version's bodyMdx to store normalized markdown only
-  const result = await db.transaction(async (tx) => {
-    const [updatedVersion] = await tx
-      .update(schema.contentVersion)
-      .set({
-        bodyMdx: rawMarkdown
-        // Update updatedAt if there's such a field, otherwise just update bodyMdx
-      })
-      .where(eq(schema.contentVersion.id, currentVersion.id))
-      .returning()
-
-    if (!updatedVersion) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Failed to update content version'
-      })
-    }
-
-    // Update content's updatedAt timestamp
-    const [updatedContent] = await tx
-      .update(schema.content)
-      .set({
-        updatedAt: new Date()
-      })
-      .where(eq(schema.content.id, record.content.id))
-      .returning()
-
-    if (!updatedContent) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Failed to update content record'
-      })
-    }
-
-    return {
-      content: updatedContent,
-      version: updatedVersion
-    }
-  })
-
-  return {
-    content: result.content,
-    version: result.version,
-    markdown: rawMarkdown
-  }
-}
-
 // Export with new name for cleaner API
-export async function refreshContentVersionMetadata(
-  db: NodePgDatabase<typeof schema>,
-  params: {
-    organizationId: string
-    userId: string
-    contentId: string
-    baseUrl?: string
-  }
-): Promise<{
-  content: typeof schema.content.$inferSelect
-  version: typeof schema.contentVersion.$inferSelect
-  markdown: string
-}> {
-  return reEnrichContentVersion(db, params)
-}
-
 // Export granular functions
 export {
-  assembleMarkdownFromSections,
-  enrichMarkdownWithMetadata,
-  extractMarkdownFromEnrichedMdx
+  assembleMarkdownFromSections
 } from './assembly'
-
-export { enrichMarkdownWithMetadata as enrichMdxWithMetadata } from './assembly'
 
 export {
   buildChunkPreviewText,

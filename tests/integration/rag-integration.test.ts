@@ -67,9 +67,7 @@ vi.mock('~~/server/services/content/generation/sections', () => ({
 }))
 
 vi.mock('~~/server/services/content/generation/assembly', () => ({
-  assembleMarkdownFromSections: vi.fn().mockReturnValue({ markdown: '', sections: [] }),
-  enrichMarkdownWithMetadata: vi.fn().mockReturnValue(''),
-  extractMarkdownFromEnrichedMdx: vi.fn().mockReturnValue('')
+  assembleMarkdownFromSections: vi.fn().mockReturnValue({ markdown: '', sections: [] })
 }))
 
 describe('rag integration & chat context', () => {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ContentStatus, ContentType } from '~~/server/types/content'
+import { Emoji, gitHubEmojis } from '@tiptap/extension-emoji'
 import { nextTick } from 'vue'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
@@ -54,7 +55,7 @@ interface ContentApiResponse {
       externalId?: string
     } | null
     currentVersion?: {
-      bodyMdx?: string
+      bodyMarkdown?: string
       imageSuggestions?: ImageSuggestion[]
       frontmatter?: {
         contentType?: string
@@ -77,7 +78,7 @@ interface SaveContentBodyResponse {
     id: string
     contentId: string
     version: number
-    bodyMdx: string
+    bodyMarkdown: string
     sections: Record<string, any>[] | null
   }
   markdown: string
@@ -148,7 +149,7 @@ const contentEntry = computed<ContentEntry | null>(() => {
     slug: content?.slug || '',
     status: content?.status || 'draft',
     contentType: currentVersion?.frontmatter?.contentType || content?.contentType || 'content',
-    bodyMarkdown: currentVersion?.bodyMdx || '',
+    bodyMarkdown: currentVersion?.bodyMarkdown || '',
     schemaTypes,
     schemaValidation,
     imageSuggestions,
@@ -167,32 +168,71 @@ const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const isContentLoading = ref(false)
 const editorToolbarItems = [
   [
-    { kind: 'heading', level: 1, label: 'H1' },
-    { kind: 'heading', level: 2, label: 'H2' },
-    { kind: 'heading', level: 3, label: 'H3' }
+    {
+      icon: 'i-lucide-heading',
+      tooltip: { text: 'Headings' },
+      content: { align: 'start' },
+      items: [
+        { kind: 'heading', level: 1, icon: 'i-lucide-heading-1', label: 'Heading 1' },
+        { kind: 'heading', level: 2, icon: 'i-lucide-heading-2', label: 'Heading 2' },
+        { kind: 'heading', level: 3, icon: 'i-lucide-heading-3', label: 'Heading 3' },
+        { kind: 'heading', level: 4, icon: 'i-lucide-heading-4', label: 'Heading 4' }
+      ]
+    }
   ],
   [
-    { kind: 'mark', mark: 'bold', label: 'Bold' },
-    { kind: 'mark', mark: 'italic', label: 'Italic' },
-    { kind: 'mark', mark: 'strike', label: 'Strike' },
-    { kind: 'mark', mark: 'code', label: 'Code' }
+    { kind: 'mark', mark: 'bold', icon: 'i-lucide-bold', tooltip: { text: 'Bold' } },
+    { kind: 'mark', mark: 'italic', icon: 'i-lucide-italic', tooltip: { text: 'Italic' } },
+    { kind: 'mark', mark: 'strike', icon: 'i-lucide-strikethrough', tooltip: { text: 'Strike' } },
+    { kind: 'mark', mark: 'code', icon: 'i-lucide-code', tooltip: { text: 'Code' } }
   ],
   [
-    { kind: 'bulletList', label: 'Bullets' },
-    { kind: 'orderedList', label: 'Numbered' },
-    { kind: 'blockquote', label: 'Quote' }
+    { kind: 'bulletList', icon: 'i-lucide-list', tooltip: { text: 'Bullet list' } },
+    { kind: 'orderedList', icon: 'i-lucide-list-ordered', tooltip: { text: 'Numbered list' } },
+    { kind: 'blockquote', icon: 'i-lucide-text-quote', tooltip: { text: 'Quote' } },
+    { kind: 'horizontalRule', icon: 'i-lucide-separator-horizontal', tooltip: { text: 'Divider' } }
   ],
   [
-    { kind: 'link', label: 'Link' },
-    { kind: 'image', label: 'Image' },
-    { kind: 'horizontalRule', label: 'Rule' }
+    { kind: 'link', icon: 'i-lucide-link', tooltip: { text: 'Link' } },
+    { kind: 'image', icon: 'i-lucide-image', tooltip: { text: 'Image' } }
   ],
   [
-    { kind: 'undo', label: 'Undo' },
-    { kind: 'redo', label: 'Redo' },
-    { kind: 'clearFormatting', label: 'Clear' }
+    { kind: 'undo', icon: 'i-lucide-undo-2', tooltip: { text: 'Undo' } },
+    { kind: 'redo', icon: 'i-lucide-redo-2', tooltip: { text: 'Redo' } },
+    { kind: 'clearFormatting', icon: 'i-lucide-eraser', tooltip: { text: 'Clear formatting' } }
   ]
 ]
+
+const editorSuggestionItems = [
+  [
+    { type: 'label', label: 'Text' },
+    { kind: 'paragraph', label: 'Paragraph', icon: 'i-lucide-type' },
+    { kind: 'heading', level: 1, label: 'Heading 1', icon: 'i-lucide-heading-1' },
+    { kind: 'heading', level: 2, label: 'Heading 2', icon: 'i-lucide-heading-2' },
+    { kind: 'heading', level: 3, label: 'Heading 3', icon: 'i-lucide-heading-3' }
+  ],
+  [
+    { type: 'label', label: 'Lists' },
+    { kind: 'bulletList', label: 'Bullet list', icon: 'i-lucide-list' },
+    { kind: 'orderedList', label: 'Numbered list', icon: 'i-lucide-list-ordered' }
+  ],
+  [
+    { type: 'label', label: 'Insert' },
+    { kind: 'blockquote', label: 'Blockquote', icon: 'i-lucide-text-quote' },
+    { kind: 'codeBlock', label: 'Code block', icon: 'i-lucide-square-code' },
+    { kind: 'horizontalRule', label: 'Divider', icon: 'i-lucide-separator-horizontal' }
+  ]
+]
+
+const editorMentionItems = [
+  { label: 'team', description: 'Team mention' },
+  { label: 'editorial', description: 'Editorial group' },
+  { label: 'reviewer', description: 'Content review' }
+]
+
+const editorEmojiItems = gitHubEmojis.filter(
+  emoji => !emoji.name.startsWith('regional_indicator_')
+)
 
 const saveContentBody = async () => {
   if (!contentEntry.value || isSaving.value) {
@@ -391,6 +431,12 @@ watch(latestUpdate, (update) => {
             v-model="editorContent"
             placeholder="Start writing..."
             content-type="markdown"
+            :extensions="[Emoji]"
+            :starter-kit="{
+              headings: { levels: [1, 2, 3, 4] },
+              link: { openOnClick: false },
+              dropcursor: { color: 'var(--ui-primary)', width: 2 }
+            }"
             class="w-full"
           >
             <template #default="slotProps">
@@ -400,6 +446,25 @@ watch(latestUpdate, (update) => {
                 :items="editorToolbarItems"
                 layout="fixed"
                 class="mb-2 overflow-x-auto"
+              />
+              <UEditorSuggestionMenu
+                v-if="slotProps?.editor"
+                :editor="slotProps.editor"
+                :items="editorSuggestionItems"
+              />
+              <UEditorMentionMenu
+                v-if="slotProps?.editor"
+                :editor="slotProps.editor"
+                :items="editorMentionItems"
+              />
+              <UEditorEmojiMenu
+                v-if="slotProps?.editor"
+                :editor="slotProps.editor"
+                :items="editorEmojiItems"
+              />
+              <UEditorDragHandle
+                v-if="slotProps?.editor"
+                :editor="slotProps.editor"
               />
             </template>
           </UEditor>

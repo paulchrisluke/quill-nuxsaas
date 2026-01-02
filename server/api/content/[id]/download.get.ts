@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
 
   const filePayload = filesPayload[0]
 
-  if (!filePayload || !filePayload.fullMdx.trim()) {
+  if (!filePayload || !filePayload.fullMarkdown.trim()) {
     throw createError({
       statusCode: 400,
       statusMessage: 'No content available to download'
@@ -96,7 +96,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const slug = (content.slug || '').trim() || `content-${contentId}`
-  const filename = `${slug}.mdx`
+  const filename = `${slug}.md`
 
   // Sanitize filename to prevent header injection and use RFC 5987 encoding for Unicode support
   const sanitizedFilename = filename.replace(/[^\w.-]/g, '_')
@@ -104,5 +104,5 @@ export default defineEventHandler(async (event) => {
   setHeader(event, 'Content-Disposition', `attachment; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`)
   setHeader(event, 'Content-Type', 'text/markdown')
 
-  return filePayload.fullMdx
+  return filePayload.fullMarkdown
 })

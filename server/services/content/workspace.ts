@@ -3,7 +3,6 @@ import type { ContentFrontmatter, ContentSection } from './generation/types'
 import { eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
-import { transformHtmlImages } from '~~/server/services/file/imageHtmlTransform'
 import { getConversationById, getConversationLogs, getConversationMessages } from '../conversation'
 import { generateStructuredDataJsonLd } from './generation'
 import { buildWorkspaceSummary } from './workspaceSummary'
@@ -121,47 +120,11 @@ export async function getContentWorkspacePayload(
     ? (currentVersion.assets as any).imageSuggestions || []
     : []
 
-  let renderedHtml: string | null = null
-  if (currentVersion?.bodyHtml) {
-    // Image transformation is time-limited and best-effort
-    // Use a short timeout (1s) to avoid blocking the request thread
-    // If transformation fails or times out, fall back to original HTML
-    // The AbortController ensures cancellation of the transform when timeout triggers
-    try {
-      const controller = new AbortController()
-      const timeoutMs = 1000 // 1 second - reasonable for DB query + HTML processing
-      const timeoutId = setTimeout(() => {
-        controller.abort()
-      }, timeoutMs)
-
-      try {
-        renderedHtml = await transformHtmlImages(currentVersion.bodyHtml, {
-          organizationId,
-          signal: controller.signal
-        })
-      } finally {
-        clearTimeout(timeoutId)
-      }
-    } catch (error) {
-      // Fall back to original HTML if transformation fails or times out
-      // AbortController ensures the transform is cancelled when timeout triggers,
-      // preventing leaked DB/API calls and resource exhaustion
-      const isAbortError = error instanceof DOMException && error.name === 'AbortError'
-      if (!isAbortError) {
-        console.warn('[workspace] Image transformation failed, using original HTML', {
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-      renderedHtml = currentVersion.bodyHtml
-    }
-  }
-
   const currentVersionWithDerived = currentVersion
     ? {
         ...currentVersion,
         structuredData,
-        imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : [],
-        renderedHtml
+        imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : []
       }
     : null
 
