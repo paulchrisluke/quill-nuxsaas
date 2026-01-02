@@ -80,55 +80,14 @@ describe('content_write Integration Tests', () => {
     })
   })
 
-  describe('action="enrich" validation', () => {
-    it('should require contentId for enrich', () => {
-      const toolCall: ChatToolInvocation<'content_write'> = {
-        name: 'content_write',
-        arguments: {
-          action: 'enrich'
-          // Missing contentId - would fail validation
-        }
-      }
-
-      // Schema validation requires contentId when action=enrich
-      expect(toolCall.arguments.contentId).toBeUndefined()
-    })
-
-    it('should accept action="enrich" with contentId', () => {
-      const toolCall: ChatToolInvocation<'content_write'> = {
-        name: 'content_write',
-        arguments: {
-          action: 'enrich',
-          contentId: 'content-123'
-        }
-      }
-
-      expect(toolCall.arguments.action).toBe('enrich')
-      expect(toolCall.arguments.contentId).toBe('content-123')
-    })
-
-    it('should accept action="enrich" with optional baseUrl', () => {
-      const toolCall: ChatToolInvocation<'content_write'> = {
-        name: 'content_write',
-        arguments: {
-          action: 'enrich',
-          contentId: 'content-123',
-          baseUrl: 'https://example.com'
-        }
-      }
-
-      expect(toolCall.arguments.baseUrl).toBe('https://example.com')
-    })
-  })
-
   describe('action discriminator validation', () => {
     it('should reject invalid action value', () => {
       // TypeScript would catch this, but runtime validation should also check
       const invalidAction = 'invalid' as any
 
-      // The enum in the schema should restrict to 'create' | 'enrich'
-      expect(['create', 'enrich']).toContain('create')
-      expect(['create', 'enrich']).not.toContain(invalidAction)
+      // The enum in the schema should restrict to 'create'
+      expect(['create']).toContain('create')
+      expect(['create']).not.toContain(invalidAction)
     })
 
     it('should enforce action-specific requirements', () => {
@@ -143,13 +102,8 @@ describe('content_write Integration Tests', () => {
       expect(createWithoutSource).not.toHaveProperty('sourceText')
       expect(createWithoutSource).not.toHaveProperty('context')
 
-      // For action='enrich', contentId is required
-      const enrichWithoutContentId = {
-        action: 'enrich' as const
-        // Missing contentId - would fail schema validation
-      }
-
-      expect(enrichWithoutContentId).not.toHaveProperty('contentId')
+      // Only action='create' is supported
+      expect(createWithoutSource.action).toBe('create')
     })
   })
 

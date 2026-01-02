@@ -165,7 +165,7 @@ export const insertImageSuggestion = async (
     })
   }
   const markdownImage = `![${suggestion.altText || 'Image'}](${imageUrl})`
-  const existingMarkdown = record.version.bodyMdx || ''
+  const existingMarkdown = record.version.bodyMarkdown || ''
   const targetLine = typeof suggestion.position === 'number' && Number.isFinite(suggestion.position)
     ? suggestion.position
     : existingMarkdown.split('\n').length + 1
@@ -229,8 +229,7 @@ export const insertImageSuggestion = async (
         version: nextVersionNumber,
         createdByUserId: userId,
         frontmatter: record.version.frontmatter,
-        bodyMdx: updatedMarkdown,
-        bodyHtml: null,
+        bodyMarkdown: updatedMarkdown,
         sections: record.version.sections,
         assets: updatedAssets,
         seoSnapshot: record.version.seoSnapshot

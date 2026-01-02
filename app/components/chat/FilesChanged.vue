@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
             {{ artifact.data.title || 'Untitled' }}
           </p>
           <p class="text-xs text-muted-500 truncate">
-            {{ artifact.data.slug }}.{{ artifact.data.contentType ? artifact.data.contentType.split('/')[1] || 'mdx' : 'mdx' }}
+            {{ artifact.data.slug }}.{{ artifact.data.contentType ? artifact.data.contentType.split('/')[1] || 'md' : 'md' }}
           </p>
         </div>
         <UBadge

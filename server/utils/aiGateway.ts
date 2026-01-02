@@ -468,7 +468,7 @@ interface ComposeBlogResult {
 }
 
 export async function composeBlogFromText(text: string, options?: ComposeBlogOptions): Promise<ComposeBlogResult> {
-  const systemPrompt = options?.systemPrompt || 'You are an expert SEO content writer. Produce a high-quality, well-structured article in markdown (MDX-compatible).'
+  const systemPrompt = options?.systemPrompt || 'You are an expert SEO content writer. Produce a high-quality, well-structured article in markdown.'
   const userPrompt = text
 
   const markdown = await callChatCompletions({

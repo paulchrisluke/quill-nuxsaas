@@ -708,7 +708,7 @@ async function executeChatTool(
 
   if (toolInvocation.name === 'content_write') {
     const args = toolInvocation.arguments as ChatToolInvocation<'content_write'>['arguments']
-    const action = validateRequiredString(args.action, 'action') as 'create' | 'enrich'
+    const action = validateRequiredString(args.action, 'action') as 'create'
 
     safeLog('[content_write] Starting content_write tool', {
       action,
@@ -720,209 +720,140 @@ async function executeChatTool(
       hasUserId: !!userId
     })
 
-    if (action === 'create') {
-      try {
-        const intentSnapshot = getIntentSnapshotFromMetadata(conversationMetadata as Record<string, any> | null)
-        let resolvedSourceContentId: string | null = args.sourceContentId ?? null
-        // Handle both sourceText and context parameters (context is alias for sourceText)
-        const resolvedSourceText: string | null = args.sourceText ?? args.context ?? null
-
-        // If sourceText/context is provided but no sourceContentId, create source content first
-        if (resolvedSourceText && !resolvedSourceContentId) {
-          const manualSource = await createSourceContentFromContext({
-            db,
-            organizationId,
-            userId,
-            context: resolvedSourceText,
-            mode: context.mode,
-            metadata: { createdVia: 'chat_content_write_tool' },
-            onProgress: (progressMessage) => {
-              // Forward progress updates to tool progress callback (streams via SSE)
-              if (onToolProgress && toolCallId) {
-                onToolProgress(toolCallId, progressMessage)
-              }
-            }
-          })
-
-          if (!manualSource) {
-            return {
-              success: false,
-              error: 'Failed to create source content from context'
-            }
-          }
-
-          resolvedSourceContentId = manualSource.id
-        }
-
-        // Get conversation history for context generation
-        const previousMessages = await getConversationMessages(db, conversationId, organizationId)
-        const conversationHistory: ChatCompletionMessage[] = previousMessages.map(message => ({
-          role: message.role === 'assistant'
-            ? 'assistant'
-            : message.role === 'system'
-              ? 'system'
-              : 'user',
-          content: message.content
-        }))
-
-        // Allow generation with conversation history even if no source content
-        if (!resolvedSourceContentId && !resolvedSourceText && (!conversationHistory || conversationHistory.length === 0)) {
-          return {
-            success: false,
-            error: 'Either sourceContentId, sourceText/context, or conversationHistory is required for action="create"'
-          }
-        }
-
-        let sanitizedSystemPrompt: string | undefined
-        if (args.systemPrompt !== undefined && args.systemPrompt !== null) {
-          const trimmed = validateRequiredString(args.systemPrompt, 'systemPrompt')
-          sanitizedSystemPrompt = trimmed.length > 2000 ? trimmed.slice(0, 2000) : trimmed
-        }
-
-        let sanitizedTemperature = 1
-        if (args.temperature !== undefined && args.temperature !== null) {
-          sanitizedTemperature = validateNumber(args.temperature, 'temperature', 0, 2)
-        }
-
-        const handleProgress = (progressMessage: string) => {
-          if (onToolProgress && toolCallId) {
-            onToolProgress(toolCallId, progressMessage)
-          }
-        }
-
-        const generationResult = await generateContentFromSource(db, {
-          organizationId,
-          userId,
-          sourceContentId: resolvedSourceContentId ?? null,
-          sourceText: resolvedSourceText,
-          conversationHistory: conversationHistory.length > 0 ? conversationHistory : null,
-          intentSnapshot,
-          contentId: null, // action='create' only creates new content, never updates existing ones
-          event: context.event,
-          mode: context.mode,
-          overrides: {
-            title: args.title ? validateRequiredString(args.title, 'title') : null,
-            slug: args.slug ? validateRequiredString(args.slug, 'slug') : null,
-            status: args.status ? validateEnum(args.status, CONTENT_STATUSES, 'status') : undefined,
-            primaryKeyword: args.primaryKeyword ? validateRequiredString(args.primaryKeyword, 'primaryKeyword') : null,
-            targetLocale: args.targetLocale ? validateRequiredString(args.targetLocale, 'targetLocale') : null,
-            contentType: args.contentType
-              ? validateEnum(args.contentType, CONTENT_TYPES, 'contentType')
-              : DEFAULT_CONTENT_TYPE
-          },
-          systemPrompt: sanitizedSystemPrompt,
-          temperature: sanitizedTemperature,
-          onProgress: handleProgress
-        })
-
-        safeLog('[content_write] Successfully created content', {
-          hasContentId: !!generationResult.content.id,
-          hasVersionId: !!generationResult.version.id
-        })
-
-        return {
-          success: true,
-          result: {
-            contentId: generationResult.content.id,
-            versionId: generationResult.version.id,
-            content: {
-              id: generationResult.content.id,
-              title: generationResult.content.title,
-              slug: generationResult.content.slug
-            }
-          },
-          contentId: generationResult.content.id
-        }
-      } catch (error: any) {
-        safeError('[content_write] Error during content creation', {
-          error: error?.message,
-          action,
-          hasSourceContentId: !!args.sourceContentId,
-          hasSourceText: !!(args.sourceText || args.context),
-          mode: context.mode,
-          hasOrganizationId: !!organizationId,
-          hasUserId: !!userId,
-          errorStatus: error?.statusCode,
-          errorStatusMessage: error?.statusMessage
-        })
-        return {
-          success: false,
-          error: error?.message || error?.statusMessage || 'Failed to create content'
-        }
-      }
-    } else if (action === 'enrich') {
-      if (!args.contentId) {
-        safeError('[content_write] Missing contentId for enrich action')
-        return {
-          success: false,
-          error: 'contentId is required for action="enrich". Use read_content_list to get valid content IDs.'
-        }
-      }
-
-      try {
-        const contentId = validateUUID(args.contentId, 'contentId')
-        const baseUrl = validateOptionalString(args.baseUrl, 'baseUrl')
-
-        safeLog('[content_write] Enriching content', {
-          hasContentId: !!contentId,
-          hasBaseUrl: !!baseUrl,
-          mode: context.mode
-        })
-
-        const { refreshContentVersionMetadata } = await import('~~/server/services/content/generation')
-        const result = await refreshContentVersionMetadata(db, {
-          organizationId,
-          userId,
-          contentId,
-          baseUrl: baseUrl ?? undefined
-        })
-
-        safeLog('[content_write] Successfully enriched content', {
-          hasContentId: !!result.content.id,
-          hasVersionId: !!result.version.id
-        })
-
-        return {
-          success: true,
-          result: {
-            contentId: result.content.id,
-            versionId: result.version.id,
-            content: {
-              id: result.content.id,
-              title: result.content.title
-            }
-          },
-          contentId: result.content.id
-        }
-      } catch (error: any) {
-        safeError('[content_write] Error during content enrichment', {
-          error: error?.message,
-          hasContentId: !!args.contentId,
-          action,
-          mode: context.mode,
-          hasOrganizationId: !!organizationId,
-          hasUserId: !!userId,
-          errorStatus: error?.statusCode,
-          errorStatusMessage: error?.statusMessage
-        })
-
-        // If it's a validation error (like UUID format), provide helpful message
-        if (error?.statusMessage?.includes('UUID')) {
-          return {
-            success: false,
-            error: `${error.statusMessage}. Use read_content_list to get valid content IDs.`
-          }
-        }
-
-        return {
-          success: false,
-          error: error?.message || error?.statusMessage || 'Failed to enrich content'
-        }
-      }
-    } else {
+    if (action !== 'create') {
       return {
         success: false,
-        error: `Invalid action: ${action}. Must be 'create' or 'enrich'.`
+        error: 'Only action="create" is supported. Use edit_metadata or edit_section for updates.'
+      }
+    }
+
+    try {
+      const intentSnapshot = getIntentSnapshotFromMetadata(conversationMetadata as Record<string, any> | null)
+      let resolvedSourceContentId: string | null = args.sourceContentId ?? null
+      // Handle both sourceText and context parameters (context is alias for sourceText)
+      const resolvedSourceText: string | null = args.sourceText ?? args.context ?? null
+
+      // If sourceText/context is provided but no sourceContentId, create source content first
+      if (resolvedSourceText && !resolvedSourceContentId) {
+        const manualSource = await createSourceContentFromContext({
+          db,
+          organizationId,
+          userId,
+          context: resolvedSourceText,
+          mode: context.mode,
+          metadata: { createdVia: 'chat_content_write_tool' },
+          onProgress: (progressMessage) => {
+            // Forward progress updates to tool progress callback (streams via SSE)
+            if (onToolProgress && toolCallId) {
+              onToolProgress(toolCallId, progressMessage)
+            }
+          }
+        })
+
+        if (!manualSource) {
+          return {
+            success: false,
+            error: 'Failed to create source content from context'
+          }
+        }
+
+        resolvedSourceContentId = manualSource.id
+      }
+
+      // Get conversation history for context generation
+      const previousMessages = await getConversationMessages(db, conversationId, organizationId)
+      const conversationHistory: ChatCompletionMessage[] = previousMessages.map(message => ({
+        role: message.role === 'assistant'
+          ? 'assistant'
+          : message.role === 'system'
+            ? 'system'
+            : 'user',
+        content: message.content
+      }))
+
+      // Allow generation with conversation history even if no source content
+      if (!resolvedSourceContentId && !resolvedSourceText && (!conversationHistory || conversationHistory.length === 0)) {
+        return {
+          success: false,
+          error: 'Either sourceContentId, sourceText/context, or conversationHistory is required for action="create"'
+        }
+      }
+
+      let sanitizedSystemPrompt: string | undefined
+      if (args.systemPrompt !== undefined && args.systemPrompt !== null) {
+        const trimmed = validateRequiredString(args.systemPrompt, 'systemPrompt')
+        sanitizedSystemPrompt = trimmed.length > 2000 ? trimmed.slice(0, 2000) : trimmed
+      }
+
+      let sanitizedTemperature = 1
+      if (args.temperature !== undefined && args.temperature !== null) {
+        sanitizedTemperature = validateNumber(args.temperature, 'temperature', 0, 2)
+      }
+
+      const handleProgress = (progressMessage: string) => {
+        if (onToolProgress && toolCallId) {
+          onToolProgress(toolCallId, progressMessage)
+        }
+      }
+
+      const generationResult = await generateContentFromSource(db, {
+        organizationId,
+        userId,
+        sourceContentId: resolvedSourceContentId ?? null,
+        sourceText: resolvedSourceText,
+        conversationHistory: conversationHistory.length > 0 ? conversationHistory : null,
+        intentSnapshot,
+        contentId: null, // action='create' only creates new content, never updates existing ones
+        event: context.event,
+        mode: context.mode,
+        overrides: {
+          title: args.title ? validateRequiredString(args.title, 'title') : null,
+          slug: args.slug ? validateRequiredString(args.slug, 'slug') : null,
+          status: args.status ? validateEnum(args.status, CONTENT_STATUSES, 'status') : undefined,
+          primaryKeyword: args.primaryKeyword ? validateRequiredString(args.primaryKeyword, 'primaryKeyword') : null,
+          targetLocale: args.targetLocale ? validateRequiredString(args.targetLocale, 'targetLocale') : null,
+          contentType: args.contentType
+            ? validateEnum(args.contentType, CONTENT_TYPES, 'contentType')
+            : DEFAULT_CONTENT_TYPE
+        },
+        systemPrompt: sanitizedSystemPrompt,
+        temperature: sanitizedTemperature,
+        onProgress: handleProgress
+      })
+
+      safeLog('[content_write] Successfully created content', {
+        hasContentId: !!generationResult.content.id,
+        hasVersionId: !!generationResult.version.id
+      })
+
+      return {
+        success: true,
+        result: {
+          contentId: generationResult.content.id,
+          versionId: generationResult.version.id,
+          content: {
+            id: generationResult.content.id,
+            title: generationResult.content.title,
+            slug: generationResult.content.slug
+          }
+        },
+        contentId: generationResult.content.id
+      }
+    } catch (error: any) {
+      safeError('[content_write] Error during content creation', {
+        error: error?.message,
+        action,
+        hasSourceContentId: !!args.sourceContentId,
+        hasSourceText: !!(args.sourceText || args.context),
+        mode: context.mode,
+        hasOrganizationId: !!organizationId,
+        hasUserId: !!userId,
+        errorStatus: error?.statusCode,
+        errorStatusMessage: error?.statusMessage
+      })
+      return {
+        success: false,
+        error: error?.message || error?.statusMessage || 'Failed to create content'
       }
     }
   }
@@ -1230,7 +1161,6 @@ async function executeChatTool(
           },
           suggestion: insertionResult.suggestion,
           markdown: insertionResult.markdown,
-          html: insertionResult.html,
           warnings: insertionResult.warnings
         },
         contentId: insertionResult.content.id
@@ -1358,7 +1288,7 @@ async function executeChatTool(
           }
         : null
       const suggestions = await suggestImagesForContent({
-        markdown: record.currentVersion.bodyMdx || record.currentVersion.bodyHtml || '',
+        markdown: record.currentVersion.bodyMarkdown || '',
         sections: Array.isArray(record.currentVersion.sections)
           ? record.currentVersion.sections as any[]
           : [],
@@ -1813,7 +1743,7 @@ async function executeChatTool(
  *
  * **Available Tools:**
  * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`, `read_files`
- * - Write tools (agent mode only): `content_write` (with action="create" or action="enrich"), `edit_section`, `edit_metadata`, `insert_image`
+ * - Write tools (agent mode only): `content_write` (with action="create"), `edit_section`, `edit_metadata`, `insert_image`
  * - Ingest tools (agent mode only): `source_ingest` (with sourceType="youtube" or sourceType="context")
  *
  * @contract

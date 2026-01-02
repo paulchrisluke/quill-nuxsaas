@@ -12,26 +12,6 @@ const CONTENT_TYPE_SCHEMA_EXTENSIONS: Partial<Record<typeof CONTENT_TYPES[number
   course: ['Course']
 }
 
-const FRONTMATTER_KEY_ORDER = [
-  'title',
-  'seoTitle',
-  'description',
-  'featuredImage',
-  'slug',
-  'contentType',
-  'targetLocale',
-  'status',
-  'primaryKeyword',
-  'keywords',
-  'tags',
-  'schemaTypes',
-  'sourceContentId',
-  'recipe',
-  'howTo',
-  'course',
-  'faq'
-]
-
 export const createFrontmatterFromOutline = (params: {
   plan: ContentOutline
   overrides?: ContentGenerationOverrides
@@ -241,86 +221,4 @@ export const extractFrontmatterFromVersion = (params: {
     course: versionFrontmatter.course ?? undefined,
     faq: versionFrontmatter.faq ?? undefined
   }
-}
-
-function formatYamlScalar(value: any, indent = 0): string {
-  if (value == null) {
-    return ''
-  }
-  if (typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-  if (typeof value === 'string') {
-    const normalized = value.replace(/\r/g, '')
-    if (normalized.includes('\n')) {
-      const blockIndent = '  '.repeat(indent + 1)
-      const indented = normalized.split('\n').map(line => `${blockIndent}${line}`).join('\n')
-      return `|\n${indented}`
-    }
-    return `"${normalized.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-  }
-  return JSON.stringify(value)
-}
-
-function formatFrontmatterAsYamlLines(value: any, indent = 0): string[] {
-  const prefix = '  '.repeat(indent)
-  if (Array.isArray(value)) {
-    if (!value.length) {
-      return [`${prefix}[]`]
-    }
-    return value.flatMap((entry) => {
-      if (entry && typeof entry === 'object') {
-        return [`${prefix}-`, ...formatFrontmatterAsYamlLines(entry, indent + 1)]
-      }
-      return [`${prefix}- ${formatYamlScalar(entry, indent)}`]
-    })
-  }
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, any>)
-    if (!entries.length) {
-      return [`${prefix}{}`]
-    }
-    return entries.flatMap(([key, entry]) => {
-      if (entry && typeof entry === 'object') {
-        return [`${prefix}${key}:`, ...formatFrontmatterAsYamlLines(entry, indent + 1)]
-      }
-      return [`${prefix}${key}: ${formatYamlScalar(entry, indent)}`]
-    })
-  }
-  return [`${prefix}${formatYamlScalar(value, indent)}`]
-}
-
-export function orderFrontmatterKeys(frontmatter: Record<string, any>) {
-  const ordered: Record<string, any> = {}
-  for (const key of FRONTMATTER_KEY_ORDER) {
-    if (frontmatter[key] !== undefined) {
-      ordered[key] = frontmatter[key]
-    }
-  }
-  for (const [key, value] of Object.entries(frontmatter)) {
-    if (ordered[key] === undefined) {
-      ordered[key] = value
-    }
-  }
-  return ordered
-}
-
-export function formatFrontmatterAsYaml(frontmatter: Record<string, any> | null | undefined) {
-  if (!frontmatter || typeof frontmatter !== 'object') {
-    return '---\n---'
-  }
-  const filtered = Object.fromEntries(
-    Object.entries(frontmatter).filter(([, value]) => {
-      if (Array.isArray(value)) {
-        return value.length > 0
-      }
-      if (value && typeof value === 'object') {
-        return Object.keys(value).length > 0
-      }
-      return value !== null && value !== undefined && value !== ''
-    })
-  )
-  const ordered = orderFrontmatterKeys(filtered)
-  const lines = formatFrontmatterAsYamlLines(ordered)
-  return ['---', ...lines, '---'].join('\n')
 }

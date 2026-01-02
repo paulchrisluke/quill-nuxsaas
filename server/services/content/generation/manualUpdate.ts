@@ -7,7 +7,6 @@ import * as schema from '~~/server/db/schema'
 import { slugifyTitle } from '~~/server/utils/content'
 import { calculateDiffStats } from '../diff'
 import { invalidateWorkspaceCache } from '../workspaceCache'
-import { extractMarkdownFromEnrichedMdx } from './assembly'
 import { extractFrontmatterFromVersion } from './frontmatter'
 import { deriveSchemaMetadata, validateSchemaMetadata } from './schemaMetadata'
 import { normalizeContentSections } from './sections'
@@ -35,8 +34,7 @@ export const parseSectionsFromMarkdown = (params: {
   markdown: string
   existingSections?: ContentSection[]
 }): ContentSection[] => {
-  const raw = extractMarkdownFromEnrichedMdx(params.markdown || '')
-  const lines = raw.split('\n')
+  const lines = (params.markdown || '').split('\n')
   const sections: Array<{
     title: string
     level: number
@@ -116,7 +114,7 @@ export const updateContentBodyManual = async (
   input: ContentBodyUpdateInput
 ): Promise<ContentBodyUpdateResult> => {
   const { organizationId, userId, contentId, markdown, mode } = input
-  const rawMarkdown = extractMarkdownFromEnrichedMdx(markdown || '')
+  const rawMarkdown = markdown || ''
 
   if (mode === 'chat') {
     throw createError({
@@ -171,7 +169,7 @@ export const updateContentBodyManual = async (
   const currentVersion = record.version
   const existingSections = normalizeContentSections(
     currentVersion.sections,
-    currentVersion.bodyMdx ?? null
+    currentVersion.bodyMarkdown ?? null
   )
 
   let frontmatter = extractFrontmatterFromVersion({
@@ -186,7 +184,7 @@ export const updateContentBodyManual = async (
 
   frontmatter = deriveSchemaMetadata(frontmatter, updatedSections)
   const schemaValidation = validateSchemaMetadata(frontmatter)
-  const diffStats = calculateDiffStats(currentVersion.bodyMdx || '', rawMarkdown)
+  const diffStats = calculateDiffStats(currentVersion.bodyMarkdown || '', rawMarkdown)
   const slug = currentVersion.frontmatter?.slug || record.content.slug
   const previousSeoSnapshot = currentVersion.seoSnapshot ?? {}
 
@@ -248,8 +246,7 @@ export const updateContentBodyManual = async (
             deletions: diffStats.deletions
           }
         },
-        bodyMdx: rawMarkdown,
-        bodyHtml: null,
+        bodyMarkdown: rawMarkdown,
         sections: updatedSections,
         assets,
         seoSnapshot

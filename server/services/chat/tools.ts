@@ -10,7 +10,7 @@ export type ChatToolName = 'content_write' | 'edit_section' | 'source_ingest' | 
 export type ChatToolArguments<TName extends ChatToolName> =
   TName extends 'content_write'
     ? {
-        action: 'create' | 'enrich'
+        action: 'create'
         // For action='create':
         sourceContentId?: string | null
         sourceText?: string | null
@@ -23,9 +23,6 @@ export type ChatToolArguments<TName extends ChatToolName> =
         contentType?: string | null
         systemPrompt?: string | null
         temperature?: number | null
-        // For action='enrich':
-        contentId?: string | null
-        baseUrl?: string | null
       }
     : TName extends 'edit_section'
       ? {
@@ -126,7 +123,7 @@ const chatToolDefinitions: Record<ChatToolName, ToolDefinition> = {
       type: 'function',
       function: {
         name: 'content_write',
-        description: 'Write or enrich content metadata. IMPORTANT: Use action="create" to create NEW content from source. Use action="enrich" ONLY to refresh frontmatter and JSON-LD structured data metadata (NOT for editing content sections). To edit content sections, use edit_section instead. To update metadata fields (title, slug, status), use edit_metadata instead.',
+        description: 'Write new content from source. Use action="create" to create NEW content. For editing content sections, use edit_section. For updating metadata fields (title, slug, status), use edit_metadata.',
         parameters: buildContentWriteParameters()
       }
     }
@@ -271,8 +268,8 @@ function buildContentWriteParameters(): ParameterSchema {
     properties: {
       action: {
         type: 'string',
-        enum: ['create', 'enrich'],
-        description: 'Action to perform: "create" to create new content from source, or "enrich" to refresh existing content\'s frontmatter and JSON-LD metadata ONLY. Note: "enrich" does NOT edit content sections - use edit_section for that.'
+        enum: ['create'],
+        description: 'Action to perform: "create" to create new content from source.'
       },
       // For action='create':
       sourceContentId: {
@@ -320,15 +317,6 @@ function buildContentWriteParameters(): ParameterSchema {
         minimum: 0,
         maximum: 2,
         description: 'Sampling temperature for creative control (default 1) (for action="create").'
-      },
-      // For action='enrich':
-      contentId: {
-        type: 'string',
-        description: 'Content ID (UUID format) of the content item (required for action="enrich"). Must be a valid UUID - use read_content_list to find content IDs.'
-      },
-      baseUrl: {
-        type: 'string',
-        description: 'Optional base URL for generating absolute URLs in JSON-LD structured data (for action="enrich").'
       }
     },
     required: ['action']
@@ -678,17 +666,15 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
     const invocation = rest as ChatToolInvocation<'content_write'>['arguments']
 
     // Runtime validation for conditional requirements
-    if (invocation.action === 'create') {
-      const hasSource = !!(invocation.sourceContentId || invocation.sourceText || invocation.context)
-      if (!hasSource) {
-        console.error('[Tool Validation] content_write with action="create" requires at least one of: sourceContentId, sourceText, or context')
-        return null
-      }
-    } else if (invocation.action === 'enrich') {
-      if (!invocation.contentId) {
-        console.error('[Tool Validation] content_write with action="enrich" requires contentId')
-        return null
-      }
+    if (invocation.action !== 'create') {
+      console.error('[Tool Validation] content_write only supports action="create"')
+      return null
+    }
+
+    const hasSource = !!(invocation.sourceContentId || invocation.sourceText || invocation.context)
+    if (!hasSource) {
+      console.error('[Tool Validation] content_write with action="create" requires at least one of: sourceContentId, sourceText, or context')
+      return null
     }
 
     return {

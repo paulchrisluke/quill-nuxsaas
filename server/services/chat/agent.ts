@@ -71,7 +71,6 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 - For editing specific sections of existing content, use edit_section. Examples: "make the introduction more engaging", "rewrite the conclusion".
 - When using edit_section you MUST provide either sectionId or sectionTitle. If the user wants changes across the whole document, read the content sections and call edit_section once per section.
 - For creating new content items from source content (context, YouTube video, etc.), use content_write with action="create". This tool only creates new content - it cannot update existing content.
-- For refreshing an existing content item's frontmatter and JSON-LD structured data, use content_write with action="enrich".
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".
 - For inserting uploaded images into content, prefer using insert_image with a fileId. If omitted, insert_image will use the latest image linked to the content.
 - Never use content_write with action="create" for editing existing content - use edit_metadata or edit_section instead.`
@@ -148,9 +147,6 @@ function generateSummaryFromToolHistory(
         }
 
         summaries.push(`Created new content: ${link}`)
-      } else if (invocation.arguments.action === 'enrich') {
-        const title = result.result.content?.title || 'content'
-        summaries.push(`Refreshed metadata and structured data for "${title}"`)
       }
     } else if (toolName === 'edit_metadata' && result.result) {
       const title = result.result.content?.title || 'content'

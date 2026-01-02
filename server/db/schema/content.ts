@@ -63,8 +63,7 @@ export const contentVersion = pgTable('content_version', {
   createdByUserId: text('created_by_user_id').references(() => user.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   frontmatter: jsonb('frontmatter').$type<Record<string, any> | null>().default(null),
-  bodyMdx: text('body_mdx').notNull(),
-  bodyHtml: text('body_html'),
+  bodyMarkdown: text('body_markdown').notNull(),
   sections: jsonb('sections').$type<Record<string, any>[] | null>().default(null),
   assets: jsonb('assets').$type<Record<string, any> | null>().default(null),
   seoSnapshot: jsonb('seo_snapshot').$type<Record<string, any> | null>().default(null)

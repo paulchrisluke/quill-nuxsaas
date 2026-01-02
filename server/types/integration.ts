@@ -10,7 +10,7 @@ export const integrationAuthTypeSchema = z.enum(['oauth', 'api_key', 'webhook'])
 
 export const integrationConfigSchema = z.record(z.any())
 
-export const createIntegrationSchema = z.object({
+const integrationSchemaBase = z.object({
   type: z.string().min(1),
   name: z.string().min(1),
   authType: integrationAuthTypeSchema,
@@ -19,7 +19,9 @@ export const createIntegrationSchema = z.object({
   config: integrationConfigSchema.optional(),
   capabilities: integrationCapabilitiesSchema.optional(),
   isActive: z.boolean().optional()
-}).superRefine((value, ctx) => {
+})
+
+export const createIntegrationSchema = integrationSchemaBase.superRefine((value, ctx) => {
   if (value.authType === 'oauth' && !value.accountId) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -29,9 +31,14 @@ export const createIntegrationSchema = z.object({
   }
 })
 
-export const updateIntegrationSchema = createIntegrationSchema.partial().extend({
-  name: z.string().min(1).optional(),
-  type: z.string().min(1).optional()
+export const updateIntegrationSchema = integrationSchemaBase.partial().superRefine((value, ctx) => {
+  if (value.authType === 'oauth' && !value.accountId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'accountId is required for OAuth integrations',
+      path: ['accountId']
+    })
+  }
 })
 
 export const testIntegrationSchema = z.object({

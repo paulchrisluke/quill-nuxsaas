@@ -5,7 +5,7 @@ import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
 import { useFileManagerConfig } from '~~/server/services/file/fileService'
-import { clamp, insertHtmlAtLine, insertMarkdownAtLine } from './utils'
+import { clamp, insertMarkdownAtLine } from './utils'
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -78,26 +78,6 @@ const sanitizeMarkdownUrl = (url: string): string => {
 const ALLOWED_IMAGE_PROTOCOLS = new Set(['http:', 'https:'])
 const DATA_URI_IMAGE_PATTERN = /^data:image\/[a-z0-9.+-]+;base64,/i
 const HOST_LIKE_PATTERN = /^[a-z0-9.-]+\.[a-z]{2,}(?:\/|$)/i
-
-const escapeHtmlAttribute = (value: string): string => {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\s/g, (match) => {
-      if (match === ' ')
-        return '&#32;'
-      if (match === '\t')
-        return '&#9;'
-      if (match === '\n')
-        return '&#10;'
-      if (match === '\r')
-        return '&#13;'
-      return ''
-    })
-}
 
 const resolveAbsoluteImageUrl = (rawUrl: string, baseUrl: string | null): string => {
   if (!rawUrl) {
@@ -301,20 +281,6 @@ const resolvePosition = (params: {
   return { lineNumber: maxLine, sectionId: sections[sections.length - 1]?.id ?? null, reason: 'Defaulted to end of content' }
 }
 
-/**
- * Validates and normalizes a dimension value (width or height).
- * Converts raw value to Number, returns null for non-finite values,
- * rounds non-integer finite numbers to an integer, and returns null if <= 0.
- */
-const validateDimension = (rawValue: unknown): number | null => {
-  const numValue = Number(rawValue)
-  if (!Number.isFinite(numValue)) {
-    return null
-  }
-  const rounded = Number.isInteger(numValue) ? numValue : Math.round(numValue)
-  return rounded > 0 ? rounded : null
-}
-
 export const insertUploadedImage = async (
   db: NodePgDatabase<typeof schema>,
   params: {
@@ -419,11 +385,7 @@ export const insertUploadedImage = async (
     ? version.sections as ContentSection[]
     : []
 
-  // Detect content format: prefer MDX, fall back to HTML
-  const hasMdx = !!version.bodyMdx
-  const hasHtml = !!version.bodyHtml
-  const contentBody = version.bodyMdx || version.bodyHtml || ''
-  const isHtmlFormat = !hasMdx && hasHtml
+  const contentBody = version.bodyMarkdown || ''
 
   if (!contentBody) {
     throw createError({
@@ -434,7 +396,7 @@ export const insertUploadedImage = async (
 
   const resolvedPosition = resolvePosition({
     position: position ?? null,
-    markdown: contentBody, // resolvePosition works with both MDX and HTML (line-based)
+    markdown: contentBody, // resolvePosition is line-based
     sections
   })
 
@@ -490,28 +452,12 @@ export const insertUploadedImage = async (
     status: 'added'
   }
 
-  // Insert image using appropriate format
-  let updatedBody: string
-  if (isHtmlFormat) {
-    // Insert HTML <img> tag for HTML content
-    const safeAltText = escapeHtmlAttribute(suggestion.altText ?? '')
-    const width = validateDimension(fileRecord.width)
-    const height = validateDimension(fileRecord.height)
-
-    const hasValidDimensions = width !== null && height !== null && width > 0 && height > 0
-    const dimensions = hasValidDimensions
-      ? ` width="${width}" height="${height}"`
-      : ''
-    const htmlImage = `<img src="${escapeHtmlAttribute(safeImageUrl)}" alt="${safeAltText}"${dimensions} loading="lazy" decoding="async" />`
-    updatedBody = insertHtmlAtLine(contentBody, resolvedPosition.lineNumber, htmlImage)
-  } else {
-    // Insert Markdown image syntax for MDX content
-    // Escape alt text and sanitize URL to prevent markdown syntax breaking
-    const escapedAltText = escapeMarkdownAltText(suggestion.altText)
-    const sanitizedUrl = sanitizeMarkdownUrl(safeImageUrl)
-    const markdownImage = `![${escapedAltText}](${sanitizedUrl})`
-    updatedBody = insertMarkdownAtLine(contentBody, resolvedPosition.lineNumber, markdownImage)
-  }
+  // Insert Markdown image syntax
+  // Escape alt text and sanitize URL to prevent markdown syntax breaking
+  const escapedAltText = escapeMarkdownAltText(suggestion.altText)
+  const sanitizedUrl = sanitizeMarkdownUrl(safeImageUrl)
+  const markdownImage = `![${escapedAltText}](${sanitizedUrl})`
+  const updatedBody = insertMarkdownAtLine(contentBody, resolvedPosition.lineNumber, markdownImage)
 
   const updatedSuggestions = [...imageSuggestions, suggestion]
 
@@ -580,8 +526,7 @@ export const insertUploadedImage = async (
         version: nextVersionNumber,
         createdByUserId: userId,
         frontmatter: nextFrontmatter,
-        bodyMdx: isHtmlFormat ? version.bodyMdx : updatedBody,
-        bodyHtml: isHtmlFormat ? updatedBody : version.bodyHtml,
+        bodyMarkdown: updatedBody,
         sections: version.sections,
         assets: updatedAssets,
         seoSnapshot: version.seoSnapshot
@@ -620,8 +565,7 @@ export const insertUploadedImage = async (
   return {
     content: result.content,
     version: result.version,
-    markdown: isHtmlFormat ? null : updatedBody,
-    html: isHtmlFormat ? updatedBody : null,
+    markdown: updatedBody,
     suggestion,
     warnings
   }

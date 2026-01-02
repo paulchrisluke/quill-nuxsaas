@@ -11,9 +11,9 @@ import {
 
 describe('tool Registry', () => {
   describe('getChatToolDefinitions', () => {
-    it('should return exactly 10 tools', () => {
+    it('should return exactly 13 tools', () => {
       const tools = getChatToolDefinitions()
-      expect(tools).toHaveLength(10)
+      expect(tools).toHaveLength(13)
     })
 
     it('should include all expected read tools', () => {
@@ -187,28 +187,6 @@ describe('tool Parsing', () => {
       expect(result?.arguments.action).toBe('create')
       expect(result?.arguments.sourceText).toBe('Test context')
       expect(result?.arguments.title).toBe('Test Title')
-    })
-
-    it('should parse valid content_write with action=enrich', () => {
-      const toolCall: ChatCompletionToolCall = {
-        id: 'call_123',
-        type: 'function',
-        function: {
-          name: 'content_write',
-          arguments: JSON.stringify({
-            action: 'enrich',
-            contentId: 'content-123',
-            baseUrl: 'https://example.com'
-          })
-        }
-      }
-
-      const result = parseChatToolCall(toolCall)
-      expect(result).not.toBeNull()
-      expect(result?.name).toBe('content_write')
-      expect(result?.arguments.action).toBe('enrich')
-      expect(result?.arguments.contentId).toBe('content-123')
-      expect(result?.arguments.baseUrl).toBe('https://example.com')
     })
 
     it('should parse valid source_ingest with sourceType=context', () => {

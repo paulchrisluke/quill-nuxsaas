@@ -149,7 +149,7 @@ const handleDownloadContent = async () => {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${slug}.mdx`
+    a.download = `${slug}.md`
     document.body.appendChild(a)
     a.click()
     window.URL.revokeObjectURL(url)

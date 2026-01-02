@@ -73,8 +73,7 @@ export interface WriteContentResponse {
     contentId: string
     version: number
     frontmatter: Record<string, any> | null
-    bodyMdx: string
-    bodyHtml: string | null
+    bodyMarkdown: string
     sections: Record<string, any>[] | null
     assets: Record<string, any> | null
     seoSnapshot: Record<string, any> | null
@@ -168,7 +167,7 @@ export interface UpdateContentSectionWithAIResponse {
     id: string
     contentId: string
     version: number
-    bodyMdx: string
+    bodyMarkdown: string
     sections: Record<string, any>[] | null
   }
   /** Full markdown content */
@@ -197,7 +196,7 @@ export interface UpdateContentBodyResponse {
     id: string
     contentId: string
     version: number
-    bodyMdx: string
+    bodyMarkdown: string
     sections: Record<string, any>[] | null
   }
   markdown: string
@@ -231,14 +230,13 @@ export interface PublishContentResponse {
     version: number
     createdAt: Date
     frontmatter: Record<string, any> | null
-    bodyMdx: string
-    bodyHtml: string | null
+    bodyMarkdown: string
   }
   file: typeof file.$inferSelect
   publication: typeof publication.$inferSelect
   filePayload: {
     filename: string
-    fullMdx: string
+    fullMarkdown: string
     wordCount: number
     sectionsCount: number
     schemaTypes: string[]
