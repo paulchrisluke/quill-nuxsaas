@@ -249,7 +249,7 @@ const contentEntries = computed(() => {
 })
 
 const loadMembers = async (organizationId: string) => {
-  if (!client || lastMembersOrgId.value === organizationId) {
+  if (!client?.organization?.listMembers || lastMembersOrgId.value === organizationId) {
     return
   }
   try {
@@ -266,6 +266,11 @@ const loadMembers = async (organizationId: string) => {
     lastMembersOrgId.value = organizationId
   } catch (error) {
     console.error('Failed to load organization members', error)
+    toast.add({
+      title: 'Unable to load members',
+      description: error instanceof Error ? error.message : 'Please try again.',
+      color: 'error'
+    })
   }
 }
 

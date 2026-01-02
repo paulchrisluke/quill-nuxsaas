@@ -264,7 +264,12 @@ const normalizePairInput = (value: string) => {
     .map(entry => entry.trim())
     .filter(Boolean)
     .map((line) => {
-      const [left, right] = line.split('::').map(part => part?.trim())
+      const separatorIndex = line.indexOf('::')
+      if (separatorIndex === -1) {
+        return null
+      }
+      const left = line.slice(0, separatorIndex).trim()
+      const right = line.slice(separatorIndex + 2).trim()
       if (!left || !right) {
         return null
       }

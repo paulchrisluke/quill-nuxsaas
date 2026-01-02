@@ -43,7 +43,8 @@ export const slugifyTitle = (input: string) => {
 export const ensureUniqueContentSlug = async (
   db: NodePgDatabase<typeof schema>,
   organizationId: string,
-  candidate: string
+  candidate: string,
+  excludeContentId?: string | null
 ) => {
   if (!candidate || !candidate.trim()) {
     throw createError({
@@ -66,7 +67,7 @@ export const ensureUniqueContentSlug = async (
       ))
       .limit(1)
 
-    if (existing.length === 0) {
+    if (existing.length === 0 || existing[0]?.id === excludeContentId) {
       return slug
     }
 

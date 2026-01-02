@@ -142,7 +142,7 @@ export default defineEventHandler(async (event) => {
     const slugValue = validateOptionalString(body.slug, 'slug')
     if (slugValue) {
       const baseSlug = slugifyTitle(slugValue)
-      const slug = await ensureUniqueContentSlug(db, organizationId, baseSlug)
+      const slug = await ensureUniqueContentSlug(db, organizationId, baseSlug, contentId)
       frontmatter.slug = slug
       frontmatter.slugSuggestion = slug
     }

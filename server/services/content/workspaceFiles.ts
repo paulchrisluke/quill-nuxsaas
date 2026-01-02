@@ -147,8 +147,12 @@ export function buildWorkspaceFilesPayload(
 
   const fullMarkdown = body
 
-  const structuredDataGraph = isValidContentFrontmatter(frontmatter)
-    ? buildStructuredDataGraph({
+  let structuredDataGraph: Record<string, any> | null = null
+  let structuredData: string | null = null
+
+  try {
+    if (isValidContentFrontmatter(frontmatter)) {
+      structuredDataGraph = buildStructuredDataGraph({
         frontmatter,
         seoSnapshot,
         sections,
@@ -162,11 +166,13 @@ export function buildWorkspaceFilesPayload(
         datePublished: content.publishedAt ?? version.createdAt ?? null,
         dateModified: content.updatedAt ?? version.createdAt ?? null
       })
-    : null
-
-  const structuredData = structuredDataGraph
-    ? renderStructuredDataJsonLd(structuredDataGraph)
-    : null
+      structuredData = structuredDataGraph
+        ? renderStructuredDataJsonLd(structuredDataGraph)
+        : null
+    }
+  } catch (error) {
+    console.error('Failed to generate structured data for content', content.id, error)
+  }
 
   // Extract slug from filename or use content slug
   const filenameSlug = filename.replace(/^content\/([^/]+\/)?/, '').replace(/\.md$/, '')

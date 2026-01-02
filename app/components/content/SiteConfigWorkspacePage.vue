@@ -29,7 +29,7 @@ const formState = reactive({
     name: '',
     url: ''
   },
-  categories: [] as Array<{ name: string, slug: string }>
+  categories: [] as Array<{ id: string, name: string, slug: string }>
 })
 
 const warningMessages = computed(() => {
@@ -102,6 +102,11 @@ const normalizeSlug = (value: string) => {
     .replace(/^-+|-+$/g, '')
 }
 
+const createCategoryId = () => {
+  return globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 const loadFromOrganization = () => {
   const siteConfig = getSiteConfigFromMetadata(metadataValue.value)
   const defaults = buildDefaults()
@@ -149,6 +154,7 @@ const loadFromOrganization = () => {
   formState.blog.name = merged.blog?.name ?? ''
   formState.blog.url = merged.blog?.url ?? ''
   formState.categories = (merged.categories ?? []).map(item => ({
+    id: createCategoryId(),
     name: item.name,
     slug: item.slug ?? ''
   }))
@@ -159,7 +165,7 @@ const loadFromOrganization = () => {
 }
 
 const addCategory = () => {
-  formState.categories.push({ name: '', slug: '' })
+  formState.categories.push({ id: createCategoryId(), name: '', slug: '' })
 }
 
 const removeCategory = (index: number) => {
@@ -443,7 +449,7 @@ watch(formState, () => {
       <div class="space-y-4">
         <div
           v-for="(category, index) in formState.categories"
-          :key="index"
+          :key="category.id"
           class="space-y-3 rounded-lg border border-surface-200/60 dark:border-surface-800/60 p-3"
         >
           <UFormField

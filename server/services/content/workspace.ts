@@ -60,6 +60,13 @@ export async function getContentWorkspacePayload(
     .where(eq(schema.organization.id, contentRow.organizationId))
     .limit(1)
 
+  if (!organizationRow) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Organization not found'
+    })
+  }
+
   const [authorRow] = await db
     .select({ name: schema.user.name, image: schema.user.image })
     .from(schema.user)
