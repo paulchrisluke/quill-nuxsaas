@@ -65,7 +65,10 @@ export async function resolveContentContext(
     return { contentId: null, scope: 'site-config' as const, identifier: trimmed }
   }
   if (isUuidIdentifier(trimmed)) {
-    return { contentId: trimmed, scope: 'content' as const, identifier: trimmed }
+    const contentId = await resolveContentIdFromIdentifier(db, organizationId, trimmed)
+    return contentId
+      ? { contentId, scope: 'content' as const, identifier: trimmed }
+      : { contentId: null, scope: null as ContentContextScope, identifier: trimmed }
   }
 
   const contentId = await resolveContentIdFromIdentifier(db, organizationId, trimmed)

@@ -2147,14 +2147,14 @@ export default defineEventHandler(async (event) => {
           }
         }
 
-        const requestContentIdentifier = typeof (body as any).contentIdentifier === 'string'
-          ? (body as any).contentIdentifier
+        const requestContentIdentifier = typeof body.contentIdentifier === 'string'
+          ? body.contentIdentifier
           : null
 
         const resolvedContent = await resolveContentContext(
           db,
           organizationId,
-          requestContentIdentifier || (body as any).contentId || null
+          requestContentIdentifier || body.contentId || null
         )
         const requestContentId = resolvedContent.contentId
         const requestContentScope = resolvedContent.scope
