@@ -1,4 +1,4 @@
-import type { ContentSection, ImageSuggestion } from './types'
+import type { ContentFrontmatter, ContentSection, ImageSuggestion } from './types'
 
 /**
  * Inserts image suggestion comments into markdown at their specified positions
