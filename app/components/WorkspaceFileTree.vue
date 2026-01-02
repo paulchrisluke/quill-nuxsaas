@@ -64,6 +64,17 @@ const activeContentId = computed(() => {
   return null
 })
 
+const activeFileId = computed(() => {
+  const path = route.path
+  if (/\/[^/]+\/files\//.test(path)) {
+    const id = route.params.id
+    if (Array.isArray(id))
+      return id[0] || null
+    return id || null
+  }
+  return null
+})
+
 const normalizeSegment = (value: string | null | undefined) => {
   if (!value)
     return null
@@ -220,6 +231,13 @@ const resolveContentPath = (contentId: string | null | undefined) => {
   return `/${slug}/content/${contentId}`
 }
 
+const resolveFilePath = (fileId: string | null | undefined) => {
+  const slug = orgSlug.value
+  if (!slug || !fileId)
+    return null
+  return `/${slug}/files/${fileId}`
+}
+
 const openNode = (node: FileTreeNode) => {
   emit('open', node)
 
@@ -227,9 +245,16 @@ const openNode = (node: FileTreeNode) => {
     return
 
   const metadata = node.metadata || {}
-  if (metadata.fileId && metadata.url) {
-    // For files, open the URL in a new tab
-    window.open(metadata.url, '_blank')
+  if (metadata.fileId) {
+    const path = resolveFilePath(metadata.fileId)
+    if (path) {
+      router.push(localePath(path))
+      if (typeof openWorkspace === 'function') {
+        openWorkspace()
+      }
+    } else if (metadata.url) {
+      window.open(metadata.url, '_blank')
+    }
   } else if (metadata.contentId) {
     const path = resolveContentPath(metadata.contentId)
     if (path) {
@@ -404,6 +429,7 @@ const isEmptyState = computed(() => {
             :node="node"
             :expanded-paths="expandedPaths"
             :active-content-id="activeContentId"
+            :active-file-id="activeFileId"
             :archiving-file-ids="archivingFiles"
             :archiving-content-ids="archivingContent"
             @toggle="toggleFolder"

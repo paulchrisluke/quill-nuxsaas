@@ -27,6 +27,7 @@ const props = defineProps<{
   expandedPaths: Set<string>
   activeContentId?: string | null
   activeSourceId?: string | null
+  activeFileId?: string | null
   archivingFileIds?: Set<string>
   archivingContentIds?: Set<string>
 }>()
@@ -52,6 +53,8 @@ const isActive = computed(() => {
   if (props.node.type !== 'file')
     return false
   const meta = props.node.metadata || {}
+  if (meta.fileId && props.activeFileId && meta.fileId === props.activeFileId)
+    return true
   if (meta.contentId && props.activeContentId && meta.contentId === props.activeContentId)
     return true
   if (meta.sourceId && props.activeSourceId && meta.sourceId === props.activeSourceId)
@@ -240,6 +243,7 @@ const handleKeydown = (event: KeyboardEvent) => {
         :expanded-paths="expandedPaths"
         :active-content-id="activeContentId"
         :active-source-id="activeSourceId"
+        :active-file-id="activeFileId"
         @toggle="emit('toggle', $event)"
         @select="emit('select', $event)"
         @archive-file="emit('archiveFile', $event)"
