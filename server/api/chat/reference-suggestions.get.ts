@@ -1,6 +1,7 @@
 import { and, desc, eq, or, sql } from 'drizzle-orm'
 import { getQuery } from 'h3'
 import * as schema from '~~/server/db/schema'
+import { resolveContentIdFromIdentifier } from '~~/server/services/chat/contentContext'
 import { requireActiveOrganization } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 
@@ -36,7 +37,10 @@ export default defineEventHandler(async (event) => {
   const { organizationId } = await requireActiveOrganization(event)
   const db = await useDB(event)
   const query = getQuery(event)
-  const contentId = typeof query.contentId === 'string' ? query.contentId : null
+  const contentIdentifier = typeof query.contentIdentifier === 'string'
+    ? query.contentIdentifier
+    : (typeof query.contentId === 'string' ? query.contentId : null)
+  const contentId = await resolveContentIdFromIdentifier(db, organizationId, contentIdentifier)
   const searchQuery = typeof query.q === 'string' ? query.q.trim().toLowerCase() : ''
   if (process.env.NODE_ENV !== 'production') {
     console.log('[reference-suggestions] request', {

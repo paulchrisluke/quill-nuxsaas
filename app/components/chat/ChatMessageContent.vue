@@ -241,7 +241,10 @@ const resolveCreatedContentPath = (contentId: string) => {
     </ul>
   </div>
   <div v-else-if="payload?.type === 'workspace_files' && Array.isArray(payload.files)">
-    <WorkspaceFilesAccordion :files="payload.files" />
+    <WorkspaceFilesAccordion
+      :files="payload.files"
+      :created-content="payload.createdContent"
+    />
   </div>
   <div
     v-else

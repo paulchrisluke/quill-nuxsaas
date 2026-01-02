@@ -75,6 +75,11 @@ export interface ChatRequestBody {
    */
   contentId?: string | null
   /**
+   * Optional content identifier (UUID or slug) for contextual lookups.
+   * Use this when the client only has a slug or a virtual content key.
+   */
+  contentIdentifier?: string | null
+  /**
    * Optional explicitly selected references from the client UI.
    * Used to scope edits without relying solely on text parsing.
    */

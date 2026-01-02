@@ -4,6 +4,7 @@ import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 
 const props = defineProps<{
   files: WorkspaceFilePayload[]
+  createdContent?: Array<{ id: string, title?: string | null }>
 }>()
 
 const { useActiveOrganization } = useAuth()
@@ -90,10 +91,55 @@ const formatDiffStats = (diffStats: { additions: number, deletions: number } | n
     return null
   return `+${diffStats.additions} -${diffStats.deletions}`
 }
+
+const resolveCreatedContentPath = (contentId: string) => {
+  const slug = activeOrg.value?.data?.slug
+  if (!slug || slug === NON_ORG_SLUG) {
+    return null
+  }
+  return localePath(`/${slug}/content/${contentId}`)
+}
 </script>
 
 <template>
   <div class="space-y-3">
+    <div
+      v-if="props.createdContent && props.createdContent.length"
+      class="space-y-2"
+    >
+      <p class="text-xs uppercase tracking-wide text-muted-foreground">
+        Created content
+      </p>
+      <div class="space-y-2">
+        <template
+          v-for="item in props.createdContent"
+          :key="item.id"
+        >
+          <NuxtLink
+            v-if="resolveCreatedContentPath(item.id)"
+            :to="resolveCreatedContentPath(item.id)"
+            class="flex items-center justify-between gap-2 rounded-lg border border-surface-200/60 dark:border-surface-800/60 p-3 transition-colors hover:bg-surface-50 dark:hover:bg-surface-900/50 cursor-pointer"
+          >
+            <p class="font-medium truncate text-sm text-foreground">
+              {{ item.title || 'Untitled content' }}
+            </p>
+            <UIcon
+              name="i-lucide-chevron-right"
+              class="h-4 w-4 text-muted-foreground flex-shrink-0"
+            />
+          </NuxtLink>
+          <div
+            v-else
+            class="flex items-center justify-between gap-2 rounded-lg border border-surface-200/60 dark:border-surface-800/60 p-3"
+          >
+            <p class="font-medium truncate text-sm text-foreground">
+              {{ item.title || 'Untitled content' }}
+            </p>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <p class="text-xs uppercase tracking-wide text-muted-foreground">
       Files
     </p>
