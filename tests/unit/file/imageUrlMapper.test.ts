@@ -4,11 +4,11 @@ import { extractImageSourcesFromHtml, resolveStoragePathFromUrl } from '~~/serve
 describe('imageUrlMapper', () => {
   it('resolves storage paths from known base URLs', () => {
     const baseUrls = ['https://cdn.example.com', '/uploads']
-    const path = resolveStoragePathFromUrl('https://cdn.example.com/2024-01-01/abc.jpg', baseUrls)
-    expect(path).toBe('2024-01-01/abc.jpg')
+    const path = resolveStoragePathFromUrl('https://cdn.example.com/files/abc.jpg', baseUrls)
+    expect(path).toBe('files/abc.jpg')
 
-    const localPath = resolveStoragePathFromUrl('/uploads/2024-01-01/def.png', baseUrls)
-    expect(localPath).toBe('2024-01-01/def.png')
+    const localPath = resolveStoragePathFromUrl('/uploads/files/def.png', baseUrls)
+    expect(localPath).toBe('files/def.png')
   })
 
   it('returns null for unknown image URLs', () => {

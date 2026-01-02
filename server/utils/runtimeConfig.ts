@@ -10,6 +10,34 @@ declare module '@nuxt/schema' {
 
 let runtimeConfigInstance: NitroRuntimeConfig
 
+const parseNumber = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const parseCommaList = (value: string | undefined) => {
+  return (value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+const clampQuality = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.min(100, Math.max(1, parsed))
+}
+
+const clampMaxProxyWidth = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+  return Math.min(4000, parsed)
+}
+
 export const generateRuntimeConfig = () => ({
   preset: (process.env.NODE_ENV === 'development')
     ? 'node-server'
@@ -58,6 +86,44 @@ export const generateRuntimeConfig = () => ({
         publicUrl: process.env.NUXT_CF_R2_PUBLIC_URL!
       }
     },
+    maxFileSize: parseNumber(process.env.NUXT_FILE_MAX_SIZE, 10 * 1024 * 1024),
+    allowedMimeTypes: (() => {
+      const parsed = parseCommaList(process.env.NUXT_FILE_ALLOWED_MIME_TYPES)
+      if (parsed.length > 0) {
+        return parsed
+      }
+      return [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/avif',
+        'image/gif',
+        'image/svg+xml',
+        'application/pdf',
+        'text/plain'
+      ]
+    })(),
+    image: (() => {
+      const parsedSizes = parseCommaList(process.env.NUXT_FILE_IMAGE_SIZES)
+        .map(value => Number.parseInt(value, 10))
+        .filter(size => Number.isFinite(size) && size > 0)
+        .sort((a, b) => a - b)
+      const normalizedSizes = parsedSizes.length > 0 ? parsedSizes : [150, 400, 800, 1200, 1600]
+
+      const parsedFormats = parseCommaList(process.env.NUXT_FILE_IMAGE_FORMATS)
+      const validFormats = parsedFormats.filter(format => format === 'webp' || format === 'avif') as FileManagerConfig['image']['formats']
+      const normalizedFormats = validFormats.length > 0 ? validFormats : ['webp'] as FileManagerConfig['image']['formats']
+
+      return {
+        sizes: normalizedSizes,
+        formats: normalizedFormats,
+        quality: clampQuality(process.env.NUXT_FILE_IMAGE_QUALITY, 80),
+        maxProxyWidth: clampMaxProxyWidth(process.env.NUXT_FILE_IMAGE_MAX_PROXY_WIDTH, 2000),
+        enableProxy: process.env.NUXT_FILE_IMAGE_ENABLE_PROXY !== 'false',
+        requireAltText: process.env.NUXT_FILE_REQUIRE_ALT_TEXT === 'true',
+        altTextPlaceholder: process.env.NUXT_FILE_IMAGE_ALT_PLACEHOLDER || 'TODO: describe image'
+      }
+    })(),
     uploadRateLimit: {
       maxUploadsPerWindow: 100,
       windowSizeMinutes: 1
