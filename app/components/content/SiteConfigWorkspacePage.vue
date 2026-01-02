@@ -174,6 +174,11 @@ const removeCategory = (index: number) => {
 
 const saveConfig = async () => {
   if (!activeOrg.value?.data?.id) {
+    toast.add({
+      title: 'No organization selected',
+      description: 'Please select an organization first.',
+      color: 'warning'
+    })
     return
   }
   isSaving.value = true

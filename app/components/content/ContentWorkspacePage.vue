@@ -278,6 +278,26 @@ const normalizePairInput = (value: string) => {
     .filter(Boolean) as Array<{ left: string, right: string }>
 }
 
+const normalizeModuleInput = (value: string) => {
+  return value
+    .split('\n')
+    .map(entry => entry.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separatorIndex = line.indexOf('::')
+      if (separatorIndex === -1) {
+        return { title: line, description: '' }
+      }
+      const title = line.slice(0, separatorIndex).trim()
+      const description = line.slice(separatorIndex + 2).trim()
+      if (!title) {
+        return null
+      }
+      return { title, description }
+    })
+    .filter(Boolean) as Array<{ title: string, description: string }>
+}
+
 const syncSeoForm = () => {
   const frontmatter = contentEntry.value?.frontmatter || {}
   seoForm.title = typeof frontmatter.title === 'string' ? frontmatter.title : contentEntry.value?.title || ''
@@ -396,7 +416,7 @@ const seoWarnings = computed(() => {
   }
 
   if (seoForm.schemaTypes.includes('Course')) {
-    if (!normalizePairInput(courseForm.modulesInput).length) {
+    if (!normalizeModuleInput(courseForm.modulesInput).length) {
       warnings.push('Course schema needs at least one module.')
     }
   }
@@ -454,10 +474,7 @@ const saveSeoForm = async () => {
       : null
 
     const courseModules = courseEnabled
-      ? normalizePairInput(courseForm.modulesInput).map(entry => ({
-          title: entry.left,
-          description: entry.right
-        }))
+      ? normalizeModuleInput(courseForm.modulesInput)
       : []
 
     const course = courseEnabled
@@ -1178,7 +1195,7 @@ watch(latestUpdate, (update) => {
               <UInput v-model="courseForm.courseCode" />
             </UFormField>
           </div>
-          <UFormField label="Modules (one per line: Title :: Description)">
+          <UFormField label="Modules (one per line: Title :: Description, description optional)">
             <UTextarea
               v-model="courseForm.modulesInput"
               :rows="5"

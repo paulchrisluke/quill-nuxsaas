@@ -63,11 +63,20 @@ const normalizePublisher = (value?: Record<string, any> | null): SiteConfigPubli
   if (!value || typeof value !== 'object') {
     return undefined
   }
+  const name = typeof value.name === 'string' ? value.name.trim() : undefined
+  const url = typeof value.url === 'string' ? value.url.trim() : undefined
+  const logoUrl = typeof value.logoUrl === 'string' ? value.logoUrl.trim() : undefined
+  const sameAs = normalizeStringArray(value.sameAs)
+
+  if (!name && !url && !logoUrl && !sameAs) {
+    return undefined
+  }
+
   return {
-    name: typeof value.name === 'string' ? value.name.trim() : undefined,
-    url: typeof value.url === 'string' ? value.url.trim() : undefined,
-    logoUrl: typeof value.logoUrl === 'string' ? value.logoUrl.trim() : undefined,
-    sameAs: normalizeStringArray(value.sameAs)
+    ...(name ? { name } : {}),
+    ...(url ? { url } : {}),
+    ...(logoUrl ? { logoUrl } : {}),
+    ...(sameAs ? { sameAs } : {})
   }
 }
 
@@ -75,11 +84,20 @@ const normalizeAuthor = (value?: Record<string, any> | null): SiteConfigAuthor |
   if (!value || typeof value !== 'object') {
     return undefined
   }
+  const name = typeof value.name === 'string' ? value.name.trim() : undefined
+  const url = typeof value.url === 'string' ? value.url.trim() : undefined
+  const image = typeof value.image === 'string' ? value.image.trim() : undefined
+  const sameAs = normalizeStringArray(value.sameAs)
+
+  if (!name && !url && !image && !sameAs) {
+    return undefined
+  }
+
   return {
-    name: typeof value.name === 'string' ? value.name.trim() : undefined,
-    url: typeof value.url === 'string' ? value.url.trim() : undefined,
-    image: typeof value.image === 'string' ? value.image.trim() : undefined,
-    sameAs: normalizeStringArray(value.sameAs)
+    ...(name ? { name } : {}),
+    ...(url ? { url } : {}),
+    ...(image ? { image } : {}),
+    ...(sameAs ? { sameAs } : {})
   }
 }
 

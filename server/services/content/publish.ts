@@ -119,9 +119,7 @@ export async function publishContentVersion(
       : undefined,
     logoUrl: organization.logo ?? undefined
   }
-  const publisher = publisherDefaults
-    ? { ...publisherDefaults, ...(siteConfig.publisher ?? {}) }
-    : (siteConfig.publisher ?? null)
+  const publisher = { ...publisherDefaults, ...(siteConfig.publisher ?? {}) }
   const authorDefaults = author ? { name: author.name, image: author.image ?? undefined } : null
   const authorPayload = authorDefaults
     ? { ...authorDefaults, ...(siteConfig.author ?? {}) }

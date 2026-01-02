@@ -13,7 +13,13 @@ import { normalizeContentSections } from '~~/server/services/content/generation/
 import { normalizeContentKeywords, normalizeContentSchemaTypes } from '~~/server/services/content/generation/utils'
 import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
-import { CONTENT_STATUSES, CONTENT_TYPES, ensureUniqueContentSlug, slugifyTitle } from '~~/server/utils/content'
+import {
+  CONTENT_STATUSES,
+  CONTENT_TYPES,
+  ensureUniqueContentSlug,
+  isContentSlugConstraintError,
+  slugifyTitle
+} from '~~/server/utils/content'
 import { useDB } from '~~/server/utils/db'
 import {
   validateEnum,
@@ -138,13 +144,11 @@ export default defineEventHandler(async (event) => {
     frontmatter.description = description ?? undefined
   }
 
+  let pendingSlug: string | null = null
   if (body.slug !== undefined) {
     const slugValue = validateOptionalString(body.slug, 'slug')
     if (slugValue) {
-      const baseSlug = slugifyTitle(slugValue)
-      const slug = await ensureUniqueContentSlug(db, organizationId, baseSlug, contentId)
-      frontmatter.slug = slug
-      frontmatter.slugSuggestion = slug
+      pendingSlug = slugifyTitle(slugValue)
     }
   }
 
@@ -277,72 +281,99 @@ export default defineEventHandler(async (event) => {
     manualEditAt: new Date().toISOString()
   }
 
-  const result = await db.transaction(async (tx) => {
-    const [latestVersion] = await tx
-      .select({ version: schema.contentVersion.version })
-      .from(schema.contentVersion)
-      .where(eq(schema.contentVersion.contentId, record.content.id))
-      .orderBy(desc(schema.contentVersion.version))
-      .limit(1)
+  let result: { content: typeof schema.content.$inferSelect, version: typeof schema.contentVersion.$inferSelect } | null = null
+  const maxAttempts = 3
+  let attempt = 0
 
-    const nextVersionNumber = (latestVersion?.version ?? 0) + 1
+  while (!result && attempt < maxAttempts) {
+    try {
+      result = await db.transaction(async (tx) => {
+        if (pendingSlug) {
+          const uniqueSlug = await ensureUniqueContentSlug(tx, organizationId, pendingSlug, contentId)
+          frontmatter.slug = uniqueSlug
+          frontmatter.slugSuggestion = uniqueSlug
+        }
 
-    const [newVersion] = await tx
-      .insert(schema.contentVersion)
-      .values({
-        id: uuidv7(),
-        contentId: record.content.id,
-        version: nextVersionNumber,
-        createdByUserId: user.id,
-        frontmatter: frontmatter as ContentFrontmatter,
-        bodyMarkdown: currentVersion.bodyMarkdown,
-        sections: currentVersion.sections,
-        assets: currentVersion.assets,
-        seoSnapshot
+        const [latestVersion] = await tx
+          .select({ version: schema.contentVersion.version })
+          .from(schema.contentVersion)
+          .where(eq(schema.contentVersion.contentId, record.content.id))
+          .orderBy(desc(schema.contentVersion.version))
+          .limit(1)
+
+        const nextVersionNumber = (latestVersion?.version ?? 0) + 1
+
+        const [newVersion] = await tx
+          .insert(schema.contentVersion)
+          .values({
+            id: uuidv7(),
+            contentId: record.content.id,
+            version: nextVersionNumber,
+            createdByUserId: user.id,
+            frontmatter: frontmatter as ContentFrontmatter,
+            bodyMarkdown: currentVersion.bodyMarkdown,
+            sections: currentVersion.sections,
+            assets: currentVersion.assets,
+            seoSnapshot
+          })
+          .returning()
+
+        if (!newVersion) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to create content version'
+          })
+        }
+
+        const updates: Partial<typeof schema.content.$inferInsert> = {
+          updatedAt: new Date(),
+          title: frontmatter.title,
+          status: frontmatter.status,
+          primaryKeyword: frontmatter.primaryKeyword ?? null,
+          targetLocale: frontmatter.targetLocale ?? null,
+          contentType: frontmatter.contentType
+        }
+
+        if (frontmatter.slug && frontmatter.slug !== record.content.slug) {
+          updates.slug = frontmatter.slug
+        }
+
+        const [updatedContent] = await tx
+          .update(schema.content)
+          .set({
+            ...updates,
+            currentVersionId: newVersion.id
+          })
+          .where(eq(schema.content.id, record.content.id))
+          .returning()
+
+        if (!updatedContent) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to update content record'
+          })
+        }
+
+        return {
+          content: updatedContent,
+          version: newVersion
+        }
       })
-      .returning()
-
-    if (!newVersion) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Failed to create content version'
-      })
+    } catch (error) {
+      if (isContentSlugConstraintError(error) && pendingSlug) {
+        attempt += 1
+        continue
+      }
+      throw error
     }
+  }
 
-    const updates: Partial<typeof schema.content.$inferInsert> = {
-      updatedAt: new Date(),
-      title: frontmatter.title,
-      status: frontmatter.status,
-      primaryKeyword: frontmatter.primaryKeyword ?? null,
-      targetLocale: frontmatter.targetLocale ?? null,
-      contentType: frontmatter.contentType
-    }
-
-    if (frontmatter.slug && frontmatter.slug !== record.content.slug) {
-      updates.slug = frontmatter.slug
-    }
-
-    const [updatedContent] = await tx
-      .update(schema.content)
-      .set({
-        ...updates,
-        currentVersionId: newVersion.id
-      })
-      .where(eq(schema.content.id, record.content.id))
-      .returning()
-
-    if (!updatedContent) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Failed to update content record'
-      })
-    }
-
-    return {
-      content: updatedContent,
-      version: newVersion
-    }
-  })
+  if (!result) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to update content slug'
+    })
+  }
 
   invalidateWorkspaceCache(organizationId, result.content.id)
 
