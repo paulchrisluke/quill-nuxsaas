@@ -248,6 +248,8 @@ const contentEntries = computed(() => {
   return entries
 })
 
+const MEMBER_PAGE_LIMIT = 100
+
 const loadMembers = async (organizationId: string) => {
   if (!client?.organization?.listMembers || lastMembersOrgId.value === organizationId) {
     return
@@ -256,13 +258,20 @@ const loadMembers = async (organizationId: string) => {
     const { data, error } = await client.organization.listMembers({
       query: {
         organizationId,
-        limit: 100
+        limit: MEMBER_PAGE_LIMIT
       }
     })
     if (error) {
       throw error
     }
     orgMembers.value = Array.isArray(data?.members) ? data.members : []
+    if ((data?.total ?? 0) > MEMBER_PAGE_LIMIT || orgMembers.value.length >= MEMBER_PAGE_LIMIT) {
+      toast.add({
+        title: 'Member list truncated',
+        description: 'Showing the first 100 members. Use the Members page to see the full list.',
+        color: 'warning'
+      })
+    }
     lastMembersOrgId.value = organizationId
   } catch (error) {
     console.error('Failed to load organization members', error)
