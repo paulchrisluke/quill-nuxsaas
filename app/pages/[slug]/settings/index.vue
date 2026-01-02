@@ -128,15 +128,17 @@ async function updateTeam() {
     if (error)
       throw error
 
-    toast.add({ title: 'Team updated successfully', color: 'success' })
-
     // Refresh data
-    await useAuth().fetchSession()
+    const slugChanged = teamSlug.value !== activeOrg.value.data.slug
+    await fetchSession()
     await refreshActiveOrg()
+    toast.add({ title: 'Team updated successfully', color: 'success' })
 
     // If slug changed, we must redirect to new URL
     // Otherwise reload is fine, but redirection is safer
-    await navigateTo(`/${teamSlug.value}/settings`)
+    if (slugChanged) {
+      await navigateTo(`/${teamSlug.value}/settings`)
+    }
   } catch (e: any) {
     toast.add({
       title: 'Error updating team',

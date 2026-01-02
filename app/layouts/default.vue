@@ -241,6 +241,8 @@ watch(() => activeOrg.value?.data?.id, (nextOrgId, previousOrgId) => {
   if (!nextOrgId || !previousOrgId || nextOrgId === previousOrgId)
     return
   resetConversationList()
+  if (!import.meta.client)
+    return
   if (shouldShowChatPanel.value) {
     loadConversationInitial().catch((err) => {
       console.error('Failed to load initial conversations:', err)
