@@ -131,6 +131,24 @@ const createdContentItems = computed(() => {
     }))
 })
 
+const workspaceCreatedContentItems = computed(() => {
+  if (payload.value?.type !== 'workspace_files') {
+    return []
+  }
+  const items = payload.value?.createdContent || payload.value?.created_content
+  if (!Array.isArray(items)) {
+    return []
+  }
+  return items
+    .filter(item => item && typeof item.id === 'string' && item.id.length > 0)
+    .map(item => ({
+      id: item.id,
+      title: typeof item.title === 'string' && item.title.trim().length > 0
+        ? item.title.trim()
+        : 'Untitled content'
+    }))
+})
+
 const safeEmbedUrl = computed(() => {
   const embedUrl = preview.value?.embedUrl
   if (!embedUrl) {
@@ -233,7 +251,7 @@ function toSummaryBullets(summary: string | null | undefined) {
   <div v-else-if="payload?.type === 'workspace_files' && Array.isArray(payload.files)">
     <WorkspaceFilesAccordion
       :files="payload.files"
-      :created-content="createdContentItems"
+      :created-content="workspaceCreatedContentItems"
     />
   </div>
   <div
