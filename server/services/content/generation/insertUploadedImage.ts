@@ -49,13 +49,14 @@ const isUuidLike = (value: string) => UUID_REGEX.test(value.trim())
 
 /**
  * Escapes special characters in markdown alt text that would break the syntax
- * Escapes: '[', ']', and backslashes
+ * Escapes: '[', ']', '|', and backslashes
  */
 const escapeMarkdownAltText = (altText: string): string => {
   return altText
     .replace(/\\/g, '\\\\') // Escape backslashes first
     .replace(/\[/g, '\\[') // Escape opening brackets
     .replace(/\]/g, '\\]') // Escape closing brackets
+    .replace(/\|/g, '\\|') // Escape pipe for MDX dimension separator
 }
 
 /**
@@ -455,8 +456,11 @@ export const insertUploadedImage = async (
   // Insert Markdown image syntax
   // Escape alt text and sanitize URL to prevent markdown syntax breaking
   const escapedAltText = escapeMarkdownAltText(suggestion.altText)
+  const dimensions = fileRecord.width && fileRecord.height
+    ? `|${fileRecord.width}x${fileRecord.height}`
+    : ''
   const sanitizedUrl = sanitizeMarkdownUrl(safeImageUrl)
-  const markdownImage = `![${escapedAltText}](${sanitizedUrl})`
+  const markdownImage = `![${escapedAltText}${dimensions}](${sanitizedUrl})`
   const updatedBody = insertMarkdownAtLine(contentBody, resolvedPosition.lineNumber, markdownImage)
 
   const updatedSuggestions = [...imageSuggestions, suggestion]

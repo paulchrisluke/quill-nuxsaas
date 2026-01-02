@@ -2,7 +2,6 @@ import type { ChatToolName } from '~~/server/services/chat/tools'
 import type { ChatCompletionToolCall } from '~~/server/utils/aiGateway'
 import { describe, expect, it } from 'vitest'
 import {
-
   getChatToolDefinitions,
   getToolKind,
   getToolsByKind,
@@ -26,7 +25,9 @@ describe('tool Registry', () => {
         'read_source',
         'read_content_list',
         'read_source_list',
-        'read_workspace_summary'
+        'read_workspace_summary',
+        'analyze_content_images',
+        'read_files'
       ]
 
       for (const toolName of expectedReadTools) {
@@ -41,7 +42,8 @@ describe('tool Registry', () => {
       const expectedWriteTools = [
         'content_write',
         'edit_section',
-        'edit_metadata'
+        'edit_metadata',
+        'insert_image'
       ]
 
       for (const toolName of expectedWriteTools) {
@@ -93,7 +95,9 @@ describe('tool Registry', () => {
         'read_source',
         'read_content_list',
         'read_source_list',
-        'read_workspace_summary'
+        'read_workspace_summary',
+        'analyze_content_images',
+        'read_files'
       ]
 
       for (const toolName of readTools) {
@@ -105,7 +109,8 @@ describe('tool Registry', () => {
       const writeTools: ChatToolName[] = [
         'content_write',
         'edit_section',
-        'edit_metadata'
+        'edit_metadata',
+        'insert_image'
       ]
 
       for (const toolName of writeTools) {
@@ -124,9 +129,9 @@ describe('tool Registry', () => {
   })
 
   describe('getToolsByKind', () => {
-    it('should return exactly 6 read tools', () => {
+    it('should return exactly 8 read tools', () => {
       const readTools = getToolsByKind('read')
-      expect(readTools).toHaveLength(6)
+      expect(readTools).toHaveLength(8)
 
       const toolNames = readTools.map(t => t.function.name)
       expect(toolNames).toContain('read_content')
@@ -135,16 +140,19 @@ describe('tool Registry', () => {
       expect(toolNames).toContain('read_content_list')
       expect(toolNames).toContain('read_source_list')
       expect(toolNames).toContain('read_workspace_summary')
+      expect(toolNames).toContain('analyze_content_images')
+      expect(toolNames).toContain('read_files')
     })
 
-    it('should return exactly 3 write tools', () => {
+    it('should return exactly 4 write tools', () => {
       const writeTools = getToolsByKind('write')
-      expect(writeTools).toHaveLength(3)
+      expect(writeTools).toHaveLength(4)
 
       const toolNames = writeTools.map(t => t.function.name)
       expect(toolNames).toContain('content_write')
       expect(toolNames).toContain('edit_section')
       expect(toolNames).toContain('edit_metadata')
+      expect(toolNames).toContain('insert_image')
     })
 
     it('should return exactly 1 ingest tool', () => {
@@ -161,6 +169,7 @@ describe('tool Registry', () => {
       expect(toolNames).not.toContain('edit_section')
       expect(toolNames).not.toContain('edit_metadata')
       expect(toolNames).not.toContain('source_ingest')
+      expect(toolNames).not.toContain('insert_image')
     })
   })
 })

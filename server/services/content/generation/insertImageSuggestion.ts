@@ -9,6 +9,14 @@ import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { extractScreencapFromYouTube } from './screencaps'
 import { insertMarkdownAtLine } from './utils'
 
+const escapeMarkdownAltText = (altText: string): string => {
+  return altText
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/\|/g, '\\|')
+}
+
 const normalizeIndex = (value: number) => {
   if (!Number.isFinite(value) || value < 0) {
     return 0
@@ -83,6 +91,7 @@ export const insertImageSuggestion = async (
 
   let imageUrl: string
   let uploadedFileId: string
+  let fileRecord: { width?: number | null, height?: number | null } | null = null
 
   // Handle different suggestion types
   if (suggestion.type === 'screencap') {
@@ -116,6 +125,7 @@ export const insertImageSuggestion = async (
 
     imageUrl = uploaded.url || uploaded.path
     uploadedFileId = uploaded.id
+    fileRecord = uploaded
   } else if (suggestion.type === 'uploaded') {
     // For uploaded type, the file should already exist
     if (suggestion.fullSizeFileId) {
@@ -128,6 +138,7 @@ export const insertImageSuggestion = async (
       }
       imageUrl = file.url || file.path
       uploadedFileId = file.id
+      fileRecord = file
     } else if (suggestion.fullSizeUrl) {
       // If we have a URL but no fileId, use the URL directly
       // External URLs won't have a file ID in our system
@@ -152,6 +163,7 @@ export const insertImageSuggestion = async (
       }
       imageUrl = file.url || file.path
       uploadedFileId = file.id
+      fileRecord = file
     } else {
       throw createError({
         statusCode: 400,
@@ -164,7 +176,11 @@ export const insertImageSuggestion = async (
       statusMessage: 'Unsupported image suggestion type'
     })
   }
-  const markdownImage = `![${suggestion.altText || 'Image'}](${imageUrl})`
+  const escapedAltText = escapeMarkdownAltText(suggestion.altText || 'Image')
+  const dimensions = fileRecord?.width && fileRecord?.height
+    ? `|${fileRecord.width}x${fileRecord.height}`
+    : ''
+  const markdownImage = `![${escapedAltText}${dimensions}](${imageUrl})`
   const existingMarkdown = record.version.bodyMarkdown || ''
   const targetLine = typeof suggestion.position === 'number' && Number.isFinite(suggestion.position)
     ? suggestion.position
