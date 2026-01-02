@@ -18,7 +18,7 @@ const slug = computed(() => {
   return Array.isArray(param) ? param[0] : param || ''
 })
 
-const { organization, useActiveOrganization, fetchSession, user } = useAuth()
+const { organization, useActiveOrganization, fetchSession, refreshActiveOrg, user } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
@@ -78,7 +78,8 @@ async function leaveTeam() {
     if (nextOrg) {
       await organization.setActive({ organizationId: nextOrg.id })
       await fetchSession()
-      window.location.href = `/${nextOrg.slug}/members`
+      await refreshActiveOrg()
+      await navigateTo(`/${nextOrg.slug}/members`)
     } else {
       await fetchSession()
       await navigateTo('/')
@@ -131,10 +132,11 @@ async function updateTeam() {
 
     // Refresh data
     await useAuth().fetchSession()
+    await refreshActiveOrg()
 
     // If slug changed, we must redirect to new URL
     // Otherwise reload is fine, but redirection is safer
-    window.location.href = `/${teamSlug.value}/settings`
+    await navigateTo(`/${teamSlug.value}/settings`)
   } catch (e: any) {
     toast.add({
       title: 'Error updating team',
@@ -194,7 +196,8 @@ async function deleteTeam() {
       // Switch to first available team
       await organization.setActive({ organizationId: nextOrg.id })
       await fetchSession()
-      window.location.href = `/${nextOrg.slug}/members`
+      await refreshActiveOrg()
+      await navigateTo(`/${nextOrg.slug}/members`)
     } else {
       // No teams left
       await fetchSession()

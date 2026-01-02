@@ -93,7 +93,7 @@ onMounted(async () => {
     if (joinedOrg) {
       toast.add({ title: 'Invitation accepted', color: 'success' })
       // Redirect to the specific organization's members page
-      window.location.href = `/${joinedOrg.slug}/members`
+      await navigateTo(`/${joinedOrg.slug}/members`)
     } else {
       if (orgFetchFailed) {
         toast.add({
@@ -103,7 +103,7 @@ onMounted(async () => {
         })
       }
       // Fallback: Redirect to root, middleware will route to active org
-      window.location.href = '/'
+      await navigateTo('/')
     }
   } catch (e: any) {
     error.value = e.message || 'Failed to accept invitation'

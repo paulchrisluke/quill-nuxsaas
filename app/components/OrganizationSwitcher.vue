@@ -111,10 +111,10 @@ async function handleOrgChange(orgId: string) {
       throw new Error(error.message || 'Failed to set active organization')
     }
 
-    // Force a full page reload to ensure SSR picks up the new active org context
-    window.location.href = newPath
+    await navigateTo(newPath)
   } catch (error) {
     console.error('Failed to switch organization:', error)
+  } finally {
     switching.value = false
     finish()
   }

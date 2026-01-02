@@ -508,7 +508,13 @@ watch(isAuthenticatedUser, (isLoggedIn) => {
   }
 })
 
-watch(() => activeOrg.value?.data?.id, (orgId) => {
+watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
+  if (orgId && previousId && orgId !== previousId) {
+    resetContent()
+    resetFileList()
+    loadContentInitial().catch(() => {})
+    loadFileInitial().catch(() => {})
+  }
   if (orgId) {
     loadMembers(orgId)
   }

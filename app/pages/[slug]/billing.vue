@@ -513,7 +513,7 @@ async function confirmDowngrade() {
     })
 
     // Refresh subscription data to update UI
-    window.location.reload()
+    await refreshBillingState()
   } catch (e: any) {
     console.error(e)
     // eslint-disable-next-line no-alert
@@ -682,16 +682,11 @@ async function confirmSeatChange() {
     })
     showSeatChangeModal.value = false
 
-    // Full reload when ending trial (status changes), otherwise just refresh
-    if (shouldEndTrial) {
-      window.location.reload()
-    } else {
-      await refresh()
-      // Refresh invoices after a short delay to allow Stripe to process
-      setTimeout(() => {
-        invoiceHistoryRef.value?.refresh()
-      }, 2000)
-    }
+    await refresh()
+    // Refresh invoices after a short delay to allow Stripe to process
+    setTimeout(() => {
+      invoiceHistoryRef.value?.refresh()
+    }, 2000)
   } catch (e: any) {
     console.error(e)
     const errorMessage = e.data?.message || e.message || 'Unknown error'

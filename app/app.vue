@@ -42,7 +42,7 @@ const stopImpersonating = async () => {
   stoppingImpersonation.value = true
   try {
     await client.admin.stopImpersonating()
-    window.location.href = '/admin/user'
+    await navigateTo('/admin/user')
   } catch (e) {
     console.error(e)
     stoppingImpersonation.value = false

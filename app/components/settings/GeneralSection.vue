@@ -11,7 +11,7 @@ const { canEdit } = defineProps<{
   canEdit?: boolean
 }>()
 
-const { organization, useActiveOrganization, fetchSession } = useAuth()
+const { organization, useActiveOrganization, fetchSession, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
 const toast = useToast()
 const { copy } = useClipboard()
@@ -71,10 +71,11 @@ async function updateTeam() {
 
     toast.add({ title: 'Team updated successfully', color: 'success' })
     await fetchSession()
+    await refreshActiveOrg()
 
     // If slug changed, redirect to new URL
     if (teamSlug.value !== activeOrg.value.data.slug) {
-      window.location.href = `/${teamSlug.value}/settings`
+      await navigateTo(`/${teamSlug.value}/settings`)
     }
   } catch (e: any) {
     toast.add({

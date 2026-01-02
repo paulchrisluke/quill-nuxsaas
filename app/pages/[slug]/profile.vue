@@ -100,9 +100,8 @@ async function uploadAvatar(event: Event) {
 
     // Update user image
     await client.updateUser({ image: response.file.url })
+    await fetchSession()
     toast.add({ title: 'Profile picture updated', color: 'success' })
-    // Reload to update all avatar instances
-    window.location.reload()
   } catch (e: any) {
     toast.add({ title: 'Failed to upload image', description: e.message, color: 'error' })
   } finally {
@@ -118,9 +117,8 @@ async function removeAvatar() {
   uploadingAvatar.value = true
   try {
     await client.updateUser({ image: '' })
+    await fetchSession()
     toast.add({ title: 'Profile picture removed', color: 'success' })
-    // Reload to update all avatar instances
-    window.location.reload()
   } catch (e: any) {
     toast.add({ title: 'Failed to remove image', description: e.message, color: 'error' })
     uploadingAvatar.value = false

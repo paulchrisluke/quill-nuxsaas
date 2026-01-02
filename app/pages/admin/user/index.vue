@@ -59,7 +59,7 @@ const getActionItems = (row: Row<User>) => {
           await client.admin.impersonateUser({
             userId: user.id
           })
-          window.location.href = '/'
+          await navigateTo('/')
         } catch (error: any) {
           console.error('Failed to impersonate user', error)
           toast.add({

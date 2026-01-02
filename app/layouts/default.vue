@@ -237,6 +237,21 @@ watch(isAuthenticatedUser, (value, previous) => {
   }
 })
 
+watch(() => activeOrg.value?.data?.id, (nextOrgId, previousOrgId) => {
+  if (!nextOrgId || !previousOrgId || nextOrgId === previousOrgId)
+    return
+  resetConversationList()
+  if (shouldShowChatPanel.value) {
+    loadConversationInitial().catch((err) => {
+      console.error('Failed to load initial conversations:', err)
+      toast.add({
+        title: 'Failed to load conversations',
+        color: 'error'
+      })
+    })
+  }
+})
+
 const toggleChatView = () => {
   chatView.value = chatView.value === 'chat' ? 'list' : 'chat'
   conversationsExpanded.value = false
