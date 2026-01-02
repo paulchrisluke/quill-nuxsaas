@@ -95,19 +95,16 @@ async function leaveTeam() {
 // No need to fetch it again on page load
 const loading = ref(false)
 const teamName = ref('')
-const teamSlug = ref('')
 
 // Initialize fields immediately from preloaded data or activeOrg
 if (activeOrg.value?.data) {
   teamName.value = activeOrg.value.data.name
-  teamSlug.value = activeOrg.value.data.slug
 }
 
 // Better watcher: Watch ID changes to handle switching
 watch(() => activeOrg.value?.data?.id, (newId) => {
   if (newId && activeOrg.value?.data) {
     teamName.value = activeOrg.value.data.name
-    teamSlug.value = activeOrg.value.data.slug
   }
 }, { immediate: true })
 
@@ -120,8 +117,7 @@ async function updateTeam() {
     const { error } = await organization.update({
       organizationId: activeOrg.value.data.id,
       data: {
-        name: teamName.value,
-        slug: teamSlug.value
+        name: teamName.value
       }
     })
 
@@ -129,16 +125,9 @@ async function updateTeam() {
       throw error
 
     // Refresh data
-    const slugChanged = teamSlug.value !== activeOrg.value.data.slug
     await fetchSession()
     await refreshActiveOrg()
     toast.add({ title: 'Team updated successfully', color: 'success' })
-
-    // If slug changed, we must redirect to new URL
-    // Otherwise reload is fine, but redirection is safer
-    if (slugChanged) {
-      await navigateTo(`/${teamSlug.value}/settings`)
-    }
   } catch (e: any) {
     toast.add({
       title: 'Error updating team',
@@ -248,7 +237,7 @@ async function deleteTeam() {
           </UFormField>
           <UFormField label="Organization slug">
             <UInput
-              v-model="teamSlug"
+              :model-value="activeOrg?.data?.slug"
               readonly
               icon="i-lucide-link"
             />
