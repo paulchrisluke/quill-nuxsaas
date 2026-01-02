@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useContentList } from '~/composables/useContentList'
 import { useFileList } from '~/composables/useFileList'
+import { normalizeContentId } from '~/utils/contentIdentifier'
 import ReferencePickerPanel from './ReferencePickerPanel.vue'
 
 const props = withDefaults(defineProps<{
@@ -452,7 +453,8 @@ const fetchSuggestions = async (query?: string) => {
   try {
     const data = await $fetch('/api/chat/reference-suggestions', {
       query: {
-        contentId: props.contentId || undefined,
+        contentId: normalizeContentId(props.contentId) || undefined,
+        contentIdentifier: props.contentId || undefined,
         q: queryValue || undefined
       }
     }) as {
@@ -494,7 +496,8 @@ const scheduleReferenceResolution = (value: string) => {
         body: {
           message: value,
           organizationId: organizationId.value,
-          currentContentId: props.contentId || null,
+          currentContentId: normalizeContentId(props.contentId),
+          currentContentIdentifier: props.contentId || null,
           mode: props.mode || 'chat'
         }
       }) as ReferenceResolutionResponse

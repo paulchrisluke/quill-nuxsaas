@@ -66,7 +66,7 @@ export interface ChatRequestBody {
   /** Optional existing conversation to continue */
   conversationId?: string | null
   /**
-   * Optional content ID to link the conversation to.
+   * Optional content ID (UUID) to link the conversation to.
    * Used for conversation linking to provide context about the current content.
    *
    * **Use cases:**
@@ -74,6 +74,14 @@ export interface ChatRequestBody {
    * - Continue a conversation about a specific piece of content
    */
   contentId?: string | null
+  /**
+   * Optional content identifier (slug or virtual key) for contextual lookups.
+   * Use this when the client does not have the contentId UUID.
+   *
+   * If both contentId and contentIdentifier are provided, contentId takes precedence.
+   * Virtual keys: `site-config` or `site_config` (org site settings context).
+   */
+  contentIdentifier?: string | null
   /**
    * Optional explicitly selected references from the client UI.
    * Used to scope edits without relying solely on text parsing.

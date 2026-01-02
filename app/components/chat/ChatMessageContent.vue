@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ChatMessage, MessagePart } from '#shared/utils/types'
 import { computed } from 'vue'
-import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+import { useContentPaths } from '~/composables/useContentPaths'
 import AgentProgressTracker from './progress/AgentProgressTracker.vue'
 import WorkspaceFilesAccordion from './WorkspaceFilesAccordion.vue'
 
@@ -16,9 +16,7 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const { currentActivity, activeToolActivities } = useConversation()
-const { useActiveOrganization } = useAuth()
-const activeOrg = useActiveOrganization()
-const localePath = useLocalePath()
+const { resolveCreatedContentPath } = useContentPaths()
 
 const liveToolActivities = computed(() => {
   const activities = activeToolActivities.value ?? []
@@ -133,6 +131,24 @@ const createdContentItems = computed(() => {
     }))
 })
 
+const workspaceCreatedContentItems = computed(() => {
+  if (payload.value?.type !== 'workspace_files') {
+    return []
+  }
+  const items = payload.value?.createdContent || payload.value?.created_content
+  if (!Array.isArray(items)) {
+    return []
+  }
+  return items
+    .filter(item => item && typeof item.id === 'string' && item.id.length > 0)
+    .map(item => ({
+      id: item.id,
+      title: typeof item.title === 'string' && item.title.trim().length > 0
+        ? item.title.trim()
+        : 'Untitled content'
+    }))
+})
+
 const safeEmbedUrl = computed(() => {
   const embedUrl = preview.value?.embedUrl
   if (!embedUrl) {
@@ -176,14 +192,6 @@ function toSummaryBullets(summary: string | null | undefined) {
   }
   const sentences = normalized.split(/(?<=[.!?])\s+/).map(line => line.trim()).filter(Boolean)
   return sentences.length ? sentences : [normalized]
-}
-
-const resolveCreatedContentPath = (contentId: string) => {
-  const slug = activeOrg.value?.data?.slug
-  if (!slug || slug === NON_ORG_SLUG) {
-    return null
-  }
-  return localePath(`/${slug}/content/${contentId}`)
 }
 </script>
 
@@ -241,7 +249,10 @@ const resolveCreatedContentPath = (contentId: string) => {
     </ul>
   </div>
   <div v-else-if="payload?.type === 'workspace_files' && Array.isArray(payload.files)">
-    <WorkspaceFilesAccordion :files="payload.files" />
+    <WorkspaceFilesAccordion
+      :files="payload.files"
+      :created-content="workspaceCreatedContentItems"
+    />
   </div>
   <div
     v-else

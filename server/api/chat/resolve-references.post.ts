@@ -1,4 +1,5 @@
 import { createError, readBody } from 'h3'
+import { resolveContentIdFromIdentifier } from '~~/server/services/chat/contentContext'
 import { parseReferences } from '~~/server/services/chat/references/parser'
 import { resolveReferences } from '~~/server/services/chat/references/resolver'
 import { getAuthSession, requireActiveOrganization } from '~~/server/utils/auth'
@@ -8,6 +9,7 @@ interface ResolveReferencesBody {
   message: string
   organizationId: string
   currentContentId?: string | null
+  currentContentIdentifier?: string | null
   mode?: 'chat' | 'agent'
 }
 
@@ -53,11 +55,13 @@ export default defineEventHandler(async (event) => {
   const db = await useDB(event)
   const session = await getAuthSession(event)
   const tokens = parseReferences(body.message)
+  const currentIdentifier = body.currentContentIdentifier ?? body.currentContentId ?? null
+  const resolvedContentId = await resolveContentIdFromIdentifier(db, organizationId, currentIdentifier)
 
   const result = await resolveReferences(tokens, {
     db,
     organizationId,
-    currentContentId: body.currentContentId ?? null,
+    currentContentId: resolvedContentId,
     userId: session?.user?.id ?? null,
     mode
   })

@@ -6,6 +6,7 @@ import { useLocalStorage } from '@vueuse/core'
 import { computed, toRaw, watch } from 'vue'
 import { useContentList } from '~/composables/useContentList'
 import { useContentUpdates } from '~/composables/useContentUpdates'
+import { normalizeContentId } from '~/utils/contentIdentifier'
 
 export type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
@@ -248,6 +249,50 @@ export function useConversation() {
     'insert_image'
   ])
   const { notifyUpdated, notifyCreated } = useContentUpdates()
+  const lastCompletionSignalAt = useState<number>('chat/completion-signal-at', () => 0)
+
+  const extractCreatedContentIdFromPayload = (payload: Record<string, any> | null | undefined) => {
+    if (!payload || typeof payload !== 'object') {
+      return null
+    }
+    if (payload.type === 'created_content' && Array.isArray(payload.items) && payload.items.length > 0) {
+      const id = payload.items[0]?.id
+      return typeof id === 'string' && id.length > 0 ? id : null
+    }
+    if (payload.type === 'workspace_files' && Array.isArray(payload.createdContent) && payload.createdContent.length > 0) {
+      const id = payload.createdContent[0]?.id
+      return typeof id === 'string' && id.length > 0 ? id : null
+    }
+    return null
+  }
+
+  const applyCompletionSignals = (normalizedMessages: ChatMessage[]) => {
+    const now = Date.now()
+    const recentWindowMs = 2 * 60 * 1000
+    const candidates = normalizedMessages
+      .filter(message => message.role === 'assistant' && message.payload)
+      .map((message) => {
+        const createdAt = message.createdAt instanceof Date ? message.createdAt.getTime() : new Date(message.createdAt).getTime()
+        return { message, createdAt }
+      })
+      .filter(entry => Number.isFinite(entry.createdAt))
+      .sort((a, b) => b.createdAt - a.createdAt)
+
+    for (const entry of candidates) {
+      if (entry.createdAt <= lastCompletionSignalAt.value) {
+        break
+      }
+      if (now - entry.createdAt > recentWindowMs) {
+        break
+      }
+      const contentId = extractCreatedContentIdFromPayload(entry.message.payload as Record<string, any> | null)
+      if (contentId) {
+        lastCompletionSignalAt.value = entry.createdAt
+        notifyCreated(contentId)
+        break
+      }
+    }
+  }
 
   const upsertToolActivity = (
     toolCallId: string | null | undefined,
@@ -785,6 +830,7 @@ export function useConversation() {
                       optimisticAssistantId = mergeResult.optimisticAssistantId
                       currentAssistantMessageId = null
                       currentAssistantMessageText = ''
+                      applyCompletionSignals(normalizedMessages)
                     }
                     break
                   }
@@ -921,7 +967,8 @@ export function useConversation() {
       {
         message: trimmed,
         mode: mode.value,
-        contentId: options?.contentId,
+        contentId: normalizeContentId(options?.contentId),
+        contentIdentifier: options?.contentId ?? null,
         referenceSelections: options?.referenceSelections
       },
       {

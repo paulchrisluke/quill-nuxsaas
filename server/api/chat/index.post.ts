@@ -1,5 +1,6 @@
 import type { ReferenceScope, ReferenceSelection, ResolvedReference } from '~~/server/services/chat/references/types'
 import type { ChatToolInvocation } from '~~/server/services/chat/tools'
+import type { WorkspaceFilePayload } from '~~/server/services/content/workspaceFiles'
 import type { ChatRequestBody } from '~~/server/types/api'
 import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import type { ConversationIntentSnapshot, IntentGap } from '~~/shared/utils/intent'
@@ -7,6 +8,7 @@ import { and, asc, count, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
+import { resolveContentContext } from '~~/server/services/chat/contentContext'
 import { buildContextBlock } from '~~/server/services/chat/references/contextBuilder'
 import { buildSelectionIdentifierSet, resolveExplicitSelections } from '~~/server/services/chat/references/explicit'
 import { buildReferenceScope, getReferenceScopeError } from '~~/server/services/chat/references/guard'
@@ -40,38 +42,12 @@ import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { createSSEStream } from '~~/server/utils/streaming'
 import { validateEnum, validateNumber, validateOptionalString, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
+import { formatSiteConfig, getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-type ContentIdentifierField = 'id' | 'slug'
-
-interface ContentIdentifier {
-  field: ContentIdentifierField
-  value: string
-}
-
-function _resolveContentIdentifier(input: string): ContentIdentifier {
-  const normalized = validateRequiredString(input, 'contentId')
-  const looksLikeUuid = UUID_REGEX.test(normalized)
-
-  return {
-    field: looksLikeUuid ? 'id' : 'slug',
-    value: normalized
-  }
-}
-
-function _buildContentLookupWhere(
-  organizationId: string,
-  identifier: ContentIdentifier
-) {
-  const identifierClause = identifier.field === 'id'
-    ? eq(schema.content.id, identifier.value)
-    : eq(schema.content.slug, identifier.value)
-
-  return and(
-    eq(schema.content.organizationId, organizationId),
-    identifierClause
-  )
+interface CreatedContentItem {
+  id: string
+  title?: string | null
+  slug?: string | null
 }
 
 const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
@@ -123,11 +99,130 @@ function toSummaryBullets(text: string | null | undefined) {
   return sentences.length ? sentences : [normalized]
 }
 
+function buildEffortSummaryFromToolHistory(options: {
+  toolHistory: Array<{
+    toolName: string
+    invocation: ChatToolInvocation
+    result: ToolExecutionResult
+  }>
+  filesPayload: WorkspaceFilePayload[]
+  uploadsCount: number
+  createdContentItems: CreatedContentItem[]
+}) {
+  const {
+    toolHistory,
+    filesPayload,
+    uploadsCount,
+    createdContentItems
+  } = options
+
+  const bullets: string[] = []
+  const successfulTools = toolHistory.filter(entry => entry.result?.success)
+
+  const createdTitles = createdContentItems
+    .map(item => (item.title || '').trim())
+    .filter(Boolean)
+
+  if (createdContentItems.length > 0) {
+    const label = createdContentItems.length === 1 ? 'content item' : 'content items'
+    const titleList = createdTitles.length ? `: ${createdTitles.join(', ')}` : ''
+    bullets.push(`Created ${createdContentItems.length} ${label}${titleList}.`)
+  }
+
+  const updatedContentTitles = new Set<string>()
+  let updatedCount = 0
+  let editedSections = 0
+  let metadataUpdates = 0
+  let imagesInserted = 0
+  let sourcesIngested = 0
+
+  for (const entry of successfulTools) {
+    const contentTitle = entry.result?.result?.content?.title
+    if (entry.toolName === 'edit_section') {
+      editedSections += 1
+      updatedCount += 1
+      if (contentTitle) {
+        updatedContentTitles.add(contentTitle)
+      }
+      continue
+    }
+    if (entry.toolName === 'edit_metadata') {
+      metadataUpdates += 1
+      updatedCount += 1
+      if (contentTitle) {
+        updatedContentTitles.add(contentTitle)
+      }
+      continue
+    }
+    if (entry.toolName === 'insert_image') {
+      imagesInserted += 1
+      updatedCount += 1
+      if (contentTitle) {
+        updatedContentTitles.add(contentTitle)
+      }
+      continue
+    }
+    if (entry.toolName === 'source_ingest') {
+      sourcesIngested += 1
+    }
+  }
+
+  if (updatedCount > 0) {
+    const titles = Array.from(updatedContentTitles).filter(Boolean)
+    const titleSuffix = titles.length ? `: ${titles.join(', ')}` : ''
+    bullets.push(`Updated ${updatedCount} content change${updatedCount === 1 ? '' : 's'}${titleSuffix}.`)
+  }
+
+  if (editedSections > 0) {
+    bullets.push(`Edited ${editedSections} section${editedSections === 1 ? '' : 's'}.`)
+  }
+
+  if (metadataUpdates > 0) {
+    bullets.push(`Adjusted metadata ${metadataUpdates} time${metadataUpdates === 1 ? '' : 's'}.`)
+  }
+
+  if (imagesInserted > 0) {
+    bullets.push(`Inserted ${imagesInserted} image${imagesInserted === 1 ? '' : 's'}.`)
+  }
+
+  if (sourcesIngested > 0) {
+    bullets.push(`Ingested ${sourcesIngested} source${sourcesIngested === 1 ? '' : 's'}.`)
+  }
+
+  const primaryFile = filesPayload[0]
+  if (primaryFile) {
+    const wordCount = primaryFile.wordCount
+    const sectionsCount = primaryFile.sectionsCount
+    bullets.push(`Generated ${wordCount} words across ${sectionsCount} section${sectionsCount === 1 ? '' : 's'}.`)
+    if (primaryFile.diffStats && (primaryFile.diffStats.additions || primaryFile.diffStats.deletions)) {
+      bullets.push(`Diff stats: +${primaryFile.diffStats.additions} / -${primaryFile.diffStats.deletions}.`)
+    }
+  }
+
+  if (uploadsCount > 0) {
+    bullets.push(`Linked ${uploadsCount} recent upload${uploadsCount === 1 ? '' : 's'}.`)
+  }
+
+  if (!bullets.length) {
+    bullets.push('Content updated.')
+  }
+
+  return bullets.join('\n')
+}
+
 async function composeWorkspaceCompletionMessages(
   db: Awaited<ReturnType<typeof useDB>>,
   organizationId: string,
   content: typeof schema.content.$inferSelect,
-  version: typeof schema.contentVersion.$inferSelect
+  version: typeof schema.contentVersion.$inferSelect,
+  options?: {
+    toolHistory?: Array<{
+      toolName: string
+      invocation: ChatToolInvocation
+      result: ToolExecutionResult
+    }>
+    createdContentItems?: CreatedContentItem[]
+  }
 ) {
   const sourceContentId =
     (version.frontmatter as Record<string, any> | null | undefined)?.sourceContentId
@@ -147,14 +242,8 @@ async function composeWorkspaceCompletionMessages(
     sourceContent = record ?? null
   }
 
-  const workspaceSummary = buildWorkspaceSummary({
-    content,
-    currentVersion: version,
-    sourceContent
-  })
-  const summaryBullets = toSummaryBullets(workspaceSummary)
-  const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Content updated.']).map(item => `- ${item}`)].join('\n')
   const filesPayload = buildWorkspaceFilesPayload(content, version, sourceContent)
+
   const filesText = ['**Files**', ...filesPayload.map(file => `- ${file.filename}`)].join('\n')
 
   const recentUploads = await db
@@ -184,20 +273,47 @@ async function composeWorkspaceCompletionMessages(
       })].join('\n')
     : null
 
+  const createdContentItems = (options?.createdContentItems ?? []).filter(item => item?.id)
+  const uploadsCount = recentUploads.length
+
+  const effortSummary = buildEffortSummaryFromToolHistory({
+    toolHistory: options?.toolHistory ?? [],
+    filesPayload,
+    uploadsCount,
+    createdContentItems
+  })
+  const summaryBullets = toSummaryBullets(effortSummary)
+  const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Content updated.']).map(item => `- ${item}`)].join('\n')
+
+  const summaryPayload = {
+    type: 'workspace_summary',
+    summary: effortSummary || 'Content updated.'
+  }
+
+  const filesPayloadWithCreated = {
+    type: 'workspace_files',
+    files: filesPayload,
+    ...(createdContentItems.length > 0 ? { createdContent: createdContentItems } : {})
+  }
+
+  const summaryOutput = {
+    content: summaryText,
+    payload: summaryPayload
+  }
+
+  const filesOutput = {
+    content: filesText,
+    payload: filesPayloadWithCreated
+  }
+
   return {
     summary: {
-      content: summaryText,
-      payload: {
-        type: 'workspace_summary',
-        summary: workspaceSummary || 'Content updated.'
-      }
+      content: summaryOutput.content,
+      payload: summaryOutput.payload
     },
     files: {
-      content: filesText,
-      payload: {
-        type: 'workspace_files',
-        files: filesPayload
-      }
+      content: filesOutput.content,
+      payload: filesOutput.payload
     },
     uploads: uploadsText
       ? {
@@ -2031,10 +2147,17 @@ export default defineEventHandler(async (event) => {
           }
         }
 
-        const requestContentId = (body as any).contentId
-          ? validateOptionalUUID((body as any).contentId, 'contentId')
+        const requestContentIdentifier = typeof body.contentIdentifier === 'string'
+          ? body.contentIdentifier
           : null
 
+        const resolvedContent = await resolveContentContext(
+          db,
+          organizationId,
+          requestContentIdentifier || body.contentId || null
+        )
+        const requestContentId = resolvedContent.contentId
+        const requestContentScope = resolvedContent.scope
         const _initialSessionContentId = requestContentId
 
         const requestToolState = {
@@ -2235,6 +2358,32 @@ export default defineEventHandler(async (event) => {
                   error: error instanceof Error ? error.message : 'Unknown error'
                 })
                 contextBlocks.push(`Current content ID: ${linkedContentId}`)
+              }
+            }
+
+            if (requestContentScope === 'site-config') {
+              try {
+                const [orgRecord] = await db
+                  .select({
+                    name: schema.organization.name,
+                    metadata: schema.organization.metadata
+                  })
+                  .from(schema.organization)
+                  .where(eq(schema.organization.id, organizationId))
+                  .limit(1)
+
+                if (orgRecord) {
+                  const siteConfig = getSiteConfigFromMetadata(orgRecord.metadata)
+                  const formattedConfig = formatSiteConfig(siteConfig)
+                  contextBlocks.push(`Site settings for ${orgRecord.name}:\n${formattedConfig}`)
+                } else {
+                  contextBlocks.push('Site settings: (organization not found)')
+                }
+              } catch (error) {
+                safeError('Failed to load site settings for context', {
+                  error: error instanceof Error ? error.message : 'Unknown error'
+                })
+                contextBlocks.push('Site settings: (unavailable)')
               }
             }
 
@@ -2784,7 +2933,11 @@ export default defineEventHandler(async (event) => {
                       db,
                       organizationId,
                       contentRecord,
-                      versionRecord
+                      versionRecord,
+                      {
+                        toolHistory: multiPassResult.toolHistory,
+                        createdContentItems
+                      }
                     )
 
                     const [artifactCountResult] = await db
@@ -2855,16 +3008,6 @@ export default defineEventHandler(async (event) => {
         // Save agent's reply if available (use the same message ID from streaming to avoid duplicates)
         if (agentAssistantReply) {
           await persistAssistantMessage(agentAssistantReply, null, { id: currentMessageId || undefined })
-        }
-
-        if (createdContentItems.length > 0) {
-          await persistAssistantMessage(
-            'Created content.',
-            {
-              type: 'created_content',
-              items: createdContentItems
-            }
-          )
         }
 
         if (completionMessages?.summary) {
