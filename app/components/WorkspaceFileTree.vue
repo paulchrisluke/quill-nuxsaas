@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { FileTreeNode } from './WorkspaceFileTreeNode.vue'
 import { NON_ORG_SLUG } from '~~/shared/constants/routing'
+import { SITE_CONFIG_FILENAME, SITE_CONFIG_VIRTUAL_KEY } from '~~/shared/utils/siteConfig'
 import { useContentList } from '~/composables/useContentList'
 import { useFileList } from '~/composables/useFileList'
 import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
-import { SITE_CONFIG_FILENAME, SITE_CONFIG_VIRTUAL_KEY } from '~~/shared/utils/siteConfig'
 
 const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
@@ -218,15 +218,17 @@ const contentEntries = computed(() => {
 
   const resolvedMembers = members.length
     ? members
-    : (user.value?.id ? [{
-        id: user.value.id,
-        userId: user.value.id,
-        user: {
-          name: user.value.name,
-          email: user.value.email
-        },
-        role: 'owner'
-      }] : [])
+    : (user.value?.id
+        ? [{
+            id: user.value.id,
+            userId: user.value.id,
+            user: {
+              name: user.value.name,
+              email: user.value.email
+            },
+            role: 'owner'
+          }]
+        : [])
 
   const memberEntries = resolvedMembers.map((member: any) => {
     const name = member?.user?.name || member?.user?.email || member?.userId || 'Member'

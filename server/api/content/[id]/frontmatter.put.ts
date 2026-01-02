@@ -3,16 +3,6 @@ import { and, desc, eq } from 'drizzle-orm'
 import { createError, getRouterParams, readBody } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
-import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
-import { useDB } from '~~/server/utils/db'
-import { ensureUniqueContentSlug, slugifyTitle } from '~~/server/utils/content'
-import {
-  validateEnum,
-  validateOptionalString,
-  validateRequestBody,
-  validateUUID
-} from '~~/server/utils/validation'
-import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import { extractFrontmatterFromVersion } from '~~/server/services/content/generation/frontmatter'
 import {
   deriveSchemaMetadata,
@@ -21,7 +11,16 @@ import {
 } from '~~/server/services/content/generation/schemaMetadata'
 import { normalizeContentSections } from '~~/server/services/content/generation/sections'
 import { normalizeContentKeywords, normalizeContentSchemaTypes } from '~~/server/services/content/generation/utils'
-import { CONTENT_STATUSES, CONTENT_TYPES } from '~~/server/utils/content'
+import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
+import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
+import { CONTENT_STATUSES, CONTENT_TYPES, ensureUniqueContentSlug, slugifyTitle } from '~~/server/utils/content'
+import { useDB } from '~~/server/utils/db'
+import {
+  validateEnum,
+  validateOptionalString,
+  validateRequestBody,
+  validateUUID
+} from '~~/server/utils/validation'
 
 interface FrontmatterUpdateRequestBody {
   title?: string | null
@@ -219,7 +218,7 @@ export default defineEventHandler(async (event) => {
     } else if (body.faq && typeof body.faq === 'object') {
       const entries = Array.isArray(body.faq.entries)
         ? body.faq.entries
-          .map(entry => {
+          .map((entry) => {
             const question = validateOptionalString(entry?.question, 'faq.entries.question')
             const answer = validateOptionalString(entry?.answer, 'faq.entries.answer')
             if (!question || !answer) {
@@ -242,7 +241,7 @@ export default defineEventHandler(async (event) => {
     } else if (body.course && typeof body.course === 'object') {
       const modules = Array.isArray(body.course.modules)
         ? body.course.modules
-          .map(entry => {
+          .map((entry) => {
             const title = validateOptionalString(entry?.title, 'course.modules.title')
             if (!title) {
               return null

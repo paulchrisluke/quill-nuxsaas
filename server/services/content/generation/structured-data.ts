@@ -170,7 +170,7 @@ const normalizeDate = (value?: string | Date | null) => {
     return value.toISOString()
   }
   const trimmed = value.trim()
-  return trimmed ? trimmed : null
+  return trimmed || null
 }
 
 const resolveContentUrl = (baseUrl?: string, slug?: string) => {
@@ -189,9 +189,9 @@ const buildBreadcrumbList = (breadcrumbs?: StructuredDataBreadcrumb[] | null) =>
   const entries = breadcrumbs
     .map((crumb, index) => ({
       '@type': 'ListItem',
-      position: index + 1,
-      name: crumb.name,
-      item: crumb.item
+      'position': index + 1,
+      'name': crumb.name,
+      'item': crumb.item
     }))
     .filter(entry => entry.name && entry.item)
   if (!entries.length) {
@@ -199,7 +199,7 @@ const buildBreadcrumbList = (breadcrumbs?: StructuredDataBreadcrumb[] | null) =>
   }
   return {
     '@type': 'BreadcrumbList',
-    itemListElement: entries
+    'itemListElement': entries
   }
 }
 
@@ -278,7 +278,7 @@ export const buildStructuredDataGraph = (params: StructuredDataParams) => {
     ? {
         '@type': 'ImageObject',
         ...(imageId ? { '@id': imageId } : {}),
-        url: imageMeta.url,
+        'url': imageMeta.url,
         ...(imageMeta.width ? { width: imageMeta.width } : {}),
         ...(imageMeta.height ? { height: imageMeta.height } : {}),
         ...(imageMeta.alt ? { caption: imageMeta.alt } : {})
@@ -289,7 +289,7 @@ export const buildStructuredDataGraph = (params: StructuredDataParams) => {
     ? {
         '@type': 'Person',
         ...(makeId('author') ? { '@id': makeId('author') } : {}),
-        name: params.author.name,
+        'name': params.author.name,
         ...(params.author.url ? { url: params.author.url } : {}),
         ...(params.author.image ? { image: params.author.image } : {}),
         ...(params.author.sameAs?.length ? { sameAs: params.author.sameAs } : {})
@@ -300,13 +300,13 @@ export const buildStructuredDataGraph = (params: StructuredDataParams) => {
     ? {
         '@type': 'Organization',
         ...(makeId('publisher') ? { '@id': makeId('publisher') } : {}),
-        name: params.publisher.name,
+        'name': params.publisher.name,
         ...(params.publisher.url ? { url: params.publisher.url } : {}),
         ...(params.publisher.logoUrl
           ? {
               logo: {
                 '@type': 'ImageObject',
-                url: params.publisher.logoUrl
+                'url': params.publisher.logoUrl
               }
             }
           : {}),
@@ -374,7 +374,7 @@ export const buildStructuredDataGraph = (params: StructuredDataParams) => {
   if (webPageId || pageUrl) {
     structuredData.mainEntityOfPage = webPageId
       ? { '@id': webPageId }
-      : { '@type': 'WebPage', '@id': pageUrl, url: pageUrl }
+      : { '@type': 'WebPage', '@id': pageUrl, 'url': pageUrl }
   }
 
   if (author) {

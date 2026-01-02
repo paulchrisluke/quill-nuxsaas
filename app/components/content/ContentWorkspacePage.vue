@@ -2,10 +2,10 @@
 import type { ContentStatus, ContentType } from '~~/server/types/content'
 import { Emoji, gitHubEmojis } from '@tiptap/extension-emoji'
 import { nextTick } from 'vue'
+import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
 import { useContentUpdates } from '~/composables/useContentUpdates'
-import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 const route = useRoute()
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', () => {})
@@ -312,17 +312,20 @@ const syncSeoForm = () => {
   const faq = typeof frontmatter.faq === 'object' && frontmatter.faq ? frontmatter.faq : {}
   faqForm.description = typeof faq.description === 'string' ? faq.description : ''
   faqForm.entriesInput = Array.isArray(faq.entries)
-    ? faq.entries.map((entry: any) => {
-      if (!entry || typeof entry !== 'object') {
-        return null
-      }
-      const question = typeof entry.question === 'string' ? entry.question.trim() : ''
-      const answer = typeof entry.answer === 'string' ? entry.answer.trim() : ''
-      if (!question || !answer) {
-        return null
-      }
-      return `${question} :: ${answer}`
-    }).filter(Boolean).join('\n')
+    ? faq.entries
+        .map((entry: any) => {
+          if (!entry || typeof entry !== 'object') {
+            return null
+          }
+          const question = typeof entry.question === 'string' ? entry.question.trim() : ''
+          const answer = typeof entry.answer === 'string' ? entry.answer.trim() : ''
+          if (!question || !answer) {
+            return null
+          }
+          return `${question} :: ${answer}`
+        })
+        .filter(Boolean)
+        .join('\n')
     : ''
 
   const course = typeof frontmatter.course === 'object' && frontmatter.course ? frontmatter.course : {}
@@ -330,17 +333,20 @@ const syncSeoForm = () => {
   courseForm.providerUrl = typeof course.providerUrl === 'string' ? course.providerUrl : ''
   courseForm.courseCode = typeof course.courseCode === 'string' ? course.courseCode : ''
   courseForm.modulesInput = Array.isArray(course.modules)
-    ? course.modules.map((entry: any) => {
-      if (!entry || typeof entry !== 'object') {
-        return null
-      }
-      const title = typeof entry.title === 'string' ? entry.title.trim() : ''
-      const description = typeof entry.description === 'string' ? entry.description.trim() : ''
-      if (!title) {
-        return null
-      }
-      return description ? `${title} :: ${description}` : title
-    }).filter(Boolean).join('\n')
+    ? course.modules
+        .map((entry: any) => {
+          if (!entry || typeof entry !== 'object') {
+            return null
+          }
+          const title = typeof entry.title === 'string' ? entry.title.trim() : ''
+          const description = typeof entry.description === 'string' ? entry.description.trim() : ''
+          if (!title) {
+            return null
+          }
+          return description ? `${title} :: ${description}` : title
+        })
+        .filter(Boolean)
+        .join('\n')
     : ''
 }
 
@@ -943,19 +949,31 @@ watch(latestUpdate, (update) => {
             <UInput v-model="seoForm.title" />
           </UFormField>
           <UFormField label="SEO title (optional)">
-            <UInput v-model="seoForm.seoTitle" placeholder="Custom title for SERP" />
+            <UInput
+              v-model="seoForm.seoTitle"
+              placeholder="Custom title for SERP"
+            />
           </UFormField>
           <UFormField label="Description">
-            <UTextarea v-model="seoForm.description" :rows="3" />
+            <UTextarea
+              v-model="seoForm.description"
+              :rows="3"
+            />
           </UFormField>
           <UFormField label="Slug">
             <UInput v-model="seoForm.slug" />
           </UFormField>
           <UFormField label="Primary keyword">
-            <UInput v-model="seoForm.primaryKeyword" placeholder="e.g. remote team onboarding" />
+            <UInput
+              v-model="seoForm.primaryKeyword"
+              placeholder="e.g. remote team onboarding"
+            />
           </UFormField>
           <UFormField label="Keywords (comma separated)">
-            <UInput v-model="seoForm.keywordsInput" placeholder="keyword 1, keyword 2, keyword 3" />
+            <UInput
+              v-model="seoForm.keywordsInput"
+              placeholder="keyword 1, keyword 2, keyword 3"
+            />
           </UFormField>
         </div>
 
@@ -1013,29 +1031,53 @@ watch(latestUpdate, (update) => {
           </p>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <UFormField label="Recipe yield">
-              <UInput v-model="recipeForm.yield" placeholder="e.g. 4 servings" />
+              <UInput
+                v-model="recipeForm.yield"
+                placeholder="e.g. 4 servings"
+              />
             </UFormField>
             <UFormField label="Cuisine">
-              <UInput v-model="recipeForm.cuisine" placeholder="e.g. Italian" />
+              <UInput
+                v-model="recipeForm.cuisine"
+                placeholder="e.g. Italian"
+              />
             </UFormField>
             <UFormField label="Prep time (ISO 8601)">
-              <UInput v-model="recipeForm.prepTime" placeholder="PT20M" />
+              <UInput
+                v-model="recipeForm.prepTime"
+                placeholder="PT20M"
+              />
             </UFormField>
             <UFormField label="Cook time (ISO 8601)">
-              <UInput v-model="recipeForm.cookTime" placeholder="PT45M" />
+              <UInput
+                v-model="recipeForm.cookTime"
+                placeholder="PT45M"
+              />
             </UFormField>
             <UFormField label="Total time (ISO 8601)">
-              <UInput v-model="recipeForm.totalTime" placeholder="PT1H" />
+              <UInput
+                v-model="recipeForm.totalTime"
+                placeholder="PT1H"
+              />
             </UFormField>
             <UFormField label="Calories">
-              <UInput v-model="recipeForm.calories" placeholder="e.g. 220 calories" />
+              <UInput
+                v-model="recipeForm.calories"
+                placeholder="e.g. 220 calories"
+              />
             </UFormField>
           </div>
           <UFormField label="Ingredients (one per line)">
-            <UTextarea v-model="recipeForm.ingredientsInput" :rows="4" />
+            <UTextarea
+              v-model="recipeForm.ingredientsInput"
+              :rows="4"
+            />
           </UFormField>
           <UFormField label="Instructions (one step per line)">
-            <UTextarea v-model="recipeForm.instructionsInput" :rows="4" />
+            <UTextarea
+              v-model="recipeForm.instructionsInput"
+              :rows="4"
+            />
           </UFormField>
         </div>
 
@@ -1048,23 +1090,41 @@ watch(latestUpdate, (update) => {
           </p>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <UFormField label="Estimated cost">
-              <UInput v-model="howToForm.estimatedCost" placeholder="e.g. $45" />
+              <UInput
+                v-model="howToForm.estimatedCost"
+                placeholder="e.g. $45"
+              />
             </UFormField>
             <UFormField label="Total time (ISO 8601)">
-              <UInput v-model="howToForm.totalTime" placeholder="PT2H" />
+              <UInput
+                v-model="howToForm.totalTime"
+                placeholder="PT2H"
+              />
             </UFormField>
             <UFormField label="Difficulty">
-              <UInput v-model="howToForm.difficulty" placeholder="e.g. Easy" />
+              <UInput
+                v-model="howToForm.difficulty"
+                placeholder="e.g. Easy"
+              />
             </UFormField>
           </div>
           <UFormField label="Supplies (one per line)">
-            <UTextarea v-model="howToForm.suppliesInput" :rows="3" />
+            <UTextarea
+              v-model="howToForm.suppliesInput"
+              :rows="3"
+            />
           </UFormField>
           <UFormField label="Tools (one per line)">
-            <UTextarea v-model="howToForm.toolsInput" :rows="3" />
+            <UTextarea
+              v-model="howToForm.toolsInput"
+              :rows="3"
+            />
           </UFormField>
           <UFormField label="Steps (one per line)">
-            <UTextarea v-model="howToForm.stepsInput" :rows="4" />
+            <UTextarea
+              v-model="howToForm.stepsInput"
+              :rows="4"
+            />
           </UFormField>
         </div>
 
@@ -1076,10 +1136,16 @@ watch(latestUpdate, (update) => {
             FAQ schema
           </p>
           <UFormField label="FAQ description">
-            <UTextarea v-model="faqForm.description" :rows="2" />
+            <UTextarea
+              v-model="faqForm.description"
+              :rows="2"
+            />
           </UFormField>
           <UFormField label="FAQ entries (one per line: Question :: Answer)">
-            <UTextarea v-model="faqForm.entriesInput" :rows="5" />
+            <UTextarea
+              v-model="faqForm.entriesInput"
+              :rows="5"
+            />
           </UFormField>
         </div>
 
@@ -1092,17 +1158,26 @@ watch(latestUpdate, (update) => {
           </p>
           <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <UFormField label="Provider name">
-              <UInput v-model="courseForm.providerName" placeholder="Organization or instructor" />
+              <UInput
+                v-model="courseForm.providerName"
+                placeholder="Organization or instructor"
+              />
             </UFormField>
             <UFormField label="Provider URL">
-              <UInput v-model="courseForm.providerUrl" placeholder="https://example.com" />
+              <UInput
+                v-model="courseForm.providerUrl"
+                placeholder="https://example.com"
+              />
             </UFormField>
             <UFormField label="Course code">
               <UInput v-model="courseForm.courseCode" />
             </UFormField>
           </div>
           <UFormField label="Modules (one per line: Title :: Description)">
-            <UTextarea v-model="courseForm.modulesInput" :rows="5" />
+            <UTextarea
+              v-model="courseForm.modulesInput"
+              :rows="5"
+            />
           </UFormField>
         </div>
       </UCard>

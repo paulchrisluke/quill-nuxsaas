@@ -302,17 +302,45 @@ watch(formState, () => {
         </p>
       </template>
       <div class="space-y-4">
-        <UFormField v-bind="fieldProps" label="Publisher name">
-          <UInput v-model="formState.publisher.name" placeholder="Organization name" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Publisher name"
+        >
+          <UInput
+            v-model="formState.publisher.name"
+            placeholder="Organization name"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Publisher URL">
-          <UInput v-model="formState.publisher.url" placeholder="https://example.com" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Publisher URL"
+        >
+          <UInput
+            v-model="formState.publisher.url"
+            placeholder="https://example.com"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Publisher logo URL">
-          <UInput v-model="formState.publisher.logoUrl" placeholder="https://example.com/logo.png" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Publisher logo URL"
+        >
+          <UInput
+            v-model="formState.publisher.logoUrl"
+            placeholder="https://example.com/logo.png"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Publisher social links (one per line)">
-          <UTextarea v-model="formState.publisher.sameAsInput" :rows="3" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Publisher social links (one per line)"
+        >
+          <UTextarea
+            v-model="formState.publisher.sameAsInput"
+            :rows="3"
+            class="w-full"
+          />
         </UFormField>
       </div>
     </UCard>
@@ -324,33 +352,75 @@ watch(formState, () => {
         </p>
       </template>
       <div class="space-y-4">
-        <UFormField v-bind="fieldProps" label="Author name">
-          <UInput v-model="formState.author.name" placeholder="Primary editor" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Author name"
+        >
+          <UInput
+            v-model="formState.author.name"
+            placeholder="Primary editor"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Author URL">
-          <UInput v-model="formState.author.url" placeholder="https://example.com/about" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Author URL"
+        >
+          <UInput
+            v-model="formState.author.url"
+            placeholder="https://example.com/about"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Author image URL">
-          <UInput v-model="formState.author.image" placeholder="https://example.com/author.png" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Author image URL"
+        >
+          <UInput
+            v-model="formState.author.image"
+            placeholder="https://example.com/author.png"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Author social links (one per line)">
-          <UTextarea v-model="formState.author.sameAsInput" :rows="3" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Author social links (one per line)"
+        >
+          <UTextarea
+            v-model="formState.author.sameAsInput"
+            :rows="3"
+            class="w-full"
+          />
         </UFormField>
       </div>
     </UCard>
 
     <UCard class="w-full">
       <template #header>
-          <p class="text-sm font-medium">
-            Blog defaults
-          </p>
+        <p class="text-sm font-medium">
+          Blog defaults
+        </p>
       </template>
       <div class="space-y-4">
-        <UFormField v-bind="fieldProps" label="Blog name">
-          <UInput v-model="formState.blog.name" placeholder="Blog" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Blog name"
+        >
+          <UInput
+            v-model="formState.blog.name"
+            placeholder="Blog"
+            class="w-full"
+          />
         </UFormField>
-        <UFormField v-bind="fieldProps" label="Blog URL">
-          <UInput v-model="formState.blog.url" placeholder="https://example.com/blog" class="w-full" />
+        <UFormField
+          v-bind="fieldProps"
+          label="Blog URL"
+        >
+          <UInput
+            v-model="formState.blog.url"
+            placeholder="https://example.com/blog"
+            class="w-full"
+          />
         </UFormField>
       </div>
     </UCard>
@@ -376,11 +446,25 @@ watch(formState, () => {
           :key="index"
           class="space-y-3 rounded-lg border border-surface-200/60 dark:border-surface-800/60 p-3"
         >
-          <UFormField v-bind="fieldProps" label="Category name">
-            <UInput v-model="category.name" placeholder="News" class="w-full" />
+          <UFormField
+            v-bind="fieldProps"
+            label="Category name"
+          >
+            <UInput
+              v-model="category.name"
+              placeholder="News"
+              class="w-full"
+            />
           </UFormField>
-          <UFormField v-bind="fieldProps" label="Slug (optional)">
-            <UInput v-model="category.slug" placeholder="news" class="w-full" />
+          <UFormField
+            v-bind="fieldProps"
+            label="Slug (optional)"
+          >
+            <UInput
+              v-model="category.slug"
+              placeholder="news"
+              class="w-full"
+            />
           </UFormField>
           <div class="flex items-center justify-end">
             <UButton

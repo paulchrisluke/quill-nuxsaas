@@ -3,11 +3,11 @@ import type { ContentFrontmatter, ContentSection } from './generation/types'
 import { eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
+import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 import { getConversationById, getConversationLogs, getConversationMessages } from '../conversation'
 import { buildStructuredDataGraph, generateStructuredDataJsonLd, renderStructuredDataJsonLd } from './generation'
 import { buildWorkspaceSummary } from './workspaceSummary'
-import { runtimeConfig } from '~~/server/utils/runtimeConfig'
-import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 export async function getContentWorkspacePayload(
   db: NodePgDatabase<typeof schema>,

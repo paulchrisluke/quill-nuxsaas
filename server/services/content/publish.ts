@@ -4,9 +4,9 @@ import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
-import { buildWorkspaceFilesPayload } from './workspaceFiles'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
+import { buildWorkspaceFilesPayload } from './workspaceFiles'
 
 interface PublishContentVersionOptions {
   organizationId: string
