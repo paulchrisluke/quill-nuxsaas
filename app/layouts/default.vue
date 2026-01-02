@@ -18,6 +18,7 @@ const authModalOpen = ref(false)
 const authModalMode = ref<'signin' | 'signup'>('signin')
 
 useHead(() => ({
+  htmlAttrs: i18nHead.value.htmlAttrs,
   link: [...(i18nHead.value.link || [])]
 }))
 

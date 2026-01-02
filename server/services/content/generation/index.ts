@@ -1238,7 +1238,9 @@ export {
 } from './sections'
 
 export {
-  generateStructuredDataJsonLd
+  buildStructuredDataGraph,
+  generateStructuredDataJsonLd,
+  renderStructuredDataJsonLd
 } from './structured-data'
 
 // Re-export types

@@ -13,11 +13,10 @@ definePageMeta({
             General
           </h1>
           <p class="text-muted-500">
-            Control the basics for your workspace experience like appearance and language defaults.
+            Control the basics for your workspace experience like appearance defaults.
           </p>
         </div>
         <div class="flex items-center gap-2">
-          <LocaleToggler />
           <ClientOnly>
             <ColorModeToggler />
           </ClientOnly>

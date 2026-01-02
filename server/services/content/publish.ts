@@ -5,6 +5,8 @@ import * as schema from '~~/server/db/schema'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { buildWorkspaceFilesPayload } from './workspaceFiles'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
+import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 interface PublishContentVersionOptions {
   organizationId: string
@@ -27,7 +29,13 @@ export async function publishContentVersion(
 ): Promise<PublishContentResult> {
   const { organizationId, contentId, versionId, userId } = options
   const [organization] = await db
-    .select({ id: schema.organization.id, slug: schema.organization.slug })
+    .select({
+      id: schema.organization.id,
+      name: schema.organization.name,
+      slug: schema.organization.slug,
+      logo: schema.organization.logo,
+      metadata: schema.organization.metadata
+    })
     .from(schema.organization)
     .where(eq(schema.organization.id, organizationId))
     .limit(1)
@@ -80,6 +88,12 @@ export async function publishContentVersion(
     })
   }
 
+  const [author] = await db
+    .select({ name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(eq(schema.user.id, contentRecord.createdByUserId))
+    .limit(1)
+
   const sourceContentId =
     (versionRecord.frontmatter as Record<string, any> | null | undefined)?.sourceContentId
     || contentRecord.sourceContentId
@@ -97,11 +111,37 @@ export async function publishContentVersion(
     sourceContentRecord = record ?? null
   }
 
+  const siteConfig = getSiteConfigFromMetadata(organization.metadata)
+  const publisherDefaults = {
+    name: organization.name,
+    url: organization.slug && runtimeConfig.public.baseURL
+      ? `${runtimeConfig.public.baseURL.replace(/\/+$/, '')}/${organization.slug}`
+      : undefined,
+    logoUrl: organization.logo ?? undefined
+  }
+  const publisher = publisherDefaults
+    ? { ...publisherDefaults, ...(siteConfig.publisher ?? {}) }
+    : (siteConfig.publisher ?? null)
+  const authorDefaults = author ? { name: author.name, image: author.image ?? undefined } : null
+  const authorPayload = authorDefaults
+    ? { ...authorDefaults, ...(siteConfig.author ?? {}) }
+    : (siteConfig.author ?? null)
+  const blog = siteConfig.blog ?? null
+  const categories = siteConfig.categories ?? null
+
   const filesPayload = buildWorkspaceFilesPayload(
     contentRecord,
     versionRecord,
     sourceContentRecord,
-    { organizationSlug: organization.slug }
+    {
+      organizationSlug: organization.slug,
+      baseUrl: runtimeConfig.public.baseURL ?? null,
+      author: authorPayload,
+      publisher,
+      breadcrumbs: siteConfig.breadcrumbs ?? null,
+      blog,
+      categories
+    }
   )
   const filePayload = filesPayload[0]
 

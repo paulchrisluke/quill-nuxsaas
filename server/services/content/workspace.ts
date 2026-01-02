@@ -4,8 +4,10 @@ import { eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { getConversationById, getConversationLogs, getConversationMessages } from '../conversation'
-import { generateStructuredDataJsonLd } from './generation'
+import { buildStructuredDataGraph, generateStructuredDataJsonLd, renderStructuredDataJsonLd } from './generation'
 import { buildWorkspaceSummary } from './workspaceSummary'
+import { runtimeConfig } from '~~/server/utils/runtimeConfig'
+import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 export async function getContentWorkspacePayload(
   db: NodePgDatabase<typeof schema>,
@@ -46,6 +48,23 @@ export async function getContentWorkspacePayload(
       .limit(1)
     currentVersion = versionRow ?? null
   }
+
+  const [organizationRow] = await db
+    .select({
+      name: schema.organization.name,
+      slug: schema.organization.slug,
+      logo: schema.organization.logo,
+      metadata: schema.organization.metadata
+    })
+    .from(schema.organization)
+    .where(eq(schema.organization.id, contentRow.organizationId))
+    .limit(1)
+
+  const [authorRow] = await db
+    .select({ name: schema.user.name, image: schema.user.image })
+    .from(schema.user)
+    .where(eq(schema.user.id, contentRow.createdByUserId))
+    .limit(1)
 
   let chatMessages: Array<{
     id: string
@@ -107,12 +126,51 @@ export async function getContentWorkspacePayload(
   })
 
   let structuredData: string | null = null
+  let structuredDataGraph: Record<string, any> | null = null
   if (currentVersion?.frontmatter) {
-    structuredData = generateStructuredDataJsonLd({
+    const baseUrl = runtimeConfig.public.baseURL || undefined
+    const siteConfig = organizationRow ? getSiteConfigFromMetadata(organizationRow.metadata) : {}
+    const publisherDefaults = organizationRow
+      ? {
+          name: organizationRow.name,
+          url: organizationRow.slug && baseUrl ? `${baseUrl.replace(/\/+$/, '')}/${organizationRow.slug}` : undefined,
+          logoUrl: organizationRow.logo ?? undefined
+        }
+      : null
+    const publisher = publisherDefaults
+      ? { ...publisherDefaults, ...(siteConfig.publisher ?? {}) }
+      : (siteConfig.publisher ?? null)
+    const authorDefaults = authorRow
+      ? {
+          name: authorRow.name,
+          image: authorRow.image ?? undefined
+        }
+      : null
+    const author = authorDefaults
+      ? { ...authorDefaults, ...(siteConfig.author ?? {}) }
+      : (siteConfig.author ?? null)
+    const blog = siteConfig.blog ?? null
+    const categories = siteConfig.categories ?? null
+    const structuredDataParams = {
       frontmatter: currentVersion.frontmatter as ContentFrontmatter,
       seoSnapshot: currentVersion.seoSnapshot as Record<string, any> | null,
-      sections: currentVersion.sections as ContentSection[] | null | undefined
-    }) || null
+      sections: currentVersion.sections as ContentSection[] | null | undefined,
+      baseUrl,
+      contentId: contentRow.id,
+      author,
+      publisher,
+      datePublished: contentRow.publishedAt ?? currentVersion.createdAt ?? null,
+      dateModified: contentRow.updatedAt ?? currentVersion.createdAt ?? null,
+      breadcrumbs: siteConfig.breadcrumbs ?? null,
+      blog,
+      categories
+    }
+
+    structuredDataGraph = buildStructuredDataGraph(structuredDataParams) || null
+    structuredData = structuredDataGraph
+      ? renderStructuredDataJsonLd(structuredDataGraph)
+      : generateStructuredDataJsonLd(structuredDataParams)
+    structuredData = structuredData || null
   }
 
   // Extract image suggestions from assets
@@ -124,6 +182,7 @@ export async function getContentWorkspacePayload(
     ? {
         ...currentVersion,
         structuredData,
+        structuredDataGraph,
         imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : []
       }
     : null

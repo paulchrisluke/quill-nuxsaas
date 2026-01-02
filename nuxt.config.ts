@@ -21,6 +21,7 @@ export default defineNuxtConfig({
   i18n: {
     vueI18n: '~/i18n/i18n.config.ts',
     baseUrl: process.env.NUXT_APP_URL,
+    detectBrowserLanguage: false,
     locales: [
       { code: 'en', language: 'en-US', name: 'English' },
       { code: 'zh-CN', language: 'zh-CN', name: '简体中文' },
@@ -93,6 +94,9 @@ export default defineNuxtConfig({
   runtimeConfig: generateRuntimeConfig(),
   app: {
     head: {
+      htmlAttrs: {
+        lang: 'en'
+      },
       charset: 'utf-8',
       viewport: 'width=device-width, initial-scale=1, maximum-scale=5.0, minimum-scale=1.0',
       link: [

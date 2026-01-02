@@ -1,6 +1,8 @@
 import type * as schema from '~~/server/db/schema'
 import type { ContentSection } from './generation/types'
 import { slugifyTitle } from '~~/server/utils/content'
+import { buildStructuredDataGraph, renderStructuredDataJsonLd } from './generation/structured-data'
+import { isValidContentFrontmatter } from './generation/utils'
 
 export interface WorkspaceFilePayload {
   id: string
@@ -22,6 +24,8 @@ export interface WorkspaceFilePayload {
   fullMarkdown: string
   contentId: string
   slug: string
+  structuredData: string | null
+  structuredDataGraph: Record<string, any> | null
   diffStats?: { additions: number, deletions: number } | null
 }
 
@@ -108,7 +112,15 @@ export function buildWorkspaceFilesPayload(
   content: typeof schema.content.$inferSelect,
   version: typeof schema.contentVersion.$inferSelect,
   sourceContent: typeof schema.sourceContent.$inferSelect | null,
-  options?: { organizationSlug?: string | null }
+  options?: {
+    organizationSlug?: string | null
+    baseUrl?: string | null
+    author?: { name: string, url?: string, image?: string } | null
+    publisher?: { name: string, url?: string, logoUrl?: string } | null
+    breadcrumbs?: { name: string, item: string }[] | null
+    blog?: { name?: string, url?: string } | null
+    categories?: { name: string, slug?: string }[] | null
+  }
 ): WorkspaceFilePayload[] {
   const body = version.bodyMarkdown || ''
   const sections = Array.isArray(version.sections) ? version.sections as ContentSection[] : []
@@ -134,6 +146,27 @@ export function buildWorkspaceFilesPayload(
   }, 0) || body.split(/\s+/).filter(Boolean).length
 
   const fullMarkdown = body
+
+  const structuredDataGraph = isValidContentFrontmatter(frontmatter)
+    ? buildStructuredDataGraph({
+        frontmatter,
+        seoSnapshot,
+        sections,
+        baseUrl: options?.baseUrl ?? undefined,
+        contentId: content.id,
+        author: options?.author ?? null,
+        publisher: options?.publisher ?? null,
+        breadcrumbs: options?.breadcrumbs ?? null,
+        blog: options?.blog ?? null,
+        categories: options?.categories ?? null,
+        datePublished: content.publishedAt ?? version.createdAt ?? null,
+        dateModified: content.updatedAt ?? version.createdAt ?? null
+      })
+    : null
+
+  const structuredData = structuredDataGraph
+    ? renderStructuredDataJsonLd(structuredDataGraph)
+    : null
 
   // Extract slug from filename or use content slug
   const filenameSlug = filename.replace(/^content\/([^/]+\/)?/, '').replace(/\.md$/, '')
@@ -169,6 +202,8 @@ export function buildWorkspaceFilesPayload(
       fullMarkdown,
       contentId: content.id,
       slug: contentSlug,
+      structuredData,
+      structuredDataGraph,
       diffStats
     }
   ]

@@ -5,6 +5,7 @@ import { nextTick } from 'vue'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
 import { useContentList } from '~/composables/useContentList'
 import { useContentUpdates } from '~/composables/useContentUpdates'
+import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 const route = useRoute()
 const setHeaderTitle = inject<(title: string | null) => void>('setHeaderTitle', () => {})
@@ -23,6 +24,9 @@ interface ContentEntry {
   } | null
   imageSuggestions: ImageSuggestion[]
   videoId: string | null
+  frontmatter: Record<string, any> | null
+  structuredData: string | null
+  structuredDataGraph: Record<string, any> | null
 }
 
 interface ImageSuggestion {
@@ -57,6 +61,8 @@ interface ContentApiResponse {
     currentVersion?: {
       bodyMarkdown?: string
       imageSuggestions?: ImageSuggestion[]
+      structuredData?: string | null
+      structuredDataGraph?: Record<string, any> | null
       frontmatter?: {
         contentType?: string
       } & Record<string, any>
@@ -104,8 +110,13 @@ const isPending = computed(() => {
   return pending.value
 })
 const toast = useToast()
+const { useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
 const { remove: removeContent } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 const { latestUpdate } = useContentUpdates()
+
+const siteConfig = computed(() => getSiteConfigFromMetadata(activeOrg.value?.data?.metadata))
+const categoryOptions = computed(() => siteConfig.value.categories ?? [])
 
 const contentEntry = computed<ContentEntry | null>(() => {
   if (!contentData.value)
@@ -121,6 +132,12 @@ const contentEntry = computed<ContentEntry | null>(() => {
     return null
 
   const frontmatter = (currentVersion?.frontmatter as Record<string, any> | undefined) ?? null
+  const structuredData = typeof currentVersion?.structuredData === 'string'
+    ? currentVersion.structuredData
+    : null
+  const structuredDataGraph = currentVersion?.structuredDataGraph && typeof currentVersion.structuredDataGraph === 'object'
+    ? currentVersion.structuredDataGraph as Record<string, any>
+    : null
   const schemaTypes = Array.isArray(frontmatter?.schemaTypes)
     ? frontmatter.schemaTypes.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     : []
@@ -153,12 +170,324 @@ const contentEntry = computed<ContentEntry | null>(() => {
     schemaTypes,
     schemaValidation,
     imageSuggestions,
-    videoId
+    videoId,
+    frontmatter,
+    structuredData,
+    structuredDataGraph
   }
 })
 
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
 const schemaWarnings = computed(() => contentEntry.value?.schemaValidation?.warnings || [])
+const frontmatterPreview = computed(() => {
+  if (!contentEntry.value?.frontmatter) {
+    return ''
+  }
+  return JSON.stringify(contentEntry.value.frontmatter, null, 2)
+})
+const structuredDataPreview = computed(() => {
+  if (contentEntry.value?.structuredDataGraph) {
+    return JSON.stringify(contentEntry.value.structuredDataGraph, null, 2)
+  }
+  return contentEntry.value?.structuredData || ''
+})
+
+const schemaTypeOptions = [
+  { value: 'FAQPage', label: 'FAQPage' },
+  { value: 'HowTo', label: 'HowTo' },
+  { value: 'Recipe', label: 'Recipe' },
+  { value: 'Course', label: 'Course' }
+]
+
+const seoForm = reactive({
+  title: '',
+  seoTitle: '',
+  description: '',
+  slug: '',
+  primaryKeyword: '',
+  keywordsInput: '',
+  categories: [] as string[],
+  schemaTypes: [] as string[]
+})
+
+const recipeForm = reactive({
+  yield: '',
+  prepTime: '',
+  cookTime: '',
+  totalTime: '',
+  calories: '',
+  cuisine: '',
+  ingredientsInput: '',
+  instructionsInput: ''
+})
+
+const howToForm = reactive({
+  estimatedCost: '',
+  totalTime: '',
+  difficulty: '',
+  suppliesInput: '',
+  toolsInput: '',
+  stepsInput: ''
+})
+
+const faqForm = reactive({
+  description: '',
+  entriesInput: ''
+})
+
+const courseForm = reactive({
+  providerName: '',
+  providerUrl: '',
+  courseCode: '',
+  modulesInput: ''
+})
+
+const seoSaving = ref(false)
+
+const normalizeKeywordInput = (value: string) => {
+  return value
+    .split(',')
+    .map(entry => entry.trim())
+    .filter(Boolean)
+}
+
+const normalizeListInput = (value: string) => {
+  return value
+    .split('\n')
+    .map(entry => entry.trim())
+    .filter(Boolean)
+}
+
+const normalizePairInput = (value: string) => {
+  return value
+    .split('\n')
+    .map(entry => entry.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [left, right] = line.split('::').map(part => part?.trim())
+      if (!left || !right) {
+        return null
+      }
+      return { left, right }
+    })
+    .filter(Boolean) as Array<{ left: string, right: string }>
+}
+
+const syncSeoForm = () => {
+  const frontmatter = contentEntry.value?.frontmatter || {}
+  seoForm.title = typeof frontmatter.title === 'string' ? frontmatter.title : contentEntry.value?.title || ''
+  seoForm.seoTitle = typeof frontmatter.seoTitle === 'string' ? frontmatter.seoTitle : ''
+  seoForm.description = typeof frontmatter.description === 'string' ? frontmatter.description : ''
+  seoForm.slug = typeof frontmatter.slug === 'string' ? frontmatter.slug : contentEntry.value?.slug || ''
+  seoForm.primaryKeyword = typeof frontmatter.primaryKeyword === 'string' ? frontmatter.primaryKeyword : ''
+  const keywords = Array.isArray(frontmatter.keywords) ? frontmatter.keywords : []
+  seoForm.keywordsInput = keywords.filter((entry: any) => typeof entry === 'string').join(', ')
+  const categories = Array.isArray(frontmatter.categories) ? frontmatter.categories : []
+  seoForm.categories = categories
+    .filter((entry: any) => typeof entry === 'string')
+    .map((entry: string) => entry.trim())
+    .filter(Boolean)
+  seoForm.schemaTypes = Array.isArray(frontmatter.schemaTypes)
+    ? frontmatter.schemaTypes.filter((entry: unknown): entry is string => typeof entry === 'string' && entry !== 'BlogPosting')
+    : []
+
+  const recipe = typeof frontmatter.recipe === 'object' && frontmatter.recipe ? frontmatter.recipe : {}
+  recipeForm.yield = typeof recipe.yield === 'string' ? recipe.yield : ''
+  recipeForm.prepTime = typeof recipe.prepTime === 'string' ? recipe.prepTime : ''
+  recipeForm.cookTime = typeof recipe.cookTime === 'string' ? recipe.cookTime : ''
+  recipeForm.totalTime = typeof recipe.totalTime === 'string' ? recipe.totalTime : ''
+  recipeForm.calories = typeof recipe.calories === 'string' ? recipe.calories : ''
+  recipeForm.cuisine = typeof recipe.cuisine === 'string' ? recipe.cuisine : ''
+  recipeForm.ingredientsInput = Array.isArray(recipe.ingredients) ? recipe.ingredients.join('\n') : ''
+  recipeForm.instructionsInput = Array.isArray(recipe.instructions) ? recipe.instructions.join('\n') : ''
+
+  const howTo = typeof frontmatter.howTo === 'object' && frontmatter.howTo ? frontmatter.howTo : {}
+  howToForm.estimatedCost = typeof howTo.estimatedCost === 'string' ? howTo.estimatedCost : ''
+  howToForm.totalTime = typeof howTo.totalTime === 'string' ? howTo.totalTime : ''
+  howToForm.difficulty = typeof howTo.difficulty === 'string' ? howTo.difficulty : ''
+  howToForm.suppliesInput = Array.isArray(howTo.supplies) ? howTo.supplies.join('\n') : ''
+  howToForm.toolsInput = Array.isArray(howTo.tools) ? howTo.tools.join('\n') : ''
+  howToForm.stepsInput = Array.isArray(howTo.steps) ? howTo.steps.join('\n') : ''
+
+  const faq = typeof frontmatter.faq === 'object' && frontmatter.faq ? frontmatter.faq : {}
+  faqForm.description = typeof faq.description === 'string' ? faq.description : ''
+  faqForm.entriesInput = Array.isArray(faq.entries)
+    ? faq.entries.map((entry: any) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+      const question = typeof entry.question === 'string' ? entry.question.trim() : ''
+      const answer = typeof entry.answer === 'string' ? entry.answer.trim() : ''
+      if (!question || !answer) {
+        return null
+      }
+      return `${question} :: ${answer}`
+    }).filter(Boolean).join('\n')
+    : ''
+
+  const course = typeof frontmatter.course === 'object' && frontmatter.course ? frontmatter.course : {}
+  courseForm.providerName = typeof course.providerName === 'string' ? course.providerName : ''
+  courseForm.providerUrl = typeof course.providerUrl === 'string' ? course.providerUrl : ''
+  courseForm.courseCode = typeof course.courseCode === 'string' ? course.courseCode : ''
+  courseForm.modulesInput = Array.isArray(course.modules)
+    ? course.modules.map((entry: any) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+      const title = typeof entry.title === 'string' ? entry.title.trim() : ''
+      const description = typeof entry.description === 'string' ? entry.description.trim() : ''
+      if (!title) {
+        return null
+      }
+      return description ? `${title} :: ${description}` : title
+    }).filter(Boolean).join('\n')
+    : ''
+}
+
+watch(contentEntry, () => {
+  syncSeoForm()
+}, { immediate: true })
+
+const seoWarnings = computed(() => {
+  const warnings: string[] = []
+  if (!seoForm.title.trim()) {
+    warnings.push('Title is missing.')
+  }
+  if (!seoForm.description.trim()) {
+    warnings.push('Description is missing.')
+  }
+  if (!seoForm.primaryKeyword.trim()) {
+    warnings.push('Primary keyword is missing.')
+  }
+  if (!seoForm.slug.trim()) {
+    warnings.push('Slug is missing.')
+  }
+
+  if (seoForm.schemaTypes.includes('Recipe')) {
+    if (!normalizeListInput(recipeForm.ingredientsInput).length) {
+      warnings.push('Recipe schema needs at least one ingredient.')
+    }
+    if (!normalizeListInput(recipeForm.instructionsInput).length) {
+      warnings.push('Recipe schema needs step-by-step instructions.')
+    }
+  }
+
+  if (seoForm.schemaTypes.includes('HowTo')) {
+    if (!normalizeListInput(howToForm.stepsInput).length) {
+      warnings.push('HowTo schema needs at least one step.')
+    }
+  }
+
+  if (seoForm.schemaTypes.includes('FAQPage')) {
+    if (!normalizePairInput(faqForm.entriesInput).length) {
+      warnings.push('FAQPage schema needs at least one Q/A entry.')
+    }
+  }
+
+  if (seoForm.schemaTypes.includes('Course')) {
+    if (!normalizePairInput(courseForm.modulesInput).length) {
+      warnings.push('Course schema needs at least one module.')
+    }
+  }
+
+  return warnings
+})
+
+const saveSeoForm = async () => {
+  if (!contentEntry.value?.id) {
+    return
+  }
+  seoSaving.value = true
+  try {
+    const recipeEnabled = seoForm.schemaTypes.includes('Recipe')
+    const howToEnabled = seoForm.schemaTypes.includes('HowTo')
+    const faqEnabled = seoForm.schemaTypes.includes('FAQPage')
+    const courseEnabled = seoForm.schemaTypes.includes('Course')
+
+    const recipe = recipeEnabled
+      ? {
+          yield: recipeForm.yield || null,
+          prepTime: recipeForm.prepTime || null,
+          cookTime: recipeForm.cookTime || null,
+          totalTime: recipeForm.totalTime || null,
+          calories: recipeForm.calories || null,
+          cuisine: recipeForm.cuisine || null,
+          ingredients: normalizeListInput(recipeForm.ingredientsInput),
+          instructions: normalizeListInput(recipeForm.instructionsInput)
+        }
+      : null
+
+    const howTo = howToEnabled
+      ? {
+          estimatedCost: howToForm.estimatedCost || null,
+          totalTime: howToForm.totalTime || null,
+          difficulty: howToForm.difficulty || null,
+          supplies: normalizeListInput(howToForm.suppliesInput),
+          tools: normalizeListInput(howToForm.toolsInput),
+          steps: normalizeListInput(howToForm.stepsInput)
+        }
+      : null
+
+    const faqEntries = faqEnabled
+      ? normalizePairInput(faqForm.entriesInput).map(entry => ({
+          question: entry.left,
+          answer: entry.right
+        }))
+      : []
+
+    const faq = faqEnabled
+      ? {
+          description: faqForm.description || null,
+          entries: faqEntries
+        }
+      : null
+
+    const courseModules = courseEnabled
+      ? normalizePairInput(courseForm.modulesInput).map(entry => ({
+          title: entry.left,
+          description: entry.right
+        }))
+      : []
+
+    const course = courseEnabled
+      ? {
+          providerName: courseForm.providerName || null,
+          providerUrl: courseForm.providerUrl || null,
+          courseCode: courseForm.courseCode || null,
+          modules: courseModules
+        }
+      : null
+
+    const body = {
+      title: seoForm.title || null,
+      seoTitle: seoForm.seoTitle || null,
+      description: seoForm.description || null,
+      slug: seoForm.slug || null,
+      primaryKeyword: seoForm.primaryKeyword || null,
+      keywords: normalizeKeywordInput(seoForm.keywordsInput),
+      categories: seoForm.categories,
+      schemaTypes: ['BlogPosting', ...seoForm.schemaTypes],
+      recipe,
+      howTo,
+      faq,
+      course
+    }
+    await $fetch(`/api/content/${contentEntry.value.id}/frontmatter`, {
+      method: 'PUT',
+      body
+    })
+    toast.add({ title: 'SEO settings saved', color: 'success' })
+    await refreshContent()
+  } catch (error: any) {
+    toast.add({
+      title: 'Failed to save SEO settings',
+      description: error?.message || 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    seoSaving.value = false
+  }
+}
 
 const editorContent = ref('')
 const isSaving = ref(false)
@@ -520,6 +849,263 @@ watch(latestUpdate, (update) => {
           </template>
         </UAlert>
       </div>
+
+      <div class="grid gap-4 md:grid-cols-2 mb-4">
+        <UCard>
+          <template #header>
+            <p class="text-sm font-medium">
+              Frontmatter
+            </p>
+          </template>
+          <pre
+            v-if="frontmatterPreview"
+            class="text-xs whitespace-pre-wrap break-words max-h-64 overflow-y-auto rounded bg-muted/30 dark:bg-muted-700/30 p-3"
+          >{{ frontmatterPreview }}</pre>
+          <p
+            v-else
+            class="text-sm text-muted-500"
+          >
+            No frontmatter captured yet.
+          </p>
+        </UCard>
+
+        <UCard>
+          <template #header>
+            <p class="text-sm font-medium">
+              Structured Data
+            </p>
+          </template>
+          <div
+            v-if="contentEntry?.schemaTypes?.length"
+            class="flex flex-wrap gap-2 mb-3"
+          >
+            <UBadge
+              v-for="type in contentEntry.schemaTypes"
+              :key="type"
+              color="primary"
+              variant="soft"
+            >
+              {{ type }}
+            </UBadge>
+          </div>
+          <pre
+            v-if="structuredDataPreview"
+            class="text-xs whitespace-pre-wrap break-words max-h-64 overflow-y-auto rounded bg-muted/30 dark:bg-muted-700/30 p-3"
+          >{{ structuredDataPreview }}</pre>
+          <p
+            v-else
+            class="text-sm text-muted-500"
+          >
+            Structured data has not been generated yet.
+          </p>
+        </UCard>
+      </div>
+
+      <UCard class="mb-4">
+        <template #header>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm font-medium">
+              SEO & Schema
+            </p>
+            <UButton
+              color="primary"
+              size="sm"
+              icon="i-lucide-save"
+              :loading="seoSaving"
+              @click="saveSeoForm"
+            >
+              Save
+            </UButton>
+          </div>
+        </template>
+
+        <UAlert
+          v-if="seoWarnings.length"
+          color="warning"
+          variant="soft"
+          title="Suggestions"
+          class="mb-4"
+        >
+          <template #description>
+            <ul class="list-disc list-inside space-y-1 text-sm">
+              <li
+                v-for="message in seoWarnings"
+                :key="message"
+              >
+                {{ message }}
+              </li>
+            </ul>
+          </template>
+        </UAlert>
+
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <UFormField label="Title">
+            <UInput v-model="seoForm.title" />
+          </UFormField>
+          <UFormField label="SEO title (optional)">
+            <UInput v-model="seoForm.seoTitle" placeholder="Custom title for SERP" />
+          </UFormField>
+          <UFormField label="Description">
+            <UTextarea v-model="seoForm.description" :rows="3" />
+          </UFormField>
+          <UFormField label="Slug">
+            <UInput v-model="seoForm.slug" />
+          </UFormField>
+          <UFormField label="Primary keyword">
+            <UInput v-model="seoForm.primaryKeyword" placeholder="e.g. remote team onboarding" />
+          </UFormField>
+          <UFormField label="Keywords (comma separated)">
+            <UInput v-model="seoForm.keywordsInput" placeholder="keyword 1, keyword 2, keyword 3" />
+          </UFormField>
+        </div>
+
+        <div class="mt-4 space-y-2">
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            Categories
+          </p>
+          <div
+            v-if="categoryOptions.length"
+            class="flex flex-wrap gap-2"
+          >
+            <UCheckbox
+              v-for="category in categoryOptions"
+              :key="category.slug || category.name"
+              v-model="seoForm.categories"
+              :value="category.name"
+              :label="category.name"
+            />
+          </div>
+          <p
+            v-else
+            class="text-sm text-muted-500"
+          >
+            No categories yet. Add them in Site settings.
+          </p>
+        </div>
+
+        <div class="mt-4 space-y-2">
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            Schema types
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <UBadge
+              color="primary"
+              variant="soft"
+            >
+              BlogPosting
+            </UBadge>
+            <UCheckbox
+              v-for="option in schemaTypeOptions"
+              :key="option.value"
+              v-model="seoForm.schemaTypes"
+              :value="option.value"
+              :label="option.label"
+            />
+          </div>
+        </div>
+
+        <div
+          v-if="seoForm.schemaTypes.includes('Recipe')"
+          class="mt-6 space-y-4"
+        >
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            Recipe schema
+          </p>
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <UFormField label="Recipe yield">
+              <UInput v-model="recipeForm.yield" placeholder="e.g. 4 servings" />
+            </UFormField>
+            <UFormField label="Cuisine">
+              <UInput v-model="recipeForm.cuisine" placeholder="e.g. Italian" />
+            </UFormField>
+            <UFormField label="Prep time (ISO 8601)">
+              <UInput v-model="recipeForm.prepTime" placeholder="PT20M" />
+            </UFormField>
+            <UFormField label="Cook time (ISO 8601)">
+              <UInput v-model="recipeForm.cookTime" placeholder="PT45M" />
+            </UFormField>
+            <UFormField label="Total time (ISO 8601)">
+              <UInput v-model="recipeForm.totalTime" placeholder="PT1H" />
+            </UFormField>
+            <UFormField label="Calories">
+              <UInput v-model="recipeForm.calories" placeholder="e.g. 220 calories" />
+            </UFormField>
+          </div>
+          <UFormField label="Ingredients (one per line)">
+            <UTextarea v-model="recipeForm.ingredientsInput" :rows="4" />
+          </UFormField>
+          <UFormField label="Instructions (one step per line)">
+            <UTextarea v-model="recipeForm.instructionsInput" :rows="4" />
+          </UFormField>
+        </div>
+
+        <div
+          v-if="seoForm.schemaTypes.includes('HowTo')"
+          class="mt-6 space-y-4"
+        >
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            HowTo schema
+          </p>
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <UFormField label="Estimated cost">
+              <UInput v-model="howToForm.estimatedCost" placeholder="e.g. $45" />
+            </UFormField>
+            <UFormField label="Total time (ISO 8601)">
+              <UInput v-model="howToForm.totalTime" placeholder="PT2H" />
+            </UFormField>
+            <UFormField label="Difficulty">
+              <UInput v-model="howToForm.difficulty" placeholder="e.g. Easy" />
+            </UFormField>
+          </div>
+          <UFormField label="Supplies (one per line)">
+            <UTextarea v-model="howToForm.suppliesInput" :rows="3" />
+          </UFormField>
+          <UFormField label="Tools (one per line)">
+            <UTextarea v-model="howToForm.toolsInput" :rows="3" />
+          </UFormField>
+          <UFormField label="Steps (one per line)">
+            <UTextarea v-model="howToForm.stepsInput" :rows="4" />
+          </UFormField>
+        </div>
+
+        <div
+          v-if="seoForm.schemaTypes.includes('FAQPage')"
+          class="mt-6 space-y-4"
+        >
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            FAQ schema
+          </p>
+          <UFormField label="FAQ description">
+            <UTextarea v-model="faqForm.description" :rows="2" />
+          </UFormField>
+          <UFormField label="FAQ entries (one per line: Question :: Answer)">
+            <UTextarea v-model="faqForm.entriesInput" :rows="5" />
+          </UFormField>
+        </div>
+
+        <div
+          v-if="seoForm.schemaTypes.includes('Course')"
+          class="mt-6 space-y-4"
+        >
+          <p class="text-xs uppercase tracking-wide text-muted-500">
+            Course schema
+          </p>
+          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <UFormField label="Provider name">
+              <UInput v-model="courseForm.providerName" placeholder="Organization or instructor" />
+            </UFormField>
+            <UFormField label="Provider URL">
+              <UInput v-model="courseForm.providerUrl" placeholder="https://example.com" />
+            </UFormField>
+            <UFormField label="Course code">
+              <UInput v-model="courseForm.courseCode" />
+            </UFormField>
+          </div>
+          <UFormField label="Modules (one per line: Title :: Description)">
+            <UTextarea v-model="courseForm.modulesInput" :rows="5" />
+          </UFormField>
+        </div>
+      </UCard>
 
       <ImageSuggestionsPanel
         v-if="contentEntry.imageSuggestions && contentEntry.imageSuggestions.length > 0"

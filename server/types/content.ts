@@ -235,6 +235,8 @@ export interface PublishContentResponse {
   file: typeof file.$inferSelect
   publication: typeof publication.$inferSelect
   filePayload: {
+    contentId: string
+    slug: string
     filename: string
     fullMarkdown: string
     wordCount: number
@@ -243,5 +245,8 @@ export interface PublishContentResponse {
     tags: string[]
     seoKeywords: string[]
     frontmatter: Record<string, any>
+    structuredData: string | null
+    structuredDataGraph: Record<string, any> | null
+    sourceLink?: string | null
   }
 }

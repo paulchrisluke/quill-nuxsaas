@@ -21,6 +21,7 @@ const slug = computed(() => {
 const i18nHead = useLocaleHead()
 
 useHead(() => ({
+  htmlAttrs: i18nHead.value.htmlAttrs,
   link: [...(i18nHead.value.link || [])]
 }))
 

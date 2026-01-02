@@ -2,7 +2,7 @@
 import type { ContentFrontmatter, ContentSection } from '../../server/services/content/generation/types'
 import { describe, expect, it } from 'vitest'
 import { deriveSchemaMetadata, validateSchemaMetadata } from '../../server/services/content/generation/schemaMetadata'
-import { generateStructuredDataJsonLd } from '../../server/services/content/generation/structured-data'
+import { buildStructuredDataGraph, generateStructuredDataJsonLd } from '../../server/services/content/generation/structured-data'
 
 const baseFrontmatter: ContentFrontmatter = {
   title: 'Test Content',
@@ -100,5 +100,33 @@ describe('schema metadata helpers', () => {
     expect(jsonLd).toContain('recipeIngredient')
     expect(jsonLd).toContain('HowToStep')
     expect(jsonLd).toContain('mainEntity')
+  })
+
+  it('adds author, publisher, and image nodes when provided', () => {
+    const frontmatterWithImage: ContentFrontmatter = {
+      ...baseFrontmatter,
+      featuredImage: {
+        url: 'https://example.com/cover.jpg',
+        alt: 'Cover image',
+        width: 1200,
+        height: 630
+      }
+    }
+    const graph = buildStructuredDataGraph({
+      frontmatter: frontmatterWithImage,
+      seoSnapshot: null,
+      sections: sampleSections,
+      baseUrl: 'https://example.com',
+      contentId: 'content-123',
+      author: { name: 'Jane Doe', image: 'https://example.com/author.jpg' },
+      publisher: { name: 'Example Org', logoUrl: 'https://example.com/logo.png' },
+      datePublished: '2024-01-02',
+      dateModified: '2024-01-03'
+    })
+    const json = JSON.stringify(graph)
+    expect(json).toContain('Organization')
+    expect(json).toContain('Person')
+    expect(json).toContain('ImageObject')
+    expect(json).toContain('datePublished')
   })
 })

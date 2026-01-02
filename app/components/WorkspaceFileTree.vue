@@ -4,12 +4,13 @@ import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { useContentList } from '~/composables/useContentList'
 import { useFileList } from '~/composables/useFileList'
 import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
+import { SITE_CONFIG_FILENAME, SITE_CONFIG_VIRTUAL_KEY } from '~~/shared/utils/siteConfig'
 
 const emit = defineEmits<{
   (e: 'open', node: FileTreeNode): void
 }>()
 
-const { isAuthenticatedUser, useActiveOrganization } = useAuth()
+const { isAuthenticatedUser, useActiveOrganization, client, user } = useAuth()
 const router = useRouter()
 const route = useRoute()
 const localePath = useLocalePath()
@@ -47,11 +48,13 @@ const {
   reset: resetFileList
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
-const expandedPaths = ref<Set<string>>(new Set(['files', 'content']))
+const expandedPaths = ref<Set<string>>(new Set(['organization', 'content', 'files']))
 const toast = useToast()
 // Track in-flight archive operations to prevent concurrent invocations
 const archivingFiles = ref<Set<string>>(new Set())
 const archivingContent = ref<Set<string>>(new Set())
+const orgMembers = ref<any[]>([])
+const lastMembersOrgId = ref<string | null>(null)
 
 const activeContentId = computed(() => {
   const path = route.path
@@ -75,6 +78,17 @@ const activeFileId = computed(() => {
   return null
 })
 
+const activeVirtualKey = computed(() => {
+  const path = route.path
+  if (/\/[^/]+\/content\/site-config$/.test(path)) {
+    return SITE_CONFIG_VIRTUAL_KEY
+  }
+  if (/\/[^/]+\/members$/.test(path)) {
+    return 'org_members'
+  }
+  return null
+})
+
 const normalizeSegment = (value: string | null | undefined) => {
   if (!value)
     return null
@@ -91,11 +105,30 @@ const buildContentFilename = (label: string, fallback: string) => {
   return `${slug}.md`
 }
 
+const buildMemberFilename = (label: string, fallback: string) => {
+  const slug = normalizeSegment(label) || normalizeSegment(fallback) || fallback
+  return `${slug}.md`
+}
+
+const stripOrgSlugPrefix = (path: string) => {
+  const slug = orgSlug.value
+  if (!slug)
+    return path
+  const normalized = path.replace(/^\/+/, '')
+  if (normalized === slug)
+    return ''
+  if (normalized.startsWith(`${slug}/`)) {
+    return normalized.slice(slug.length + 1)
+  }
+  return path
+}
+
 const buildTreeFromEntries = (entries: { path: string, metadata?: FileTreeNode['metadata'] }[]): FileTreeNode[] => {
   const roots: FileTreeNode[] = []
 
   for (const entry of entries) {
-    const segments = entry.path.split('/').filter(Boolean)
+    const normalizedPath = stripOrgSlugPrefix(entry.path)
+    const segments = normalizedPath.split('/').filter(Boolean)
     if (!segments.length)
       continue
 
@@ -162,14 +195,77 @@ const buildTreeFromEntries = (entries: { path: string, metadata?: FileTreeNode['
 }
 
 const contentEntries = computed(() => {
-  return contentItems.value.map(content => ({
+  const entries = contentItems.value.map(content => ({
     path: ['content', buildContentFilename(content.displayLabel, content.id)].join('/'),
     metadata: {
       contentId: content.id,
       displayLabel: content.displayLabel
     }
   }))
+
+  entries.unshift({
+    path: ['organization', SITE_CONFIG_FILENAME].join('/'),
+    metadata: {
+      virtualKey: SITE_CONFIG_VIRTUAL_KEY,
+      fileType: 'text',
+      displayLabel: 'Site settings'
+    }
+  })
+
+  const members = orgMembers.value.length
+    ? orgMembers.value
+    : (Array.isArray(activeOrg.value?.data?.members) ? activeOrg.value?.data?.members : [])
+
+  const resolvedMembers = members.length
+    ? members
+    : (user.value?.id ? [{
+        id: user.value.id,
+        userId: user.value.id,
+        user: {
+          name: user.value.name,
+          email: user.value.email
+        },
+        role: 'owner'
+      }] : [])
+
+  const memberEntries = resolvedMembers.map((member: any) => {
+    const name = member?.user?.name || member?.user?.email || member?.userId || 'Member'
+    const label = member?.role ? `${name} (${member.role})` : name
+    const fallbackId = member?.id || member?.userId || name
+    return {
+      path: ['organization', 'members', buildMemberFilename(name, String(fallbackId))].join('/'),
+      metadata: {
+        virtualKey: 'org_member',
+        displayLabel: label
+      }
+    }
+  })
+
+  entries.unshift(...memberEntries)
+
+  return entries
 })
+
+const loadMembers = async (organizationId: string) => {
+  if (!client || lastMembersOrgId.value === organizationId) {
+    return
+  }
+  try {
+    const { data, error } = await client.organization.listMembers({
+      query: {
+        organizationId,
+        limit: 100
+      }
+    })
+    if (error) {
+      throw error
+    }
+    orgMembers.value = Array.isArray(data?.members) ? data.members : []
+    lastMembersOrgId.value = organizationId
+  } catch (error) {
+    console.error('Failed to load organization members', error)
+  }
+}
 
 const fileEntries = computed(() => {
   return fileItems.value.map(file => ({
@@ -190,7 +286,7 @@ const tree = computed<FileTreeNode[]>(() => {
   const builtTree = buildTreeFromEntries(entries)
 
   // Always ensure root folders exist, even if empty
-  const rootFolders = ['files', 'content']
+  const rootFolders = ['organization', 'content', 'files']
   const existingRootPaths = new Set(builtTree.map(node => node.path))
 
   for (const folderName of rootFolders) {
@@ -206,7 +302,7 @@ const tree = computed<FileTreeNode[]>(() => {
 
   // Sort to ensure consistent order: content, files
   builtTree.sort((a, b) => {
-    const order = { content: 0, files: 1 }
+    const order = { organization: 0, content: 1, files: 2 }
     const aOrder = order[a.path as keyof typeof order] ?? 999
     const bOrder = order[b.path as keyof typeof order] ?? 999
     return aOrder - bOrder
@@ -254,6 +350,30 @@ const openNode = (node: FileTreeNode) => {
       }
     } else if (metadata.url) {
       window.open(metadata.url, '_blank')
+    }
+  } else if (metadata.virtualKey === SITE_CONFIG_VIRTUAL_KEY) {
+    const slug = orgSlug.value
+    if (slug) {
+      router.push(localePath(`/${slug}/content/site-config`))
+      if (typeof openWorkspace === 'function') {
+        openWorkspace()
+      }
+    }
+  } else if (metadata.virtualKey === 'org_members') {
+    const slug = orgSlug.value
+    if (slug) {
+      router.push(localePath(`/${slug}/members`))
+      if (typeof openWorkspace === 'function') {
+        openWorkspace()
+      }
+    }
+  } else if (metadata.virtualKey === 'org_member') {
+    const slug = orgSlug.value
+    if (slug) {
+      router.push(localePath(`/${slug}/members`))
+      if (typeof openWorkspace === 'function') {
+        openWorkspace()
+      }
     }
   } else if (metadata.contentId) {
     const path = resolveContentPath(metadata.contentId)
@@ -360,9 +480,21 @@ onMounted(() => {
 watch(isAuthenticatedUser, (isLoggedIn) => {
   if (isLoggedIn) {
     initializeData()
+    const orgId = activeOrg.value?.data?.id
+    if (orgId) {
+      loadMembers(orgId)
+    }
   } else {
     resetContent()
     resetFileList()
+    orgMembers.value = []
+    lastMembersOrgId.value = null
+  }
+})
+
+watch(() => activeOrg.value?.data?.id, (orgId) => {
+  if (orgId) {
+    loadMembers(orgId)
   }
 })
 
@@ -430,6 +562,7 @@ const isEmptyState = computed(() => {
             :expanded-paths="expandedPaths"
             :active-content-id="activeContentId"
             :active-file-id="activeFileId"
+            :active-virtual-key="activeVirtualKey"
             :archiving-file-ids="archivingFiles"
             :archiving-content-ids="archivingContent"
             @toggle="toggleFolder"

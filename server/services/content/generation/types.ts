@@ -166,6 +166,7 @@ export interface ContentFrontmatter {
   slugSuggestion: string
   featuredImage?: FeaturedImageMetadata
   tags?: string[]
+  categories?: string[]
   keywords?: string[]
   status: typeof CONTENT_STATUSES[number]
   contentType: typeof CONTENT_TYPES[number]

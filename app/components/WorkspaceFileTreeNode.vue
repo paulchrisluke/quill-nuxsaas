@@ -14,6 +14,7 @@ export interface FileTreeNode {
     url?: string
     displayLabel?: string
     isArchived?: boolean
+    virtualKey?: string
   }
 }
 
@@ -28,6 +29,7 @@ const props = defineProps<{
   activeContentId?: string | null
   activeSourceId?: string | null
   activeFileId?: string | null
+  activeVirtualKey?: string | null
   archivingFileIds?: Set<string>
   archivingContentIds?: Set<string>
 }>()
@@ -58,6 +60,8 @@ const isActive = computed(() => {
   if (meta.contentId && props.activeContentId && meta.contentId === props.activeContentId)
     return true
   if (meta.sourceId && props.activeSourceId && meta.sourceId === props.activeSourceId)
+    return true
+  if (meta.virtualKey && props.activeVirtualKey && meta.virtualKey === props.activeVirtualKey)
     return true
   return false
 })
@@ -244,6 +248,7 @@ const handleKeydown = (event: KeyboardEvent) => {
         :active-content-id="activeContentId"
         :active-source-id="activeSourceId"
         :active-file-id="activeFileId"
+        :active-virtual-key="activeVirtualKey"
         @toggle="emit('toggle', $event)"
         @select="emit('select', $event)"
         @archive-file="emit('archiveFile', $event)"
