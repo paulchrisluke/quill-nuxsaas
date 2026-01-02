@@ -72,9 +72,17 @@ export class FileService {
     const fileId = uuidv7()
     let fileName: string
     if (options?.fileName != null) {
-      const sanitized = options.fileName.trim()
-      const normalized = sanitized.replace(/[\\/]+/g, '-').replace(/\s+/g, '-')
-      if (!normalized || normalized.includes('..') || normalized.startsWith('/')) {
+      const normalizedInput = options.fileName.normalize('NFC').trim()
+      const pathSegments = normalizedInput.split(/[\\/]+/)
+      const hasTraversal = pathSegments.some(segment => segment === '..')
+      if (!normalizedInput || hasTraversal) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Invalid file name'
+        })
+      }
+      const normalized = normalizedInput.replace(/[\\/]+/g, '-').replace(/\s+/g, '-')
+      if (!normalized || normalized.startsWith('/')) {
         throw createError({
           statusCode: 400,
           statusMessage: 'Invalid file name'

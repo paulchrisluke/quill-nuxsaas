@@ -22,6 +22,22 @@ const parseCommaList = (value: string | undefined) => {
     .filter(Boolean)
 }
 
+const clampQuality = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return fallback
+  }
+  return Math.min(100, Math.max(1, parsed))
+}
+
+const clampMaxProxyWidth = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback
+  }
+  return Math.min(4000, parsed)
+}
+
 export const generateRuntimeConfig = () => ({
   preset: (process.env.NODE_ENV === 'development')
     ? 'node-server'
@@ -94,14 +110,15 @@ export const generateRuntimeConfig = () => ({
         .sort((a, b) => a - b)
       const normalizedSizes = parsedSizes.length > 0 ? parsedSizes : [150, 400, 800, 1200, 1600]
 
-      const parsedFormats = parseCommaList(process.env.NUXT_FILE_IMAGE_FORMATS) as FileManagerConfig['image']['formats']
-      const normalizedFormats = parsedFormats.length > 0 ? parsedFormats : ['webp'] as FileManagerConfig['image']['formats']
+      const parsedFormats = parseCommaList(process.env.NUXT_FILE_IMAGE_FORMATS)
+      const validFormats = parsedFormats.filter(format => format === 'webp' || format === 'avif') as FileManagerConfig['image']['formats']
+      const normalizedFormats = validFormats.length > 0 ? validFormats : ['webp'] as FileManagerConfig['image']['formats']
 
       return {
         sizes: normalizedSizes,
         formats: normalizedFormats,
-        quality: parseNumber(process.env.NUXT_FILE_IMAGE_QUALITY, 80),
-        maxProxyWidth: parseNumber(process.env.NUXT_FILE_IMAGE_MAX_PROXY_WIDTH, 2000),
+        quality: clampQuality(process.env.NUXT_FILE_IMAGE_QUALITY, 80),
+        maxProxyWidth: clampMaxProxyWidth(process.env.NUXT_FILE_IMAGE_MAX_PROXY_WIDTH, 2000),
         enableProxy: process.env.NUXT_FILE_IMAGE_ENABLE_PROXY !== 'false',
         requireAltText: process.env.NUXT_FILE_REQUIRE_ALT_TEXT === 'true',
         altTextPlaceholder: process.env.NUXT_FILE_IMAGE_ALT_PLACEHOLDER || 'TODO: describe image'
