@@ -1,9 +1,10 @@
 import type { StorageProvider } from './types'
-import { format } from 'date-fns'
 import { and, desc, eq } from 'drizzle-orm'
 import { v7 as uuidv7 } from 'uuid'
 import { file as fileTable } from '~~/server/db/schema'
 import { logAuditEvent } from '~~/server/utils/auditLogger'
+
+const FILES_BASE_DIR = 'files'
 
 export const useFileManagerConfig = () => {
   const config = useRuntimeConfig().fileManager
@@ -49,12 +50,8 @@ export class FileService {
     const fileId = uuidv7()
     const ext = getFileExtension(originalName)
 
-    const dateFolder = format(new Date(), 'yyyy-MM-dd')
-
     const fileName = `${fileId}${ext}`
-
-    // YYYY-MM-DD/uuid.ext
-    return `${dateFolder}/${fileName}`
+    return `${FILES_BASE_DIR}/${fileName}`
   }
 
   async uploadFile(
@@ -76,15 +73,22 @@ export class FileService {
     let fileName: string
     if (options?.fileName != null) {
       const sanitized = options.fileName.trim()
-      if (!sanitized || sanitized.includes('..') || sanitized.startsWith('/') || sanitized.includes('\\')) {
+      const normalized = sanitized.replace(/[\\/]+/g, '-').replace(/\s+/g, '-')
+      if (!normalized || normalized.includes('..') || normalized.startsWith('/')) {
         throw createError({
           statusCode: 400,
           statusMessage: 'Invalid file name'
         })
       }
-      const dateFolder = format(new Date(), 'yyyy-MM-dd')
       const uniquePrefix = uuidv7()
-      fileName = `${dateFolder}/${uniquePrefix}-${sanitized}`
+      const cleaned = normalized.replace(/^[-.]+|[-.]+$/g, '')
+      if (!cleaned) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Invalid file name'
+        })
+      }
+      fileName = `${FILES_BASE_DIR}/${uniquePrefix}-${cleaned}`
     } else {
       fileName = this.generateFileName(originalName)
     }

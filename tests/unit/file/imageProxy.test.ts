@@ -19,8 +19,8 @@ describe('imageProxy utils', () => {
   it('selects exact variant match', () => {
     const variant = selectVariant({
       '800.webp': {
-        path: '2024/uuid/__v/800.webp',
-        url: 'https://cdn.example.com/2024/uuid/__v/800.webp',
+        path: 'files/uuid/__v/800.webp',
+        url: 'https://cdn.example.com/files/uuid/__v/800.webp',
         width: 800,
         height: 600,
         bytes: 1234,
