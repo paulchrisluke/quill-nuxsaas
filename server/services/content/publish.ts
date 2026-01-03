@@ -4,8 +4,10 @@ import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
+import { publishToGithub } from '~~/server/services/publishing/github'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
+import { buildContentJsonExport, serializeFrontmatterMarkdown } from './export'
 import { buildWorkspaceFilesPayload } from './workspaceFiles'
 
 interface PublishContentVersionOptions {
@@ -19,8 +21,17 @@ export interface PublishContentResult {
   content: typeof schema.content.$inferSelect
   version: typeof schema.contentVersion.$inferSelect
   file: typeof schema.file.$inferSelect
+  jsonFile?: typeof schema.file.$inferSelect | null
   publication: typeof schema.publication.$inferSelect
   filePayload: ReturnType<typeof buildWorkspaceFilesPayload>[number]
+  external?: {
+    github?: {
+      branch: string
+      prNumber: number
+      prUrl: string
+      integrationId: string
+    }
+  }
 }
 
 export async function publishContentVersion(
@@ -155,8 +166,48 @@ export async function publishContentVersion(
   const fileService = new FileService(storageProvider)
 
   let uploadedFile: typeof schema.file.$inferSelect | null = null
+  let uploadedJsonFile: typeof schema.file.$inferSelect | null = null
+  let githubPublishResult: {
+    branch: string
+    prNumber: number
+    prUrl: string
+    integrationId: string
+  } | null = null
+
+  const markdownExport = serializeFrontmatterMarkdown(
+    filePayload.frontmatter,
+    filePayload.fullMarkdown
+  )
+  const publishedAt = new Date()
+  const jsonExportPayload = buildContentJsonExport({
+    content: {
+      id: contentRecord.id,
+      slug: contentRecord.slug,
+      title: contentRecord.title,
+      status: contentRecord.status,
+      contentType: contentRecord.contentType,
+      publishedAt,
+      updatedAt: contentRecord.updatedAt
+    },
+    version: {
+      id: versionRecord.id,
+      contentId: versionRecord.contentId,
+      version: versionRecord.version,
+      createdAt: versionRecord.createdAt,
+      frontmatter: versionRecord.frontmatter ?? null,
+      bodyMarkdown: versionRecord.bodyMarkdown
+    },
+    filePayload,
+    author: authorPayload,
+    publisher
+  })
+  const jsonExport = `${JSON.stringify(jsonExportPayload, null, 2)}\n`
+
+  const jsonFilename = filePayload.filename.endsWith('.md')
+    ? filePayload.filename.replace(/\.md$/, '.json')
+    : `${filePayload.filename}.json`
   try {
-    const buffer = new TextEncoder().encode(filePayload.fullMarkdown)
+    const buffer = new TextEncoder().encode(markdownExport)
     uploadedFile = await fileService.uploadFile(
       buffer,
       filePayload.filename,
@@ -172,7 +223,99 @@ export async function publishContentVersion(
       }
     )
 
-    const publishedAt = new Date()
+    const jsonBuffer = new TextEncoder().encode(jsonExport)
+    uploadedJsonFile = await fileService.uploadFile(
+      jsonBuffer,
+      jsonFilename,
+      'application/json',
+      userId,
+      undefined,
+      undefined,
+      {
+        fileName: jsonFilename,
+        overrideOriginalName: jsonFilename,
+        contentId: contentRecord.id,
+        organizationId
+      }
+    )
+
+    const [githubIntegration] = await db
+      .select()
+      .from(schema.integration)
+      .where(and(
+        eq(schema.integration.organizationId, organizationId),
+        eq(schema.integration.type, 'github'),
+        eq(schema.integration.isActive, true)
+      ))
+      .limit(1)
+
+    const publishConfig = githubIntegration?.config && typeof githubIntegration.config === 'object'
+      ? (githubIntegration.config as Record<string, any>).publish
+      : null
+
+    if (githubIntegration && publishConfig && publishConfig.enabled) {
+      if (!githubIntegration.accountId) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'GitHub integration is missing an account.'
+        })
+      }
+      if (typeof publishConfig.repoFullName !== 'string' || !publishConfig.repoFullName.trim()) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'GitHub publish requires a repoFullName.'
+        })
+      }
+
+      const [account] = await db
+        .select({
+          accessToken: schema.account.accessToken,
+          providerId: schema.account.providerId
+        })
+        .from(schema.account)
+        .where(eq(schema.account.id, githubIntegration.accountId))
+        .limit(1)
+
+      if (!account || account.providerId !== 'github' || !account.accessToken) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'GitHub integration is missing a valid access token.'
+        })
+      }
+
+      const contentPath = typeof publishConfig.contentPath === 'string'
+        ? publishConfig.contentPath
+        : 'content'
+      const jsonPath = typeof publishConfig.jsonPath === 'string'
+        ? publishConfig.jsonPath
+        : contentPath
+
+      const markdownPath = `${contentPath.replace(/\/+$/, '')}/${filePayload.slug}.md`
+      const jsonPathFile = `${jsonPath.replace(/\/+$/, '')}/${filePayload.slug}.json`
+
+      const githubResult = await publishToGithub(account.accessToken, {
+        repoFullName: publishConfig.repoFullName,
+        baseBranch: publishConfig.baseBranch,
+        contentPath,
+        jsonPath,
+        branchPrefix: publishConfig.branchPrefix,
+        prTitle: publishConfig.prTitle,
+        prBody: publishConfig.prBody
+      }, {
+        slug: filePayload.slug,
+        title: contentRecord.title,
+        files: [
+          { path: markdownPath, content: markdownExport },
+          { path: jsonPathFile, content: jsonExport }
+        ]
+      })
+
+      githubPublishResult = {
+        ...githubResult,
+        integrationId: githubIntegration.id
+      }
+    }
+
     const { updatedContent, publicationRecord } = await db.transaction(async (tx) => {
       await tx
         .update(schema.file)
@@ -181,6 +324,15 @@ export async function publishContentVersion(
           eq(schema.file.path, filePayload.filename),
           eq(schema.file.contentId, contentRecord.id),
           ne(schema.file.id, uploadedFile!.id)
+        ))
+
+      await tx
+        .update(schema.file)
+        .set({ isActive: false })
+        .where(and(
+          eq(schema.file.path, jsonFilename),
+          eq(schema.file.contentId, contentRecord.id),
+          ne(schema.file.id, uploadedJsonFile!.id)
         ))
 
       const [contentUpdate] = await tx
@@ -211,8 +363,25 @@ export async function publishContentVersion(
             fileId: uploadedFile!.id,
             path: uploadedFile!.path,
             url: uploadedFile!.url ?? null,
-            filename: filePayload.filename
-          }
+            filename: filePayload.filename,
+            jsonFileId: uploadedJsonFile!.id,
+            jsonPath: uploadedJsonFile!.path,
+            jsonUrl: uploadedJsonFile!.url ?? null,
+            jsonFilename
+          },
+          integrationId: githubPublishResult?.integrationId ?? null,
+          externalId: githubPublishResult?.prNumber
+            ? String(githubPublishResult.prNumber)
+            : null,
+          responseSnapshot: githubPublishResult
+            ? {
+                github: {
+                  prUrl: githubPublishResult.prUrl,
+                  prNumber: githubPublishResult.prNumber,
+                  branch: githubPublishResult.branch
+                }
+              }
+            : null
         })
         .returning()
 
@@ -233,12 +402,19 @@ export async function publishContentVersion(
       content: updatedContent,
       version: versionRecord,
       file: uploadedFile,
+      jsonFile: uploadedJsonFile,
       publication: publicationRecord,
-      filePayload
+      filePayload,
+      external: githubPublishResult
+        ? { github: githubPublishResult }
+        : undefined
     }
   } catch (error) {
     if (uploadedFile) {
       await fileService.deleteFile(uploadedFile.id).catch(() => {})
+    }
+    if (uploadedJsonFile) {
+      await fileService.deleteFile(uploadedJsonFile.id).catch(() => {})
     }
     throw error
   }

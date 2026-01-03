@@ -29,7 +29,9 @@ export default defineEventHandler(async (event) => {
     content: result.content,
     version: result.version,
     file: result.file,
+    jsonFile: result.jsonFile ?? null,
     publication: result.publication,
-    filePayload: result.filePayload
+    filePayload: result.filePayload,
+    external: result.external
   }
 })

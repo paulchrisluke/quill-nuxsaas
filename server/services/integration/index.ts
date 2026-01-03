@@ -40,7 +40,7 @@ const OAUTH_INTEGRATIONS: Array<{
     providerId: 'github',
     requiredScopes: GITHUB_INTEGRATION_MATCH_SCOPES.github,
     name: 'GitHub',
-    capabilities: { sync: true }
+    capabilities: { sync: true, publish: true }
   }
 ]
 

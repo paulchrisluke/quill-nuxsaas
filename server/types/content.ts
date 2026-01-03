@@ -233,6 +233,7 @@ export interface PublishContentResponse {
     bodyMarkdown: string
   }
   file: typeof file.$inferSelect
+  jsonFile?: typeof file.$inferSelect | null
   publication: typeof publication.$inferSelect
   filePayload: {
     contentId: string
@@ -248,5 +249,13 @@ export interface PublishContentResponse {
     structuredData: string | null
     structuredDataGraph: Record<string, any> | null
     sourceLink?: string | null
+  }
+  external?: {
+    github?: {
+      branch: string
+      prNumber: number
+      prUrl: string
+      integrationId: string
+    }
   }
 }

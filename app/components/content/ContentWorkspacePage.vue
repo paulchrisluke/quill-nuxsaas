@@ -519,6 +519,7 @@ const saveSeoForm = async () => {
 
 const editorContent = ref('')
 const isSaving = ref(false)
+const isPublishing = ref(false)
 const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
 const lastContentId = ref<string | null>(null)
 const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
@@ -707,6 +708,36 @@ const archiveContent = async () => {
   }
 }
 
+const publishContent = async () => {
+  if (!contentEntry.value || isPublishing.value) {
+    return
+  }
+  try {
+    isPublishing.value = true
+    const response = await $fetch<{ file?: { url: string | null } }>(`/api/content/${contentEntry.value.id}/publish`, {
+      method: 'POST',
+      body: { versionId: null }
+    })
+    toast.add({
+      title: 'Content published',
+      description: response?.file?.url
+        ? `Available at ${response.file.url}`
+        : 'The latest version has been saved to your content storage.',
+      color: 'primary'
+    })
+    refreshContent()
+  } catch (err) {
+    console.error('Failed to publish content', err)
+    toast.add({
+      title: 'Publish failed',
+      description: err instanceof Error ? err.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    isPublishing.value = false
+  }
+}
+
 // Don't set header title - we want no header for content pages
 watch([contentEntry, error], () => {
   setHeaderTitle?.(null)
@@ -779,6 +810,16 @@ watch(latestUpdate, (update) => {
                 @click="archiveContent"
               >
                 <span class="hidden sm:inline">Archive</span>
+              </UButton>
+              <UButton
+                size="xs"
+                color="primary"
+                variant="soft"
+                :loading="isPublishing"
+                class="flex-shrink-0"
+                @click="publishContent"
+              >
+                Publish
               </UButton>
             </div>
           </div>
