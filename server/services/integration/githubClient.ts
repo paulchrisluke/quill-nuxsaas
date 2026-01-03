@@ -61,7 +61,12 @@ export const listRepoMarkdownFiles = async (
   return tree.tree
     .filter(item => item.type === 'blob')
     .map(item => item.path)
-    .filter(path => path.startsWith(`${normalizedPath}/`) && path.endsWith('.md'))
+    .filter((path) => {
+      if (!normalizedPath) {
+        return path.endsWith('.md')
+      }
+      return path.startsWith(`${normalizedPath}/`) && path.endsWith('.md')
+    })
 }
 
 export const fetchRepoFileContent = async (
@@ -71,12 +76,13 @@ export const fetchRepoFileContent = async (
   ref: string
 ) => {
   const { owner, repo } = parseGithubRepo(repoFullName)
+  const encodedPath = path.split('/').map(segment => encodeURIComponent(segment)).join('/')
   const response = await githubRequest<{
     content?: string
     encoding?: string
   }>(
     token,
-    `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`
+    `/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`
   )
 
   if (!response.content || response.encoding !== 'base64') {

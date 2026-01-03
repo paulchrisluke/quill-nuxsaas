@@ -49,12 +49,14 @@ export const assertIntegrationManager = async (
   userId: string,
   organizationId: string
 ) => {
-  const membership = await db.query.member.findFirst({
-    where: and(
+  const [membership] = await db
+    .select()
+    .from(schema.member)
+    .where(and(
       eq(schema.member.organizationId, organizationId),
       eq(schema.member.userId, userId)
-    )
-  })
+    ))
+    .limit(1)
 
   if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
     throw createError({
@@ -265,10 +267,11 @@ export const getOrganizationIntegrationSyncMetadata = async (
   db: NodePgDatabase<typeof schema>,
   organizationId: string
 ) => {
-  const organizationRecord = await db.query.organization.findFirst({
-    columns: { lastSyncedAt: true },
-    where: eq(schema.organization.id, organizationId)
-  })
+  const [organizationRecord] = await db
+    .select({ lastSyncedAt: schema.organization.lastSyncedAt })
+    .from(schema.organization)
+    .where(eq(schema.organization.id, organizationId))
+    .limit(1)
 
   return organizationRecord?.lastSyncedAt ?? null
 }

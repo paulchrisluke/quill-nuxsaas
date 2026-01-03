@@ -8,6 +8,7 @@ import { stripeClient } from '@better-auth/stripe/client'
 import { adminClient, anonymousClient, apiKeyClient, inferAdditionalFields, organizationClient } from 'better-auth/client/plugins'
 import { createAuthClient } from 'better-auth/vue'
 import { computed, ref } from 'vue'
+import { computeNeedsUpgrade, computeUserOwnsMultipleOrgs } from '~~/shared/utils/organizationExtras'
 import { ac, admin, member, owner } from '~~/shared/utils/permissions'
 
 export const AUTH_USER_DEFAULTS: Partial<User> = {
@@ -62,7 +63,7 @@ export function useAuth() {
   })
 
   // Create global state for active organization (SSR friendly)
-  const useActiveOrgState = () => useState<any>('active-org-state', () => ({ data: null }))
+  const activeOrgState = useState<any>('active-org-state', () => ({ data: null }))
 
   const session = useState<InferSessionFromClient<ClientOptions> | null>('auth:session', () => null)
   const user = useState<User | null>('auth:user', () => null)
@@ -132,31 +133,55 @@ export function useAuth() {
   }
 
   const useActiveOrganization = () => {
-    const state = useActiveOrgState()
-    return state
+    return activeOrgState
   }
 
   // Centralized function to refresh organization data
   const refreshActiveOrg = async () => {
     try {
-      // Add cache-busting timestamp to bypass any HTTP/CDN caching
-      const orgData: any = await $fetch(`/api/organization/full-data?_t=${Date.now()}`)
-
-      // Flatten the structure to match what components expect
-      // orgData comes as { organization: {...}, subscriptions: [...], userOwnsMultipleOrgs: bool, user: ... }
-      // We want activeOrg.value.data to be { ...organization, subscriptions: [...], userOwnsMultipleOrgs: bool }
-      const flattenedData = {
-        ...orgData.organization,
-        subscriptions: orgData.subscriptions,
-        userOwnsMultipleOrgs: orgData.userOwnsMultipleOrgs,
-        needsUpgrade: orgData.needsUpgrade
+      const { data: orgData, error } = await client.organization.getFullOrganization({})
+      if (error) {
+        throw error
+      }
+      if (!orgData) {
+        return null
       }
 
-      const state = useActiveOrgState()
-      if (state.value) {
-        state.value.data = flattenedData
+      const resolvedOrg = (orgData as any).organization ?? orgData
+      if (!resolvedOrg?.id) {
+        return null
+      }
+
+      const { data: subscriptions, error: subscriptionError } = await client.subscription.list({
+        query: { referenceId: resolvedOrg.id }
+      })
+      if (subscriptionError) {
+        throw subscriptionError
+      }
+
+      let ownershipInfo: { ownedCount: number, firstOwnedOrgId: string | null } | null = null
+      try {
+        ownershipInfo = await $fetch('/api/organization/ownership-info', {
+          credentials: 'include',
+          headers
+        })
+      } catch (error) {
+        console.error('Failed to refresh ownership info:', error)
+      }
+
+      const flattenedData = {
+        ...resolvedOrg,
+        members: resolvedOrg.members ?? [],
+        invitations: resolvedOrg.invitations ?? [],
+        subscriptions: subscriptions ?? [],
+        userOwnsMultipleOrgs: computeUserOwnsMultipleOrgs(ownershipInfo),
+        needsUpgrade: computeNeedsUpgrade(resolvedOrg.id, subscriptions ?? [], ownershipInfo)
+      }
+
+      if (activeOrgState.value) {
+        activeOrgState.value.data = flattenedData
       } else {
-        state.value = { data: flattenedData }
+        activeOrgState.value = { data: flattenedData }
       }
       return flattenedData
     } catch (error) {

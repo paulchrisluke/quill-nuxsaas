@@ -2,6 +2,7 @@ import { createError } from 'h3'
 
 const INDENT = 2
 const SIMPLE_STRING_RE = /^[\w .-]+$/
+const YAML_AMBIGUOUS_RE = /^(?:true|false|yes|no|on|off|null|~|\d+(?:\.\d+)?|0x[\da-f]+|0o[0-7]+)$/i
 
 const preferredFrontmatterOrder = [
   'title',
@@ -50,7 +51,11 @@ const formatString = (value: string, indent: number) => {
   if (value === '') {
     return '\'\''
   }
-  if (SIMPLE_STRING_RE.test(value.trim()) && value.trim() === value) {
+  if (
+    SIMPLE_STRING_RE.test(value.trim())
+    && value.trim() === value
+    && !YAML_AMBIGUOUS_RE.test(value)
+  ) {
     return value
   }
   return quoteString(value)
@@ -112,7 +117,8 @@ const serializeYamlValue = (value: unknown, indent: number): string => {
     const pad = ' '.repeat(indent)
     for (const entry of value) {
       const serialized = serializeYamlValue(entry, indent + INDENT)
-      if (serialized.includes('\n')) {
+      const isComplex = typeof entry === 'object' && entry !== null
+      if (serialized.includes('\n') || isComplex) {
         lines.push(`${pad}-`)
         lines.push(indentLines(serialized, indent + INDENT))
       } else {
@@ -130,7 +136,8 @@ const serializeYamlValue = (value: unknown, indent: number): string => {
     const pad = ' '.repeat(indent)
     for (const [key, entry] of entries) {
       const serialized = serializeYamlValue(entry, indent + INDENT)
-      if (serialized.includes('\n')) {
+      const isComplex = typeof entry === 'object' && entry !== null
+      if (serialized.includes('\n') || isComplex) {
         lines.push(`${pad}${key}:`)
         lines.push(indentLines(serialized, indent + INDENT))
       } else {

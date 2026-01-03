@@ -1,4 +1,6 @@
+import { and, eq } from 'drizzle-orm'
 import { createError, getQuery } from 'h3'
+import * as schema from '~~/server/db/schema'
 import {
   assertIntegrationManager,
   getOrganizationIntegrationSyncMetadata,
@@ -65,6 +67,41 @@ export async function handleGetIntegrations(
   const { organizationId } = await options.requireActiveOrganization(event)
   const db = options.getDB()
 
+  console.log('[integrations] Request', {
+    organizationId,
+    userId: user?.id ?? null
+  })
+
+  const [membership] = await db
+    .select({ role: schema.member.role })
+    .from(schema.member)
+    .where(and(
+      eq(schema.member.organizationId, organizationId),
+      eq(schema.member.userId, user.id)
+    ))
+    .limit(1)
+
+  console.log('[integrations] Membership lookup', {
+    organizationId,
+    userId: user.id,
+    role: membership?.role ?? null
+  })
+
+  const membersSnapshot = await db
+    .select({
+      id: schema.member.id,
+      userId: schema.member.userId,
+      role: schema.member.role
+    })
+    .from(schema.member)
+    .where(eq(schema.member.organizationId, organizationId))
+
+  console.log('[integrations] Members snapshot', {
+    organizationId,
+    membersCount: membersSnapshot.length,
+    members: membersSnapshot
+  })
+
   await options.assertIntegrationManager(db, user.id, organizationId)
 
   const query = options.getQuery(event)
@@ -72,8 +109,26 @@ export async function handleGetIntegrations(
   const lastSyncedAt = await options.getOrganizationIntegrationSyncMetadata(db, organizationId)
   const lastSyncTime = lastSyncedAt?.getTime() ?? null
 
+  console.log('[integrations] Sync metadata', {
+    organizationId,
+    forceSync,
+    lastSyncedAt
+  })
+
   let syncStatus: 'cached' | 'synced' | 'skipped' | 'error' = lastSyncTime ? 'cached' : 'skipped'
   let newLastSyncTime = lastSyncTime
+
+  if (!lastSyncTime) {
+    try {
+      await options.syncOrganizationOAuthIntegrations(db, organizationId)
+      newLastSyncTime = Date.now()
+      await options.updateOrganizationIntegrationSyncMetadata(db, organizationId, new Date(newLastSyncTime))
+      syncStatus = 'synced'
+    } catch (error) {
+      console.error('[integrations] Initial sync failed', error)
+      syncStatus = 'error'
+    }
+  }
 
   if (forceSync) {
     const now = Date.now()
@@ -97,6 +152,11 @@ export async function handleGetIntegrations(
   }
 
   const integrations = await options.listOrganizationIntegrationsWithAccounts(db, organizationId)
+  console.log('[integrations] Result', {
+    organizationId,
+    syncStatus,
+    integrationsCount: integrations.length
+  })
 
   // Return data with sync status metadata
   // The 'data' field contains the integrations array for backward compatibility

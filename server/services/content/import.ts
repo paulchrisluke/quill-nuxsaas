@@ -35,48 +35,45 @@ export const importMarkdownContent = async (
   const contentId = uuidv7()
   const versionId = uuidv7()
 
-  const [content] = await db
-    .insert(schema.content)
-    .values({
-      id: contentId,
-      organizationId: input.organizationId,
-      createdByUserId: input.userId,
-      slug,
-      title,
-      status: status as typeof CONTENT_STATUSES[number],
-      contentType: contentType as typeof CONTENT_TYPES[number],
-      ingestMethod: input.ingestMethod ?? null,
-      currentVersionId: versionId,
-      publishedAt: status === 'published' ? new Date() : null
-    })
-    .returning()
+  const result = await db.transaction(async (tx) => {
+    const [content] = await tx
+      .insert(schema.content)
+      .values({
+        id: contentId,
+        organizationId: input.organizationId,
+        createdByUserId: input.userId,
+        slug,
+        title,
+        status: status as typeof CONTENT_STATUSES[number],
+        contentType: contentType as typeof CONTENT_TYPES[number],
+        ingestMethod: input.ingestMethod ?? null,
+        currentVersionId: versionId,
+        publishedAt: status === 'published' ? new Date() : null
+      })
+      .returning()
 
-  if (!content) {
+    const [version] = await tx
+      .insert(schema.contentVersion)
+      .values({
+        id: versionId,
+        contentId,
+        version: 1,
+        createdByUserId: input.userId,
+        frontmatter: input.frontmatter ?? null,
+        bodyMarkdown: input.bodyMarkdown ?? '',
+        assets: input.source ? { source: input.source } : null
+      })
+      .returning()
+
+    return { content, version }
+  })
+
+  if (!result.content || !result.version) {
     throw createError({
       statusCode: 500,
       statusMessage: 'Failed to create imported content.'
     })
   }
 
-  const [version] = await db
-    .insert(schema.contentVersion)
-    .values({
-      id: versionId,
-      contentId,
-      version: 1,
-      createdByUserId: input.userId,
-      frontmatter: input.frontmatter ?? null,
-      bodyMarkdown: input.bodyMarkdown ?? '',
-      assets: input.source ? { source: input.source } : null
-    })
-    .returning()
-
-  if (!version) {
-    throw createError({
-      statusCode: 500,
-      statusMessage: 'Failed to create imported content version.'
-    })
-  }
-
-  return { content, version }
+  return result
 }

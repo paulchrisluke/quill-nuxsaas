@@ -520,6 +520,7 @@ const saveSeoForm = async () => {
 const editorContent = ref('')
 const isSaving = ref(false)
 const isPublishing = ref(false)
+const lastPublishedPrUrl = ref<string | null>(null)
 const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
 const lastContentId = ref<string | null>(null)
 const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
@@ -712,20 +713,30 @@ const publishContent = async () => {
   if (!contentEntry.value || isPublishing.value) {
     return
   }
+  if (lastPublishedPrUrl.value) {
+    window.open(lastPublishedPrUrl.value, '_blank', 'noopener,noreferrer')
+    return
+  }
   try {
     isPublishing.value = true
-    const response = await $fetch<{ file?: { url: string | null } }>(`/api/content/${contentEntry.value.id}/publish`, {
+    const response = await $fetch<{
+      file?: { url: string | null }
+      external?: { github?: { prUrl?: string | null } }
+    }>(`/api/content/${contentEntry.value.id}/publish`, {
       method: 'POST',
       body: { versionId: null }
     })
+    lastPublishedPrUrl.value = response?.external?.github?.prUrl ?? null
     toast.add({
-      title: 'Content published',
-      description: response?.file?.url
-        ? `Available at ${response.file.url}`
-        : 'The latest version has been saved to your content storage.',
+      title: lastPublishedPrUrl.value ? 'PR created' : 'Content published',
+      description: lastPublishedPrUrl.value
+        ? 'Open the pull request to review changes.'
+        : response?.file?.url
+          ? `Available at ${response.file.url}`
+          : 'The latest version has been saved to your content storage.',
       color: 'primary'
     })
-    refreshContent()
+    await refreshContent()
   } catch (err) {
     console.error('Failed to publish content', err)
     toast.add({
@@ -819,7 +830,7 @@ watch(latestUpdate, (update) => {
                 class="flex-shrink-0"
                 @click="publishContent"
               >
-                Publish
+                {{ lastPublishedPrUrl ? 'Open PR' : 'Publish' }}
               </UButton>
             </div>
           </div>

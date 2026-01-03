@@ -29,23 +29,25 @@ Required config:
 }
 ```
 
-Optional config:
+Optional config (defaults shown):
 
 ```json
 {
   "publish": {
     "baseBranch": "main",
-    "contentPath": "tenants/northcarolinalegalservices/articles",
-    "jsonPath": "tenants/northcarolinalegalservices/articles",
+    "contentPath": "content",
+    "jsonPath": "content",
     "branchPrefix": "quillio/publish",
-    "prTitle": "Publish: Content update",
+    "prTitle": "Publish: {title-or-slug}",
     "prBody": "Automated publish from Quillio."
   }
 }
 ```
 
 Notes:
-- `contentPath` and `jsonPath` define the repo folders for each export.
+- `contentPath` and `jsonPath` are optional; defaults are `content`.
+- `prTitle` defaults to `Publish: {title-or-slug}` and `prBody` defaults to `Automated publish from Quillio.`
+- `baseBranch` defaults to `main` and `branchPrefix` defaults to `quillio/publish`.
 - PR creation uses the GitHub OAuth token attached to the integration account.
 
 ## GitHub import
@@ -63,7 +65,7 @@ Required config:
 }
 ```
 
-Optional config:
+Optional config (defaults shown):
 
 ```json
 {
@@ -75,5 +77,7 @@ Optional config:
 ```
 
 Notes:
+- Import only reads markdown, so no `jsonPath` is required.
+- `baseBranch` defaults to `main` and `status` defaults to `draft`.
 - Import uses the GitHub OAuth token attached to the integration account.
 - Markdown must include YAML frontmatter for metadata; body markdown is preserved.

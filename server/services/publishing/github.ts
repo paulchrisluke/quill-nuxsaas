@@ -45,26 +45,50 @@ const parseRepoFullName = (repoFullName: string) => {
 }
 
 const githubRequest = async <T>(token: string, path: string, options: RequestInit = {}) => {
-  const response = await fetch(`${GITHUB_API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(options.headers || {})
-    }
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
+  if (!token || typeof token !== 'string') {
     throw createError({
-      statusCode: response.status,
-      statusMessage: `GitHub API error: ${response.statusText}`,
-      data: body
+      statusCode: 401,
+      statusMessage: 'GitHub token is required'
     })
   }
 
-  return response.json() as Promise<T>
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 30000)
+
+  try {
+    const response = await fetch(`${GITHUB_API_BASE}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {})
+      }
+    })
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const body = await response.text()
+      throw createError({
+        statusCode: response.status,
+        statusMessage: `GitHub API error: ${response.statusText}`,
+        data: body
+      })
+    }
+
+    return response.json() as Promise<T>
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw createError({
+        statusCode: 504,
+        statusMessage: 'GitHub API request timeout'
+      })
+    }
+    throw error
+  }
 }
 
 export const publishToGithub = async (
