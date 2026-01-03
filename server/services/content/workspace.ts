@@ -9,6 +9,142 @@ import { getConversationById, getConversationLogs, getConversationMessages } fro
 import { buildStructuredDataGraph, generateStructuredDataJsonLd, renderStructuredDataJsonLd } from './generation'
 import { buildWorkspaceSummary } from './workspaceSummary'
 
+const resolveImageUrl = (
+  value: unknown,
+  baseUrl: string | null,
+  options?: { publisherHost?: string | null, githubRawBase?: string | null }
+) => {
+  if (typeof value !== 'string') {
+    return value
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return trimmed
+  }
+  const publisherHost = options?.publisherHost
+  const githubRawBase = options?.githubRawBase
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    if (githubRawBase && publisherHost) {
+      const publisherHosts = new Set(
+        [
+          publisherHost,
+          publisherHost.startsWith('www.') ? publisherHost.slice(4) : `www.${publisherHost}`
+        ].filter(Boolean)
+      )
+      try {
+        const url = new URL(trimmed)
+        if (publisherHosts.has(url.host)) {
+          if (url.pathname.startsWith('/_next/')) {
+            return trimmed
+          }
+          if (url.pathname.startsWith('/public/')) {
+            return `${githubRawBase}${url.pathname}`
+          }
+          return `${githubRawBase}/public${url.pathname}`
+        }
+      } catch {
+        // Fall through to return original value.
+      }
+    }
+    return trimmed
+  }
+  if (!baseUrl) {
+    return trimmed
+  }
+  if (githubRawBase && baseUrl === githubRawBase && trimmed.startsWith('/')) {
+    if (trimmed.startsWith('/public/')) {
+      return `${githubRawBase}${trimmed}`
+    }
+    return `${githubRawBase}/public${trimmed}`
+  }
+  if (
+    githubRawBase &&
+    baseUrl === githubRawBase &&
+    !trimmed.startsWith('/') &&
+    (trimmed.startsWith('images/') || trimmed.startsWith('static/'))
+  ) {
+    return `${githubRawBase}/public/${trimmed}`
+  }
+  const normalizedBase = baseUrl.replace(/\/+$/, '')
+  const normalizedPath = trimmed.replace(/^\/+/, '')
+  return `${normalizedBase}/${normalizedPath}`
+}
+
+const resolveFrontmatterImages = (
+  frontmatter: Record<string, any> | null,
+  baseUrl: string | null,
+  options?: { publisherHost?: string | null, githubRawBase?: string | null }
+) => {
+  if (!frontmatter || typeof frontmatter !== 'object') {
+    return frontmatter
+  }
+  const normalized = { ...frontmatter }
+  if (normalized.image) {
+    normalized.image = resolveImageUrl(normalized.image, baseUrl, options)
+  }
+  if (normalized.authorImage) {
+    normalized.authorImage = resolveImageUrl(normalized.authorImage, baseUrl, options)
+  }
+  return normalized
+}
+
+const buildGithubRawBase = (source: Record<string, any> | null | undefined) => {
+  const repoFullName = typeof source?.repoFullName === 'string' ? source.repoFullName.trim() : ''
+  if (!repoFullName || !repoFullName.includes('/')) {
+    return null
+  }
+  const [owner, repo] = repoFullName.split('/')
+  if (!owner || !repo) {
+    return null
+  }
+  const branch = typeof source?.baseBranch === 'string' && source.baseBranch.trim()
+    ? source.baseBranch.trim()
+    : 'main'
+  const encodedBranch = branch
+    .split('/')
+    .map(part => encodeURIComponent(part))
+    .join('/')
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${encodedBranch}`
+}
+
+const rewriteMarkdownImageUrls = (
+  markdown: string,
+  baseUrl: string | null,
+  options?: { publisherHost?: string | null, githubRawBase?: string | null }
+) => {
+  if (!baseUrl) {
+    return markdown
+  }
+  const replaceRelative = (url: string) => {
+    const trimmed = url.trim()
+    if (!trimmed || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return resolveImageUrl(trimmed, baseUrl, options) as string
+    }
+    const normalizedBase = baseUrl.replace(/\/+$/, '')
+    const normalizedPath = trimmed.replace(/^\/+/, '')
+    return `${normalizedBase}/${normalizedPath}`
+  }
+
+  const markdownImagePattern = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+['"][^'"]*['"])?\s*\)/g
+  const markdownRefPattern = /^\[([^\]]+)\]:\s*(\S+)(?:\s+['"][^'"]*['"])?\s*$/gm
+  const htmlImagePattern = /<img\s[^>]*src=["']([^"']+)["'][^>]*>/gi
+
+  const rewrittenMarkdown = markdown.replace(markdownImagePattern, (match, url) => {
+    const absolute = replaceRelative(url)
+    return match.replace(url, absolute)
+  })
+
+  const rewrittenRefs = rewrittenMarkdown.replace(markdownRefPattern, (match, _label, url) => {
+    const absolute = replaceRelative(url)
+    return match.replace(url, absolute)
+  })
+
+  return rewrittenRefs.replace(htmlImagePattern, (match, url) => {
+    const absolute = replaceRelative(url)
+    return match.replace(url, absolute)
+  })
+}
+
 export async function getContentWorkspacePayload(
   db: NodePgDatabase<typeof schema>,
   organizationId: string,
@@ -132,11 +268,35 @@ export async function getContentWorkspacePayload(
     sourceContent
   })
 
+  const siteConfig = organizationRow ? getSiteConfigFromMetadata(organizationRow.metadata) : {}
+  const publisherBaseUrl = siteConfig.publisher?.url || siteConfig.blog?.url || null
+  const publisherHost = publisherBaseUrl
+    ? (() => {
+        try {
+          return new URL(publisherBaseUrl).host
+        } catch {
+          return null
+        }
+      })()
+    : null
+  const sourceInfo = currentVersion?.assets && typeof currentVersion.assets === 'object'
+    ? (currentVersion.assets as any).source
+    : null
+  const githubRawBase = buildGithubRawBase(sourceInfo)
+  const imageBaseUrl = githubRawBase || publisherBaseUrl
+  const imageOptions = { publisherHost, githubRawBase }
+
+  const resolvedFrontmatter = currentVersion?.frontmatter
+    ? resolveFrontmatterImages(currentVersion.frontmatter as Record<string, any>, imageBaseUrl, imageOptions)
+    : currentVersion?.frontmatter ?? null
+  const resolvedBodyMarkdown = currentVersion?.bodyMarkdown && typeof currentVersion.bodyMarkdown === 'string'
+    ? rewriteMarkdownImageUrls(currentVersion.bodyMarkdown, imageBaseUrl, imageOptions)
+    : currentVersion?.bodyMarkdown ?? null
+
   let structuredData: string | null = null
   let structuredDataGraph: Record<string, any> | null = null
-  if (currentVersion?.frontmatter) {
+  if (resolvedFrontmatter) {
     const baseUrl = runtimeConfig.public.baseURL || undefined
-    const siteConfig = organizationRow ? getSiteConfigFromMetadata(organizationRow.metadata) : {}
     const publisherDefaults = organizationRow
       ? {
           name: organizationRow.name,
@@ -159,7 +319,7 @@ export async function getContentWorkspacePayload(
     const blog = siteConfig.blog ?? null
     const categories = siteConfig.categories ?? null
     const structuredDataParams = {
-      frontmatter: currentVersion.frontmatter as ContentFrontmatter,
+      frontmatter: resolvedFrontmatter as ContentFrontmatter,
       seoSnapshot: currentVersion.seoSnapshot as Record<string, any> | null,
       sections: currentVersion.sections as ContentSection[] | null | undefined,
       baseUrl,
@@ -188,6 +348,8 @@ export async function getContentWorkspacePayload(
   const currentVersionWithDerived = currentVersion
     ? {
         ...currentVersion,
+        frontmatter: resolvedFrontmatter ?? currentVersion.frontmatter,
+        bodyMarkdown: resolvedBodyMarkdown ?? currentVersion.bodyMarkdown,
         structuredData,
         structuredDataGraph,
         imageSuggestions: Array.isArray(imageSuggestions) ? imageSuggestions : []

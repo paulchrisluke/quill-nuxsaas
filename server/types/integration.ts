@@ -8,7 +8,7 @@ export const integrationCapabilitiesSchema = z.object({
 
 export const integrationAuthTypeSchema = z.enum(['oauth', 'api_key', 'webhook'])
 
-export const integrationConfigSchema = z.record(z.any())
+export const integrationConfigSchema = z.record(z.string(), z.any())
 
 const integrationSchemaBase = z.object({
   type: z.string().min(1),
@@ -42,7 +42,7 @@ export const updateIntegrationSchema = integrationSchemaBase.partial().superRefi
 })
 
 export const testIntegrationSchema = z.object({
-  payload: z.record(z.any()).optional()
+  payload: z.record(z.string(), z.any()).optional()
 })
 
 export type IntegrationCapabilities = z.infer<typeof integrationCapabilitiesSchema>

@@ -18,6 +18,20 @@ import { createStripeClient, setupStripe } from './stripe'
 console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 console.log('Schema keys:', Object.keys(schema))
 
+const coerceMetadataToString = (metadata: unknown) => {
+  if (metadata === undefined) {
+    return undefined
+  }
+  if (metadata === null || typeof metadata === 'string') {
+    return metadata
+  }
+  try {
+    return JSON.stringify(metadata)
+  } catch {
+    return metadata
+  }
+}
+
 // Helper to strictly enforce the production URL for auth callbacks
 // This prevents "www" vs "non-www" mismatch errors with OAuth providers
 const getAuthBaseUrl = () => {
@@ -508,6 +522,26 @@ export const createBetterAuth = () => betterAuth({
         owner,
         admin,
         member
+      },
+      organizationHooks: {
+        beforeCreateOrganization: async ({ organization }) => {
+          const metadata = coerceMetadataToString(organization?.metadata)
+          return {
+            data: {
+              ...organization,
+              ...(metadata !== undefined ? { metadata } : {})
+            }
+          }
+        },
+        beforeUpdateOrganization: async ({ organization }) => {
+          const metadata = coerceMetadataToString(organization?.metadata)
+          return {
+            data: {
+              ...organization,
+              ...(metadata !== undefined ? { metadata } : {})
+            }
+          }
+        }
       },
       enableMetadata: true,
       async sendInvitationEmail({ email, inviter, organization, invitation }) {

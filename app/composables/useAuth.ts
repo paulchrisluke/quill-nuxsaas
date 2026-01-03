@@ -178,6 +178,11 @@ export function useAuth() {
         needsUpgrade: computeNeedsUpgrade(resolvedOrg.id, subscriptions ?? [], ownershipInfo)
       }
 
+      console.log('[auth] Refreshed active org', {
+        organizationId: resolvedOrg.id,
+        hasMetadata: Boolean(resolvedOrg.metadata)
+      })
+
       if (activeOrgState.value) {
         activeOrgState.value.data = flattenedData
       } else {

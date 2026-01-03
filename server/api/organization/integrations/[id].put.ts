@@ -20,6 +20,12 @@ export default defineEventHandler(async (event) => {
   const parsed = updateIntegrationSchema.safeParse(body)
 
   if (!parsed.success) {
+    console.warn('[integrations] Update validation failed', {
+      organizationId,
+      integrationId: id,
+      userId: user.id,
+      issues: parsed.error.flatten()
+    })
     throw createError({
       statusCode: 400,
       statusMessage: 'Bad Request',
@@ -30,7 +36,28 @@ export default defineEventHandler(async (event) => {
   const db = getDB()
   await assertIntegrationManager(db, user.id, organizationId)
 
-  const integration = await updateOrganizationIntegration(db, organizationId, id, parsed.data)
+  console.log('[integrations] Update request', {
+    organizationId,
+    integrationId: id,
+    userId: user.id,
+    hasConfig: Boolean(parsed.data?.config),
+    configKeys: parsed.data?.config && typeof parsed.data.config === 'object'
+      ? Object.keys(parsed.data.config)
+      : []
+  })
+
+  let integration
+  try {
+    integration = await updateOrganizationIntegration(db, organizationId, id, parsed.data)
+  } catch (error) {
+    console.error('[integrations] Update failed', {
+      organizationId,
+      integrationId: id,
+      userId: user.id,
+      error
+    })
+    throw error
+  }
 
   if (!integration) {
     throw createError({

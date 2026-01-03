@@ -11,6 +11,7 @@ export interface ImportMarkdownInput {
   slug: string
   frontmatter: Record<string, any>
   bodyMarkdown: string
+  sourceContentId?: string | null
   status?: string | null
   contentType?: string | null
   ingestMethod?: string | null
@@ -44,6 +45,7 @@ export const importMarkdownContent = async (
         createdByUserId: input.userId,
         slug,
         title,
+        sourceContentId: input.sourceContentId ?? null,
         status: status as typeof CONTENT_STATUSES[number],
         contentType: contentType as typeof CONTENT_TYPES[number],
         ingestMethod: input.ingestMethod ?? null,

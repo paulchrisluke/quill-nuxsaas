@@ -50,7 +50,7 @@ const shouldLogDebug = () => {
     return false
   }
   const logLevel = process.env.LOG_LEVEL?.toLowerCase()
-  const debugFlags = process.env.DEBUG || ''
+  const debugFlags = typeof process.env.DEBUG === 'string' ? process.env.DEBUG : ''
   return logLevel === 'debug' || debugFlags.includes('integrations')
 }
 

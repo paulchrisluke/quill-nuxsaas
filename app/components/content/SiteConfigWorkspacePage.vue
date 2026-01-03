@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { nextTick } from 'vue'
+import { nextTick, onMounted, watchEffect } from 'vue'
 import { getSiteConfigFromMetadata, mergeSiteConfigIntoMetadata, normalizeSiteConfig } from '~~/shared/utils/siteConfig'
 
 const { organization, useActiveOrganization, refreshActiveOrg, user } = useAuth()
 const activeOrg = useActiveOrganization()
 const runtimeConfig = useRuntimeConfig()
 const toast = useToast()
+const route = useRoute()
 
 const isSaving = ref(false)
 const isHydrating = ref(false)
 const isDirty = ref(false)
+const lastHydratedKey = ref<string | null>(null)
 const fieldProps = { orientation: 'vertical' as const, class: 'w-full' }
 
 const formState = reactive({
@@ -66,6 +68,7 @@ const warningMessages = computed(() => {
 })
 
 const metadataValue = computed(() => activeOrg.value?.data?.metadata ?? null)
+const canHydrate = computed(() => Boolean(activeOrg.value?.data?.id))
 
 const buildDefaults = () => {
   const org = activeOrg.value?.data
@@ -100,6 +103,20 @@ const normalizeSlug = (value: string) => {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
+}
+
+const isFormEmpty = () => {
+  return !formState.publisher.name.trim()
+    && !formState.publisher.url.trim()
+    && !formState.publisher.logoUrl.trim()
+    && !formState.publisher.sameAsInput.trim()
+    && !formState.author.name.trim()
+    && !formState.author.url.trim()
+    && !formState.author.image.trim()
+    && !formState.author.sameAsInput.trim()
+    && !formState.blog.name.trim()
+    && !formState.blog.url.trim()
+    && formState.categories.length === 0
 }
 
 const createCategoryId = () => {
@@ -159,6 +176,11 @@ const loadFromOrganization = () => {
     slug: item.slug ?? ''
   }))
   isDirty.value = false
+  console.log('[site-config] Hydrated form state', {
+    organizationId: activeOrg.value?.data?.id ?? null,
+    publisherUrl: merged.publisher?.url ?? null,
+    hasMetadata: Boolean(metadataValue.value)
+  })
   nextTick(() => {
     isHydrating.value = false
   })
@@ -174,12 +196,25 @@ const removeCategory = (index: number) => {
 
 const saveConfig = async () => {
   if (!activeOrg.value?.data?.id) {
-    toast.add({
-      title: 'No organization selected',
-      description: 'Please select an organization first.',
-      color: 'warning'
-    })
-    return
+    const slug = typeof route.params.slug === 'string'
+      ? route.params.slug
+      : Array.isArray(route.params.slug) ? route.params.slug[0] : null
+    if (slug) {
+      const { error } = await organization.setActive({
+        organizationSlug: slug
+      })
+      if (!error) {
+        await refreshActiveOrg()
+      }
+    }
+    if (!activeOrg.value?.data?.id) {
+      toast.add({
+        title: 'No organization selected',
+        description: 'Please select an organization first.',
+        color: 'warning'
+      })
+      return
+    }
   }
   isSaving.value = true
   try {
@@ -217,6 +252,10 @@ const saveConfig = async () => {
       categories
     })
     const nextMetadata = mergeSiteConfigIntoMetadata(metadataValue.value, nextConfig)
+    console.log('[site-config] Saving metadata', {
+      organizationId: activeOrg.value.data.id,
+      publisherUrl: nextConfig.publisher?.url ?? null
+    })
     const { error } = await organization.update({
       organizationId: activeOrg.value.data.id,
       data: {
@@ -227,6 +266,10 @@ const saveConfig = async () => {
       throw error
     }
     await refreshActiveOrg()
+    console.log('[site-config] Save complete', {
+      organizationId: activeOrg.value.data.id,
+      publisherUrl: nextConfig.publisher?.url ?? null
+    })
     toast.add({ title: 'Site config saved', color: 'success' })
     isDirty.value = false
   } catch (error: any) {
@@ -240,14 +283,27 @@ const saveConfig = async () => {
   }
 }
 
-watch(metadataValue, () => {
-  if (!isDirty.value) {
+watchEffect(() => {
+  const organizationId = activeOrg.value?.data?.id ?? null
+  const metadataKey = metadataValue.value == null ? '' : String(metadataValue.value)
+  const nextKey = organizationId ? `${organizationId}:${metadataKey}` : null
+  if (!canHydrate.value) {
+    return
+  }
+  if (!nextKey || nextKey === lastHydratedKey.value) {
+    return
+  }
+  if (!isDirty.value || isFormEmpty()) {
+    lastHydratedKey.value = nextKey
     loadFromOrganization()
   }
-}, { immediate: true })
+})
 
-watch([() => activeOrg.value?.data?.id, () => user.value?.id], () => {
-  if (!isDirty.value) {
+onMounted(async () => {
+  if (!activeOrg.value?.data?.id) {
+    await refreshActiveOrg()
+  }
+  if (activeOrg.value?.data?.id && (!isDirty.value || isFormEmpty())) {
     loadFromOrganization()
   }
 })

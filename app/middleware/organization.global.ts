@@ -1,5 +1,6 @@
 export default defineNuxtRouteMiddleware(async (to) => {
-  const { loggedIn, organization, fetchSession, refreshActiveOrg, getActiveOrganizationId, user } = useAuth()
+  const { loggedIn, organization, fetchSession, refreshActiveOrg, getActiveOrganizationId, useActiveOrganization, user } = useAuth()
+  const activeOrg = useActiveOrganization()
 
   if (!loggedIn.value)
     return
@@ -28,6 +29,8 @@ export default defineNuxtRouteMiddleware(async (to) => {
       await organization.setActive({ organizationId: targetOrg.id })
       await fetchSession()
 
+      await refreshActiveOrg()
+    } else if (!activeOrg.value?.data?.id) {
       await refreshActiveOrg()
     }
   } else {
