@@ -229,17 +229,7 @@ export default defineEventHandler(async (event) => {
 
       const externalId = `${repoFullName}:${baseBranch}:${path}`
 
-      const [sourceContent] = await db
-        .select()
-        .from(schema.sourceContent)
-        .where(and(
-          eq(schema.sourceContent.organizationId, organizationId),
-          eq(schema.sourceContent.sourceType, 'github'),
-          eq(schema.sourceContent.externalId, externalId)
-        ))
-        .limit(1)
-
-      const sourceRecord = sourceContent ?? (await db
+      const [sourceRecord] = await db
         .insert(schema.sourceContent)
         .values({
           organizationId,
@@ -255,8 +245,20 @@ export default defineEventHandler(async (event) => {
           },
           ingestStatus: 'ingested'
         })
-        .returning())
-        .at(0)
+        .onConflictDoUpdate({
+          target: [schema.sourceContent.organizationId, schema.sourceContent.sourceType, schema.sourceContent.externalId],
+          set: {
+            title,
+            metadata: {
+              repoFullName,
+              path,
+              baseBranch
+            },
+            updatedAt: new Date(),
+            ingestStatus: 'ingested'
+          }
+        })
+        .returning()
 
       const [existingContent] = sourceRecord
         ? await db

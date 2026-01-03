@@ -23,8 +23,7 @@ export default defineEventHandler(async (event) => {
     console.warn('[integrations] Update validation failed', {
       organizationId,
       integrationId: id,
-      userId: user.id,
-      issues: parsed.error.flatten()
+      validationErrorCount: parsed.error.issues.length
     })
     throw createError({
       statusCode: 400,
@@ -39,7 +38,6 @@ export default defineEventHandler(async (event) => {
   console.log('[integrations] Update request', {
     organizationId,
     integrationId: id,
-    userId: user.id,
     hasConfig: Boolean(parsed.data?.config),
     configKeys: parsed.data?.config && typeof parsed.data.config === 'object'
       ? Object.keys(parsed.data.config)
@@ -49,13 +47,18 @@ export default defineEventHandler(async (event) => {
   let integration
   try {
     integration = await updateOrganizationIntegration(db, organizationId, id, parsed.data)
-  } catch (error) {
+  } catch (error: any) {
+    const correlationId = crypto.randomUUID()
     console.error('[integrations] Update failed', {
       organizationId,
       integrationId: id,
-      userId: user.id,
-      error
+      messages: error?.message || 'Update failed',
+      correlationId
     })
+    // Attach correlation ID to error if possible or wrap it
+    if (error && typeof error === 'object') {
+      error.correlationId = correlationId
+    }
     throw error
   }
 

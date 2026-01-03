@@ -285,7 +285,12 @@ const saveConfig = async () => {
 
 watchEffect(() => {
   const organizationId = activeOrg.value?.data?.id ?? null
-  const metadataKey = metadataValue.value == null ? '' : String(metadataValue.value)
+  let metadataKey = ''
+  try {
+    metadataKey = metadataValue.value == null ? '' : JSON.stringify(metadataValue.value)
+  } catch {
+    metadataKey = 'unsafe-metadata'
+  }
   const nextKey = organizationId ? `${organizationId}:${metadataKey}` : null
   if (!canHydrate.value) {
     return

@@ -27,8 +27,9 @@ const coerceMetadataToString = (metadata: unknown) => {
   }
   try {
     return JSON.stringify(metadata)
-  } catch {
-    return metadata
+  } catch (error) {
+    console.error('[Auth Hook] Failed to serialize organization metadata:', error)
+    return '<unserializable metadata>'
   }
 }
 

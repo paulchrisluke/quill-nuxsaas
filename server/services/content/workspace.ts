@@ -117,12 +117,7 @@ const rewriteMarkdownImageUrls = (
   }
   const replaceRelative = (url: string) => {
     const trimmed = url.trim()
-    if (!trimmed || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return resolveImageUrl(trimmed, baseUrl, options) as string
-    }
-    const normalizedBase = baseUrl.replace(/\/+$/, '')
-    const normalizedPath = trimmed.replace(/^\/+/, '')
-    return `${normalizedBase}/${normalizedPath}`
+    return resolveImageUrl(trimmed, baseUrl, options) as string
   }
 
   const markdownImagePattern = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+['"][^'"]*['"])?\s*\)/g
