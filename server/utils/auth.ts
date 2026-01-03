@@ -19,7 +19,7 @@ console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 console.log('Schema keys:', Object.keys(schema))
 
 export const createBetterAuth = () => betterAuth({
-  baseURL: runtimeConfig.public.baseURL || process.env.NUXT_APP_URL,
+  baseURL: runtimeConfig.public.baseURL || process.env.NUXT_APP_URL || 'https://getquillio.com',
   trustedOrigins: [
     'http://localhost:8787',
     'http://localhost:3000',
