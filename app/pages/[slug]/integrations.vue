@@ -127,7 +127,7 @@ const githubIntegrationStatus = computed(() => {
 })
 
 const githubConfig = reactive({
-  publishEnabled: false,
+  publishEnabled: true,
   repoFullName: '',
   baseBranch: 'main',
   contentPath: '',
@@ -143,6 +143,141 @@ const githubConfig = reactive({
 const githubConfigReady = ref(false)
 const githubConfigSaving = ref(false)
 const githubImportLoading = ref(false)
+const githubRepoLoading = ref(false)
+const githubBranchLoading = ref(false)
+const githubPathLoading = ref(false)
+const githubRepoOptions = ref<Array<{
+  id: number
+  fullName: string
+  defaultBranch: string
+  private: boolean
+  label: string
+}>>([])
+const githubBranchOptions = ref<string[]>([])
+const githubPathOptions = ref<Array<{ label: string, value: string }>>([])
+const selectedGithubRepo = ref<{
+  id: number
+  fullName: string
+  defaultBranch: string
+  private: boolean
+  label: string
+} | null>(null)
+const isApplyingRepoSelection = ref(false)
+
+const pickDefaultContentPath = (paths: Array<{ label: string, value: string }>) => {
+  const values = paths.map(option => option.value)
+  if (values.includes('content')) {
+    return 'content'
+  }
+  const nonEmpty = values.find(value => value)
+  return nonEmpty ?? ''
+}
+
+const loadGithubRepos = async () => {
+  if (githubRepoLoading.value || !githubIntegration.value) {
+    return
+  }
+  githubRepoLoading.value = true
+  try {
+    const response = await $fetch<{ repos: Array<{
+      id: number
+      fullName: string
+      defaultBranch: string
+      private: boolean
+    }> }>('/api/integration/github/repos')
+
+    githubRepoOptions.value = (response.repos || []).map(repo => ({
+      ...repo,
+      label: repo.private ? `${repo.fullName} (private)` : repo.fullName
+    }))
+
+    if (githubConfig.repoFullName) {
+      selectedGithubRepo.value = githubRepoOptions.value.find(repo => repo.fullName === githubConfig.repoFullName) ?? null
+    }
+  } catch (error: any) {
+    toast.add({
+      title: 'Failed to load repositories',
+      description: error?.data?.statusMessage || error?.message || 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    githubRepoLoading.value = false
+  }
+}
+
+const loadGithubBranches = async (repoFullName: string) => {
+  if (githubBranchLoading.value || !repoFullName) {
+    return
+  }
+  githubBranchLoading.value = true
+  try {
+    const response = await $fetch<{ branches: string[] }>('/api/integration/github/branches', {
+      query: { repoFullName }
+    })
+    githubBranchOptions.value = response.branches || []
+  } catch (error: any) {
+    githubBranchOptions.value = []
+    toast.add({
+      title: 'Failed to load branches',
+      description: error?.data?.statusMessage || error?.message || 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    githubBranchLoading.value = false
+  }
+}
+
+const loadGithubPaths = async (repoFullName: string, baseBranch: string) => {
+  if (githubPathLoading.value || !repoFullName || !baseBranch) {
+    return
+  }
+  githubPathLoading.value = true
+  try {
+    const response = await $fetch<{ paths: string[] }>('/api/integration/github/paths', {
+      query: { repoFullName, baseBranch }
+    })
+    const options = (response.paths || []).map(path => ({
+      label: path || 'Repo root',
+      value: path
+    }))
+    githubPathOptions.value = options
+  } catch (error: any) {
+    githubPathOptions.value = []
+    toast.add({
+      title: 'Failed to load content paths',
+      description: error?.data?.statusMessage || error?.message || 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    githubPathLoading.value = false
+  }
+}
+
+const applyRepoSelection = async (repo: typeof selectedGithubRepo.value) => {
+  if (!repo) {
+    return
+  }
+  isApplyingRepoSelection.value = true
+  githubConfig.publishEnabled = true
+  githubConfig.repoFullName = repo.fullName
+  githubConfig.importRepoFullName = repo.fullName
+  githubConfig.baseBranch = repo.defaultBranch || 'main'
+  githubConfig.importBaseBranch = repo.defaultBranch || 'main'
+
+  await loadGithubBranches(repo.fullName)
+  await loadGithubPaths(repo.fullName, githubConfig.baseBranch)
+
+  if (!githubConfig.contentPath) {
+    githubConfig.contentPath = pickDefaultContentPath(githubPathOptions.value)
+  }
+  if (!githubConfig.jsonPath) {
+    githubConfig.jsonPath = githubConfig.contentPath
+  }
+  if (!githubConfig.importContentPath) {
+    githubConfig.importContentPath = githubConfig.contentPath
+  }
+  isApplyingRepoSelection.value = false
+}
 
 const youtubeConnectedByUser = computed(() => {
   const integration = youtubeIntegration.value
@@ -172,7 +307,7 @@ watch(githubIntegration, (integration) => {
   const publish = config.publish && typeof config.publish === 'object' ? config.publish : {}
   const importConfig = config.import && typeof config.import === 'object' ? config.import : {}
 
-  githubConfig.publishEnabled = Boolean(publish.enabled)
+  githubConfig.publishEnabled = typeof publish.enabled === 'boolean' ? publish.enabled : true
   githubConfig.repoFullName = publish.repoFullName || config.repoFullName || ''
   githubConfig.baseBranch = publish.baseBranch || 'main'
   githubConfig.contentPath = publish.contentPath || ''
@@ -187,7 +322,40 @@ watch(githubIntegration, (integration) => {
   githubConfig.importStatus = importConfig.status || 'draft'
 
   githubConfigReady.value = true
+  loadGithubRepos()
+  if (githubConfig.repoFullName) {
+    loadGithubBranches(githubConfig.repoFullName)
+    loadGithubPaths(githubConfig.repoFullName, githubConfig.baseBranch)
+  }
 }, { immediate: true })
+
+watch(selectedGithubRepo, (repo) => {
+  if (!repo || isApplyingRepoSelection.value) {
+    return
+  }
+  applyRepoSelection(repo)
+})
+
+watch(
+  () => githubConfig.baseBranch,
+  (baseBranch) => {
+    if (!githubConfig.repoFullName || !baseBranch || isApplyingRepoSelection.value) {
+      return
+    }
+    loadGithubPaths(githubConfig.repoFullName, baseBranch)
+  }
+)
+
+watch(
+  () => githubConfig.repoFullName,
+  (repoFullName) => {
+    if (!repoFullName || isApplyingRepoSelection.value) {
+      return
+    }
+    selectedGithubRepo.value = githubRepoOptions.value.find(repo => repo.fullName === repoFullName) ?? null
+    loadGithubBranches(repoFullName)
+  }
+)
 
 const connectLoading = reactive({
   youtube: false,
@@ -778,6 +946,32 @@ if (import.meta.client) {
                   Publish Settings
                 </p>
                 <div class="grid gap-3 sm:grid-cols-2">
+                  <UFormField
+                    label="Choose repository"
+                    class="sm:col-span-2"
+                  >
+                    <div class="flex flex-wrap gap-2">
+                      <USelectMenu
+                        v-model="selectedGithubRepo"
+                        :items="githubRepoOptions"
+                        option-attribute="label"
+                        class="flex-1 min-w-[220px]"
+                        :loading="githubRepoLoading"
+                        :disabled="!githubIntegration"
+                        placeholder="Select a repository"
+                      />
+                      <UButton
+                        icon="i-lucide-refresh-cw"
+                        variant="soft"
+                        color="neutral"
+                        :loading="githubRepoLoading"
+                        :disabled="!githubIntegration"
+                        @click="loadGithubRepos"
+                      >
+                        Refresh repos
+                      </UButton>
+                    </div>
+                  </UFormField>
                   <UFormField label="Repository">
                     <UInput
                       v-model="githubConfig.repoFullName"
