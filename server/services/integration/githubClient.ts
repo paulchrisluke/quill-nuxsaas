@@ -92,12 +92,25 @@ export const listRepoBranches = async (
   repoFullName: string
 ) => {
   const { owner, repo } = parseGithubRepo(repoFullName)
-  const response = await githubRequest<Array<{ name: string }>>(
-    token,
-    `/repos/${owner}/${repo}/branches?per_page=100`
-  )
+  const perPage = 100
+  const branches: string[] = []
+  let page = 1
 
-  return response.map(branch => branch.name)
+  while (true) {
+    const response = await githubRequest<Array<{ name: string }>>(
+      token,
+      `/repos/${owner}/${repo}/branches?per_page=${perPage}&page=${page}`
+    )
+
+    branches.push(...response.map(branch => branch.name))
+
+    if (response.length < perPage) {
+      break
+    }
+    page += 1
+  }
+
+  return branches
 }
 
 export const fetchPullRequest = async (

@@ -41,7 +41,16 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const repos = await listUserRepos(account.accessToken)
+  let repos
+  try {
+    repos = await listUserRepos(account.accessToken)
+  } catch (error) {
+    throw createError({
+      statusCode: 502,
+      statusMessage: 'Failed to fetch repositories from GitHub. The access token may be expired or revoked.',
+      cause: error
+    })
+  }
 
   return {
     repos,

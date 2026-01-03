@@ -410,7 +410,8 @@ export async function publishContentVersion(
 
     const publicationStatus = githubPublishResult ? 'pending' : 'published'
     const contentStatus = githubPublishResult ? contentRecord.status : 'published'
-    const publishedAtValue = githubPublishResult ? contentRecord.publishedAt : publishedAt
+    const contentPublishedAt = githubPublishResult ? contentRecord.publishedAt : publishedAt
+    const publicationPublishedAt = publishedAt
 
     const { updatedContent, publicationRecord } = await db.transaction(async (tx) => {
       await tx
@@ -435,7 +436,7 @@ export async function publishContentVersion(
         .update(schema.content)
         .set({
           status: contentStatus,
-          publishedAt: publishedAtValue
+          publishedAt: contentPublishedAt
         })
         .where(eq(schema.content.id, contentRecord.id))
         .returning()
@@ -454,7 +455,7 @@ export async function publishContentVersion(
           contentId: contentRecord.id,
           contentVersionId: versionRecord.id,
           status: publicationStatus,
-          publishedAt: publishedAtValue,
+          publishedAt: publicationPublishedAt,
           payloadSnapshot: {
             fileId: uploadedFile!.id,
             path: uploadedFile!.path,

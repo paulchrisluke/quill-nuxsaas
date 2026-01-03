@@ -713,13 +713,19 @@ const archiveContent = async () => {
 
 const publishButtonLabel = computed(() => {
   if (lastPublishedPrUrl.value) {
-    return saveStatus.value === 'unsaved' ? 'Update PR' : 'Open PR'
+    if (saveStatus.value === 'unsaved') {
+      return 'Update PR'
+    }
+    if (saveStatus.value === 'saving') {
+      return 'Saving...'
+    }
+    return 'View PR'
   }
   return 'Open PR'
 })
 
 const publishContent = async () => {
-  if (!contentEntry.value || isPublishing.value) {
+  if (!contentEntry.value || isPublishing.value || isSaving.value) {
     return
   }
   if (lastPublishedPrUrl.value && saveStatus.value === 'saved') {
@@ -832,7 +838,7 @@ watch(latestUpdate, (update) => {
                 size="xs"
                 color="primary"
                 variant="soft"
-                :loading="isPublishing"
+                :loading="isPublishing || isSaving"
                 class="flex-shrink-0"
                 @click="publishContent"
               >

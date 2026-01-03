@@ -46,14 +46,21 @@ export default defineEventHandler(async (event) => {
 
   if (!account || account.providerId !== 'github' || !account.accessToken) {
     throw createError({
-      statusCode: 400,
+      statusCode: 412,
       statusMessage: 'GitHub integration is missing a valid access token.'
     })
   }
 
-  const paths = await listRepoMarkdownDirectories(account.accessToken, repoFullName, baseBranch)
-
-  return {
-    paths
+  try {
+    const paths = await listRepoMarkdownDirectories(account.accessToken, repoFullName, baseBranch)
+    return {
+      paths
+    }
+  } catch (error) {
+    throw createError({
+      statusCode: 502,
+      statusMessage: 'Failed to fetch repository paths from GitHub.',
+      cause: error
+    })
   }
 })

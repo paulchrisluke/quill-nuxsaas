@@ -2,11 +2,21 @@ import { and, desc, eq } from 'drizzle-orm'
 import * as schema from '~~/server/db/schema'
 import { fetchPullRequest } from '~~/server/services/integration/githubClient'
 
+const SYNC_COOLDOWN_MS = 60 * 1000
+const lastSyncAttempts = new Map<string, number>()
+
 export const syncGithubPublicationStatus = async (
   db: any,
   organizationId: string,
   contentId: string
 ) => {
+  const cooldownKey = `${organizationId}:${contentId}`
+  const lastAttempt = lastSyncAttempts.get(cooldownKey)
+  const now = Date.now()
+  if (lastAttempt && now - lastAttempt < SYNC_COOLDOWN_MS) {
+    return false
+  }
+
   const [publication] = await db
     .select()
     .from(schema.publication)
@@ -71,7 +81,14 @@ export const syncGithubPublicationStatus = async (
     return false
   }
 
-  const pr = await fetchPullRequest(account.accessToken, repoFullName, prNumber)
+  lastSyncAttempts.set(cooldownKey, now)
+  let pr
+  try {
+    pr = await fetchPullRequest(account.accessToken, repoFullName, prNumber)
+  } catch (error) {
+    console.error('Failed to fetch PR from GitHub:', error)
+    return false
+  }
 
   if (!pr.merged_at) {
     return false
@@ -79,23 +96,28 @@ export const syncGithubPublicationStatus = async (
 
   const mergedAt = new Date(pr.merged_at)
 
-  await db.transaction(async (tx: any) => {
-    await tx
-      .update(schema.publication)
-      .set({
-        status: 'published',
-        publishedAt: mergedAt
-      })
-      .where(eq(schema.publication.id, publication.id))
+  try {
+    await db.transaction(async (tx: any) => {
+      await tx
+        .update(schema.publication)
+        .set({
+          status: 'published',
+          publishedAt: mergedAt
+        })
+        .where(eq(schema.publication.id, publication.id))
 
-    await tx
-      .update(schema.content)
-      .set({
-        status: 'published',
-        publishedAt: mergedAt
-      })
-      .where(eq(schema.content.id, contentId))
-  })
+      await tx
+        .update(schema.content)
+        .set({
+          status: 'published',
+          publishedAt: mergedAt
+        })
+        .where(eq(schema.content.id, contentId))
+    })
+  } catch (error) {
+    console.error('Failed to update publication status:', error)
+    return false
+  }
 
   return true
 }
