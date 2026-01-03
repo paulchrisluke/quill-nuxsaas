@@ -4,6 +4,17 @@ import { fetchPullRequest } from '~~/server/services/integration/githubClient'
 
 const SYNC_COOLDOWN_MS = 60 * 1000
 const lastSyncAttempts = new Map<string, number>()
+const SYNC_CLEANUP_INTERVAL_MS = 60 * 1000
+const SYNC_CACHE_TTL_MS = 5 * 60 * 1000
+
+setInterval(() => {
+  const cutoff = Date.now() - SYNC_CACHE_TTL_MS
+  for (const [key, timestamp] of lastSyncAttempts.entries()) {
+    if (timestamp < cutoff) {
+      lastSyncAttempts.delete(key)
+    }
+  }
+}, SYNC_CLEANUP_INTERVAL_MS)
 
 export const syncGithubPublicationStatus = async (
   db: any,
@@ -81,7 +92,6 @@ export const syncGithubPublicationStatus = async (
     return false
   }
 
-  lastSyncAttempts.set(cooldownKey, now)
   let pr
   try {
     pr = await fetchPullRequest(account.accessToken, repoFullName, prNumber)
@@ -114,6 +124,7 @@ export const syncGithubPublicationStatus = async (
         })
         .where(eq(schema.content.id, contentId))
     })
+    lastSyncAttempts.set(cooldownKey, now)
   } catch (error) {
     console.error('Failed to update publication status:', error)
     return false
