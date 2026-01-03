@@ -18,11 +18,21 @@ import { createStripeClient, setupStripe } from './stripe'
 console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 console.log('Schema keys:', Object.keys(schema))
 
+// Helper to strictly enforce the production URL for auth callbacks
+// This prevents "www" vs "non-www" mismatch errors with OAuth providers
+const getAuthBaseUrl = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return 'https://getquillio.com'
+  }
+  return runtimeConfig.public.baseURL || process.env.NUXT_APP_URL || 'http://localhost:3000'
+}
+
 export const createBetterAuth = () => betterAuth({
-  baseURL: runtimeConfig.public.baseURL || process.env.NUXT_APP_URL || 'https://getquillio.com',
+  baseURL: getAuthBaseUrl(),
   trustedOrigins: [
     'http://localhost:8787',
     'http://localhost:3000',
+    'http://localhost:3001',
     'http://localhost:3001',
     'http://localhost:5173',
     'http://localhost:4000',
