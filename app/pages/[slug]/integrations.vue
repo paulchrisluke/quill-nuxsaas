@@ -20,8 +20,9 @@ const router = useRouter()
 const slug = computed(() => currentRoute.params.slug as string)
 const toast = useToast()
 
-const { user, useActiveOrganization } = useAuth()
+const { user, useActiveOrganization, refreshActiveOrg } = useAuth()
 const activeOrg = useActiveOrganization()
+const hasActiveOrg = computed(() => Boolean(activeOrg.value?.data?.id))
 
 const youtubeScopes = [...GOOGLE_INTEGRATION_SCOPES.youtube]
 const googleDriveScopes = [...GOOGLE_INTEGRATION_SCOPES.google_drive]
@@ -47,6 +48,16 @@ const currentUserRole = computed(() => {
 const canManageIntegrations = computed(() => {
   return currentUserRole.value === 'owner' || currentUserRole.value === 'admin'
 })
+
+watch(
+  () => user.value?.id,
+  async (id) => {
+    if (!id)
+      return
+    await refreshActiveOrg()
+  },
+  { immediate: true }
+)
 
 const {
   data: integrationsResponse,
@@ -115,6 +126,24 @@ const githubIntegrationStatus = computed(() => {
   return integration.status
 })
 
+const githubConfig = reactive({
+  publishEnabled: false,
+  repoFullName: '',
+  baseBranch: 'main',
+  contentPath: '',
+  jsonPath: '',
+  branchPrefix: 'quillio/publish',
+  prTitle: '',
+  prBody: 'Automated publish from Quillio.',
+  importRepoFullName: '',
+  importBaseBranch: 'main',
+  importContentPath: '',
+  importStatus: 'draft'
+})
+const githubConfigReady = ref(false)
+const githubConfigSaving = ref(false)
+const githubImportLoading = ref(false)
+
 const youtubeConnectedByUser = computed(() => {
   const integration = youtubeIntegration.value
   if (!integration?.connectedByUserId)
@@ -135,6 +164,30 @@ const githubConnectedByUser = computed(() => {
     return null
   return members.value.find(member => member.userId === integration.connectedByUserId) || null
 })
+
+watch(githubIntegration, (integration) => {
+  if (!integration)
+    return
+  const config = integration.config && typeof integration.config === 'object' ? integration.config : {}
+  const publish = config.publish && typeof config.publish === 'object' ? config.publish : {}
+  const importConfig = config.import && typeof config.import === 'object' ? config.import : {}
+
+  githubConfig.publishEnabled = Boolean(publish.enabled)
+  githubConfig.repoFullName = publish.repoFullName || config.repoFullName || ''
+  githubConfig.baseBranch = publish.baseBranch || 'main'
+  githubConfig.contentPath = publish.contentPath || ''
+  githubConfig.jsonPath = publish.jsonPath || ''
+  githubConfig.branchPrefix = publish.branchPrefix || 'quillio/publish'
+  githubConfig.prTitle = publish.prTitle || ''
+  githubConfig.prBody = publish.prBody || 'Automated publish from Quillio.'
+
+  githubConfig.importRepoFullName = importConfig.repoFullName || publish.repoFullName || config.repoFullName || ''
+  githubConfig.importBaseBranch = importConfig.baseBranch || publish.baseBranch || 'main'
+  githubConfig.importContentPath = importConfig.contentPath || publish.contentPath || ''
+  githubConfig.importStatus = importConfig.status || 'draft'
+
+  githubConfigReady.value = true
+}, { immediate: true })
 
 const connectLoading = reactive({
   youtube: false,
@@ -301,6 +354,92 @@ async function connectGithub() {
     })
   } finally {
     connectLoading.github = false
+  }
+}
+
+async function saveGithubConfig() {
+  if (!githubIntegration.value) {
+    toast.add({ title: 'GitHub not connected', description: 'Connect GitHub before saving settings.', color: 'error' })
+    return
+  }
+  githubConfigSaving.value = true
+  try {
+    const existingConfig = (githubIntegration.value.config && typeof githubIntegration.value.config === 'object')
+      ? githubIntegration.value.config
+      : {}
+
+    const payload = {
+      ...existingConfig,
+      publish: {
+        enabled: githubConfig.publishEnabled,
+        repoFullName: githubConfig.repoFullName,
+        baseBranch: githubConfig.baseBranch,
+        contentPath: githubConfig.contentPath,
+        jsonPath: githubConfig.jsonPath || githubConfig.contentPath,
+        branchPrefix: githubConfig.branchPrefix,
+        prTitle: githubConfig.prTitle || undefined,
+        prBody: githubConfig.prBody || undefined
+      },
+      import: {
+        repoFullName: githubConfig.importRepoFullName || githubConfig.repoFullName,
+        baseBranch: githubConfig.importBaseBranch || githubConfig.baseBranch,
+        contentPath: githubConfig.importContentPath || githubConfig.contentPath,
+        status: githubConfig.importStatus
+      }
+    }
+
+    await $fetch(`/api/organization/integrations/${githubIntegration.value.id}`, {
+      method: 'PUT',
+      body: {
+        config: payload
+      }
+    })
+    toast.add({ title: 'GitHub settings saved', color: 'success' })
+    await refresh()
+  } catch (error: any) {
+    toast.add({
+      title: 'Unable to save GitHub settings',
+      description: error?.data?.statusMessage || error?.message || 'Unexpected error occurred.',
+      color: 'error'
+    })
+  } finally {
+    githubConfigSaving.value = false
+  }
+}
+
+async function runGithubImport() {
+  if (!githubIntegration.value) {
+    toast.add({ title: 'GitHub not connected', description: 'Connect GitHub before importing.', color: 'error' })
+    return
+  }
+  githubImportLoading.value = true
+  try {
+    const response = await $fetch<{
+      imported: Array<{ path: string }>
+      skipped: Array<{ path: string, reason: string }>
+    }>('/api/integration/github/import', {
+      method: 'POST',
+      body: {
+        repoFullName: githubConfig.importRepoFullName || githubConfig.repoFullName,
+        contentPath: githubConfig.importContentPath || githubConfig.contentPath,
+        baseBranch: githubConfig.importBaseBranch || githubConfig.baseBranch,
+        status: githubConfig.importStatus
+      }
+    })
+
+    toast.add({
+      title: 'GitHub import complete',
+      description: `Imported ${response.imported?.length || 0} files, skipped ${response.skipped?.length || 0}.`,
+      color: 'success'
+    })
+  } catch (error: any) {
+    toast.add({
+      title: 'GitHub import failed',
+      description: error?.data?.statusMessage || error?.message || 'Unexpected error occurred.',
+      color: 'error'
+    })
+  } finally {
+    githubImportLoading.value = false
   }
 }
 
@@ -482,7 +621,7 @@ if (import.meta.client) {
       </div>
 
       <UAlert
-        v-if="!canManageIntegrations"
+        v-if="hasActiveOrg && !canManageIntegrations"
         icon="i-lucide-lock"
         color="neutral"
         variant="subtle"
@@ -618,6 +757,124 @@ if (import.meta.client) {
                   {{ formatDateRelative(githubIntegration?.updatedAt, { includeTime: true }) }}
                 </strong>
               </p>
+            </div>
+
+            <div
+              v-if="githubIntegration && githubConfigReady"
+              class="space-y-4 rounded-lg border border-muted-200/70 p-4"
+            >
+              <div class="flex items-center justify-between">
+                <p class="text-sm font-medium">
+                  Publish & Import Settings
+                </p>
+                <UCheckbox
+                  v-model="githubConfig.publishEnabled"
+                  label="Enable publish PRs"
+                />
+              </div>
+
+              <div class="space-y-3">
+                <p class="text-sm font-medium">
+                  Publish Settings
+                </p>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <UFormField label="Repository">
+                    <UInput
+                      v-model="githubConfig.repoFullName"
+                      placeholder="owner/repo"
+                    />
+                  </UFormField>
+                  <UFormField label="Base branch">
+                    <UInput
+                      v-model="githubConfig.baseBranch"
+                      placeholder="main"
+                    />
+                  </UFormField>
+                  <UFormField label="Content path">
+                    <UInput
+                      v-model="githubConfig.contentPath"
+                      placeholder="tenants/northcarolinalegalservices/articles"
+                    />
+                  </UFormField>
+                  <UFormField label="JSON export path">
+                    <UInput
+                      v-model="githubConfig.jsonPath"
+                      placeholder="tenants/northcarolinalegalservices/articles"
+                    />
+                  </UFormField>
+                  <UFormField label="Branch prefix">
+                    <UInput
+                      v-model="githubConfig.branchPrefix"
+                      placeholder="quillio/publish"
+                    />
+                  </UFormField>
+                  <UFormField label="PR title (optional)">
+                    <UTextarea
+                      v-model="githubConfig.prTitle"
+                      placeholder="Publish: Content update"
+                    />
+                  </UFormField>
+                  <UFormField label="PR body (optional)">
+                    <UTextarea
+                      v-model="githubConfig.prBody"
+                      placeholder="Automated publish from Quillio."
+                    />
+                  </UFormField>
+                </div>
+              </div>
+
+              <div class="space-y-3">
+                <p class="text-sm font-medium">
+                  Import Settings
+                </p>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <UFormField label="Import repository">
+                    <UInput
+                      v-model="githubConfig.importRepoFullName"
+                      placeholder="owner/repo"
+                    />
+                  </UFormField>
+                  <UFormField label="Import branch">
+                    <UInput
+                      v-model="githubConfig.importBaseBranch"
+                      placeholder="main"
+                    />
+                  </UFormField>
+                  <UFormField label="Import path">
+                    <UInput
+                      v-model="githubConfig.importContentPath"
+                      placeholder="tenants/northcarolinalegalservices/articles"
+                    />
+                  </UFormField>
+                  <UFormField label="Import status">
+                    <USelect
+                      v-model="githubConfig.importStatus"
+                      :options="['draft', 'published']"
+                      placeholder="Select status"
+                    />
+                  </UFormField>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-3">
+                <UButton
+                  color="primary"
+                  :disabled="!canManageIntegrations"
+                  :loading="githubConfigSaving"
+                  @click="saveGithubConfig"
+                >
+                  Save GitHub settings
+                </UButton>
+                <UButton
+                  color="neutral"
+                  variant="soft"
+                  :disabled="!canManageIntegrations"
+                  :loading="githubImportLoading"
+                  @click="runGithubImport"
+                >
+                  Import markdown now
+                </UButton>
+              </div>
             </div>
 
             <div class="flex flex-wrap gap-3">

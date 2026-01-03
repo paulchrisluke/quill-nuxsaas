@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ContentStatus, ContentType } from '~~/server/types/content'
+import type { ContentStatus, ContentType, PublishContentResponse } from '~~/server/types/content'
 import { Emoji, gitHubEmojis } from '@tiptap/extension-emoji'
 import { nextTick } from 'vue'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
@@ -519,6 +519,8 @@ const saveSeoForm = async () => {
 
 const editorContent = ref('')
 const isSaving = ref(false)
+const isPublishing = ref(false)
+const lastPublishedPrUrl = ref<string | null>(null)
 const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
 const lastContentId = ref<string | null>(null)
 const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
@@ -634,6 +636,7 @@ watch(contentEntry, (entry) => {
     isContentLoading.value = true
     editorContent.value = ''
     lastContentId.value = null
+    lastPublishedPrUrl.value = null
     saveStatus.value = 'saved'
     isContentLoading.value = false
     return
@@ -641,6 +644,7 @@ watch(contentEntry, (entry) => {
   if (entry.id && entry.id !== lastContentId.value) {
     isContentLoading.value = true
     lastContentId.value = entry.id
+    lastPublishedPrUrl.value = null
     editorContent.value = entry.bodyMarkdown || ''
     saveStatus.value = 'saved'
     nextTick(() => {
@@ -704,6 +708,43 @@ const archiveContent = async () => {
       description: err instanceof Error ? err.message : 'Please try again.',
       color: 'error'
     })
+  }
+}
+
+const publishContent = async () => {
+  if (!contentEntry.value || isPublishing.value) {
+    return
+  }
+  if (lastPublishedPrUrl.value) {
+    window.open(lastPublishedPrUrl.value, '_blank', 'noopener,noreferrer')
+    return
+  }
+  try {
+    isPublishing.value = true
+    const response = await $fetch<PublishContentResponse>(`/api/content/${contentEntry.value.id}/publish`, {
+      method: 'POST',
+      body: { versionId: null }
+    })
+    lastPublishedPrUrl.value = response?.external?.github?.prUrl ?? null
+    toast.add({
+      title: lastPublishedPrUrl.value ? 'PR created' : 'Content published',
+      description: lastPublishedPrUrl.value
+        ? 'Open the pull request to review changes.'
+        : response?.file?.url
+          ? `Available at ${response.file.url}`
+          : 'The latest version has been saved to your content storage.',
+      color: 'primary'
+    })
+    await refreshContent()
+  } catch (err) {
+    console.error('Failed to publish content', err)
+    toast.add({
+      title: 'Publish failed',
+      description: err instanceof Error ? err.message : 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    isPublishing.value = false
   }
 }
 
@@ -779,6 +820,16 @@ watch(latestUpdate, (update) => {
                 @click="archiveContent"
               >
                 <span class="hidden sm:inline">Archive</span>
+              </UButton>
+              <UButton
+                size="xs"
+                color="primary"
+                variant="soft"
+                :loading="isPublishing"
+                class="flex-shrink-0"
+                @click="publishContent"
+              >
+                {{ lastPublishedPrUrl ? 'Open PR' : 'Publish' }}
               </UButton>
             </div>
           </div>

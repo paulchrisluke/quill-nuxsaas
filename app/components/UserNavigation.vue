@@ -29,6 +29,11 @@ const menuItems = computed(() => {
       icon: 'i-lucide-settings',
       to: localePath(`/${orgSlug.value}/settings`)
     })
+    items.push({
+      label: t('global.nav.integrations'),
+      icon: 'i-lucide-plug',
+      to: localePath(`/${orgSlug.value}/integrations`)
+    })
   }
   items.push({
     label: t('global.auth.signOut'),

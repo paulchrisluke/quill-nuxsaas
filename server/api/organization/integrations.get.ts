@@ -45,6 +45,25 @@ import { getDB } from '~~/server/utils/db'
  */
 
 const FORCE_SYNC_MIN_INTERVAL_MS = 60 * 1000
+const shouldLogDebug = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return false
+  }
+  const logLevel = process.env.LOG_LEVEL?.toLowerCase()
+  const debugFlags = process.env.DEBUG || ''
+  return logLevel === 'debug' || debugFlags.includes('integrations')
+}
+
+const logDebug = (message: string, meta?: Record<string, unknown>) => {
+  if (!shouldLogDebug()) {
+    return
+  }
+  if (meta) {
+    console.debug(message, meta)
+  } else {
+    console.debug(message)
+  }
+}
 
 export async function handleGetIntegrations(
   event: any,
@@ -65,6 +84,10 @@ export async function handleGetIntegrations(
   const { organizationId } = await options.requireActiveOrganization(event)
   const db = options.getDB()
 
+  logDebug('[integrations] Request', {
+    organizationId
+  })
+
   await options.assertIntegrationManager(db, user.id, organizationId)
 
   const query = options.getQuery(event)
@@ -72,8 +95,29 @@ export async function handleGetIntegrations(
   const lastSyncedAt = await options.getOrganizationIntegrationSyncMetadata(db, organizationId)
   const lastSyncTime = lastSyncedAt?.getTime() ?? null
 
+  logDebug('[integrations] Sync metadata', {
+    organizationId,
+    forceSync,
+    lastSyncedAt
+  })
+
   let syncStatus: 'cached' | 'synced' | 'skipped' | 'error' = lastSyncTime ? 'cached' : 'skipped'
   let newLastSyncTime = lastSyncTime
+
+  if (!lastSyncTime) {
+    const attemptTime = Date.now()
+    try {
+      await options.syncOrganizationOAuthIntegrations(db, organizationId)
+      newLastSyncTime = attemptTime
+      await options.updateOrganizationIntegrationSyncMetadata(db, organizationId, new Date(newLastSyncTime))
+      syncStatus = 'synced'
+    } catch (error) {
+      console.error('[integrations] Initial sync failed', error)
+      newLastSyncTime = attemptTime
+      await options.updateOrganizationIntegrationSyncMetadata(db, organizationId, new Date(newLastSyncTime))
+      syncStatus = 'error'
+    }
+  }
 
   if (forceSync) {
     const now = Date.now()
@@ -97,6 +141,11 @@ export async function handleGetIntegrations(
   }
 
   const integrations = await options.listOrganizationIntegrationsWithAccounts(db, organizationId)
+  logDebug('[integrations] Result', {
+    organizationId,
+    syncStatus,
+    integrationsCount: integrations.length
+  })
 
   // Return data with sync status metadata
   // The 'data' field contains the integrations array for backward compatibility
