@@ -1,9 +1,12 @@
 import type { ChatMessage } from '#shared/utils/types'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import type { User } from '~~/shared/utils/types'
 import { and, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import * as schema from '~~/server/db/schema'
+import { callChatCompletions } from '~~/server/utils/aiGateway'
+import { safeError, safeLog } from '~~/server/utils/safeLogger'
 
 type ConversationStatus = typeof schema.conversation.$inferSelect['status']
 
@@ -232,6 +235,10 @@ export async function getConversationLogs(
 }
 
 const PREVIEW_MESSAGE_MAX_LENGTH = 280
+const CONVERSATION_TITLE_MAX_LENGTH = 80
+const CONVERSATION_TITLE_MESSAGE_LIMIT = 10
+const CONVERSATION_TITLE_MESSAGE_LENGTH = 260
+const UNTITLED_TITLE_REGEX = /^untitled conversation$/i
 
 const normalizePreviewText = (content: string) => {
   if (!content) {
@@ -377,4 +384,173 @@ export async function getOrCreateConversationForContent(
 
   // No existing conversation found, create a new one
   return await createConversation(db, input)
+}
+
+const truncateForTitle = (value: string, limit: number) => {
+  if (!value) {
+    return ''
+  }
+  if (value.length <= limit) {
+    return value
+  }
+  return `${value.slice(0, limit - 1).trimEnd()}…`
+}
+
+const normalizeTitleCandidate = (value: string | null | undefined): string | null => {
+  if (!value) {
+    return null
+  }
+  const cleaned = value
+    .replace(/`/g, '')
+    .replace(/^[\s"“”'‘’]+/, '')
+    .replace(/[\s"“”'‘’]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) {
+    return null
+  }
+
+  const stripped = cleaned
+    .replace(/^[\d.\-–—•\s]+/, '')
+    .replace(/[.!?]+$/, '')
+    .trim()
+
+  if (!stripped || UNTITLED_TITLE_REGEX.test(stripped)) {
+    return null
+  }
+
+  if (stripped.length > CONVERSATION_TITLE_MAX_LENGTH) {
+    return `${stripped.slice(0, CONVERSATION_TITLE_MAX_LENGTH - 1).trimEnd()}…`
+  }
+
+  return stripped
+}
+
+const buildTitlePrompt = (messages: ChatCompletionMessage[]) => {
+  const recent = messages
+    .filter(message => typeof message.content === 'string' && message.content.trim().length > 0)
+    .slice(-CONVERSATION_TITLE_MESSAGE_LIMIT)
+    .map((message) => {
+      const label = message.role === 'assistant'
+        ? 'Assistant'
+        : message.role === 'system'
+          ? 'System'
+          : 'User'
+      const body = truncateForTitle(message.content ?? '', CONVERSATION_TITLE_MESSAGE_LENGTH)
+      return `${label}: ${body}`
+    })
+    .filter(Boolean)
+    .join('\n')
+
+  return [
+    'Generate a concise, specific title for this chat between a user and an assistant.',
+    'Requirements:',
+    '- Reflect the user’s goal or the assistant’s outcome.',
+    '- Keep it under 8 words and 60 characters.',
+    '- Title case preferred. No quotes, brackets, or punctuation at the ends.',
+    '- Avoid generic labels like "Chat" or "Conversation".',
+    'Return only the title text.',
+    '',
+    'Conversation:',
+    recent
+  ].join('\n')
+}
+
+const generateTitleWithAI = async (messages: ChatCompletionMessage[]): Promise<string | null> => {
+  if (!messages.length) {
+    return null
+  }
+
+  const prompt = buildTitlePrompt(messages)
+  const rawTitle = await callChatCompletions({
+    messages: [
+      { role: 'system', content: 'You are an expert at summarizing conversations into short, descriptive titles.' },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.2,
+    maxTokens: 40
+  })
+
+  return normalizeTitleCandidate(rawTitle)
+}
+
+export const maybeGenerateConversationTitle = async (
+  db: NodePgDatabase<typeof schema>,
+  conversationId: string,
+  organizationId: string,
+  messages: typeof schema.conversationMessage.$inferSelect[],
+  existingMetadata?: Record<string, any> | null
+): Promise<string | null> => {
+  try {
+    const [conversationRecord] = await db
+      .select({ metadata: schema.conversation.metadata })
+      .from(schema.conversation)
+      .where(and(
+        eq(schema.conversation.id, conversationId),
+        eq(schema.conversation.organizationId, organizationId)
+      ))
+      .limit(1)
+
+    const metadata = conversationRecord?.metadata ?? existingMetadata ?? null
+    const currentTitle = normalizeTitleCandidate(typeof metadata?.title === 'string' ? metadata.title : null)
+    if (currentTitle && !UNTITLED_TITLE_REGEX.test(currentTitle)) {
+      return currentTitle
+    }
+
+    const normalizedMessages: ChatCompletionMessage[] = messages
+      .filter(message => typeof message.content === 'string' && message.content.trim().length > 0)
+      .map(message => ({
+        role: message.role === 'assistant'
+          ? 'assistant'
+          : message.role === 'system'
+            ? 'system'
+            : 'user',
+        content: message.content
+      }))
+
+    const hasAssistant = normalizedMessages.some(message => message.role === 'assistant')
+    const userMessages = normalizedMessages.filter(message => message.role === 'user')
+    if (!hasAssistant || userMessages.length === 0 || normalizedMessages.length < 2) {
+      return currentTitle ?? null
+    }
+
+    const generatedTitle = await generateTitleWithAI(normalizedMessages)
+    const normalizedGenerated = normalizeTitleCandidate(generatedTitle)
+
+    if (!normalizedGenerated) {
+      return currentTitle ?? null
+    }
+
+    const nextMetadata = {
+      ...(metadata ?? {}),
+      title: normalizedGenerated,
+      titleGeneratedAt: new Date().toISOString()
+    }
+
+    await db
+      .update(schema.conversation)
+      .set({
+        metadata: nextMetadata,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(schema.conversation.id, conversationId),
+        eq(schema.conversation.organizationId, organizationId)
+      ))
+
+    safeLog('[conversation] Generated title for conversation', {
+      conversationId,
+      organizationId
+    })
+
+    return normalizedGenerated
+  } catch (error) {
+    safeError('[conversation] Failed to generate conversation title', {
+      conversationId,
+      organizationId,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    })
+    return null
+  }
 }
