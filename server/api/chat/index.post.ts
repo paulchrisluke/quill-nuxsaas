@@ -27,6 +27,7 @@ import {
   getConversationById,
   getConversationLogs,
   getConversationMessages,
+  maybeGenerateConversationTitle,
   patchConversationPreviewMetadata
 } from '~~/server/services/conversation'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
@@ -3033,6 +3034,28 @@ export default defineEventHandler(async (event) => {
 
         const messages = await getConversationMessages(db, activeConversation.id, organizationId)
         const logs = await getConversationLogs(db, activeConversation.id, organizationId)
+
+        const titlePromise = maybeGenerateConversationTitle(
+          db,
+          activeConversation.id,
+          organizationId,
+          messages,
+          activeConversation.metadata as Record<string, any> | null
+        )
+
+        const handleTitleError = (error: unknown) => {
+          safeError('[Chat API] Conversation title generation failed', {
+            conversationId: activeConversation.id,
+            organizationId,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+        }
+
+        if (typeof (event as any).waitUntil === 'function') {
+          event.waitUntil(titlePromise.catch(handleTitleError))
+        } else {
+          titlePromise.catch(handleTitleError)
+        }
 
         // Build tool history from logs
         const toolHistory = logs
