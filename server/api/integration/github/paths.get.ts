@@ -18,14 +18,18 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const db = await useDB()
+  const token = await getGithubIntegrationToken(db, organizationId)
+
   try {
-    const db = await useDB()
-    const token = await getGithubIntegrationToken(db, organizationId)
     const paths = await listRepoMarkdownDirectories(token, repoFullName, baseBranch)
     return {
       paths
     }
   } catch (error) {
+    if (error && typeof error === 'object' && 'statusCode' in error && 'statusMessage' in error) {
+      throw error
+    }
     throw createError({
       statusCode: 502,
       statusMessage: 'Failed to fetch repository paths from GitHub.',
