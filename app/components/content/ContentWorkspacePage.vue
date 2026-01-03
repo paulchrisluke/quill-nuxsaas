@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ContentStatus, ContentType } from '~~/server/types/content'
+import type { ContentStatus, ContentType, PublishContentResponse } from '~~/server/types/content'
 import { Emoji, gitHubEmojis } from '@tiptap/extension-emoji'
 import { nextTick } from 'vue'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
@@ -721,10 +721,7 @@ const publishContent = async () => {
   }
   try {
     isPublishing.value = true
-    const response = await $fetch<{
-      file?: { url: string | null }
-      external?: { github?: { prUrl?: string | null } }
-    }>(`/api/content/${contentEntry.value.id}/publish`, {
+    const response = await $fetch<PublishContentResponse>(`/api/content/${contentEntry.value.id}/publish`, {
       method: 'POST',
       body: { versionId: null }
     })
