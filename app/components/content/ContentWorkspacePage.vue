@@ -636,6 +636,7 @@ watch(contentEntry, (entry) => {
     isContentLoading.value = true
     editorContent.value = ''
     lastContentId.value = null
+    lastPublishedPrUrl.value = null
     saveStatus.value = 'saved'
     isContentLoading.value = false
     return
@@ -643,6 +644,7 @@ watch(contentEntry, (entry) => {
   if (entry.id && entry.id !== lastContentId.value) {
     isContentLoading.value = true
     lastContentId.value = entry.id
+    lastPublishedPrUrl.value = null
     editorContent.value = entry.bodyMarkdown || ''
     saveStatus.value = 'saved'
     nextTick(() => {

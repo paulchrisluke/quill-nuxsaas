@@ -1,6 +1,4 @@
-import { and, eq } from 'drizzle-orm'
 import { createError, getQuery } from 'h3'
-import * as schema from '~~/server/db/schema'
 import {
   assertIntegrationManager,
   getOrganizationIntegrationSyncMetadata,
@@ -47,6 +45,25 @@ import { getDB } from '~~/server/utils/db'
  */
 
 const FORCE_SYNC_MIN_INTERVAL_MS = 60 * 1000
+const shouldLogDebug = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return false
+  }
+  const logLevel = process.env.LOG_LEVEL?.toLowerCase()
+  const debugFlags = process.env.DEBUG || ''
+  return logLevel === 'debug' || debugFlags.includes('integrations')
+}
+
+const logDebug = (message: string, meta?: Record<string, unknown>) => {
+  if (!shouldLogDebug()) {
+    return
+  }
+  if (meta) {
+    console.debug(message, meta)
+  } else {
+    console.debug(message)
+  }
+}
 
 export async function handleGetIntegrations(
   event: any,
@@ -67,38 +84,8 @@ export async function handleGetIntegrations(
   const { organizationId } = await options.requireActiveOrganization(event)
   const db = options.getDB()
 
-  console.log('[integrations] Request', {
-    organizationId,
-    userId: user?.id ?? null
-  })
-
-  const [membership] = await db
-    .select({ role: schema.member.role })
-    .from(schema.member)
-    .where(and(
-      eq(schema.member.organizationId, organizationId),
-      eq(schema.member.userId, user.id)
-    ))
-    .limit(1)
-
-  console.log('[integrations] Membership lookup', {
-    organizationId,
-    userId: user.id,
-    role: membership?.role ?? null
-  })
-  const membersSnapshot = await db
-    .select({
-      id: schema.member.id,
-      userId: schema.member.userId,
-      role: schema.member.role
-    })
-    .from(schema.member)
-    .where(eq(schema.member.organizationId, organizationId))
-
-  console.log('[integrations] Members snapshot', {
-    organizationId,
-    membersCount: membersSnapshot.length,
-    members: membersSnapshot
+  logDebug('[integrations] Request', {
+    organizationId
   })
 
   await options.assertIntegrationManager(db, user.id, organizationId)
@@ -108,7 +95,7 @@ export async function handleGetIntegrations(
   const lastSyncedAt = await options.getOrganizationIntegrationSyncMetadata(db, organizationId)
   const lastSyncTime = lastSyncedAt?.getTime() ?? null
 
-  console.log('[integrations] Sync metadata', {
+  logDebug('[integrations] Sync metadata', {
     organizationId,
     forceSync,
     lastSyncedAt
@@ -118,13 +105,16 @@ export async function handleGetIntegrations(
   let newLastSyncTime = lastSyncTime
 
   if (!lastSyncTime) {
+    const attemptTime = Date.now()
     try {
       await options.syncOrganizationOAuthIntegrations(db, organizationId)
-      newLastSyncTime = Date.now()
+      newLastSyncTime = attemptTime
       await options.updateOrganizationIntegrationSyncMetadata(db, organizationId, new Date(newLastSyncTime))
       syncStatus = 'synced'
     } catch (error) {
       console.error('[integrations] Initial sync failed', error)
+      newLastSyncTime = attemptTime
+      await options.updateOrganizationIntegrationSyncMetadata(db, organizationId, new Date(newLastSyncTime))
       syncStatus = 'error'
     }
   }
@@ -151,7 +141,7 @@ export async function handleGetIntegrations(
   }
 
   const integrations = await options.listOrganizationIntegrationsWithAccounts(db, organizationId)
-  console.log('[integrations] Result', {
+  logDebug('[integrations] Result', {
     organizationId,
     syncStatus,
     integrationsCount: integrations.length

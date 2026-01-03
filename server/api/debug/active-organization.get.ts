@@ -23,9 +23,15 @@ export default defineEventHandler(async (event) => {
 
   const db = getDB()
 
-  const [accessMembership] = activeOrganizationId && userId
+  const [membership] = activeOrganizationId && userId
     ? await db
-        .select({ role: schema.member.role })
+        .select({
+          id: schema.member.id,
+          role: schema.member.role,
+          organizationId: schema.member.organizationId,
+          userId: schema.member.userId,
+          createdAt: schema.member.createdAt
+        })
         .from(schema.member)
         .where(and(
           eq(schema.member.organizationId, activeOrganizationId),
@@ -35,8 +41,8 @@ export default defineEventHandler(async (event) => {
     : [null]
 
   const hasDebugAccess = user.role === 'admin'
-    || accessMembership?.role === 'owner'
-    || accessMembership?.role === 'admin'
+    || membership?.role === 'owner'
+    || membership?.role === 'admin'
 
   if (!hasDebugAccess) {
     throw createError({
@@ -67,23 +73,6 @@ export default defineEventHandler(async (event) => {
         })
         .from(schema.organization)
         .where(eq(schema.organization.id, activeOrganizationId))
-        .limit(1)
-    : [null]
-
-  const [membership] = activeOrganizationId && userId
-    ? await db
-        .select({
-          id: schema.member.id,
-          role: schema.member.role,
-          organizationId: schema.member.organizationId,
-          userId: schema.member.userId,
-          createdAt: schema.member.createdAt
-        })
-        .from(schema.member)
-        .where(and(
-          eq(schema.member.organizationId, activeOrganizationId),
-          eq(schema.member.userId, userId)
-        ))
         .limit(1)
     : [null]
 
