@@ -8,6 +8,20 @@ export interface GithubRepoRef {
   repo: string
 }
 
+export interface GithubRepoSummary {
+  id: number
+  fullName: string
+  defaultBranch: string
+  private: boolean
+}
+
+export interface GithubPullRequest {
+  number: number
+  state: string
+  merged_at: string | null
+  html_url: string
+}
+
 export const parseGithubRepo = (repoFullName: string): GithubRepoRef => {
   const [owner, repo] = repoFullName.split('/')
   if (!owner || !repo) {
@@ -42,6 +56,64 @@ const githubRequest = async <T>(token: string, path: string, options: RequestIni
   return response.json() as Promise<T>
 }
 
+export const listUserRepos = async (token: string) => {
+  const perPage = 100
+  const maxPages = 5
+  const repos: GithubRepoSummary[] = []
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await githubRequest<Array<{
+      id: number
+      full_name: string
+      default_branch: string
+      private: boolean
+    }>>(
+      token,
+      `/user/repos?per_page=${perPage}&page=${page}&sort=updated&affiliation=owner,collaborator,organization_member`
+    )
+
+    repos.push(...response.map(repo => ({
+      id: repo.id,
+      fullName: repo.full_name,
+      defaultBranch: repo.default_branch,
+      private: repo.private
+    })))
+
+    if (response.length < perPage) {
+      break
+    }
+  }
+
+  return repos
+}
+
+export const listRepoBranches = async (
+  token: string,
+  repoFullName: string
+) => {
+  const { owner, repo } = parseGithubRepo(repoFullName)
+  const response = await githubRequest<Array<{ name: string }>>(
+    token,
+    `/repos/${owner}/${repo}/branches?per_page=100`
+  )
+
+  return response.map(branch => branch.name)
+}
+
+export const fetchPullRequest = async (
+  token: string,
+  repoFullName: string,
+  pullNumber: number
+) => {
+  const { owner, repo } = parseGithubRepo(repoFullName)
+  const response = await githubRequest<GithubPullRequest>(
+    token,
+    `/repos/${owner}/${repo}/pulls/${pullNumber}`
+  )
+
+  return response
+}
+
 export const listRepoMarkdownFiles = async (
   token: string,
   repoFullName: string,
@@ -67,6 +139,48 @@ export const listRepoMarkdownFiles = async (
       }
       return path.startsWith(`${normalizedPath}/`) && path.endsWith('.md')
     })
+}
+
+export const listRepoMarkdownDirectories = async (
+  token: string,
+  repoFullName: string,
+  baseBranch: string
+) => {
+  const { owner, repo } = parseGithubRepo(repoFullName)
+
+  const tree = await githubRequest<{
+    tree: Array<{ path: string, type: string }>
+  }>(
+    token,
+    `/repos/${owner}/${repo}/git/trees/${encodeURIComponent(baseBranch)}?recursive=1`
+  )
+
+  const dirs = new Set<string>()
+  for (const item of tree.tree) {
+    if (item.type !== 'blob' || !item.path.endsWith('.md')) {
+      continue
+    }
+    const segments = item.path.split('/')
+    segments.pop()
+    const dir = segments.join('/')
+    dirs.add(dir)
+  }
+
+  const sorted = Array.from(dirs).sort((a, b) => a.localeCompare(b))
+  if (!sorted.includes('')) {
+    sorted.unshift('')
+  } else {
+    sorted.sort((a, b) => {
+      if (a === '') {
+        return -1
+      }
+      if (b === '') {
+        return 1
+      }
+      return a.localeCompare(b)
+    })
+  }
+  return sorted
 }
 
 export const fetchRepoFileContent = async (

@@ -1,7 +1,8 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type * as schema from '~~/server/db/schema'
 import { createError, getQuery, getRouterParams } from 'h3'
-import { getWorkspaceWithCache } from '~~/server/services/content/workspaceCache'
+import { syncGithubPublicationStatus } from '~~/server/services/content/publicationSync'
+import { getWorkspaceWithCache, invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 import { validateUUID } from '~~/server/utils/validation'
@@ -36,6 +37,11 @@ export default defineEventHandler(async (event) => {
     const query = getQuery(event)
     const includeChatParam = Array.isArray(query.includeChat) ? query.includeChat[0] : query.includeChat
     const includeChat = includeChatParam === 'true' || includeChatParam === '1'
+
+    const didSync = await syncGithubPublicationStatus(db, organizationId, validatedContentId)
+    if (didSync) {
+      invalidateWorkspaceCache(organizationId, validatedContentId)
+    }
 
     const workspace = await findWorkspaceForActiveOrganization(db, organizationId, validatedContentId, includeChat)
 

@@ -5,10 +5,74 @@ import * as schema from '~~/server/db/schema'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { publishToGithub } from '~~/server/services/publishing/github'
+import { callChatCompletionsRaw } from '~~/server/utils/aiGateway'
 import { runtimeConfig } from '~~/server/utils/runtimeConfig'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 import { buildContentJsonExport, serializeFrontmatterMarkdown } from './export'
 import { buildWorkspaceFilesPayload } from './workspaceFiles'
+
+const normalizeOptionalString = (value?: string | null) => {
+  if (!value || typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+const parsePrCopy = (content: string | null | undefined) => {
+  if (!content) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(content)
+    if (typeof parsed?.title === 'string' && typeof parsed?.body === 'string') {
+      return {
+        title: parsed.title.trim(),
+        body: parsed.body.trim()
+      }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
+const generatePrCopy = async (options: {
+  title: string
+  slug: string
+  contentType: string
+  repoFullName: string
+  files: Array<{ path: string }>
+}) => {
+  const response = await callChatCompletionsRaw({
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You write concise GitHub pull request metadata for content publishing.',
+          'Return JSON with keys "title" and "body".',
+          'Title should be <= 72 characters.',
+          'Body should be 2-4 short bullet points in markdown.'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          repo: options.repoFullName,
+          title: options.title,
+          slug: options.slug,
+          contentType: options.contentType,
+          files: options.files.map(file => file.path)
+        })
+      }
+    ],
+    temperature: 0.4,
+    maxTokens: 220
+  })
+
+  const content = response.choices?.[0]?.message?.content
+  return parsePrCopy(content)
+}
 
 interface PublishContentVersionOptions {
   organizationId: string
@@ -293,14 +357,42 @@ export async function publishContentVersion(
       const markdownPath = `${contentPath.replace(/\/+$/, '')}/${filePayload.slug}.md`
       const jsonPathFile = `${jsonPath.replace(/\/+$/, '')}/${filePayload.slug}.json`
 
+      const requestedTitle = normalizeOptionalString(publishConfig.prTitle)
+      const requestedBody = normalizeOptionalString(publishConfig.prBody)
+      let aiPrCopy: { title: string, body: string } | null = null
+
+      if (!requestedTitle || !requestedBody) {
+        try {
+          aiPrCopy = await generatePrCopy({
+            title: contentRecord.title,
+            slug: filePayload.slug,
+            contentType: contentRecord.contentType,
+            repoFullName: publishConfig.repoFullName,
+            files: [
+              { path: markdownPath },
+              { path: jsonPathFile }
+            ]
+          })
+        } catch (error) {
+          console.error('[publish] Failed to generate PR copy', error)
+        }
+      }
+
+      const prTitle = requestedTitle
+        || aiPrCopy?.title
+        || `Publish: ${contentRecord.title || filePayload.slug}`
+      const prBody = requestedBody
+        || aiPrCopy?.body
+        || 'Automated publish from Quillio.'
+
       const githubResult = await publishToGithub(account.accessToken, {
         repoFullName: publishConfig.repoFullName,
         baseBranch: publishConfig.baseBranch,
         contentPath,
         jsonPath,
         branchPrefix: publishConfig.branchPrefix,
-        prTitle: publishConfig.prTitle,
-        prBody: publishConfig.prBody
+        prTitle,
+        prBody
       }, {
         slug: filePayload.slug,
         title: contentRecord.title,
@@ -315,6 +407,10 @@ export async function publishContentVersion(
         integrationId: githubIntegration.id
       }
     }
+
+    const publicationStatus = githubPublishResult ? 'pending' : 'published'
+    const contentStatus = githubPublishResult ? contentRecord.status : 'published'
+    const publishedAtValue = githubPublishResult ? contentRecord.publishedAt : publishedAt
 
     const { updatedContent, publicationRecord } = await db.transaction(async (tx) => {
       await tx
@@ -338,8 +434,8 @@ export async function publishContentVersion(
       const [contentUpdate] = await tx
         .update(schema.content)
         .set({
-          status: 'published',
-          publishedAt
+          status: contentStatus,
+          publishedAt: publishedAtValue
         })
         .where(eq(schema.content.id, contentRecord.id))
         .returning()
@@ -357,8 +453,8 @@ export async function publishContentVersion(
           organizationId,
           contentId: contentRecord.id,
           contentVersionId: versionRecord.id,
-          status: 'published',
-          publishedAt,
+          status: publicationStatus,
+          publishedAt: publishedAtValue,
           payloadSnapshot: {
             fileId: uploadedFile!.id,
             path: uploadedFile!.path,

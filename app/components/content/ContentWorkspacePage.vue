@@ -711,11 +711,18 @@ const archiveContent = async () => {
   }
 }
 
+const publishButtonLabel = computed(() => {
+  if (lastPublishedPrUrl.value) {
+    return saveStatus.value === 'unsaved' ? 'Update PR' : 'Open PR'
+  }
+  return 'Open PR'
+})
+
 const publishContent = async () => {
   if (!contentEntry.value || isPublishing.value) {
     return
   }
-  if (lastPublishedPrUrl.value) {
+  if (lastPublishedPrUrl.value && saveStatus.value === 'saved') {
     window.open(lastPublishedPrUrl.value, '_blank', 'noopener,noreferrer')
     return
   }
@@ -829,7 +836,7 @@ watch(latestUpdate, (update) => {
                 class="flex-shrink-0"
                 @click="publishContent"
               >
-                {{ lastPublishedPrUrl ? 'Open PR' : 'Publish' }}
+                {{ publishButtonLabel }}
               </UButton>
             </div>
           </div>
