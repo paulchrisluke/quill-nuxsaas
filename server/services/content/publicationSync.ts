@@ -51,7 +51,7 @@ export const syncGithubPublicationStatus = async (
     : null
   const prNumber = Number(githubSnapshot?.prNumber || publication.externalId)
 
-  if (!Number.isFinite(prNumber)) {
+  if (!Number.isFinite(prNumber) || prNumber <= 0) {
     return false
   }
 
