@@ -75,7 +75,7 @@ export async function handleGetIntegrations(
     assertIntegrationManager: (db: any, userId: string, organizationId: string) => Promise<void>
     getOrganizationIntegrationSyncMetadata: (db: any, organizationId: string) => Promise<Date | null>
     listOrganizationIntegrationsWithAccounts: (db: any, organizationId: string) => Promise<any[]>
-    syncOrganizationOAuthIntegrations: (db: any, organizationId: string) => Promise<void>
+    syncOrganizationOAuthIntegrations: (db: any, organizationId: string) => Promise<any>
     updateOrganizationIntegrationSyncMetadata: (db: any, organizationId: string, date: Date) => Promise<void>
     createError: (options: { statusCode: number, statusMessage: string, message: string }) => any
   }

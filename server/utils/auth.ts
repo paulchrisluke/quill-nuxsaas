@@ -19,7 +19,7 @@ console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 console.log('Schema keys:', Object.keys(schema))
 
 export const createBetterAuth = () => betterAuth({
-  baseURL: runtimeConfig.public.baseURL,
+  baseURL: runtimeConfig.public.baseURL || process.env.NUXT_APP_URL,
   trustedOrigins: [
     'http://localhost:8787',
     'http://localhost:3000',
@@ -589,6 +589,7 @@ export const requireAuth = async (event: H3Event, options: { allowAnonymous?: bo
     }
 
     const serverAuth = useServerAuth()
+    // @ts-expect-error: better-auth types mismatch for anonymous plugin
     const anonResponse = await serverAuth.api.signInAnonymous({
       headers,
       returnHeaders: true,
