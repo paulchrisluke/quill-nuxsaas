@@ -21,7 +21,7 @@ export default defineEventHandler(async (event) => {
       subscriptions: [],
       userOwnsMultipleOrgs: false,
       needsUpgrade: false,
-      user: null
+      user
     }
   }
 

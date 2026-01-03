@@ -30,7 +30,7 @@ const menuItems = computed(() => {
       to: localePath(`/${orgSlug.value}/settings`)
     })
     items.push({
-      label: 'Integrations',
+      label: t('global.nav.integrations'),
       icon: 'i-lucide-plug',
       to: localePath(`/${orgSlug.value}/integrations`)
     })

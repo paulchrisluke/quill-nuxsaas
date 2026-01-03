@@ -86,7 +86,6 @@ export async function handleGetIntegrations(
     userId: user.id,
     role: membership?.role ?? null
   })
-
   const membersSnapshot = await db
     .select({
       id: schema.member.id,

@@ -9,7 +9,8 @@
         "pricing": "Pricing",
         "docs": "Documentation",
         "dashboard": "Dashboard",
-        "settings": "Settings"
+        "settings": "Settings",
+        "integrations": "Integrations"
       },
       "auth": {
         "signIn": "Sign In",
@@ -62,7 +63,8 @@
         "pricing": "定价方案",
         "docs": "文档",
         "dashboard": "仪表盘",
-        "settings": "设置"
+        "settings": "设置",
+        "integrations": "集成"
       },
       "auth": {
         "signIn": "登录",
@@ -111,7 +113,8 @@
         "pricing": "料金",
         "docs": "ドキュメント",
         "dashboard": "ダッシュボード",
-        "settings": "設定"
+        "settings": "設定",
+        "integrations": "連携"
       },
       "auth": {
         "signIn": "ログイン",
@@ -160,7 +163,8 @@
         "pricing": "Tarification",
         "docs": "Documentation",
         "dashboard": "Tableau de bord",
-        "settings": "Paramètres"
+        "settings": "Paramètres",
+        "integrations": "Intégrations"
       },
       "auth": {
         "signIn": "Connexion",
