@@ -208,6 +208,11 @@ const buildEditLink = (edit: any) => {
   return query ? `${base}?${query}` : base
 }
 
+const summaryEditsWithLinks = computed(() => summaryEdits.value.map(edit => ({
+  ...edit,
+  link: buildEditLink(edit)
+})))
+
 const baseClass = computed(() => ['prose prose-invert max-w-none text-[15px] leading-6', props.bodyClass].filter(Boolean).join(' '))
 
 function toSummaryBullets(summary: string | null | undefined) {
@@ -280,7 +285,7 @@ function toSummaryBullets(summary: string | null | undefined) {
       </li>
     </ul>
     <div
-      v-if="summaryEdits.length"
+      v-if="summaryEditsWithLinks.length"
       class="mt-4 space-y-2"
     >
       <p class="text-sm font-semibold">
@@ -288,21 +293,21 @@ function toSummaryBullets(summary: string | null | undefined) {
       </p>
       <ul class="space-y-2">
         <li
-          v-for="(edit, index) in summaryEdits"
+          v-for="(edit, index) in summaryEditsWithLinks"
           :key="`edit-${index}`"
           class="flex flex-col gap-1"
         >
           <div class="flex items-center gap-2">
             <NuxtLink
-              v-if="buildEditLink(edit)"
-              :to="buildEditLink(edit)"
+              v-if="edit.link"
+              :to="edit.link"
               class="text-primary underline decoration-dotted"
             >
               {{ edit.sectionTitle || edit.sectionId || 'Section edit' }}
             </NuxtLink>
             <span
               v-else
-              class="text-muted-600"
+              class="text-muted-foreground"
             >
               {{ edit.sectionTitle || edit.sectionId || 'Section edit' }}
             </span>

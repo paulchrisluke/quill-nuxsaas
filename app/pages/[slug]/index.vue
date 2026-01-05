@@ -68,10 +68,13 @@ watch(isAuthenticatedUser, (value) => {
       <UCard>
         <div class="space-y-2">
           <p class="text-sm font-medium text-muted-600">
-            Content items
+            Recent content items
           </p>
           <p class="text-2xl font-semibold">
-            {{ contentItems.length }}
+            {{ recentContent.length }}
+          </p>
+          <p class="text-xs text-muted-500">
+            Showing the latest {{ Math.min(recentContent.length, 6) }}
           </p>
           <UButton
             :to="localePath(`/${slug}/content`)"
@@ -86,10 +89,13 @@ watch(isAuthenticatedUser, (value) => {
       <UCard>
         <div class="space-y-2">
           <p class="text-sm font-medium text-muted-600">
-            Uploaded files
+            Recent uploads
           </p>
           <p class="text-2xl font-semibold">
-            {{ fileItems.length }}
+            {{ recentFiles.length }}
+          </p>
+          <p class="text-xs text-muted-500">
+            Showing the latest {{ Math.min(recentFiles.length, 6) }}
           </p>
           <UButton
             :to="localePath(`/${slug}/files`)"

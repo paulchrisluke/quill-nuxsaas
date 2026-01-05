@@ -57,8 +57,8 @@ export default defineEventHandler(async (event) => {
       title: entry.title,
       diffStats: entry.diffStats
         ? {
-            additions: entry.diffStats.additions ? Number(entry.diffStats.additions) : 0,
-            deletions: entry.diffStats.deletions ? Number(entry.diffStats.deletions) : 0
+            additions: entry.diffStats.additions != null ? Number(entry.diffStats.additions) || 0 : null,
+            deletions: entry.diffStats.deletions != null ? Number(entry.diffStats.deletions) || 0 : null
           }
         : null
     }))

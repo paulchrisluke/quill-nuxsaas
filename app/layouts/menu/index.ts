@@ -1,4 +1,5 @@
 import type { LocalePathFunction } from '#i18n'
+import type { TranFunction } from '~/utils/types'
 import { hasPermission } from '~~/shared/utils/permissions'
 
 export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRepo: string): NavigationMenuItem[][] => {
@@ -67,24 +68,24 @@ export const getMenus = (t: TranFunction, localePath: LocalePathFunction, appRep
   ]
 }
 
-export const getUserMenus = (localePath: LocalePathFunction, slug: string, userRole?: 'owner' | 'admin' | 'member', needsUpgrade = false): NavigationMenuItem[][] => {
+export const getUserMenus = (t: TranFunction, localePath: LocalePathFunction, slug: string, userRole?: 'owner' | 'admin' | 'member', needsUpgrade = false): NavigationMenuItem[][] => {
   const items: NavigationMenuItem[] = []
 
   items.push({
-    label: 'Home',
+    label: t('menu.home'),
     icon: 'i-lucide-home',
     to: localePath(`/${slug}`)
   })
 
   items.push({
-    label: 'General',
+    label: t('menu.general'),
     icon: 'i-lucide-sliders-horizontal',
     to: localePath(`/${slug}/settings/general`)
   })
 
   if (!needsUpgrade) {
     items.push({
-      label: 'Members',
+      label: t('menu.members'),
       icon: 'i-lucide-users',
       to: localePath(`/${slug}/members`)
     })
@@ -93,7 +94,7 @@ export const getUserMenus = (localePath: LocalePathFunction, slug: string, userR
   // Only owners can see billing (using permissions system)
   if (hasPermission(userRole, 'VIEW_BILLING_NAV')) {
     items.push({
-      label: 'Billing',
+      label: t('menu.billing'),
       icon: 'i-lucide-credit-card',
       to: localePath(`/${slug}/billing`)
     })
@@ -102,13 +103,13 @@ export const getUserMenus = (localePath: LocalePathFunction, slug: string, userR
   // Owners and admins can see settings (using permissions system)
   if (hasPermission(userRole, 'VIEW_SETTINGS_NAV')) {
     items.push({
-      label: 'Integrations',
+      label: t('menu.integrations'),
       icon: 'i-lucide-plug-zap',
       to: localePath(`/${slug}/integrations`)
     })
 
     items.push({
-      label: 'Settings',
+      label: t('menu.settings'),
       icon: 'i-lucide-settings',
       to: localePath(`/${slug}/settings`)
     })

@@ -656,6 +656,10 @@ async function runManualImport() {
       color: 'success'
     })
 
+    if (response?.contentId) {
+      await router.push(`/${slug.value}/content/${response.contentId}`)
+    }
+
     manualImport.title = ''
     manualImport.slug = ''
     manualImport.description = ''
@@ -664,10 +668,6 @@ async function runManualImport() {
     manualImport.markdown = ''
     manualImport.status = 'draft'
     manualImport.contentType = 'blog_post'
-
-    if (response?.contentId) {
-      await router.push(`/${slug.value}/content/${response.contentId}`)
-    }
   } catch (error: any) {
     toast.add({
       title: 'Manual import failed',

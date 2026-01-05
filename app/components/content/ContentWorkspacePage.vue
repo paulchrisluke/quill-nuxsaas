@@ -276,10 +276,15 @@ const focusedSection = computed(() => {
 })
 
 const editorContainerRef = ref<HTMLElement | null>(null)
+const scrollHighlightTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 
 const scrollToSection = (title: string) => {
   if (!import.meta.client || !editorContainerRef.value)
     return
+  if (scrollHighlightTimeout.value) {
+    clearTimeout(scrollHighlightTimeout.value)
+    scrollHighlightTimeout.value = null
+  }
   const headings = editorContainerRef.value.querySelectorAll('h1, h2, h3, h4')
   const normalizedTarget = title.trim().toLowerCase()
   let targetElement: HTMLElement | null = null
@@ -298,8 +303,9 @@ const scrollToSection = (title: string) => {
 
   targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
   targetElement.classList.add('focus-highlight')
-  window.setTimeout(() => {
+  scrollHighlightTimeout.value = window.setTimeout(() => {
     targetElement?.classList.remove('focus-highlight')
+    scrollHighlightTimeout.value = null
   }, 1400)
 }
 
@@ -953,6 +959,9 @@ watch(editorContent, () => {
 onBeforeUnmount(() => {
   if (autoSaveTimeout.value) {
     clearTimeout(autoSaveTimeout.value)
+  }
+  if (scrollHighlightTimeout.value) {
+    clearTimeout(scrollHighlightTimeout.value)
   }
 })
 

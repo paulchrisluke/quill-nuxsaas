@@ -519,8 +519,6 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
     loadMembers(orgId)
   }
 })
-
-const isEmptyState = computed(() => false)
 </script>
 
 <template>
@@ -572,7 +570,7 @@ const isEmptyState = computed(() => false)
         </div>
 
         <ul
-          v-else-if="!isEmptyState"
+          v-else
           class="space-y-0.5"
         >
           <WorkspaceFileTreeNode
@@ -591,13 +589,6 @@ const isEmptyState = computed(() => false)
             @archive-content="archiveContent"
           />
         </ul>
-
-        <div
-          v-else-if="isEmptyState"
-          class="px-3 py-2 text-sm text-muted-foreground truncate whitespace-nowrap"
-        >
-          No workspace files yet.
-        </div>
 
         <div
           v-if="contentError || fileError"
