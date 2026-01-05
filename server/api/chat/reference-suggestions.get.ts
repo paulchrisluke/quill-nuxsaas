@@ -245,7 +245,11 @@ export default defineEventHandler(async (event) => {
       id: section.id,
       label: section.title || section.type || section.id,
       subtitle: section.contentSlug || undefined,
-      insertText: normalizeReferenceToken(`${section.contentSlug}#${section.title || section.type || section.id}`) || `${section.contentSlug}#${section.id}`
+      insertText: (() => {
+        const slug = normalizeReferenceToken(section.contentSlug) || section.contentSlug
+        const sectionId = normalizeReferenceToken(section.title || section.type || section.id) || section.id
+        return slug ? `${slug}#${sectionId}` : `#${sectionId}`
+      })()
     }))
   }
 })
