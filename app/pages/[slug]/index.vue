@@ -43,12 +43,16 @@ const loadDashboardData = async () => {
 }
 
 onMounted(() => {
-  loadDashboardData().catch(() => {})
+  loadDashboardData().catch((err) => {
+    console.error('Failed to load dashboard data', err)
+  })
 })
 
 watch(isAuthenticatedUser, (value) => {
   if (value) {
-    loadDashboardData().catch(() => {})
+    loadDashboardData().catch((err) => {
+      console.error('Failed to load dashboard data', err)
+    })
   }
 })
 </script>

@@ -5,6 +5,17 @@ import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { useDB } from '~~/server/utils/db'
 import { validateUUID } from '~~/server/utils/validation'
 
+const toNonNegativeInteger = (value: unknown): number => {
+  const numeric = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number(value)
+      : Number.NaN
+  if (!Number.isFinite(numeric))
+    return 0
+  return Math.max(0, Math.trunc(numeric))
+}
+
 export default defineEventHandler(async (event) => {
   await requireAuth(event)
   const { organizationId } = await requireActiveOrganization(event)
@@ -57,8 +68,8 @@ export default defineEventHandler(async (event) => {
       title: entry.title,
       diffStats: entry.diffStats
         ? {
-            additions: entry.diffStats.additions != null ? Number(entry.diffStats.additions) || 0 : null,
-            deletions: entry.diffStats.deletions != null ? Number(entry.diffStats.deletions) || 0 : null
+            additions: toNonNegativeInteger(entry.diffStats.additions),
+            deletions: toNonNegativeInteger(entry.diffStats.deletions)
           }
         : null
     }))

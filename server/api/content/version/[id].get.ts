@@ -22,32 +22,17 @@ export default defineEventHandler(async (event) => {
       frontmatter: schema.contentVersion.frontmatter
     })
     .from(schema.contentVersion)
-    .where(eq(schema.contentVersion.id, versionId))
+    .innerJoin(schema.content, eq(schema.content.id, schema.contentVersion.contentId))
+    .where(and(
+      eq(schema.contentVersion.id, versionId),
+      eq(schema.content.organizationId, organizationId)
+    ))
     .limit(1)
 
   if (!version) {
     throw createError({
       statusCode: 404,
       statusMessage: 'Version not found'
-    })
-  }
-
-  const [content] = await db
-    .select({
-      id: schema.content.id,
-      organizationId: schema.content.organizationId
-    })
-    .from(schema.content)
-    .where(and(
-      eq(schema.content.id, version.contentId),
-      eq(schema.content.organizationId, organizationId)
-    ))
-    .limit(1)
-
-  if (!content) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: 'Content not found'
     })
   }
 
