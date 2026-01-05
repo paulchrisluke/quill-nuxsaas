@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ContentStatus, ContentType, PublishContentResponse } from '~~/server/types/content'
 import { Emoji, gitHubEmojis } from '@tiptap/extension-emoji'
+import { useClipboard } from '@vueuse/core'
 import { nextTick } from 'vue'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 import ImageSuggestionsPanel from '~/components/content/ImageSuggestionsPanel.vue'
@@ -129,6 +130,7 @@ const isPending = computed(() => {
   return pending.value
 })
 const toast = useToast()
+const { copy } = useClipboard()
 const { useActiveOrganization } = useAuth()
 const activeOrg = useActiveOrganization()
 const { remove: removeContent } = useContentList({ pageSize: 100, stateKey: 'workspace-file-tree' })
@@ -453,8 +455,9 @@ const seoForm = reactive({
   description: '',
   slug: '',
   primaryKeyword: '',
-  keywordsInput: '',
+  keywords: [] as string[],
   categories: [] as string[],
+  tags: [] as string[],
   schemaTypes: [] as string[]
 })
 
@@ -492,11 +495,11 @@ const courseForm = reactive({
 
 const seoSaving = ref(false)
 
-const normalizeKeywordInput = (value: string) => {
-  return value
-    .split(',')
-    .map(entry => entry.trim())
+const normalizeTagList = (entries: Array<string | null | undefined>) => {
+  const normalized = entries
+    .map(entry => (entry ?? '').trim())
     .filter(Boolean)
+  return Array.from(new Set(normalized))
 }
 
 const normalizeListInput = (value: string) => {
@@ -546,6 +549,27 @@ const normalizeModuleInput = (value: string) => {
     .filter(Boolean) as Array<{ title: string, description: string }>
 }
 
+const keywordOptions = computed(() => {
+  return normalizeTagList([
+    ...seoForm.keywords,
+    seoForm.primaryKeyword,
+    ...(Array.isArray(contentEntry.value?.frontmatter?.keywords)
+      ? (contentEntry.value?.frontmatter?.keywords as Array<string | null | undefined>)
+          .filter((entry): entry is string => typeof entry === 'string')
+      : [])
+  ])
+})
+
+const tagOptions = computed(() => {
+  return normalizeTagList([
+    ...seoForm.tags,
+    ...(Array.isArray(contentEntry.value?.frontmatter?.tags)
+      ? (contentEntry.value?.frontmatter?.tags as Array<string | null | undefined>)
+          .filter((entry): entry is string => typeof entry === 'string')
+      : [])
+  ])
+})
+
 const syncSeoForm = () => {
   const frontmatter = contentEntry.value?.frontmatter || {}
   seoForm.title = typeof frontmatter.title === 'string' ? frontmatter.title : contentEntry.value?.title || ''
@@ -554,12 +578,11 @@ const syncSeoForm = () => {
   seoForm.slug = typeof frontmatter.slug === 'string' ? frontmatter.slug : contentEntry.value?.slug || ''
   seoForm.primaryKeyword = typeof frontmatter.primaryKeyword === 'string' ? frontmatter.primaryKeyword : ''
   const keywords = Array.isArray(frontmatter.keywords) ? frontmatter.keywords : []
-  seoForm.keywordsInput = keywords.filter((entry: any) => typeof entry === 'string').join(', ')
+  seoForm.keywords = normalizeTagList(keywords.filter((entry: any) => typeof entry === 'string'))
   const categories = Array.isArray(frontmatter.categories) ? frontmatter.categories : []
-  seoForm.categories = categories
-    .filter((entry: any) => typeof entry === 'string')
-    .map((entry: string) => entry.trim())
-    .filter(Boolean)
+  seoForm.categories = normalizeTagList(categories.filter((entry: any) => typeof entry === 'string'))
+  const tags = Array.isArray(frontmatter.tags) ? frontmatter.tags : []
+  seoForm.tags = normalizeTagList(tags.filter((entry: any) => typeof entry === 'string'))
   seoForm.schemaTypes = Array.isArray(frontmatter.schemaTypes)
     ? frontmatter.schemaTypes.filter((entry: unknown): entry is string => typeof entry === 'string' && entry !== 'BlogPosting')
     : []
@@ -740,8 +763,9 @@ const saveSeoForm = async () => {
       description: seoForm.description || null,
       slug: seoForm.slug || null,
       primaryKeyword: seoForm.primaryKeyword || null,
-      keywords: normalizeKeywordInput(seoForm.keywordsInput),
-      categories: seoForm.categories,
+      keywords: normalizeTagList(seoForm.keywords),
+      categories: normalizeTagList(seoForm.categories),
+      tags: normalizeTagList(seoForm.tags),
       schemaTypes: ['BlogPosting', ...seoForm.schemaTypes],
       recipe,
       howTo,
@@ -770,6 +794,7 @@ const isPublishing = ref(false)
 const isReverting = ref(false)
 const lastPublishedPrUrl = ref<string | null>(null)
 const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
+const isDownloading = ref(false)
 const lastContentId = ref<string | null>(null)
 const autoSaveTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const isContentLoading = ref(false)
@@ -809,6 +834,65 @@ const editorToolbarItems = [
     { kind: 'clearFormatting', icon: 'i-lucide-eraser', tooltip: { text: 'Clear formatting' } }
   ]
 ]
+
+const copyFrontmatter = async () => {
+  if (!frontmatterPreview.value) {
+    return
+  }
+  try {
+    await copy(frontmatterPreview.value)
+    toast.add({ title: 'Frontmatter copied', color: 'success' })
+  } catch (error) {
+    console.error('Failed to copy frontmatter', error)
+    toast.add({ title: 'Copy failed', description: 'Could not copy frontmatter', color: 'error' })
+  }
+}
+
+const copyStructuredData = async () => {
+  if (!structuredDataPreview.value) {
+    return
+  }
+  try {
+    await copy(structuredDataPreview.value)
+    toast.add({ title: 'Structured data copied', color: 'success' })
+  } catch (error) {
+    console.error('Failed to copy structured data', error)
+    toast.add({ title: 'Copy failed', description: 'Could not copy structured data', color: 'error' })
+  }
+}
+
+const handleDownloadContent = async () => {
+  if (!contentEntry.value?.id || isDownloading.value) {
+    return
+  }
+  try {
+    isDownloading.value = true
+    const slug = contentEntry.value.slug?.trim() || `content-${contentEntry.value.id}`
+    const response = await $fetch(`/api/content/${contentEntry.value.id}/download`, {
+      method: 'GET',
+      responseType: 'blob'
+    })
+    const blob = response instanceof Blob
+      ? response
+      : new Blob([String(response)], { type: 'text/markdown' })
+    const url = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${slug}.md`
+    document.body.appendChild(anchor)
+    anchor.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(anchor)
+  } catch (error: any) {
+    toast.add({
+      title: 'Download failed',
+      description: error?.data?.statusMessage || error?.message || 'Could not download content',
+      color: 'error'
+    })
+  } finally {
+    isDownloading.value = false
+  }
+}
 
 const editorSuggestionItems = [
   [
@@ -1217,6 +1301,19 @@ watch(latestUpdate, (update) => {
                 </UButton>
               </UDropdownMenu>
               <UButton
+                v-if="contentEntry?.id"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-download"
+                :loading="isDownloading"
+                :disabled="isDownloading"
+                class="flex-shrink-0"
+                @click="handleDownloadContent"
+              >
+                <span class="hidden sm:inline">Download</span>
+              </UButton>
+              <UButton
                 v-if="previousVersionEntry"
                 size="xs"
                 color="neutral"
@@ -1377,12 +1474,22 @@ watch(latestUpdate, (update) => {
         </UAlert>
       </div>
 
-      <div class="grid gap-4 md:grid-cols-2 mb-4">
+      <div class="grid gap-4 mb-4">
         <UCard>
           <template #header>
-            <p class="text-sm font-medium">
-              Frontmatter
-            </p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm font-medium">
+                Frontmatter
+              </p>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-copy"
+                :disabled="!frontmatterPreview"
+                @click="copyFrontmatter"
+              />
+            </div>
           </template>
           <pre
             v-if="frontmatterPreview"
@@ -1398,9 +1505,19 @@ watch(latestUpdate, (update) => {
 
         <UCard>
           <template #header>
-            <p class="text-sm font-medium">
-              Structured Data
-            </p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm font-medium">
+                Structured Data
+              </p>
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-copy"
+                :disabled="!structuredDataPreview"
+                @click="copyStructuredData"
+              />
+            </div>
           </template>
           <div
             v-if="contentEntry?.schemaTypes?.length"
@@ -1465,9 +1582,12 @@ watch(latestUpdate, (update) => {
           </template>
         </UAlert>
 
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-4">
           <UFormField label="Title">
-            <UInput v-model="seoForm.title" />
+            <UInput
+              v-model="seoForm.title"
+              placeholder="7 Common IEP Violations Every North Carolina Parent Should Recognize (And How to Fight Back)"
+            />
           </UFormField>
           <UFormField label="SEO title (optional)">
             <UInput
@@ -1478,48 +1598,58 @@ watch(latestUpdate, (update) => {
           <UFormField label="Description">
             <UTextarea
               v-model="seoForm.description"
+              placeholder="Short summary for search engines and social previews."
               :rows="3"
             />
           </UFormField>
           <UFormField label="Slug">
-            <UInput v-model="seoForm.slug" />
+            <UInput
+              v-model="seoForm.slug"
+              placeholder="7-common-iep-violations-every-north-carolina-parent-should-recognize-and-how-to-fight-back"
+            />
           </UFormField>
           <UFormField label="Primary keyword">
             <UInput
               v-model="seoForm.primaryKeyword"
-              placeholder="e.g. remote team onboarding"
+              placeholder="e.g. IEP violations North Carolina"
             />
           </UFormField>
-          <UFormField label="Keywords (comma separated)">
-            <UInput
-              v-model="seoForm.keywordsInput"
-              placeholder="keyword 1, keyword 2, keyword 3"
+          <UFormField label="Keywords">
+            <UInputMenu
+              v-model="seoForm.keywords"
+              :items="keywordOptions"
+              multiple
+              create-item
+              placeholder="Add keywords"
+            />
+          </UFormField>
+          <UFormField label="Tags">
+            <UInputMenu
+              v-model="seoForm.tags"
+              :items="tagOptions"
+              multiple
+              create-item
+              placeholder="Add tags"
             />
           </UFormField>
         </div>
 
-        <div class="mt-4 space-y-2">
-          <p class="text-xs uppercase tracking-wide text-muted-500">
-            Categories
-          </p>
-          <div
-            v-if="categoryOptions.length"
-            class="flex flex-wrap gap-2"
-          >
-            <UCheckbox
-              v-for="category in categoryOptions"
-              :key="category.slug || category.name"
+        <div class="mt-4">
+          <UFormField label="Categories">
+            <UInputMenu
+              v-if="categoryOptions.length"
               v-model="seoForm.categories"
-              :value="category.name"
-              :label="category.name"
+              :items="categoryOptions.map(option => option.name)"
+              multiple
+              placeholder="Select categories"
             />
-          </div>
-          <p
-            v-else
-            class="text-sm text-muted-500"
-          >
-            No categories yet. Add them in Site settings.
-          </p>
+            <p
+              v-else
+              class="text-sm text-muted-500"
+            >
+              No categories yet. Add them in Site settings.
+            </p>
+          </UFormField>
         </div>
 
         <div class="mt-4 space-y-2">
@@ -1550,7 +1680,7 @@ watch(latestUpdate, (update) => {
           <p class="text-xs uppercase tracking-wide text-muted-500">
             Recipe schema
           </p>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4">
             <UFormField label="Recipe yield">
               <UInput
                 v-model="recipeForm.yield"
@@ -1609,7 +1739,7 @@ watch(latestUpdate, (update) => {
           <p class="text-xs uppercase tracking-wide text-muted-500">
             HowTo schema
           </p>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4">
             <UFormField label="Estimated cost">
               <UInput
                 v-model="howToForm.estimatedCost"
@@ -1677,7 +1807,7 @@ watch(latestUpdate, (update) => {
           <p class="text-xs uppercase tracking-wide text-muted-500">
             Course schema
           </p>
-          <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-4">
             <UFormField label="Provider name">
               <UInput
                 v-model="courseForm.providerName"

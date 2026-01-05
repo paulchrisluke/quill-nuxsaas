@@ -68,6 +68,8 @@ watch(isAuthenticatedUser, (value) => {
       </h1>
     </div>
 
+    <DashboardOnboarding />
+
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <UCard>
         <div class="space-y-2">
@@ -221,9 +223,28 @@ watch(isAuthenticatedUser, (value) => {
           </div>
           <div
             v-else-if="recentFiles.length === 0"
-            class="text-sm text-muted-500"
+            class="rounded-lg border border-dashed border-neutral-200/70 dark:border-neutral-800/70 p-4 text-sm text-muted-500 space-y-3"
           >
-            No files yet. Upload images from the chat bar.
+            <p>
+              No files yet. Upload images or import from Google Drive.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <UButton
+                :to="localePath(`/${slug}/conversations`)"
+                size="xs"
+                icon="i-lucide-upload"
+              >
+                Upload images
+              </UButton>
+              <UButton
+                :to="localePath(`/${slug}/integrations`)"
+                size="xs"
+                variant="ghost"
+                icon="i-lucide-cloud"
+              >
+                Connect Google Drive
+              </UButton>
+            </div>
           </div>
           <div
             v-else
