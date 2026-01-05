@@ -5,9 +5,7 @@ import { GOOGLE_INTEGRATION_SCOPES } from '#shared/constants/googleScopes'
 
 const { formatDateRelative } = useDate()
 
-definePageMeta({
-  layout: 'settings'
-})
+definePageMeta({})
 
 useHead({
   title: 'Integrations'

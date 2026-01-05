@@ -80,6 +80,12 @@ const activeFileId = computed(() => {
 
 const activeVirtualKey = computed(() => {
   const path = route.path
+  if (orgSlug.value) {
+    const normalizedPath = path.replace(/\/+$/, '')
+    if (normalizedPath === `/${orgSlug.value}`) {
+      return 'dashboard'
+    }
+  }
   if (/\/[^/]+\/content\/site-config$/.test(path)) {
     return SITE_CONFIG_VIRTUAL_KEY
   }
@@ -367,6 +373,14 @@ const openNode = (node: FileTreeNode) => {
     } else if (metadata.url) {
       window.open(metadata.url, '_blank')
     }
+  } else if (metadata.virtualKey === 'dashboard') {
+    const slug = orgSlug.value
+    if (slug) {
+      router.push(localePath(`/${slug}`))
+      if (typeof openWorkspace === 'function') {
+        openWorkspace()
+      }
+    }
   } else if (metadata.virtualKey === SITE_CONFIG_VIRTUAL_KEY) {
     const slug = orgSlug.value
     if (slug) {
@@ -402,6 +416,21 @@ const openNode = (node: FileTreeNode) => {
     }
   }
 }
+
+const dashboardNode = computed<FileTreeNode | null>(() => {
+  if (!orgSlug.value) {
+    return null
+  }
+  return {
+    type: 'file',
+    name: 'dashboard',
+    path: 'dashboard',
+    metadata: {
+      virtualKey: 'dashboard',
+      displayLabel: 'Dashboard'
+    }
+  }
+})
 
 // Strategy: Use optimistic UI updates (removeFile/removeContent) for immediate feedback,
 // then handle server errors by re-adding or refreshing on failure. This provides better UX
@@ -574,6 +603,20 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
           class="space-y-0.5"
         >
           <WorkspaceFileTreeNode
+            v-if="dashboardNode"
+            :node="dashboardNode"
+            :expanded-paths="expandedPaths"
+            :active-content-id="activeContentId"
+            :active-file-id="activeFileId"
+            :active-virtual-key="activeVirtualKey"
+            :archiving-file-ids="archivingFiles"
+            :archiving-content-ids="archivingContent"
+            @toggle="toggleFolder"
+            @select="openNode"
+            @archive-file="archiveFile"
+            @archive-content="archiveContent"
+          />
+          <WorkspaceFileTreeNode
             v-for="node in tree"
             :key="node.path"
             :node="node"
@@ -589,6 +632,34 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
             @archive-content="archiveContent"
           />
         </ul>
+
+        <div
+          v-if="!filePending && fileItems.length === 0"
+          class="mt-3 rounded-lg border border-dashed border-neutral-200/70 dark:border-neutral-800/70 p-3 text-xs text-muted-500 space-y-2"
+        >
+          <p>
+            No files yet. Upload images or connect Google Drive.
+          </p>
+          <div class="flex flex-wrap gap-2">
+            <UButton
+              :to="orgSlug ? localePath(`/${orgSlug}/conversations`) : '#'"
+              size="xs"
+              icon="i-lucide-upload"
+              :disabled="!orgSlug"
+            >
+              Upload images
+            </UButton>
+            <UButton
+              :to="orgSlug ? localePath(`/${orgSlug}/integrations`) : '#'"
+              size="xs"
+              variant="ghost"
+              icon="i-lucide-cloud"
+              :disabled="!orgSlug"
+            >
+              Connect Drive
+            </UButton>
+          </div>
+        </div>
 
         <div
           v-if="contentError || fileError"

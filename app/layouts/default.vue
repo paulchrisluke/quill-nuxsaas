@@ -60,8 +60,8 @@ const isWorkspaceRoute = computed(() => {
   if (!isAuthenticatedUser.value || isAuthPage.value || isPublicPage.value)
     return false
   const path = pathWithoutLocale.value
-  // Workspace routes: /[slug]/content, /[slug]/conversations, etc.
-  return /^\/[^/]+(?:\/(?:content|conversations)(?:\/|$)|$)/.test(path)
+  // Workspace routes: /[slug]/content, /[slug]/conversations, /[slug]/integrations, etc.
+  return /^\/[^/]+(?:\/(?:content|conversations|integrations)(?:\/|$)|$)/.test(path)
 })
 
 // Open workspace drawer on mobile when navigating to workspace routes
@@ -133,43 +133,7 @@ const contentId = computed(() => {
   return id || contentRouteMatch.value[1]
 })
 
-const isDownloading = ref(false)
 const toast = useToast()
-
-const handleDownloadContent = async () => {
-  if (!contentId.value || isDownloading.value)
-    return
-
-  try {
-    isDownloading.value = true
-
-    const contentData = await $fetch(`/api/content/${contentId.value}`)
-    const slug = (contentData as any)?.workspace?.content?.slug?.trim?.() || `content-${contentId.value}`
-
-    const response = await $fetch(`/api/content/${contentId.value}/download`, {
-      method: 'GET',
-      responseType: 'blob'
-    })
-
-    const blob = (response as any) instanceof Blob ? (response as unknown as Blob) : new Blob([String(response)], { type: 'text/markdown' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${slug}.md`
-    document.body.appendChild(a)
-    a.click()
-    window.URL.revokeObjectURL(url)
-    document.body.removeChild(a)
-  } catch (error: any) {
-    toast.add({
-      title: 'Download failed',
-      description: error?.data?.statusMessage || error?.message || 'Could not download content',
-      color: 'error'
-    })
-  } finally {
-    isDownloading.value = false
-  }
-}
 
 const {
   items: conversationItems,
@@ -413,17 +377,6 @@ const canExpandConversationList = computed(() => {
           <p class="min-w-0 flex-1 truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
             {{ chatTitle }}
           </p>
-          <UButton
-            v-if="contentId"
-            aria-label="Download content"
-            variant="ghost"
-            color="neutral"
-            size="xs"
-            icon="i-lucide-download"
-            :loading="isDownloading"
-            :disabled="isDownloading"
-            @click="handleDownloadContent"
-          />
           <UDropdownMenu
             v-if="isAuthenticatedUser"
             :items="userMenuItems"

@@ -51,9 +51,8 @@ const redirectTo = computed(() => {
   const redirect = Array.isArray(route.query.redirect)
     ? route.query.redirect[0]
     : route.query.redirect
-  // Default to conversations so users don't get stuck on the marketing/home page
-  // after sign-in (especially for social callbacks).
-  return localePath(redirect || '/t/conversations')
+  // Default to dashboard so first-time users land in their workspace.
+  return localePath(redirect || '/')
 })
 
 // ---------- Sign in form ----------
