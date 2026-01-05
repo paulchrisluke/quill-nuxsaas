@@ -7,7 +7,7 @@ const activeOrg = useActiveOrganization()
 const route = useRoute()
 const localePath = useLocalePath()
 
-const organizationId = computed(() => activeOrg.value?.data?.id || 'unknown')
+const organizationId = computed(() => activeOrg.value?.data?.id || null)
 const orgSlug = computed(() => {
   const param = route.params.slug
   const routeSlug = Array.isArray(param) ? param[0] : param
@@ -22,7 +22,7 @@ const { data: integrationsResponse, refresh: refreshIntegrations } = useFetch('/
 })
 
 onMounted(() => {
-  if (organizationId.value) {
+  if (organizationId.value !== null) {
     refreshIntegrations()
   }
 })
@@ -71,7 +71,7 @@ const items = computed(() => [
 ])
 
 const allComplete = computed(() => items.value.every(item => item.complete))
-const dismissedKey = computed(() => `dashboard-onboarding-dismissed:${organizationId.value}`)
+const dismissedKey = computed(() => `dashboard-onboarding-dismissed:${organizationId.value ?? 'none'}`)
 const dismissed = useStorage(dismissedKey, false)
 
 watch(allComplete, (value) => {
