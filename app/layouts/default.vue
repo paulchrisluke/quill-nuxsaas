@@ -61,7 +61,7 @@ const isWorkspaceRoute = computed(() => {
     return false
   const path = pathWithoutLocale.value
   // Workspace routes: /[slug]/content, /[slug]/conversations, etc.
-  return /^\/[^/]+\/(?:content|conversations)/.test(path)
+  return /^\/[^/]+(?:\/(?:content|conversations)(?:\/|$)|$)/.test(path)
 })
 
 // Open workspace drawer on mobile when navigating to workspace routes

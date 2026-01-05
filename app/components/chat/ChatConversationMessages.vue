@@ -97,6 +97,18 @@ function openMessageActions(message: ChatMessage, event?: Event) {
   messageActionSheetOpen.value = true
 }
 
+function handleUndoAction(message: ChatMessage) {
+  if (message.role === 'assistant') {
+    emit('regenerate', message)
+    return
+  }
+  emit('sendAgain', message)
+}
+
+function handleCopyAction(message: ChatMessage) {
+  emit('copy', message)
+}
+
 function startMessageLongPress(message: ChatMessage, event?: Event) {
   if (message.role !== 'user') {
     return
@@ -234,6 +246,24 @@ onBeforeUnmount(() => {
               :message="message"
               :display-text="message.parts?.[0]?.text || ''"
             />
+            <div class="mt-2 flex items-center gap-1 text-muted-500">
+              <UButton
+                type="button"
+                variant="ghost"
+                size="xs"
+                icon="i-lucide-undo-2"
+                aria-label="Undo"
+                @click="handleUndoAction(message)"
+              />
+              <UButton
+                type="button"
+                variant="ghost"
+                size="xs"
+                icon="i-lucide-copy"
+                aria-label="Copy message"
+                @click="handleCopyAction(message)"
+              />
+            </div>
           </div>
         </template>
       </UChatMessages>

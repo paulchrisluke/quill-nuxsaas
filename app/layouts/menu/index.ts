@@ -71,6 +71,12 @@ export const getUserMenus = (localePath: LocalePathFunction, slug: string, userR
   const items: NavigationMenuItem[] = []
 
   items.push({
+    label: 'Home',
+    icon: 'i-lucide-home',
+    to: localePath(`/${slug}`)
+  })
+
+  items.push({
     label: 'General',
     icon: 'i-lucide-sliders-horizontal',
     to: localePath(`/${slug}/settings/general`)

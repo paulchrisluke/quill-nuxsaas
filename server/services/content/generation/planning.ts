@@ -18,6 +18,7 @@ export const generateContentOutline = async (params: {
   sourceTitle?: string | null
   conversationContext?: string | null
   intentSummary?: string | null
+  tonePrompt?: string | null
 }): Promise<ContentOutline> => {
   const preview = params.chunks && params.chunks.length > 0
     ? buildChunkPreviewText(params.chunks)
@@ -33,6 +34,7 @@ export const generateContentOutline = async (params: {
     preview,
     params.instructions ? `Writer instructions: ${params.instructions}` : null,
     params.intentSummary ? `Intent summary:\n${params.intentSummary}` : null,
+    params.tonePrompt ? `Organization tone guide:\n${params.tonePrompt}` : null,
     'Create an outline that reflects the natural flow of the content. Return JSON with shape {"outline": [{"id": string, "index": number, "title": string, "type": string, "notes": string? }], "seo": {"title": string, "description": string, "keywords": string[], "slugSuggestion": string, "schemaTypes": string[] }}.',
     'Always include "BlogPosting" in schemaTypes, then append any additional schema.org types (e.g., Recipe, HowTo, FAQPage) when the content genuinely needs those structures.',
     `Limit outline to ${MAX_OUTLINE_SECTIONS} sections.`

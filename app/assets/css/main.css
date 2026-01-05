@@ -81,3 +81,9 @@
     display: none;  /* Chrome, Safari and Opera */
   }
 }
+
+.focus-highlight {
+  background: rgba(16, 185, 129, 0.18);
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}

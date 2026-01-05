@@ -30,7 +30,7 @@ const {
   items: contentItems,
   pending: contentPending,
   error: contentError,
-  initialized: contentInitialized,
+  initialized: _contentInitialized,
   loadInitial: loadContentInitial,
   remove: removeContent,
   refresh: refreshContent,
@@ -41,7 +41,7 @@ const {
   items: fileItems,
   pending: filePending,
   error: fileError,
-  initialized: fileInitialized,
+  initialized: _fileInitialized,
   loadInitial: loadFileInitial,
   refresh: refreshFileList,
   remove: removeFile,
@@ -520,9 +520,7 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
   }
 })
 
-const isEmptyState = computed(() => {
-  return contentInitialized.value && fileInitialized.value && !contentItems.value.length && !fileItems.value.length
-})
+const isEmptyState = computed(() => false)
 </script>
 
 <template>

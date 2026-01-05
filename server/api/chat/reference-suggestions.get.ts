@@ -245,7 +245,7 @@ export default defineEventHandler(async (event) => {
       id: section.id,
       label: section.title || section.type || section.id,
       subtitle: section.contentSlug || undefined,
-      insertText: section.contentSlug ? `${section.contentSlug}#${section.id}` : section.id
+      insertText: normalizeReferenceToken(section.title || section.type || section.id) || section.id
     }))
   }
 })

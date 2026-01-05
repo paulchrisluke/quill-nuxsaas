@@ -464,6 +464,10 @@ const handleImageUploadClick = () => {
   }
 }
 
+const uploadMenuDisabled = computed(() => {
+  return !isAuthenticatedUser.value || isBusy.value || promptSubmitting.value
+})
+
 const uploadMenuItems = computed(() => [
   {
     label: 'Upload Image',
@@ -914,16 +918,22 @@ if (import.meta.client) {
           <template #footer>
             <div class="flex items-center gap-2">
               <UDropdownMenu
-                v-if="props.contentId && !isBusy && !promptSubmitting"
+                v-if="!isBusy && !promptSubmitting"
                 :items="uploadMenuItems"
               >
-                <UButton
-                  type="button"
-                  icon="i-lucide-plus"
-                  size="sm"
-                  variant="ghost"
-                  color="neutral"
-                />
+                <component
+                  :is="uploadMenuDisabled ? 'UTooltip' : 'div'"
+                  v-bind="uploadMenuDisabled ? { text: 'Sign in to upload images' } : {}"
+                >
+                  <UButton
+                    type="button"
+                    icon="i-lucide-plus"
+                    size="sm"
+                    variant="ghost"
+                    color="neutral"
+                    :disabled="uploadMenuDisabled"
+                  />
+                </component>
               </UDropdownMenu>
               <input
                 ref="fileInputRef"

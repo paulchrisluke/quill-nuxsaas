@@ -20,6 +20,7 @@ import {
 } from '~~/server/utils/content'
 import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
+import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 import { calculateDiffStats, findSectionLineRange } from '../diff'
 import { invalidateWorkspaceCache } from '../workspaceCache'
 import { assembleMarkdownFromSections } from './assembly'
@@ -112,6 +113,26 @@ export type {
 
 // Internal constant alias
 const SECTION_PATCH_SYSTEM_PROMPT = CONTENT_SECTION_UPDATE_SYSTEM_PROMPT
+
+const loadOrganizationTonePrompt = async (
+  db: NodePgDatabase<typeof schema>,
+  organizationId: string
+): Promise<string | null> => {
+  const [record] = await db
+    .select({
+      metadata: schema.organization.metadata
+    })
+    .from(schema.organization)
+    .where(eq(schema.organization.id, organizationId))
+    .limit(1)
+
+  if (!record) {
+    return null
+  }
+
+  const siteConfig = getSiteConfigFromMetadata(record.metadata)
+  return siteConfig.tonePrompt?.trim() || null
+}
 
 /**
  * Updates chunking status in sourceContent metadata
@@ -277,6 +298,7 @@ export const generateContentDraftFromSource = async (
   }
 
   const intentSummary = formatIntentSummary(intentSnapshot)
+  const tonePrompt = await loadOrganizationTonePrompt(db, organizationId)
 
   // If no sourceText but we have conversation context, use it
   if (!resolvedSourceText && conversationContext) {
@@ -435,7 +457,8 @@ export const generateContentDraftFromSource = async (
     sourceText: resolvedSourceText, // Pass inline sourceText if available
     sourceTitle: sourceContent?.title ?? existingContent?.title ?? null,
     conversationContext,
-    intentSummary
+    intentSummary,
+    tonePrompt
   })
   pipelineStages.push('plan')
   await emitProgress('Outline drafted.')
@@ -468,7 +491,8 @@ export const generateContentDraftFromSource = async (
     sourceContentId: frontmatter.sourceContentId ?? sourceContent?.id ?? null,
     generationMode,
     conversationContext,
-    intentSummary
+    intentSummary,
+    tonePrompt
   })
   pipelineStages.push('sections')
   await emitProgress('Sections generated.')
@@ -924,6 +948,8 @@ export const updateContentSectionWithAI = async (
     })
   }
 
+  const tonePrompt = await loadOrganizationTonePrompt(db, organizationId)
+
   // Store original section body for diff calculation
   const originalSectionBody = targetSection.body || ''
 
@@ -988,6 +1014,7 @@ export const updateContentSectionWithAI = async (
     `Section title: ${targetSection.title}`,
     `Current section body:\n${targetSection.body}`,
     `Author instructions: ${trimmedInstructions}`,
+    tonePrompt ? `Organization tone guide:\n${tonePrompt}` : null,
     `Frontmatter: ${JSON.stringify({
       title: frontmatter.title,
       description: frontmatter.description,
@@ -1000,7 +1027,7 @@ export const updateContentSectionWithAI = async (
     'Context to ground this update:',
     contextBlock,
     'Respond with JSON {"body": string, "summary": string?}. Rewrite only this section content - do NOT include the section heading or title, as it will be added automatically.'
-  ].join('\n\n')
+  ].filter(Boolean).join('\n\n')
 
   safeLog('[updateContentSection] Calling AI for section generation', {
     hasSectionTitle: !!targetSection.title,
