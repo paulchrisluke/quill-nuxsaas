@@ -28,6 +28,7 @@ interface ReferenceSuggestionItem {
 interface ReferenceSuggestionGroups {
   files: ReferenceSuggestionItem[]
   contents: ReferenceSuggestionItem[]
+  sections: ReferenceSuggestionItem[]
 }
 
 const attrs = useAttrs()
@@ -38,11 +39,13 @@ defineExpose({ rootRef })
 
 const flatItems = computed(() => [
   ...props.groups.contents,
+  ...props.groups.sections,
   ...props.groups.files
 ])
 
 const offsets = computed(() => ({
-  files: props.groups.contents.length
+  sections: props.groups.contents.length,
+  files: props.groups.contents.length + props.groups.sections.length
 }))
 
 const emptyMessage = computed(() => {
@@ -139,6 +142,30 @@ const handleKeyDown = (event: KeyboardEvent) => {
               type="button"
               class="w-full rounded-2xl px-3 py-2 text-sm text-left hover:bg-muted-100 dark:hover:bg-muted-800"
               :class="index === activeIndex ? 'bg-muted-100 dark:bg-muted-800' : ''"
+              @click="emit('select', item)"
+            >
+              <div class="flex flex-col">
+                <span class="font-medium text-muted-900 dark:text-muted-100">{{ item.label }}</span>
+                <span
+                  v-if="item.subtitle"
+                  class="text-xs text-muted-500 dark:text-muted-400 truncate"
+                >
+                  {{ item.subtitle }}
+                </span>
+              </div>
+            </button>
+          </div>
+
+          <div v-if="groups.sections.length">
+            <p class="px-3 text-[11px] uppercase tracking-wide text-muted-400">
+              Sections
+            </p>
+            <button
+              v-for="(item, index) in groups.sections"
+              :key="item.id"
+              type="button"
+              class="w-full rounded-2xl px-3 py-2 text-sm text-left hover:bg-muted-100 dark:hover:bg-muted-800"
+              :class="offsets.sections + index === activeIndex ? 'bg-muted-100 dark:bg-muted-800' : ''"
               @click="emit('select', item)"
             >
               <div class="flex flex-col">

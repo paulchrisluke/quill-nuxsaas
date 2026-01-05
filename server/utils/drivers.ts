@@ -31,6 +31,9 @@ export const getPgPool = () => {
 let redis: Redis | undefined
 if (runtimeConfig.redisUrl) {
   redis = new Redis(runtimeConfig.redisUrl)
+  redis.on('error', (error) => {
+    console.error('[redis] connection error', error)
+  })
 }
 
 export const cacheClient = {

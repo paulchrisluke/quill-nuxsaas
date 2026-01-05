@@ -64,7 +64,7 @@ const currentUserRole = computed(() => {
 // Get menu items for the drawer - reactive to org data changes
 const menus = computed(() => {
   const role = currentUserRole.value as 'owner' | 'admin' | 'member' | null | undefined
-  const menuItems = getUserMenus(localePath, slug.value, role, needsUpgrade.value)
+  const menuItems = getUserMenus(t, localePath, slug.value, role, needsUpgrade.value)
   return menuItems
 })
 </script>

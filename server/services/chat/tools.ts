@@ -5,7 +5,7 @@ import type {
 
 export type ToolKind = 'read' | 'write' | 'ingest'
 
-export type ChatToolName = 'content_write' | 'edit_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images' | 'read_files' | 'insert_image'
+export type ChatToolName = 'content_write' | 'edit_section' | 'move_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images' | 'read_files' | 'insert_image'
 
 export type ChatToolArguments<TName extends ChatToolName> =
   TName extends 'content_write'
@@ -32,77 +32,86 @@ export type ChatToolArguments<TName extends ChatToolName> =
           instructions: string
           temperature?: number | null
         }
-      : TName extends 'source_ingest'
+      : TName extends 'move_section'
         ? {
-            sourceType: 'youtube' | 'context'
-            youtubeUrl?: string | null
-            titleHint?: string | null
-            context?: string | null
-            title?: string | null
+            contentId: string
+            sourceSectionId?: string | null
+            sourceSectionTitle?: string | null
+            targetSectionId?: string | null
+            targetSectionTitle?: string | null
+            position?: 'before' | 'after' | null
           }
-        : TName extends 'edit_metadata'
+        : TName extends 'source_ingest'
           ? {
-              contentId: string
+              sourceType: 'youtube' | 'context'
+              youtubeUrl?: string | null
+              titleHint?: string | null
+              context?: string | null
               title?: string | null
-              slug?: string | null
-              status?: string | null
-              primaryKeyword?: string | null
-              targetLocale?: string | null
-              contentType?: string | null
             }
-          : TName extends 'read_content'
+          : TName extends 'edit_metadata'
             ? {
                 contentId: string
+                title?: string | null
+                slug?: string | null
+                status?: string | null
+                primaryKeyword?: string | null
+                targetLocale?: string | null
+                contentType?: string | null
               }
-            : TName extends 'read_section'
+            : TName extends 'read_content'
               ? {
                   contentId: string
-                  sectionId: string
                 }
-              : TName extends 'read_source'
+              : TName extends 'read_section'
                 ? {
-                    sourceContentId: string
+                    contentId: string
+                    sectionId: string
                   }
-                : TName extends 'read_content_list'
+                : TName extends 'read_source'
                   ? {
-                      status?: string | null
-                      contentType?: string | null
-                      limit?: number | null
-                      offset?: number | null
-                      orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
-                      orderDirection?: 'asc' | 'desc' | null
+                      sourceContentId: string
                     }
-                  : TName extends 'read_source_list'
+                  : TName extends 'read_content_list'
                     ? {
-                        sourceType?: string | null
-                        ingestStatus?: string | null
+                        status?: string | null
+                        contentType?: string | null
                         limit?: number | null
                         offset?: number | null
                         orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
                         orderDirection?: 'asc' | 'desc' | null
                       }
-                    : TName extends 'read_workspace_summary'
+                    : TName extends 'read_source_list'
                       ? {
-                          contentId: string
+                          sourceType?: string | null
+                          ingestStatus?: string | null
+                          limit?: number | null
+                          offset?: number | null
+                          orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
+                          orderDirection?: 'asc' | 'desc' | null
                         }
-                      : TName extends 'analyze_content_images'
+                      : TName extends 'read_workspace_summary'
                         ? {
                             contentId: string
                           }
-                        : TName extends 'read_files'
+                        : TName extends 'analyze_content_images'
                           ? {
-                              contentId?: string | null
-                              fileType?: string | null
-                              limit?: number | null
+                              contentId: string
                             }
-                          : TName extends 'insert_image'
+                          : TName extends 'read_files'
                             ? {
-                                contentId: string
-                                fileId?: string | null
-                                position?: string | null
-                                altText?: string | null
+                                contentId?: string | null
+                                fileType?: string | null
+                                limit?: number | null
                               }
-                            : never
+                            : TName extends 'insert_image'
+                              ? {
+                                  contentId: string
+                                  fileId?: string | null
+                                  position?: string | null
+                                  altText?: string | null
+                                }
+                              : never
 
 export interface ChatToolInvocation<TName extends ChatToolName = ChatToolName> {
   name: TName
@@ -136,6 +145,17 @@ const chatToolDefinitions: Record<ChatToolName, ToolDefinition> = {
         name: 'edit_section',
         description: 'Edit a specific section of an existing content item using the user\'s instructions. This is the PRIMARY tool for modifying content sections. Requires a valid UUID contentId (use read_content_list to find content IDs). You can specify either sectionId or sectionTitle to identify which section to edit.',
         parameters: buildEditSectionParameters()
+      }
+    }
+  },
+  move_section: {
+    kind: 'write',
+    definition: {
+      type: 'function',
+      function: {
+        name: 'move_section',
+        description: 'Move a section within an existing content item. Use this when the user says to move or reposition a section. Provide source and target by sectionId or sectionTitle, and optionally a position ("before" or "after").',
+        parameters: buildMoveSectionParameters()
       }
     }
   },
@@ -350,6 +370,40 @@ function buildEditSectionParameters(): ParameterSchema {
       }
     },
     required: ['contentId', 'instructions']
+  }
+}
+
+function buildMoveSectionParameters(): ParameterSchema {
+  return {
+    type: 'object',
+    properties: {
+      contentId: {
+        type: 'string',
+        description: 'Content ID (UUID format) of the content item to edit. Must be a valid UUID - use read_content_list to find content IDs.'
+      },
+      sourceSectionId: {
+        type: 'string',
+        description: 'Section ID to move.'
+      },
+      sourceSectionTitle: {
+        type: 'string',
+        description: 'Section title to move when sectionId is unavailable.'
+      },
+      targetSectionId: {
+        type: 'string',
+        description: 'Section ID that the moved section should be placed relative to.'
+      },
+      targetSectionTitle: {
+        type: 'string',
+        description: 'Section title that the moved section should be placed relative to.'
+      },
+      position: {
+        type: 'string',
+        enum: ['before', 'after'],
+        description: 'Whether to place the moved section before or after the target (default: after).'
+      }
+    },
+    required: ['contentId']
   }
 }
 
@@ -688,6 +742,14 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
     return {
       name: 'edit_section',
       arguments: rest as ChatToolInvocation<'edit_section'>['arguments']
+    }
+  }
+
+  if (toolCall.function.name === 'move_section') {
+    const { type: _omit, ...rest } = args
+    return {
+      name: 'move_section',
+      arguments: rest as ChatToolInvocation<'move_section'>['arguments']
     }
   }
 

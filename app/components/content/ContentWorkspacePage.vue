@@ -71,6 +71,15 @@ interface ContentApiResponse {
   }
 }
 
+interface ContentVersionSummary {
+  id: string
+  version: number
+  createdAt: string
+  createdByUserId?: string | null
+  title?: string | null
+  diffStats?: { additions: number, deletions: number } | null
+}
+
 interface SaveContentBodyResponse {
   content: {
     id: string
@@ -101,6 +110,16 @@ const { data: contentData, pending, error, refresh: refreshContent } = useFetch(
   default: () => null,
   server: false
 })
+
+const { data: versionsData, pending: versionsPending, refresh: refreshVersions } = useFetch(() => `/api/content/${contentId.value}/versions`, {
+  key: computed(() => `content-versions-${contentId.value}`),
+  lazy: true,
+  default: () => ({ versions: [], currentVersionId: null }),
+  server: false
+})
+
+const previousVersionData = ref<{ bodyMarkdown?: string | null } | null>(null)
+const previousVersionLoading = ref(false)
 
 // Ensure pending state is consistent for hydration
 const isPending = computed(() => {
@@ -175,6 +194,235 @@ const contentEntry = computed<ContentEntry | null>(() => {
     structuredData,
     structuredDataGraph
   }
+})
+
+const normalizeLinesParam = (value: string | string[] | null | undefined) => {
+  if (!value)
+    return null
+  const raw = Array.isArray(value) ? value[0] : value
+  return raw?.trim() || null
+}
+
+const parseLineRange = (value: string | null) => {
+  if (!value)
+    return null
+  const match = value.match(/^(\d+)(?:-(\d+))?$/)
+  if (!match)
+    return null
+  const start = Number.parseInt(match[1], 10)
+  const end = match[2] ? Number.parseInt(match[2], 10) : start
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0)
+    return null
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end)
+  }
+}
+
+const focusLineRange = computed(() => parseLineRange(normalizeLinesParam(route.query.lines as string | string[] | null | undefined)))
+const focusSectionParam = computed(() => {
+  const raw = normalizeLinesParam(route.query.section as string | string[] | null | undefined)
+  if (!raw)
+    return null
+  try {
+    return decodeURIComponent(raw).trim() || null
+  } catch {
+    return raw.trim() || null
+  }
+})
+
+const editorContent = ref('')
+
+const markdownLines = computed(() => {
+  const text = editorContent.value || ''
+  return text.replace(/\r/g, '').split('\n')
+})
+
+const contentSections = computed(() => {
+  const sections: Array<{ title: string, level: number, startLine: number, endLine: number }> = []
+  const lines = markdownLines.value
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]
+    const match = /^(#{1,4})[ \t]+/.exec(line)
+    if (!match)
+      continue
+    const level = match[1].length
+    const title = line.slice(match[0].length).trim()
+    if (!title)
+      continue
+    sections.push({
+      title,
+      level,
+      startLine: i + 1,
+      endLine: lines.length
+    })
+  }
+
+  for (let i = 0; i < sections.length; i += 1) {
+    const next = sections[i + 1]
+    if (next) {
+      sections[i].endLine = Math.max(sections[i].startLine, next.startLine - 1)
+    }
+  }
+
+  return sections
+})
+
+const focusedSection = computed(() => {
+  const range = focusLineRange.value
+  if (!range)
+    return null
+  return contentSections.value.find(section => range.start >= section.startLine && range.start <= section.endLine) || null
+})
+
+const editorContainerRef = ref<HTMLElement | null>(null)
+const scrollHighlightTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+
+const scrollToSection = (title: string) => {
+  if (!import.meta.client || !editorContainerRef.value)
+    return
+  if (scrollHighlightTimeout.value) {
+    clearTimeout(scrollHighlightTimeout.value)
+    scrollHighlightTimeout.value = null
+  }
+  const headings = editorContainerRef.value.querySelectorAll('h1, h2, h3, h4')
+  const normalizedTarget = title.trim().toLowerCase()
+  let targetElement: HTMLElement | null = null
+
+  headings.forEach((heading) => {
+    if (targetElement)
+      return
+    const text = heading.textContent?.trim().toLowerCase() || ''
+    if (text === normalizedTarget) {
+      targetElement = heading as HTMLElement
+    }
+  })
+
+  if (!targetElement)
+    return
+
+  targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  targetElement.classList.add('focus-highlight')
+  scrollHighlightTimeout.value = window.setTimeout(() => {
+    targetElement?.classList.remove('focus-highlight')
+    scrollHighlightTimeout.value = null
+  }, 1400)
+}
+
+const loadPreviousVersionBody = async (versionId: string | null) => {
+  if (!versionId || previousVersionLoading.value) {
+    return
+  }
+  previousVersionLoading.value = true
+  try {
+    const data = await $fetch<{ bodyMarkdown?: string | null }>(`/api/content/version/${versionId}`)
+    previousVersionData.value = data
+  } catch (error) {
+    console.error('[Content] Failed to load previous version body', error)
+    previousVersionData.value = null
+  } finally {
+    previousVersionLoading.value = false
+  }
+}
+
+const buildLineDiff = (beforeLines: string[], afterLines: string[]) => {
+  const beforeCount = beforeLines.length
+  const afterCount = afterLines.length
+  const dp: number[][] = Array.from({ length: beforeCount + 1 }, () => Array(afterCount + 1).fill(0))
+
+  for (let i = beforeCount - 1; i >= 0; i -= 1) {
+    for (let j = afterCount - 1; j >= 0; j -= 1) {
+      if (beforeLines[i] === afterLines[j]) {
+        dp[i][j] = dp[i + 1][j + 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1])
+      }
+    }
+  }
+
+  const diff: Array<{ type: 'add' | 'remove' | 'same', text: string }> = []
+  let i = 0
+  let j = 0
+  while (i < beforeCount && j < afterCount) {
+    if (beforeLines[i] === afterLines[j]) {
+      diff.push({ type: 'same', text: beforeLines[i] })
+      i += 1
+      j += 1
+      continue
+    }
+    if (dp[i + 1][j] >= dp[i][j + 1]) {
+      diff.push({ type: 'remove', text: beforeLines[i] })
+      i += 1
+    } else {
+      diff.push({ type: 'add', text: afterLines[j] })
+      j += 1
+    }
+  }
+  while (i < beforeCount) {
+    diff.push({ type: 'remove', text: beforeLines[i] })
+    i += 1
+  }
+  while (j < afterCount) {
+    diff.push({ type: 'add', text: afterLines[j] })
+    j += 1
+  }
+
+  return diff
+}
+
+const focusDiffLines = computed(() => {
+  const range = focusLineRange.value
+  if (!range)
+    return []
+  const currentLines = markdownLines.value
+  const start = Math.max(range.start - 1, 0)
+  const end = Math.min(range.end, currentLines.length)
+  const currentSlice = currentLines.slice(start, end)
+  if (!previousVersionData.value?.bodyMarkdown) {
+    return currentSlice.map(text => ({ type: 'same' as const, text }))
+  }
+  const beforeText = previousVersionData.value.bodyMarkdown || ''
+  const beforeLines = beforeText.replace(/\r/g, '').split('\n')
+  const beforeSlice = beforeLines.slice(start, end)
+  return buildLineDiff(beforeSlice, currentSlice)
+})
+
+const contentVersions = computed<ContentVersionSummary[]>(() => {
+  const payload = versionsData.value as { versions?: ContentVersionSummary[] } | null
+  if (!payload || !Array.isArray(payload.versions)) {
+    return []
+  }
+  return payload.versions
+})
+
+const currentVersionId = computed(() => {
+  const payload = versionsData.value as { currentVersionId?: string | null } | null
+  return payload?.currentVersionId || null
+})
+
+const currentVersionEntry = computed(() => {
+  if (!currentVersionId.value) {
+    return contentVersions.value[0] || null
+  }
+  return contentVersions.value.find(entry => entry.id === currentVersionId.value) || null
+})
+
+const previousVersionEntry = computed(() => {
+  if (!currentVersionEntry.value) {
+    return null
+  }
+  const index = contentVersions.value.findIndex(entry => entry.id === currentVersionEntry.value?.id)
+  if (index === -1) {
+    return null
+  }
+  return contentVersions.value[index + 1] || null
+})
+
+const currentVersionLabel = computed(() => {
+  if (!currentVersionEntry.value) {
+    return 'v—'
+  }
+  return `v${currentVersionEntry.value.version}`
 })
 
 const schemaErrors = computed(() => contentEntry.value?.schemaValidation?.errors || [])
@@ -517,9 +765,9 @@ const saveSeoForm = async () => {
   }
 }
 
-const editorContent = ref('')
 const isSaving = ref(false)
 const isPublishing = ref(false)
+const isReverting = ref(false)
 const lastPublishedPrUrl = ref<string | null>(null)
 const saveStatus = ref<'saved' | 'saving' | 'unsaved'>('saved')
 const lastContentId = ref<string | null>(null)
@@ -638,6 +886,7 @@ watch(contentEntry, (entry) => {
     lastContentId.value = null
     lastPublishedPrUrl.value = null
     saveStatus.value = 'saved'
+    previousVersionData.value = null
     isContentLoading.value = false
     return
   }
@@ -647,6 +896,7 @@ watch(contentEntry, (entry) => {
     lastPublishedPrUrl.value = null
     editorContent.value = entry.bodyMarkdown || ''
     saveStatus.value = 'saved'
+    previousVersionData.value = null
     nextTick(() => {
       isContentLoading.value = false
     })
@@ -660,6 +910,30 @@ watch(contentEntry, (entry) => {
       isContentLoading.value = false
     })
   }
+})
+
+watch([focusLineRange, previousVersionEntry], ([range, previous]) => {
+  if (range && previous?.id) {
+    loadPreviousVersionBody(previous.id).catch(() => {})
+  }
+})
+
+watch([focusedSection, () => editorContent.value], ([section]) => {
+  if (!section) {
+    return
+  }
+  nextTick(() => {
+    scrollToSection(section.title)
+  })
+})
+
+watch(focusSectionParam, (section) => {
+  if (!section) {
+    return
+  }
+  nextTick(() => {
+    scrollToSection(section)
+  })
 })
 
 // Auto-save with debouncing
@@ -685,6 +959,9 @@ watch(editorContent, () => {
 onBeforeUnmount(() => {
   if (autoSaveTimeout.value) {
     clearTimeout(autoSaveTimeout.value)
+  }
+  if (scrollHighlightTimeout.value) {
+    clearTimeout(scrollHighlightTimeout.value)
   }
 })
 
@@ -761,6 +1038,54 @@ const publishContent = async () => {
   }
 }
 
+const formatVersionLabel = (entry: ContentVersionSummary) => {
+  const base = `v${entry.version}`
+  if (!entry.createdAt) {
+    return base
+  }
+  const createdAt = new Date(entry.createdAt)
+  if (Number.isNaN(createdAt.getTime())) {
+    return base
+  }
+  return `${base} • ${createdAt.toLocaleString()}`
+}
+
+const revertToVersion = async (versionId: string) => {
+  if (!contentEntry.value || !versionId || isReverting.value) {
+    return
+  }
+  isReverting.value = true
+  try {
+    await $fetch(`/api/content/${contentEntry.value.id}/revert`, {
+      method: 'POST',
+      body: { versionId }
+    })
+    toast.add({
+      title: 'Changes reverted',
+      description: 'The content has been restored to the selected version.',
+      color: 'success'
+    })
+    saveStatus.value = 'saved'
+    await refreshContent()
+    await refreshVersions()
+  } catch (error: any) {
+    toast.add({
+      title: 'Revert failed',
+      description: error?.message || 'Please try again.',
+      color: 'error'
+    })
+  } finally {
+    isReverting.value = false
+  }
+}
+
+const versionMenuItems = computed(() => contentVersions.value.map(entry => ({
+  label: formatVersionLabel(entry),
+  icon: entry.id === currentVersionId.value ? 'i-lucide-check' : 'i-lucide-rotate-ccw',
+  disabled: entry.id === currentVersionId.value || isReverting.value,
+  onSelect: () => revertToVersion(entry.id)
+})))
+
 // Don't set header title - we want no header for content pages
 watch([contentEntry, error], () => {
   setHeaderTitle?.(null)
@@ -772,6 +1097,7 @@ watch(latestUpdate, (update) => {
   }
   if (update.contentId === contentId.value && saveStatus.value === 'saved') {
     refreshContent()
+    refreshVersions()
   }
 })
 </script>
@@ -798,6 +1124,57 @@ watch(latestUpdate, (update) => {
     />
 
     <template v-if="!isPending && contentEntry">
+      <UCard
+        v-if="focusLineRange"
+        class="mb-4"
+      >
+        <template #header>
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <p class="text-sm font-semibold">
+                Focused changes
+              </p>
+              <p class="text-xs text-muted-500">
+                Lines {{ focusLineRange.start }}-{{ focusLineRange.end }}
+                <span v-if="focusedSection"> • {{ focusedSection.title }}</span>
+              </p>
+            </div>
+            <UButton
+              v-if="focusedSection"
+              size="xs"
+              variant="ghost"
+              icon="i-lucide-locate"
+              @click="scrollToSection(focusedSection.title)"
+            >
+              Jump to section
+            </UButton>
+          </div>
+        </template>
+        <div class="space-y-1 font-mono text-xs">
+          <div
+            v-if="previousVersionLoading"
+            class="text-muted-500"
+          >
+            Loading diff preview...
+          </div>
+          <div v-else>
+            <div
+              v-for="(line, index) in focusDiffLines"
+              :key="`focus-line-${index}`"
+              class="flex items-start gap-2 rounded px-2 py-1"
+              :class="line.type === 'add' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' : line.type === 'remove' ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200 line-through' : 'text-muted-700'"
+            >
+              <span class="w-4 text-right text-muted-400">
+                {{ line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ' }}
+              </span>
+              <span class="whitespace-pre-wrap break-words flex-1">
+                {{ line.text }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </UCard>
+
       <!-- Body Markdown Editor - moved to top -->
       <UCard class="mb-4">
         <template #header>
@@ -824,6 +1201,33 @@ watch(latestUpdate, (update) => {
               >
                 Unsaved
               </span>
+              <UDropdownMenu
+                v-if="contentVersions.length"
+                :items="versionMenuItems"
+              >
+                <UButton
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-history"
+                  :loading="versionsPending"
+                  class="flex-shrink-0"
+                >
+                  {{ currentVersionLabel }}
+                </UButton>
+              </UDropdownMenu>
+              <UButton
+                v-if="previousVersionEntry"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                icon="i-lucide-undo-2"
+                :loading="isReverting"
+                class="flex-shrink-0"
+                @click="revertToVersion(previousVersionEntry.id)"
+              >
+                Undo
+              </UButton>
               <UButton
                 size="xs"
                 color="neutral"
@@ -847,59 +1251,90 @@ watch(latestUpdate, (update) => {
             </div>
           </div>
         </template>
-        <ClientOnly>
-          <UEditor
-            v-model="editorContent"
-            placeholder="Start writing..."
-            content-type="markdown"
-            :extensions="[Emoji]"
-            :starter-kit="{
-              headings: { levels: [1, 2, 3, 4] },
-              link: { openOnClick: false },
-              dropcursor: { color: 'var(--ui-primary)', width: 2 }
-            }"
-            class="w-full"
-          >
-            <template #default="slotProps">
-              <UEditorToolbar
-                v-if="slotProps?.editor"
-                :editor="slotProps.editor"
-                :items="editorToolbarItems"
-                layout="fixed"
-                class="mb-2 overflow-x-auto"
-              />
-              <UEditorSuggestionMenu
-                v-if="slotProps?.editor"
-                :editor="slotProps.editor"
-                :items="editorSuggestionItems"
-              />
-              <UEditorMentionMenu
-                v-if="slotProps?.editor"
-                :editor="slotProps.editor"
-                :items="editorMentionItems"
-              />
-              <UEditorEmojiMenu
-                v-if="slotProps?.editor"
-                :editor="slotProps.editor"
-                :items="editorEmojiItems"
-              />
-              <UEditorDragHandle
-                v-if="slotProps?.editor"
-                :editor="slotProps.editor"
+        <div ref="editorContainerRef">
+          <ClientOnly>
+            <UEditor
+              v-model="editorContent"
+              placeholder="Start writing..."
+              content-type="markdown"
+              :extensions="[Emoji]"
+              :starter-kit="{
+                headings: { levels: [1, 2, 3, 4] },
+                link: { openOnClick: false },
+                dropcursor: { color: 'var(--ui-primary)', width: 2 }
+              }"
+              class="w-full"
+            >
+              <template #default="slotProps">
+                <UEditorToolbar
+                  v-if="slotProps?.editor"
+                  :editor="slotProps.editor"
+                  :items="editorToolbarItems"
+                  layout="fixed"
+                  class="mb-2 overflow-x-auto"
+                />
+                <UEditorSuggestionMenu
+                  v-if="slotProps?.editor"
+                  :editor="slotProps.editor"
+                  :items="editorSuggestionItems"
+                />
+                <UEditorMentionMenu
+                  v-if="slotProps?.editor"
+                  :editor="slotProps.editor"
+                  :items="editorMentionItems"
+                />
+                <UEditorEmojiMenu
+                  v-if="slotProps?.editor"
+                  :editor="slotProps.editor"
+                  :items="editorEmojiItems"
+                />
+                <UEditorDragHandle
+                  v-if="slotProps?.editor"
+                  :editor="slotProps.editor"
+                />
+              </template>
+            </UEditor>
+            <template #fallback>
+              <UTextarea
+                :model-value="editorContent"
+                placeholder="Loading editor..."
+                :rows="20"
+                autoresize
+                class="w-full"
+                @update:model-value="editorContent = $event ?? ''"
               />
             </template>
-          </UEditor>
-          <template #fallback>
-            <UTextarea
-              :model-value="editorContent"
-              placeholder="Loading editor..."
-              :rows="20"
-              autoresize
-              class="w-full"
-              @update:model-value="editorContent = $event ?? ''"
-            />
-          </template>
-        </ClientOnly>
+          </ClientOnly>
+        </div>
+      </UCard>
+
+      <UCard
+        v-if="contentSections.length"
+        class="mb-4"
+      >
+        <template #header>
+          <p class="text-sm font-semibold">
+            Sections
+          </p>
+        </template>
+        <div class="space-y-1">
+          <UButton
+            v-for="section in contentSections"
+            :key="`${section.title}-${section.startLine}`"
+            variant="ghost"
+            size="sm"
+            class="w-full justify-start"
+            :class="section.level >= 3 ? 'pl-6' : section.level === 2 ? 'pl-4' : ''"
+            @click="scrollToSection(section.title)"
+          >
+            <span class="truncate">
+              {{ section.title }}
+            </span>
+            <span class="ml-auto text-xs text-muted-400">
+              {{ section.startLine }}-{{ section.endLine }}
+            </span>
+          </UButton>
+        </div>
       </UCard>
 
       <!-- Schema validation alerts -->

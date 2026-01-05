@@ -110,7 +110,7 @@ const selectedReferences = ref<ReferenceSelection[]>([])
 const suggestionGroups = ref<ReferenceSuggestionGroups>({
   files: [],
   contents: [],
-  sections: [] // Sections not shown in picker, only used for LLM context
+  sections: []
 })
 
 const { useActiveOrganization } = useAuth()
@@ -140,7 +140,7 @@ const combinedSuggestions = computed(() => {
   return {
     files: suggestionGroups.value.files,
     contents: suggestionGroups.value.contents,
-    sections: [] // Sections not shown in picker, only used for LLM context
+    sections: suggestionGroups.value.sections
   }
 })
 
@@ -308,8 +308,7 @@ const applySuggestion = (item: ReferenceSuggestionItem) => {
   const nextValue = `${before}${insertText}${after}`
 
   modelValue.value = nextValue
-  isAutocompleteOpen.value = false
-  activeMention.value = null
+  closeAutocomplete()
 
   nextTick(() => {
     if (textareaRef.value) {
@@ -362,8 +361,9 @@ const handleKeyDown = (event: KeyboardEvent) => {
     return
   }
   const flatSuggestions = [
-    ...combinedSuggestions.value.files,
-    ...combinedSuggestions.value.contents
+    ...combinedSuggestions.value.contents,
+    ...combinedSuggestions.value.sections,
+    ...combinedSuggestions.value.files
   ]
   if (!isAutocompleteOpen.value || flatSuggestions.length === 0) {
     return
@@ -466,7 +466,7 @@ const fetchSuggestions = async (query?: string) => {
     suggestionGroups.value = {
       files: data.files.map(item => ({ ...item, type: 'file' as const })),
       contents: data.contents.map(item => ({ ...item, type: 'content' as const })),
-      sections: [] // Sections not shown in picker, only used for LLM context
+      sections: data.sections.map(item => ({ ...item, type: 'section' as const }))
     }
   } catch (error) {
     console.error('[PromptComposer] Failed to load reference suggestions', error)
@@ -667,7 +667,7 @@ watch(() => activeMention.value?.query, (query) => {
 })
 
 watch(combinedSuggestions, (value) => {
-  const flat = [...value.files, ...value.contents]
+  const flat = [...value.contents, ...value.sections, ...value.files]
   if (highlightedIndex.value >= flat.length) {
     highlightedIndex.value = 0
   }
@@ -685,9 +685,9 @@ watch([
 
 const handleNavigate = (delta: number) => {
   const flat = [
-    ...combinedSuggestions.value.files,
     ...combinedSuggestions.value.contents,
-    ...combinedSuggestions.value.sections
+    ...combinedSuggestions.value.sections,
+    ...combinedSuggestions.value.files
   ]
   if (!flat.length) {
     return

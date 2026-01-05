@@ -25,6 +25,7 @@ interface MatchResult<T> {
 }
 
 const normalizeValue = (value: string | null | undefined) => (value ?? '').trim().toLowerCase()
+const normalizeToken = (value: string | null | undefined) => (value ?? '').trim().toLowerCase().replace(/\s+/g, '-')
 
 const escapeLikePattern = (value: string): string => {
   return value
@@ -337,6 +338,126 @@ const resolveContentToken = async (token: ReferenceToken, context: ResolveContex
   }
 }
 
+const resolveSectionTokenInCurrentContent = async (token: ReferenceToken, context: ResolveContext) => {
+  if (!context.currentContentId) {
+    return { resolved: null, ambiguous: null, unresolved: null }
+  }
+
+  const [content] = await context.db
+    .select({
+      id: schema.content.id,
+      slug: schema.content.slug,
+      title: schema.content.title,
+      currentVersionId: schema.content.currentVersionId
+    })
+    .from(schema.content)
+    .where(and(
+      eq(schema.content.id, context.currentContentId),
+      eq(schema.content.organizationId, context.organizationId)
+    ))
+    .limit(1)
+
+  if (!content?.currentVersionId) {
+    return { resolved: null, ambiguous: null, unresolved: null }
+  }
+
+  const [version] = await context.db
+    .select({
+      sections: schema.contentVersion.sections
+    })
+    .from(schema.contentVersion)
+    .where(eq(schema.contentVersion.id, content.currentVersionId))
+    .limit(1)
+
+  const sections: ContentSection[] = Array.isArray(version?.sections) ? (version.sections as ContentSection[]) : []
+  if (!sections.length) {
+    return { resolved: null, ambiguous: null, unresolved: null }
+  }
+
+  const match = selectBestMatch(token.identifier, sections, (section) => {
+    const sectionId = section.id || section.section_id
+    const title = section.title
+    return [
+      sectionId,
+      title,
+      normalizeToken(title),
+      normalizeToken(sectionId)
+    ]
+  })
+
+  if (match.match) {
+    const matchedSection = match.match
+    const sectionId = matchedSection.id || matchedSection.section_id
+    if (!sectionId) {
+      return { resolved: null, ambiguous: null, unresolved: null }
+    }
+    return {
+      resolved: {
+        type: 'section',
+        id: sectionId,
+        contentId: content.id,
+        token,
+        metadata: {
+          sectionId,
+          title: matchedSection.title ?? null,
+          type: matchedSection.type ?? null,
+          index: matchedSection.index ?? null,
+          contentId: content.id,
+          contentSlug: content.slug,
+          contentTitle: content.title
+        }
+      } satisfies ResolvedReference,
+      ambiguous: null,
+      unresolved: null
+    }
+  }
+
+  if (match.ambiguous.length > 1) {
+    const candidateList = toCandidateList(match.ambiguous.map((section) => {
+      const sectionId = section.id || section.section_id || ''
+      return {
+        id: sectionId,
+        label: section.title || section.type || sectionId,
+        subtitle: content.title,
+        reference: `${content.slug}#${sectionId}`
+      }
+    }), 'section')
+
+    return {
+      ambiguous: {
+        token,
+        candidates: candidateList
+      } satisfies AmbiguousReference,
+      resolved: null,
+      unresolved: null
+    }
+  }
+
+  const suggestions = sections
+    .filter(section => section?.id || section?.section_id)
+    .slice(0, 5)
+    .map((section) => {
+      const sectionId = section.id || section.section_id || ''
+      return buildCandidate({
+        type: 'section',
+        id: sectionId,
+        label: section.title || section.type || sectionId,
+        subtitle: content.title,
+        reference: `${content.slug}#${sectionId}`
+      })
+    })
+
+  return {
+    resolved: null,
+    ambiguous: null,
+    unresolved: {
+      token,
+      reason: 'section_not_found',
+      suggestions: suggestions.length ? suggestions : undefined
+    } satisfies UnresolvedReference
+  }
+}
+
 const resolveSourceToken = async (token: ReferenceToken, context: ResolveContext, identifier: string) => {
   const candidates = await fetchSourceCandidates(context, identifier)
   const match = selectBestMatch(identifier, candidates, candidate => [candidate.externalId, candidate.title])
@@ -443,6 +564,16 @@ export async function resolveReferences(tokens: ReferenceToken[], context: Resol
       ambiguous.push(contentResult.ambiguous)
     }
     if (contentResult.resolved || contentResult.ambiguous) {
+      continue
+    }
+
+    const sectionResult = await resolveSectionTokenInCurrentContent(token, context)
+    if (sectionResult.resolved) {
+      resolved.push(sectionResult.resolved)
+      continue
+    }
+    if (sectionResult.ambiguous) {
+      ambiguous.push(sectionResult.ambiguous)
       continue
     }
 

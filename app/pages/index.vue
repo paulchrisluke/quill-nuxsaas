@@ -23,7 +23,7 @@ async function performRedirect(targetSlug: string) {
 
   isNavigating = true
   try {
-    const target = localePath(`/${targetSlug}/conversations`)
+    const target = localePath(`/${targetSlug}`)
     try {
       await navigateTo(target)
     } catch (navError) {

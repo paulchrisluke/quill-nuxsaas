@@ -51,6 +51,17 @@ export const getReferenceScopeError = (
     return null
   }
 
+  if (toolInvocation.name === 'move_section') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'move_section'>['arguments']
+    const hasSourceAccess = args.sourceSectionId ? allowedSectionIds.has(args.sourceSectionId) : false
+    const hasTargetAccess = args.targetSectionId ? allowedSectionIds.has(args.targetSectionId) : false
+    const hasContentAccess = args.contentId ? allowedContentIds.has(args.contentId) : false
+    if (!hasContentAccess && !hasSourceAccess && !hasTargetAccess) {
+      return NO_REFERENCE_ERROR
+    }
+    return null
+  }
+
   if (toolInvocation.name === 'edit_metadata') {
     const args = toolInvocation.arguments as ChatToolInvocation<'edit_metadata'>['arguments']
     if (!args.contentId || !allowedContentIds.has(args.contentId)) {

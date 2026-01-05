@@ -31,6 +31,7 @@ const formState = reactive({
     name: '',
     url: ''
   },
+  tonePrompt: '',
   categories: [] as Array<{ id: string, name: string, slug: string }>
 })
 
@@ -116,6 +117,7 @@ const isFormEmpty = () => {
     && !formState.author.sameAsInput.trim()
     && !formState.blog.name.trim()
     && !formState.blog.url.trim()
+    && !formState.tonePrompt.trim()
     && formState.categories.length === 0
 }
 
@@ -170,6 +172,7 @@ const loadFromOrganization = () => {
   formState.author.sameAsInput = (author.sameAs ?? []).join('\n')
   formState.blog.name = merged.blog?.name ?? ''
   formState.blog.url = merged.blog?.url ?? ''
+  formState.tonePrompt = merged.tonePrompt ?? ''
   formState.categories = (merged.categories ?? []).map(item => ({
     id: createCategoryId(),
     name: item.name,
@@ -249,6 +252,7 @@ const saveConfig = async () => {
         name: formState.blog.name,
         url: formState.blog.url
       },
+      tonePrompt: formState.tonePrompt.trim(),
       categories
     })
     const nextMetadata = mergeSiteConfigIntoMetadata(metadataValue.value, nextConfig)
@@ -491,6 +495,28 @@ watch(formState, () => {
           <UInput
             v-model="formState.blog.url"
             placeholder="https://example.com/blog"
+            class="w-full"
+          />
+        </UFormField>
+      </div>
+    </UCard>
+
+    <UCard class="w-full">
+      <template #header>
+        <p class="text-sm font-medium">
+          Tone guidance
+        </p>
+      </template>
+      <div class="space-y-2">
+        <UFormField
+          v-bind="fieldProps"
+          label="Organization tone prompt"
+          description="Use a short style guide for the AI (voice, pacing, vocabulary)."
+        >
+          <UTextarea
+            v-model="formState.tonePrompt"
+            :rows="4"
+            placeholder="Example: Friendly, concise, avoid jargon. Use second-person voice and include concrete examples."
             class="w-full"
           />
         </UFormField>

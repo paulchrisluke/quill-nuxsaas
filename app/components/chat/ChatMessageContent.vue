@@ -15,6 +15,9 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
+const localePath = useLocalePath()
+const { useActiveOrganization } = useAuth()
+const activeOrg = useActiveOrganization()
 const { currentActivity, activeToolActivities } = useConversation()
 const { resolveCreatedContentPath } = useContentPaths()
 
@@ -176,6 +179,40 @@ const workspaceSummaryBullets = computed(() => {
   return toSummaryBullets(payload.value.summary)
 })
 
+const summaryEdits = computed(() => {
+  if (payload.value?.type !== 'workspace_summary') {
+    return []
+  }
+  const edits = payload.value?.edits
+  if (!Array.isArray(edits)) {
+    return []
+  }
+  return edits.filter((edit: any) => edit && typeof edit.contentId === 'string')
+})
+
+const orgSlug = computed(() => activeOrg.value?.data?.slug || null)
+
+const buildEditLink = (edit: any) => {
+  if (!orgSlug.value) {
+    return null
+  }
+  const base = localePath(`/${orgSlug.value}/content/${edit.contentId}`)
+  const params = new URLSearchParams()
+  if (edit.lineRange?.start && edit.lineRange?.end) {
+    params.set('lines', `${edit.lineRange.start}-${edit.lineRange.end}`)
+  }
+  if (edit.sectionTitle) {
+    params.set('section', edit.sectionTitle)
+  }
+  const query = params.toString()
+  return query ? `${base}?${query}` : base
+}
+
+const summaryEditsWithLinks = computed(() => summaryEdits.value.map(edit => ({
+  ...edit,
+  link: buildEditLink(edit)
+})))
+
 const baseClass = computed(() => ['prose prose-invert max-w-none text-[15px] leading-6', props.bodyClass].filter(Boolean).join(' '))
 
 function toSummaryBullets(summary: string | null | undefined) {
@@ -247,6 +284,52 @@ function toSummaryBullets(summary: string | null | undefined) {
         {{ item }}
       </li>
     </ul>
+    <div
+      v-if="summaryEditsWithLinks.length"
+      class="mt-4 space-y-2"
+    >
+      <p class="text-sm font-semibold">
+        Edited sections
+      </p>
+      <ul class="space-y-2">
+        <li
+          v-for="(edit, index) in summaryEditsWithLinks"
+          :key="`edit-${index}`"
+          class="flex flex-col gap-1"
+        >
+          <div class="flex items-center gap-2">
+            <NuxtLink
+              v-if="edit.link"
+              :to="edit.link"
+              class="text-primary underline decoration-dotted"
+            >
+              {{ edit.sectionTitle || edit.sectionId || 'Section edit' }}
+            </NuxtLink>
+            <span
+              v-else
+              class="text-muted-foreground"
+            >
+              {{ edit.sectionTitle || edit.sectionId || 'Section edit' }}
+            </span>
+            <span class="text-xs text-muted-500">
+              {{ edit.contentTitle || 'Content' }}
+            </span>
+            <span
+              v-if="edit.additions !== undefined || edit.deletions !== undefined"
+              class="text-xs font-mono text-muted-500"
+            >
+              +{{ edit.additions ?? 0 }} / -{{ edit.deletions ?? 0 }}
+            </span>
+          </div>
+          <div
+            v-if="edit.reason"
+            class="text-xs text-muted-500"
+          >
+            Why: {{ edit.reason }}
+          </div>
+        </li>
+      </ul>
+    </div>
   </div>
   <div v-else-if="payload?.type === 'workspace_files' && Array.isArray(payload.files)">
     <WorkspaceFilesAccordion

@@ -33,6 +33,7 @@ export interface SiteConfig {
   blog?: SiteConfigBlog
   categories?: SiteConfigCategory[]
   breadcrumbs?: SiteConfigBreadcrumb[]
+  tonePrompt?: string
 }
 
 export const SITE_CONFIG_VIRTUAL_KEY = 'site_config'
@@ -164,12 +165,14 @@ export const normalizeSiteConfig = (value?: unknown): SiteConfig => {
     return {}
   }
   const data = value as Record<string, any>
+  const tonePrompt = typeof data.tonePrompt === 'string' ? data.tonePrompt.trim() : ''
   return {
     publisher: normalizePublisher(data.publisher ?? null),
     author: normalizeAuthor(data.author ?? null),
     blog: normalizeBlog(data.blog ?? null),
     categories: normalizeCategories(data.categories),
-    breadcrumbs: normalizeBreadcrumbs(data.breadcrumbs)
+    breadcrumbs: normalizeBreadcrumbs(data.breadcrumbs),
+    ...(tonePrompt ? { tonePrompt } : {})
   }
 }
 

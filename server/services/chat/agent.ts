@@ -70,6 +70,7 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 - For simple edits to metadata (title, slug, status, primaryKeyword, targetLocale, contentType) on existing content items, use edit_metadata. Examples: "make the title shorter", "change the status to published", "update the slug".
 - For editing specific sections of existing content, use edit_section. Examples: "make the introduction more engaging", "rewrite the conclusion".
 - When using edit_section you MUST provide either sectionId or sectionTitle. If the user wants changes across the whole document, read the content sections and call edit_section once per section.
+- When the user asks to move or reposition a section, use move_section with a source section and target section, plus an optional position (before/after).
 - For creating new content items from source content (context, YouTube video, etc.), use content_write with action="create". This tool only creates new content - it cannot update existing content.
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".
 - For inserting uploaded images into content, prefer using insert_image with a fileId. If omitted, insert_image will use the latest image linked to the content.
@@ -181,6 +182,12 @@ function generateSummaryFromToolHistory(
       const files = Array.isArray(result.result.files) ? result.result.files : []
       const count = files.length
       summaries.push(`Found ${count} uploaded file${count !== 1 ? 's' : ''}`)
+    } else if (toolName === 'move_section' && result.result) {
+      const contentTitle = result.result.content?.title || 'content'
+      const sectionTitle = result.result.sectionTitle
+        ? `"${result.result.sectionTitle}"`
+        : 'the section'
+      summaries.push(`Moved ${sectionTitle} in "${contentTitle}"`)
     } else {
       summaries.push(`Completed ${toolName.replace(/_/g, ' ')}`)
     }

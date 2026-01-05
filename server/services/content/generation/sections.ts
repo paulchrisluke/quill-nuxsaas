@@ -23,6 +23,7 @@ export const generateContentSectionsFromOutline = async (params: {
   generationMode?: GenerationMode
   conversationContext?: string | null
   intentSummary?: string | null
+  tonePrompt?: string | null
 }): Promise<ContentSection[]> => {
   const sections: ContentSection[] = []
   const mode = params.generationMode || 'context'
@@ -91,6 +92,7 @@ export const generateContentSectionsFromOutline = async (params: {
       })}`,
       params.instructions ? `Writer instructions: ${params.instructions}` : null,
       params.intentSummary ? `Intent summary:\n${params.intentSummary}` : null,
+      params.tonePrompt ? `Organization tone guide:\n${params.tonePrompt}` : null,
       contextLabel,
       contextBlock,
       `${writingInstruction} Respond with JSON {"body": string, "summary": string?}. "body" must include only the prose content for this section - do NOT include the section heading or title, as it will be added automatically.`

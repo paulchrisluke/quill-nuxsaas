@@ -30,7 +30,7 @@ const {
   items: contentItems,
   pending: contentPending,
   error: contentError,
-  initialized: contentInitialized,
+  initialized: _contentInitialized,
   loadInitial: loadContentInitial,
   remove: removeContent,
   refresh: refreshContent,
@@ -41,7 +41,7 @@ const {
   items: fileItems,
   pending: filePending,
   error: fileError,
-  initialized: fileInitialized,
+  initialized: _fileInitialized,
   loadInitial: loadFileInitial,
   refresh: refreshFileList,
   remove: removeFile,
@@ -519,10 +519,6 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
     loadMembers(orgId)
   }
 })
-
-const isEmptyState = computed(() => {
-  return contentInitialized.value && fileInitialized.value && !contentItems.value.length && !fileItems.value.length
-})
 </script>
 
 <template>
@@ -574,7 +570,7 @@ const isEmptyState = computed(() => {
         </div>
 
         <ul
-          v-else-if="!isEmptyState"
+          v-else
           class="space-y-0.5"
         >
           <WorkspaceFileTreeNode
@@ -593,13 +589,6 @@ const isEmptyState = computed(() => {
             @archive-content="archiveContent"
           />
         </ul>
-
-        <div
-          v-else-if="isEmptyState"
-          class="px-3 py-2 text-sm text-muted-foreground truncate whitespace-nowrap"
-        >
-          No workspace files yet.
-        </div>
 
         <div
           v-if="contentError || fileError"

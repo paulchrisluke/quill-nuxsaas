@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CONTENT_TYPE_OPTIONS } from '#shared/constants/contentTypes'
 import { GITHUB_INTEGRATION_SCOPES } from '#shared/constants/githubScopes'
 import { GOOGLE_INTEGRATION_SCOPES } from '#shared/constants/googleScopes'
 
@@ -143,6 +144,7 @@ const githubConfig = reactive({
 const githubConfigReady = ref(false)
 const githubConfigSaving = ref(false)
 const githubImportLoading = ref(false)
+const manualImportLoading = ref(false)
 const githubRepoLoading = ref(false)
 const githubBranchLoading = ref(false)
 const githubPathLoading = ref(false)
@@ -366,6 +368,17 @@ const disconnectLoading = reactive({
   youtube: false,
   google_drive: false,
   github: false
+})
+
+const manualImport = reactive({
+  title: '',
+  slug: '',
+  status: 'draft',
+  contentType: 'blog_post',
+  description: '',
+  primaryKeyword: '',
+  targetLocale: '',
+  markdown: ''
 })
 
 function assertOrgId() {
@@ -608,6 +621,61 @@ async function runGithubImport() {
     })
   } finally {
     githubImportLoading.value = false
+  }
+}
+
+async function runManualImport() {
+  if (!canManageIntegrations.value) {
+    toast.add({ title: 'Insufficient permissions', description: 'Only admins can import content.', color: 'error' })
+    return
+  }
+  if (!manualImport.title.trim() || !manualImport.markdown.trim()) {
+    toast.add({ title: 'Missing fields', description: 'Title and markdown are required.', color: 'error' })
+    return
+  }
+
+  manualImportLoading.value = true
+  try {
+    const response = await $fetch<{ contentId: string, slug: string }>('/api/import/manual', {
+      method: 'POST',
+      body: {
+        title: manualImport.title,
+        slug: manualImport.slug || null,
+        status: manualImport.status,
+        contentType: manualImport.contentType,
+        description: manualImport.description || null,
+        primaryKeyword: manualImport.primaryKeyword || null,
+        targetLocale: manualImport.targetLocale || null,
+        markdown: manualImport.markdown
+      }
+    })
+
+    toast.add({
+      title: 'Manual import complete',
+      description: `Imported "${manualImport.title}".`,
+      color: 'success'
+    })
+
+    if (response?.contentId) {
+      await router.push(`/${slug.value}/content/${response.contentId}`)
+    }
+
+    manualImport.title = ''
+    manualImport.slug = ''
+    manualImport.description = ''
+    manualImport.primaryKeyword = ''
+    manualImport.targetLocale = ''
+    manualImport.markdown = ''
+    manualImport.status = 'draft'
+    manualImport.contentType = 'blog_post'
+  } catch (error: any) {
+    toast.add({
+      title: 'Manual import failed',
+      description: error?.data?.statusMessage || error?.message || 'Unexpected error occurred.',
+      color: 'error'
+    })
+  } finally {
+    manualImportLoading.value = false
   }
 }
 
@@ -1090,6 +1158,102 @@ if (import.meta.client) {
                 @click="disconnectGithub"
               >
                 Disconnect
+              </UButton>
+            </div>
+          </div>
+        </UCard>
+
+        <UCard>
+          <template #header>
+            <div class="flex items-center gap-3">
+              <UAvatar
+                icon="i-lucide-file-text"
+                color="primary"
+                size="md"
+              />
+              <div>
+                <p class="text-lg font-medium">
+                  Manual Import
+                </p>
+                <p class="text-sm text-muted-500">
+                  Paste Markdown to create a new draft (great for WordPress or doc exports).
+                </p>
+              </div>
+            </div>
+          </template>
+
+          <div class="space-y-4">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField
+                label="Title"
+                class="sm:col-span-2"
+              >
+                <UInput
+                  v-model="manualImport.title"
+                  placeholder="Post title"
+                />
+              </UFormField>
+              <UFormField label="Slug (optional)">
+                <UInput
+                  v-model="manualImport.slug"
+                  placeholder="post-title"
+                />
+              </UFormField>
+              <UFormField label="Status">
+                <USelect
+                  v-model="manualImport.status"
+                  :options="['draft', 'published']"
+                  placeholder="Select status"
+                />
+              </UFormField>
+              <UFormField label="Content type">
+                <USelect
+                  v-model="manualImport.contentType"
+                  :options="CONTENT_TYPE_OPTIONS.map(option => option.value)"
+                  placeholder="Select type"
+                />
+              </UFormField>
+              <UFormField label="Primary keyword (optional)">
+                <UInput
+                  v-model="manualImport.primaryKeyword"
+                  placeholder="e.g., family law guide"
+                />
+              </UFormField>
+              <UFormField label="Target locale (optional)">
+                <UInput
+                  v-model="manualImport.targetLocale"
+                  placeholder="en-US"
+                />
+              </UFormField>
+              <UFormField
+                label="Description (optional)"
+                class="sm:col-span-2"
+              >
+                <UTextarea
+                  v-model="manualImport.description"
+                  placeholder="Short summary for meta description."
+                />
+              </UFormField>
+              <UFormField
+                label="Markdown content"
+                class="sm:col-span-2"
+              >
+                <UTextarea
+                  v-model="manualImport.markdown"
+                  placeholder="# Title\n\nPaste your markdown here..."
+                  :rows="12"
+                />
+              </UFormField>
+            </div>
+
+            <div class="flex flex-wrap gap-3">
+              <UButton
+                color="primary"
+                :disabled="!canManageIntegrations"
+                :loading="manualImportLoading"
+                @click="runManualImport"
+              >
+                Import markdown
               </UButton>
             </div>
           </div>

@@ -6,6 +6,7 @@ import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import type { ConversationIntentSnapshot, IntentGap } from '~~/shared/utils/intent'
 import { and, asc, count, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
+import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
 import { runChatAgentWithMultiPassStream } from '~~/server/services/chat/agent'
 import { resolveContentContext } from '~~/server/services/chat/contentContext'
@@ -15,8 +16,18 @@ import { buildReferenceScope, getReferenceScopeError } from '~~/server/services/
 import { loadReferenceContent } from '~~/server/services/chat/references/loader'
 import { parseReferences } from '~~/server/services/chat/references/parser'
 import { resolveReferences } from '~~/server/services/chat/references/resolver'
-import { generateContentFromSource, insertUploadedImage, updateContentSection } from '~~/server/services/content/generation'
+import { calculateDiffStats, findSectionLineRange } from '~~/server/services/content/diff'
+import {
+  assembleMarkdownFromSections,
+  createSectionUpdateMetadata,
+  extractFrontmatterFromVersion,
+  generateContentFromSource,
+  insertUploadedImage,
+  normalizeContentSections,
+  updateContentSection
+} from '~~/server/services/content/generation'
 import { suggestImagesForContent } from '~~/server/services/content/generation/imageSuggestions'
+import { deriveSchemaMetadata, validateSchemaMetadata } from '~~/server/services/content/generation/schemaMetadata'
 import { invalidateWorkspaceCache } from '~~/server/services/content/workspaceCache'
 import { buildWorkspaceFilesPayload } from '~~/server/services/content/workspaceFiles'
 import { buildWorkspaceSummary } from '~~/server/services/content/workspaceSummary'
@@ -49,6 +60,17 @@ interface CreatedContentItem {
   id: string
   title?: string | null
   slug?: string | null
+}
+
+interface SummaryEdit {
+  contentId: string
+  contentTitle?: string | null
+  sectionId?: string | null
+  sectionTitle?: string | null
+  lineRange?: { start: number, end: number } | null
+  additions?: number
+  deletions?: number
+  reason?: string | null
 }
 
 const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
@@ -139,7 +161,7 @@ function buildEffortSummaryFromToolHistory(options: {
 
   for (const entry of successfulTools) {
     const contentTitle = entry.result?.result?.content?.title
-    if (entry.toolName === 'edit_section') {
+    if (entry.toolName === 'edit_section' || entry.toolName === 'move_section') {
       editedSections += 1
       updatedCount += 1
       if (contentTitle) {
@@ -209,6 +231,54 @@ function buildEffortSummaryFromToolHistory(options: {
   }
 
   return bullets.join('\n')
+}
+
+function buildSummaryEdits(toolHistory: Array<{
+  toolName: string
+  invocation: ChatToolInvocation
+  result: ToolExecutionResult
+}>): SummaryEdit[] {
+  const edits: SummaryEdit[] = []
+
+  for (const entry of toolHistory) {
+    if (!['edit_section', 'move_section'].includes(entry.toolName) || !entry.result?.success || !entry.result?.result) {
+      continue
+    }
+
+    const result = entry.result.result as Record<string, any>
+    const contentId = result.contentId || result.content?.id
+    if (!contentId) {
+      continue
+    }
+
+    const fileEdit = Array.isArray(result.fileEdits) ? result.fileEdits[0] : null
+    const invocationArgs = entry.invocation?.arguments as any
+    const sectionTitle = result.sectionTitle || invocationArgs?.sectionTitle || null
+    const sectionId = result.sectionId || null
+    const lineRange = result.lineRange || fileEdit?.lineRange || null
+    let reason: string | null = null
+    if (typeof invocationArgs?.instructions === 'string') {
+      const reasonRaw = invocationArgs.instructions.trim()
+      reason = reasonRaw ? reasonRaw.slice(0, 160) : null
+    } else if (entry.toolName === 'move_section') {
+      const sourceLabel = invocationArgs?.sourceSectionTitle || invocationArgs?.sourceSectionId || 'section'
+      const targetLabel = invocationArgs?.targetSectionTitle || invocationArgs?.targetSectionId || 'target'
+      reason = `Moved ${sourceLabel} ${invocationArgs?.position === 'before' ? 'before' : 'after'} ${targetLabel}`
+    }
+
+    edits.push({
+      contentId,
+      contentTitle: result.content?.title || null,
+      sectionId,
+      sectionTitle,
+      lineRange,
+      additions: typeof fileEdit?.additions === 'number' ? fileEdit.additions : undefined,
+      deletions: typeof fileEdit?.deletions === 'number' ? fileEdit.deletions : undefined,
+      reason
+    })
+  }
+
+  return edits
 }
 
 async function composeWorkspaceCompletionMessages(
@@ -283,12 +353,14 @@ async function composeWorkspaceCompletionMessages(
     uploadsCount,
     createdContentItems
   })
+  const summaryEdits = buildSummaryEdits(options?.toolHistory ?? [])
   const summaryBullets = toSummaryBullets(effortSummary)
   const summaryText = ['**Summary**', ...(summaryBullets.length ? summaryBullets : ['Content updated.']).map(item => `- ${item}`)].join('\n')
 
   const summaryPayload = {
     type: 'workspace_summary',
-    summary: effortSummary || 'Content updated.'
+    summary: effortSummary || 'Content updated.',
+    edits: summaryEdits
   }
 
   const filesPayloadWithCreated = {
@@ -1152,6 +1224,7 @@ async function executeChatTool(
           contentId: patchResult.content.id,
           versionId: patchResult.version.id,
           sectionId: patchResult.section?.id ?? null,
+          sectionTitle: patchResult.section?.title ?? null,
           content: {
             id: patchResult.content.id,
             title: patchResult.content.title
@@ -1186,6 +1259,318 @@ async function executeChatTool(
       return {
         success: false,
         error: error?.message || error?.statusMessage || 'Failed to patch section'
+      }
+    }
+  }
+
+  if (toolInvocation.name === 'move_section') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'move_section'>['arguments']
+
+    safeLog('[move_section] Starting move_section tool', {
+      hasContentId: !!args.contentId,
+      hasSourceSectionId: !!args.sourceSectionId,
+      hasSourceSectionTitle: !!args.sourceSectionTitle,
+      hasTargetSectionId: !!args.targetSectionId,
+      hasTargetSectionTitle: !!args.targetSectionTitle,
+      position: args.position ?? 'after',
+      mode: context.mode,
+      hasOrganizationId: !!organizationId,
+      hasUserId: !!userId
+    })
+
+    if (!args.contentId) {
+      safeError('[move_section] Missing contentId')
+      return {
+        success: false,
+        error: 'contentId is required for move_section. Use read_content_list to get valid content IDs.'
+      }
+    }
+
+    if (!args.sourceSectionId && !args.sourceSectionTitle) {
+      safeError('[move_section] Missing source section reference')
+      return {
+        success: false,
+        error: 'sourceSectionId or sourceSectionTitle is required for move_section'
+      }
+    }
+
+    if (!args.targetSectionId && !args.targetSectionTitle) {
+      safeError('[move_section] Missing target section reference')
+      return {
+        success: false,
+        error: 'targetSectionId or targetSectionTitle is required for move_section'
+      }
+    }
+
+    try {
+      const contentId = validateUUID(args.contentId, 'contentId')
+      const position = args.position === 'before' ? 'before' : 'after'
+
+      const [record] = await db
+        .select({
+          content: schema.content,
+          version: schema.contentVersion,
+          sourceContent: schema.sourceContent
+        })
+        .from(schema.content)
+        .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
+        .leftJoin(schema.sourceContent, eq(schema.sourceContent.id, schema.content.sourceContentId))
+        .where(and(
+          eq(schema.content.organizationId, organizationId),
+          eq(schema.content.id, contentId)
+        ))
+        .limit(1)
+
+      if (!record?.content) {
+        safeError('[move_section] Content not found', { hasContentId: !!contentId })
+        return {
+          success: false,
+          error: `Content not found for contentId: ${contentId}.`
+        }
+      }
+
+      if (!record.version) {
+        safeError('[move_section] Content version not found', { hasContentId: !!contentId })
+        return {
+          success: false,
+          error: `Content version not found for contentId: ${contentId}.`
+        }
+      }
+
+      const normalizedSections = normalizeContentSections(
+        record.version.sections,
+        record.version.bodyMarkdown ?? null
+      ).sort((a, b) => a.index - b.index)
+
+      if (!normalizedSections.length) {
+        safeError('[move_section] No sections found to move', { hasContentId: !!contentId })
+        return {
+          success: false,
+          error: 'No sections found to move.'
+        }
+      }
+
+      const normalizeTitle = (title: string) => title.trim().toLowerCase()
+      const findByTitle = (title?: string | null) => {
+        if (!title) {
+          return null
+        }
+        const normalizedTitle = normalizeTitle(title)
+        return normalizedSections.find(section => normalizeTitle(section.title || '') === normalizedTitle) ?? null
+      }
+
+      const sourceSection = args.sourceSectionId
+        ? normalizedSections.find(section => section.id === args.sourceSectionId) ?? null
+        : findByTitle(args.sourceSectionTitle)
+      const targetSection = args.targetSectionId
+        ? normalizedSections.find(section => section.id === args.targetSectionId) ?? null
+        : findByTitle(args.targetSectionTitle)
+
+      if (!sourceSection) {
+        safeError('[move_section] Source section not found', {
+          hasSourceSectionId: !!args.sourceSectionId,
+          hasSourceSectionTitle: !!args.sourceSectionTitle
+        })
+        return {
+          success: false,
+          error: 'Source section not found. Use read_content to see available sections.'
+        }
+      }
+
+      if (!targetSection) {
+        safeError('[move_section] Target section not found', {
+          hasTargetSectionId: !!args.targetSectionId,
+          hasTargetSectionTitle: !!args.targetSectionTitle
+        })
+        return {
+          success: false,
+          error: 'Target section not found. Use read_content to see available sections.'
+        }
+      }
+
+      if (sourceSection.id === targetSection.id) {
+        return {
+          success: false,
+          error: 'Source and target sections must be different.'
+        }
+      }
+
+      const remainingSections = normalizedSections.filter(section => section.id !== sourceSection.id)
+      const targetIndex = remainingSections.findIndex(section => section.id === targetSection.id)
+      if (targetIndex === -1) {
+        safeError('[move_section] Target section missing after removal', { targetSectionId: targetSection.id })
+        return {
+          success: false,
+          error: 'Target section could not be resolved after removal.'
+        }
+      }
+
+      const insertionIndex = position === 'before' ? targetIndex : targetIndex + 1
+      const clampedIndex = Math.min(Math.max(insertionIndex, 0), remainingSections.length)
+      const reordered = [...remainingSections]
+      reordered.splice(clampedIndex, 0, { ...sourceSection })
+
+      const reindexed = reordered.map((section, index) => ({
+        ...section,
+        index
+      }))
+
+      let frontmatter = extractFrontmatterFromVersion({
+        content: record.content,
+        version: record.version
+      })
+
+      const assembled = assembleMarkdownFromSections({
+        frontmatter,
+        sections: reindexed
+      })
+
+      const lineRange = findSectionLineRange(
+        assembled.markdown,
+        sourceSection.id,
+        assembled.sections
+      )
+
+      frontmatter = deriveSchemaMetadata(frontmatter, assembled.sections)
+      const schemaValidation = validateSchemaMetadata(frontmatter)
+
+      const diffStats = calculateDiffStats(record.version.bodyMarkdown || '', assembled.markdown)
+      const slug = record.version.frontmatter?.slug || record.content.slug
+      const previousSeoSnapshot = record.version.seoSnapshot ?? {}
+      const assets = createSectionUpdateMetadata(record.sourceContent ?? null, sourceSection.id)
+      const seoSnapshot = {
+        ...previousSeoSnapshot,
+        primaryKeyword: frontmatter.primaryKeyword,
+        targetLocale: frontmatter.targetLocale,
+        contentType: frontmatter.contentType,
+        schemaTypes: frontmatter.schemaTypes,
+        lastMovedSectionId: sourceSection.id,
+        movedAt: new Date().toISOString(),
+        schemaValidation
+      }
+
+      const result = await db.transaction(async (tx) => {
+        const [latestVersion] = await tx
+          .select({ version: schema.contentVersion.version })
+          .from(schema.contentVersion)
+          .where(eq(schema.contentVersion.contentId, record.content.id))
+          .orderBy(desc(schema.contentVersion.version))
+          .limit(1)
+
+        const nextVersionNumber = (latestVersion?.version ?? 0) + 1
+
+        const [newVersion] = await tx
+          .insert(schema.contentVersion)
+          .values({
+            id: uuidv7(),
+            contentId: record.content.id,
+            version: nextVersionNumber,
+            createdByUserId: userId,
+            frontmatter: {
+              title: frontmatter.title,
+              description: frontmatter.description ?? (record.version?.frontmatter as Record<string, any> | null)?.description,
+              slug,
+              tags: frontmatter.tags,
+              keywords: frontmatter.keywords,
+              status: frontmatter.status,
+              contentType: frontmatter.contentType,
+              schemaTypes: frontmatter.schemaTypes,
+              sourceContentId: frontmatter.sourceContentId,
+              primaryKeyword: frontmatter.primaryKeyword,
+              targetLocale: frontmatter.targetLocale,
+              diffStats: {
+                additions: diffStats.additions,
+                deletions: diffStats.deletions
+              }
+            },
+            bodyMarkdown: assembled.markdown,
+            sections: assembled.sections,
+            assets,
+            seoSnapshot
+          })
+          .returning()
+
+        if (!newVersion) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to create content version'
+          })
+        }
+
+        const [updatedContent] = await tx
+          .update(schema.content)
+          .set({
+            currentVersionId: newVersion.id,
+            updatedAt: new Date()
+          })
+          .where(eq(schema.content.id, record.content.id))
+          .returning()
+
+        if (!updatedContent) {
+          throw createError({
+            statusCode: 500,
+            statusMessage: 'Failed to update content record'
+          })
+        }
+
+        return { content: updatedContent, version: newVersion }
+      })
+
+      invalidateWorkspaceCache(organizationId, result.content.id)
+
+      const { resolveContentFilePath } = await import('~~/server/services/content/workspaceFiles')
+      const filename = resolveContentFilePath(result.content, result.version)
+      const fileEdits = [{
+        filePath: filename,
+        additions: diffStats.additions,
+        deletions: diffStats.deletions,
+        lineRange: lineRange || null
+      }]
+
+      safeLog('[move_section] Section moved successfully', {
+        contentId: result.content.id,
+        sectionId: sourceSection.id,
+        position,
+        hasLineRange: !!lineRange
+      })
+
+      return {
+        success: true,
+        result: {
+          contentId: result.content.id,
+          versionId: result.version.id,
+          sectionId: sourceSection.id,
+          sectionTitle: sourceSection.title ?? null,
+          content: {
+            id: result.content.id,
+            title: result.content.title
+          },
+          fileEdits,
+          lineRange: lineRange || null
+        },
+        contentId: result.content.id
+      }
+    } catch (error: any) {
+      safeError('[move_section] Error during section move', {
+        error: error?.message,
+        hasContentId: !!args.contentId,
+        mode: context.mode,
+        hasOrganizationId: !!organizationId,
+        hasUserId: !!userId,
+        errorStatus: error?.statusCode,
+        errorStatusMessage: error?.statusMessage
+      })
+
+      if (error?.statusMessage?.includes('UUID')) {
+        return {
+          success: false,
+          error: `${error.statusMessage}. Use read_content_list to get valid content IDs.`
+        }
+      }
+
+      return {
+        success: false,
+        error: error?.message || error?.statusMessage || 'Failed to move section'
       }
     }
   }
@@ -1860,7 +2245,7 @@ async function executeChatTool(
  *
  * **Available Tools:**
  * - Read tools (available in both modes): `read_content`, `read_section`, `read_source`, `read_content_list`, `read_source_list`, `read_workspace_summary`, `analyze_content_images`, `read_files`
- * - Write tools (agent mode only): `content_write` (with action="create"), `edit_section`, `edit_metadata`, `insert_image`
+ * - Write tools (agent mode only): `content_write` (with action="create"), `edit_section`, `move_section`, `edit_metadata`, `insert_image`
  * - Ingest tools (agent mode only): `source_ingest` (with sourceType="youtube" or sourceType="context")
  *
  * @contract
@@ -2493,12 +2878,21 @@ export default defineEventHandler(async (event) => {
           let referenceScope: ReferenceScope | null = null
           let referenceContext: string | null = null
           try {
+            const linkedContentId = (activeConversation.metadata as Record<string, any>)?.linkedContentId || null
+            const implicitContentId = requestContentId || linkedContentId
             const tokens = parseReferences(trimmedMessage)
+            if (implicitContentId && !requestContentId && linkedContentId && tokens.length === 0) {
+              safeLog('[Chat API] Applying implicit content scope', {
+                conversationId: activeConversation.id,
+                linkedContentId,
+                organizationId
+              })
+            }
             const referenceResolution = tokens.length > 0
               ? await resolveReferences(tokens, {
                   db,
                   organizationId,
-                  currentContentId: requestContentId,
+                  currentContentId: implicitContentId,
                   userId: user.id,
                   mode
                 })
@@ -2514,8 +2908,8 @@ export default defineEventHandler(async (event) => {
             ])
 
             referenceScope = buildReferenceScope(combinedResolved)
-            if (requestContentId) {
-              referenceScope.allowedContentIds.add(requestContentId)
+            if (implicitContentId) {
+              referenceScope.allowedContentIds.add(implicitContentId)
             }
 
             const referenceContents = await loadReferenceContent(combinedResolved, {
@@ -2543,8 +2937,10 @@ export default defineEventHandler(async (event) => {
               error: error instanceof Error ? error.message : 'Unknown error'
             })
             referenceScope = buildReferenceScope([])
-            if (requestContentId) {
-              referenceScope.allowedContentIds.add(requestContentId)
+            const linkedContentId = (activeConversation.metadata as Record<string, any>)?.linkedContentId || null
+            const implicitContentId = requestContentId || linkedContentId
+            if (implicitContentId) {
+              referenceScope.allowedContentIds.add(implicitContentId)
             }
           }
 
