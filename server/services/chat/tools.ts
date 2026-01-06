@@ -5,7 +5,7 @@ import type {
 
 export type ToolKind = 'read' | 'write' | 'ingest'
 
-export type ChatToolName = 'content_write' | 'edit_section' | 'move_section' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images' | 'read_files' | 'insert_image'
+export type ChatToolName = 'content_write' | 'edit_ops' | 'source_ingest' | 'edit_metadata' | 'read_content' | 'read_section' | 'read_source' | 'read_content_list' | 'read_source_list' | 'read_workspace_summary' | 'analyze_content_images' | 'read_files' | 'insert_image'
 
 export type ChatToolArguments<TName extends ChatToolName> =
   TName extends 'content_write'
@@ -24,94 +24,94 @@ export type ChatToolArguments<TName extends ChatToolName> =
         systemPrompt?: string | null
         temperature?: number | null
       }
-    : TName extends 'edit_section'
+    : TName extends 'edit_ops'
       ? {
           contentId: string
-          sectionId?: string | null
-          sectionTitle?: string | null
-          instructions: string
-          temperature?: number | null
+          ops: Array<{
+            type: 'replace' | 'insert' | 'delete' | 'format'
+            anchor: string
+            scope?: string | null
+            oldText?: string | null
+            newText?: string | null
+            position?: 'before' | 'after' | 'replace' | null
+          }>
+          constraints?: {
+            maxChangedLines?: number | null
+            allowHeadingChanges?: boolean | null
+          } | null
+          rationale?: string | null
         }
-      : TName extends 'move_section'
+      : TName extends 'source_ingest'
         ? {
-            contentId: string
-            sourceSectionId?: string | null
-            sourceSectionTitle?: string | null
-            targetSectionId?: string | null
-            targetSectionTitle?: string | null
-            position?: 'before' | 'after' | null
+            sourceType: 'youtube' | 'context'
+            youtubeUrl?: string | null
+            titleHint?: string | null
+            context?: string | null
+            title?: string | null
           }
-        : TName extends 'source_ingest'
+        : TName extends 'edit_metadata'
           ? {
-              sourceType: 'youtube' | 'context'
-              youtubeUrl?: string | null
-              titleHint?: string | null
-              context?: string | null
+              contentId: string
               title?: string | null
+              slug?: string | null
+              status?: string | null
+              primaryKeyword?: string | null
+              targetLocale?: string | null
+              contentType?: string | null
             }
-          : TName extends 'edit_metadata'
+          : TName extends 'read_content'
             ? {
                 contentId: string
-                title?: string | null
-                slug?: string | null
-                status?: string | null
-                primaryKeyword?: string | null
-                targetLocale?: string | null
-                contentType?: string | null
               }
-            : TName extends 'read_content'
+            : TName extends 'read_section'
               ? {
                   contentId: string
+                  sectionId: string
                 }
-              : TName extends 'read_section'
+              : TName extends 'read_source'
                 ? {
-                    contentId: string
-                    sectionId: string
+                    sourceContentId: string
                   }
-                : TName extends 'read_source'
+                : TName extends 'read_content_list'
                   ? {
-                      sourceContentId: string
+                      status?: string | null
+                      contentType?: string | null
+                      limit?: number | null
+                      offset?: number | null
+                      orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
+                      orderDirection?: 'asc' | 'desc' | null
                     }
-                  : TName extends 'read_content_list'
+                  : TName extends 'read_source_list'
                     ? {
-                        status?: string | null
-                        contentType?: string | null
+                        sourceType?: string | null
+                        ingestStatus?: string | null
                         limit?: number | null
                         offset?: number | null
                         orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
                         orderDirection?: 'asc' | 'desc' | null
                       }
-                    : TName extends 'read_source_list'
+                    : TName extends 'read_workspace_summary'
                       ? {
-                          sourceType?: string | null
-                          ingestStatus?: string | null
-                          limit?: number | null
-                          offset?: number | null
-                          orderBy?: 'updatedAt' | 'createdAt' | 'title' | null
-                          orderDirection?: 'asc' | 'desc' | null
+                          contentId: string
                         }
-                      : TName extends 'read_workspace_summary'
+                      : TName extends 'analyze_content_images'
                         ? {
                             contentId: string
                           }
-                        : TName extends 'analyze_content_images'
+                        : TName extends 'read_files'
                           ? {
-                              contentId: string
+                              contentId?: string | null
+                              fileType?: string | null
+                              limit?: number | null
                             }
-                          : TName extends 'read_files'
+                          : TName extends 'insert_image'
                             ? {
-                                contentId?: string | null
-                                fileType?: string | null
-                                limit?: number | null
+                                contentId: string
+                                fileId?: string | null
+                                position?: string | null
+                                altText?: string | null
                               }
-                            : TName extends 'insert_image'
-                              ? {
-                                  contentId: string
-                                  fileId?: string | null
-                                  position?: string | null
-                                  altText?: string | null
-                                }
-                              : never
+                            : never
 
 export interface ChatToolInvocation<TName extends ChatToolName = ChatToolName> {
   name: TName
@@ -132,30 +132,31 @@ const chatToolDefinitions: Record<ChatToolName, ToolDefinition> = {
       type: 'function',
       function: {
         name: 'content_write',
-        description: 'Write new content from source. Use action="create" to create NEW content. For editing content sections, use edit_section. For updating metadata fields (title, slug, status), use edit_metadata.',
+        description: 'Write new content from source. Use action="create" to create NEW content. For targeted edits, use edit_ops. For updating metadata fields (title, slug, status), use edit_metadata.',
         parameters: buildContentWriteParameters()
       }
     }
   },
-  edit_section: {
+  edit_ops: {
     kind: 'write',
     definition: {
       type: 'function',
       function: {
-        name: 'edit_section',
-        description: 'Edit a specific section of an existing content item using the user\'s instructions. This is the PRIMARY tool for modifying content sections. Requires a valid UUID contentId (use read_content_list to find content IDs). You can specify either sectionId or sectionTitle to identify which section to edit.',
-        parameters: buildEditSectionParameters()
-      }
-    }
-  },
-  move_section: {
-    kind: 'write',
-    definition: {
-      type: 'function',
-      function: {
-        name: 'move_section',
-        description: 'Move a section within an existing content item. Use this when the user says to move or reposition a section. Provide source and target by sectionId or sectionTitle, and optionally a position ("before" or "after").',
-        parameters: buildMoveSectionParameters()
+        name: 'edit_ops',
+        description: `Apply precise, minimal edits to existing content using targeted operations.
+
+Use this tool for:
+- Adding specific information
+- Replacing specific text
+- Deleting content
+- Formatting changes
+- Small, targeted modifications
+
+IMPORTANT:
+- Each operation must specify an anchor (5-20 word quote from the content)
+- Use scope if the anchor appears multiple times
+- Make edits as small as possible`,
+        parameters: buildEditOpsParameters()
       }
     }
   },
@@ -343,67 +344,70 @@ function buildContentWriteParameters(): ParameterSchema {
   }
 }
 
-function buildEditSectionParameters(): ParameterSchema {
+function buildEditOpsParameters(): ParameterSchema {
   return {
     type: 'object',
+    required: ['contentId', 'ops'],
     properties: {
       contentId: {
         type: 'string',
         description: 'Content ID (UUID format) of the content item to edit. Must be a valid UUID - use read_content_list to find content IDs.'
       },
-      sectionId: {
-        type: 'string',
-        description: 'Unique identifier of the section to patch.'
+      ops: {
+        type: 'array',
+        description: 'Array of edit operations to apply sequentially.',
+        items: {
+          type: 'object',
+          required: ['type', 'anchor'],
+          properties: {
+            type: {
+              type: 'string',
+              enum: ['replace', 'insert', 'delete', 'format'],
+              description: 'Operation type.'
+            },
+            anchor: {
+              type: 'string',
+              description: 'Exact 5-20 word quote from the content to locate this edit.'
+            },
+            scope: {
+              type: 'string',
+              description: 'Optional section title to limit search (use if anchor appears multiple times).'
+            },
+            oldText: {
+              type: 'string',
+              description: 'For replace: exact text to replace. If not provided, anchor is used.'
+            },
+            newText: {
+              type: 'string',
+              description: 'For replace/insert/format: the new text content.'
+            },
+            position: {
+              type: 'string',
+              enum: ['before', 'after', 'replace'],
+              description: 'For insert: where to insert relative to anchor.'
+            }
+          }
+        }
       },
-      sectionTitle: {
-        type: 'string',
-        description: 'Human readable section title when no sectionId is present.'
+      constraints: {
+        type: 'object',
+        description: 'Optional constraints to ensure edits stay focused.',
+        properties: {
+          maxChangedLines: {
+            type: 'number',
+            description: 'Maximum number of lines that can be changed (default: 50).'
+          },
+          allowHeadingChanges: {
+            type: 'boolean',
+            description: 'Whether heading changes are allowed (default: false).'
+          }
+        }
       },
-      instructions: {
+      rationale: {
         type: 'string',
-        description: 'User instructions describing the requested edits.'
-      },
-      temperature: {
-        type: 'number',
-        minimum: 0,
-        maximum: 2
+        description: 'Brief explanation of why these edits are needed.'
       }
-    },
-    required: ['contentId', 'instructions']
-  }
-}
-
-function buildMoveSectionParameters(): ParameterSchema {
-  return {
-    type: 'object',
-    properties: {
-      contentId: {
-        type: 'string',
-        description: 'Content ID (UUID format) of the content item to edit. Must be a valid UUID - use read_content_list to find content IDs.'
-      },
-      sourceSectionId: {
-        type: 'string',
-        description: 'Section ID to move.'
-      },
-      sourceSectionTitle: {
-        type: 'string',
-        description: 'Section title to move when sectionId is unavailable.'
-      },
-      targetSectionId: {
-        type: 'string',
-        description: 'Section ID that the moved section should be placed relative to.'
-      },
-      targetSectionTitle: {
-        type: 'string',
-        description: 'Section title that the moved section should be placed relative to.'
-      },
-      position: {
-        type: 'string',
-        enum: ['before', 'after'],
-        description: 'Whether to place the moved section before or after the target (default: after).'
-      }
-    },
-    required: ['contentId']
+    }
   }
 }
 
@@ -737,19 +741,11 @@ export function parseChatToolCall(toolCall: ChatCompletionToolCall): ChatToolInv
     }
   }
 
-  if (toolCall.function.name === 'edit_section') {
+  if (toolCall.function.name === 'edit_ops') {
     const { type: _omit, ...rest } = args
     return {
-      name: 'edit_section',
-      arguments: rest as ChatToolInvocation<'edit_section'>['arguments']
-    }
-  }
-
-  if (toolCall.function.name === 'move_section') {
-    const { type: _omit, ...rest } = args
-    return {
-      name: 'move_section',
-      arguments: rest as ChatToolInvocation<'move_section'>['arguments']
+      name: 'edit_ops',
+      arguments: rest as ChatToolInvocation<'edit_ops'>['arguments']
     }
   }
 

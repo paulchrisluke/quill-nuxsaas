@@ -244,7 +244,7 @@ export function useConversation() {
   const { upsert: upsertContentList, refresh: refreshContentList } = useContentList({ pageSize: 40 })
   const contentUpdateToolNames = new Set([
     'content_write',
-    'edit_section',
+    'edit_ops',
     'edit_metadata',
     'insert_image'
   ])

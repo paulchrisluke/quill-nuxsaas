@@ -1,4 +1,7 @@
 export default defineNuxtPlugin(async (nuxtApp) => {
+  if (process.env.NODE_ENV === 'test') {
+    return
+  }
   if (!nuxtApp.payload.serverRendered) {
     await useAuth().fetchSession()
   }

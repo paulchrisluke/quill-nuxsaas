@@ -22,7 +22,7 @@ export interface WriteContentRequestBody {
   context?: string
   /** ID of existing source content to generate from */
   sourceContentId?: string | null
-  /** ID of existing content to update (deprecated - use edit_metadata or edit_section for edits) */
+  /** ID of existing content to update (deprecated - use edit_ops or edit_metadata for edits) */
   contentId?: string | null
   /** ID of conversation that this content belongs to */
   conversationId?: string | null
@@ -116,20 +116,6 @@ export interface CreateContentRequestBody {
 }
 
 /**
- * Request body for updating content section with AI
- */
-export interface UpdateContentSectionWithAIRequestBody {
-  /** ID of the content to update */
-  contentId: string
-  /** ID of the section to update */
-  sectionId: string
-  /** Instructions for how to update the section */
-  instructions: string
-  /** Temperature for AI generation (0-2) */
-  temperature?: number
-}
-
-/**
  * Request body for updating content body manually
  */
 export interface UpdateContentBodyRequestBody {
@@ -147,37 +133,6 @@ export interface CreateContentFromConversationRequestBody {
   contentType?: ContentType
   /** Array of message IDs to include in context */
   messageIds?: string[]
-}
-
-/**
- * Response from updating content section with AI
- */
-export interface UpdateContentSectionWithAIResponse {
-  /** The updated content record */
-  content: {
-    id: string
-    organizationId: string
-    slug: string
-    title: string
-    status: ContentStatus
-    contentType: ContentType
-  }
-  /** The new content version */
-  version: {
-    id: string
-    contentId: string
-    version: number
-    bodyMarkdown: string
-    sections: Record<string, any>[] | null
-  }
-  /** Full markdown content */
-  markdown: string
-  /** Updated section information */
-  section: {
-    id: string
-    title: string
-    index: number
-  }
 }
 
 /**

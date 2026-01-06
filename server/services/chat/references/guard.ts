@@ -38,25 +38,11 @@ export const getReferenceScopeError = (
   }
 
   const allowedContentIds = scope?.allowedContentIds ?? new Set()
-  const allowedSectionIds = scope?.allowedSectionIds ?? new Set()
   const _allowedFileIds = scope?.allowedFileIds ?? new Set()
 
-  if (toolInvocation.name === 'edit_section') {
-    const args = toolInvocation.arguments as ChatToolInvocation<'edit_section'>['arguments']
-    const hasSectionAccess = args.sectionId ? allowedSectionIds.has(args.sectionId) : false
-    const hasContentAccess = args.contentId ? allowedContentIds.has(args.contentId) : false
-    if (!hasSectionAccess && !hasContentAccess) {
-      return NO_REFERENCE_ERROR
-    }
-    return null
-  }
-
-  if (toolInvocation.name === 'move_section') {
-    const args = toolInvocation.arguments as ChatToolInvocation<'move_section'>['arguments']
-    const hasSourceAccess = args.sourceSectionId ? allowedSectionIds.has(args.sourceSectionId) : false
-    const hasTargetAccess = args.targetSectionId ? allowedSectionIds.has(args.targetSectionId) : false
-    const hasContentAccess = args.contentId ? allowedContentIds.has(args.contentId) : false
-    if (!hasContentAccess && !hasSourceAccess && !hasTargetAccess) {
+  if (toolInvocation.name === 'edit_ops') {
+    const args = toolInvocation.arguments as ChatToolInvocation<'edit_ops'>['arguments']
+    if (!args.contentId || !allowedContentIds.has(args.contentId)) {
       return NO_REFERENCE_ERROR
     }
     return null

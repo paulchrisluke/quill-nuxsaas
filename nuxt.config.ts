@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { defineNuxtConfig } from 'nuxt/config'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 
+const isTest = process.env.NODE_ENV === 'test'
 console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
 
 export default defineNuxtConfig({
@@ -65,14 +66,16 @@ export default defineNuxtConfig({
   ogImage: {
     enabled: false
   },
-  icon: {
-    serverBundle: false,
-    clientBundle: {
-      scan: {
-        globInclude: ['**/*.{vue,jsx,tsx,md,mdc,mdx}', 'app/**/*.ts']
-      }
-    }
-  },
+  icon: isTest
+    ? { serverBundle: false, clientBundle: false }
+    : {
+        serverBundle: false,
+        clientBundle: {
+          scan: {
+            globInclude: ['**/*.{vue,jsx,tsx,md,mdc,mdx}', 'app/**/*.ts']
+          }
+        }
+      },
   hooks: {
     'pages:extend': function (pages: NuxtPage[]) {
       const pagesToRemove: NuxtPage[] = []

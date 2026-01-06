@@ -10,12 +10,12 @@ describe('mode Enforcement - Tool Selection', () => {
       const readTools = getToolsByKind('read')
       const toolNames = readTools.map(t => t.function.name)
 
-      // Should have exactly 6 read tools
-      expect(readTools).toHaveLength(6)
+      // Should have exactly 8 read tools
+      expect(readTools).toHaveLength(8)
 
       // Should not include any write or ingest tools
       expect(toolNames).not.toContain('content_write')
-      expect(toolNames).not.toContain('edit_section')
+      expect(toolNames).not.toContain('edit_ops')
       expect(toolNames).not.toContain('edit_metadata')
       expect(toolNames).not.toContain('source_ingest')
     })
@@ -24,8 +24,8 @@ describe('mode Enforcement - Tool Selection', () => {
       const allTools = getChatToolDefinitions()
       const toolNames = allTools.map(t => t.function.name)
 
-      // Should have all 10 tools
-      expect(allTools).toHaveLength(10)
+      // Should have all 13 tools
+      expect(allTools).toHaveLength(13)
 
       // Should include read, write, and ingest tools
       expect(toolNames).toContain('read_content')
@@ -43,8 +43,8 @@ describe('mode Enforcement - Execution Guardrails', () => {
       expect(isToolAllowedInMode('content_write', 'chat')).toBe(false)
     })
 
-    it('should block edit_section in chat mode', () => {
-      expect(isToolAllowedInMode('edit_section', 'chat')).toBe(false)
+    it('should block edit_ops in chat mode', () => {
+      expect(isToolAllowedInMode('edit_ops', 'chat')).toBe(false)
     })
 
     it('should block edit_metadata in chat mode', () => {
@@ -63,7 +63,9 @@ describe('mode Enforcement - Execution Guardrails', () => {
       'read_source',
       'read_content_list',
       'read_source_list',
-      'read_workspace_summary'
+      'read_workspace_summary',
+      'analyze_content_images',
+      'read_files'
     ]
 
     for (const toolName of readTools) {
@@ -82,7 +84,7 @@ describe('mode Enforcement - Execution Guardrails', () => {
       'read_source_list',
       'read_workspace_summary',
       'content_write',
-      'edit_section',
+      'edit_ops',
       'edit_metadata',
       'source_ingest'
     ]
@@ -112,7 +114,7 @@ describe('mode Enforcement - Execution Guardrails', () => {
     })
 
     it('should generate error messages for all blocked tools', () => {
-      const blockedTools: ChatToolName[] = ['content_write', 'edit_section', 'edit_metadata', 'source_ingest']
+      const blockedTools: ChatToolName[] = ['content_write', 'edit_ops', 'edit_metadata', 'source_ingest']
 
       for (const toolName of blockedTools) {
         const errorMessage = getModeEnforcementError(toolName)

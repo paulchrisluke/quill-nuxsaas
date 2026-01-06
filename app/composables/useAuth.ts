@@ -111,7 +111,7 @@ export function useAuth() {
     sessionFetching.value = true
 
     try {
-      const data = await $fetch<AuthSessionResponse>('/api/auth/get-session', {
+      const data = await $fetch<AuthSessionResponse>('/api/session', {
         headers: import.meta.server ? useRequestHeaders() : undefined,
         retry: 0
       })

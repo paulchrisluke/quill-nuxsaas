@@ -1,7 +1,7 @@
 export const toolDisplayNames: Record<string, string> = {
   source_ingest: 'Ingest Source',
   content_write: 'Write Content',
-  edit_section: 'Edit Section',
+  edit_ops: 'Edit Content',
   edit_metadata: 'Update Metadata',
   read_content: 'Read Content',
   read_section: 'Read Section',
