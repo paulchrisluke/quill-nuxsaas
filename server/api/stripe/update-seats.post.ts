@@ -123,7 +123,7 @@ export default defineEventHandler(async (event) => {
     updateParams.trial_end = 'now'
   }
 
-  let updatedSubscription: any
+  let updatedSubscription: (Stripe.Subscription & { current_period_end?: number | null }) | null = null
   try {
     updatedSubscription = await stripe.subscriptions.update(subscription.id, updateParams)
   } catch (stripeError: any) {
@@ -151,7 +151,7 @@ export default defineEventHandler(async (event) => {
   })
 
   // Update local database immediately
-  const periodEndTimestamp = (updatedSubscription as Stripe.Subscription & { current_period_end?: number | null }).current_period_end ?? null
+  const periodEndTimestamp = updatedSubscription.current_period_end ?? null
   const periodEnd = periodEndTimestamp
     ? new Date(periodEndTimestamp * 1000)
     : undefined
