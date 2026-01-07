@@ -41,6 +41,9 @@ uploads/
 cookies.txt
 cookie.txt
 
+# Auto-generated rewrite example export (contains sensitive context)
+docs/bamboo-rewrite-examples.md
+
 # Debug and analysis artifacts (contain sensitive data like timestamps, headers, body content)
 debug-endpoint-analysis.json
 *-endpoint-analysis.json

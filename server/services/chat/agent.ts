@@ -61,20 +61,20 @@ function buildSystemPrompt(mode: 'chat' | 'agent', referenceContext?: string): s
 - Always analyze the user's intent from natural language.
 - When users reference uploaded files by name, use read_files to find the matching fileId before taking action.
 - Use insert_image to place uploaded images in content; map natural-language placement (e.g., "featured image", "above the conclusion") to a specific section heading or line number.
-- If the user references an image file (via @filename or fileId), you MUST use insert_image for placement. Do not insert images via edit_section.
+- If the user references an image file (via @filename or fileId), you MUST use insert_image for placement. Do not insert images via edit_ops.
 - When the user asks you to create content, update sections, or otherwise modify workspace artifacts, prefer calling the appropriate tool instead of replying with text.
 - Only respond with text when the user is chatting, asking questions, or when no tool action is required.
 - Keep replies concise (2-4 sentences) and actionable.
 
 **Tool Selection Guidelines:**
 - For simple edits to metadata (title, slug, status, primaryKeyword, targetLocale, contentType) on existing content items, use edit_metadata. Examples: "make the title shorter", "change the status to published", "update the slug".
-- For editing specific sections of existing content, use edit_section. Examples: "make the introduction more engaging", "rewrite the conclusion".
-- When using edit_section you MUST provide either sectionId or sectionTitle. If the user wants changes across the whole document, read the content sections and call edit_section once per section.
-- When the user asks to move or reposition a section, use move_section with a source section and target section, plus an optional position (before/after).
+- For targeted edits (replace text, add a fact, delete a sentence, convert to bullets), use edit_ops with a precise anchor quote.
+- Each edit_ops operation must include an exact anchor (5-20 words) and a scope if the anchor appears more than once.
+- For edit_ops, read the content first to capture exact anchor text, and keep edits minimal to only what the user requested. If the anchor is ambiguous, ask a clarifying question instead of guessing.
 - For creating new content items from source content (context, YouTube video, etc.), use content_write with action="create". This tool only creates new content - it cannot update existing content.
 - For ingesting source content from YouTube videos or pasted text, use source_ingest with sourceType="youtube" or sourceType="context".
 - For inserting uploaded images into content, prefer using insert_image with a fileId. If omitted, insert_image will use the latest image linked to the content.
-- Never use content_write with action="create" for editing existing content - use edit_metadata or edit_section instead.`
+- Never use content_write with action="create" for editing existing content - use edit_ops or edit_metadata instead.`
 
   if (!referenceContext) {
     return prompt
@@ -110,16 +110,11 @@ function generateSummaryFromToolHistory(
   for (const entry of successfulTools) {
     const { toolName, result, invocation } = entry
 
-    if (toolName === 'edit_section' && result.result) {
-      const sectionTitle = result.result.sectionId
-        ? `section "${result.result.sectionId}"`
-        : invocation.arguments.sectionTitle
-          ? `section "${invocation.arguments.sectionTitle}"`
-          : 'a section'
+    if (toolName === 'edit_ops' && result.result) {
       const contentTitle = result.result.content?.title || 'content'
       const contentId = result.result.contentId || result.result.content?.id
-
-      let summary = `Successfully edited ${sectionTitle} in "${contentTitle}"`
+      const opCount = Array.isArray(invocation.arguments.ops) ? invocation.arguments.ops.length : 0
+      let summary = `Applied ${opCount || 'targeted'} edit operation${opCount === 1 ? '' : 's'} in "${contentTitle}"`
 
       if (result.result.lineRange && contentId) {
         try {
@@ -131,11 +126,6 @@ function generateSummaryFromToolHistory(
         }
       }
 
-      const instructions = invocation.arguments.instructions
-        ? ` (${invocation.arguments.instructions.substring(0, 60)}${invocation.arguments.instructions.length > 60 ? '...' : ''})`
-        : ''
-
-      summary += instructions
       summaries.push(summary)
     } else if (toolName === 'content_write' && result.result) {
       if (invocation.arguments.action === 'create') {
@@ -182,12 +172,6 @@ function generateSummaryFromToolHistory(
       const files = Array.isArray(result.result.files) ? result.result.files : []
       const count = files.length
       summaries.push(`Found ${count} uploaded file${count !== 1 ? 's' : ''}`)
-    } else if (toolName === 'move_section' && result.result) {
-      const contentTitle = result.result.content?.title || 'content'
-      const sectionTitle = result.result.sectionTitle
-        ? `"${result.result.sectionTitle}"`
-        : 'the section'
-      summaries.push(`Moved ${sectionTitle} in "${contentTitle}"`)
     } else {
       summaries.push(`Completed ${toolName.replace(/_/g, ' ')}`)
     }

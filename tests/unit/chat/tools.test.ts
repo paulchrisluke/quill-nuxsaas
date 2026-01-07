@@ -41,7 +41,7 @@ describe('tool Registry', () => {
 
       const expectedWriteTools = [
         'content_write',
-        'edit_section',
+        'edit_ops',
         'edit_metadata',
         'insert_image'
       ]
@@ -108,7 +108,7 @@ describe('tool Registry', () => {
     it('should return correct kind for write tools', () => {
       const writeTools: ChatToolName[] = [
         'content_write',
-        'edit_section',
+        'edit_ops',
         'edit_metadata',
         'insert_image'
       ]
@@ -150,7 +150,7 @@ describe('tool Registry', () => {
 
       const toolNames = writeTools.map(t => t.function.name)
       expect(toolNames).toContain('content_write')
-      expect(toolNames).toContain('edit_section')
+      expect(toolNames).toContain('edit_ops')
       expect(toolNames).toContain('edit_metadata')
       expect(toolNames).toContain('insert_image')
     })
@@ -166,7 +166,7 @@ describe('tool Registry', () => {
       const toolNames = readTools.map(t => t.function.name)
 
       expect(toolNames).not.toContain('content_write')
-      expect(toolNames).not.toContain('edit_section')
+      expect(toolNames).not.toContain('edit_ops')
       expect(toolNames).not.toContain('edit_metadata')
       expect(toolNames).not.toContain('source_ingest')
       expect(toolNames).not.toContain('insert_image')
@@ -242,26 +242,30 @@ describe('tool Parsing', () => {
       expect(result?.arguments.titleHint).toBe('Test Video')
     })
 
-    it('should parse valid edit_section', () => {
+    it('should parse valid edit_ops', () => {
       const toolCall: ChatCompletionToolCall = {
         id: 'call_123',
         type: 'function',
         function: {
-          name: 'edit_section',
+          name: 'edit_ops',
           arguments: JSON.stringify({
             contentId: 'content-123',
-            sectionId: 'section-456',
-            instructions: 'Make it more engaging'
+            ops: [
+              {
+                type: 'replace',
+                anchor: 'Original sentence for replacement',
+                newText: 'Updated sentence for replacement'
+              }
+            ]
           })
         }
       }
 
       const result = parseChatToolCall(toolCall)
       expect(result).not.toBeNull()
-      expect(result?.name).toBe('edit_section')
+      expect(result?.name).toBe('edit_ops')
       expect(result?.arguments.contentId).toBe('content-123')
-      expect(result?.arguments.sectionId).toBe('section-456')
-      expect(result?.arguments.instructions).toBe('Make it more engaging')
+      expect(Array.isArray(result?.arguments.ops)).toBe(true)
     })
 
     it('should parse valid edit_metadata', () => {
@@ -391,10 +395,7 @@ describe('tool Parsing', () => {
       }
 
       const result = parseChatToolCall(toolCall)
-      // Parser doesn't validate - it just parses
-      // Validation happens at execution time
-      expect(result).not.toBeNull()
-      expect(result?.arguments).not.toHaveProperty('action')
+      expect(result).toBeNull()
     })
 
     it('should handle both sourceText and context aliases for create', () => {

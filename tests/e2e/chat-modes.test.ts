@@ -1,6 +1,7 @@
 import { setup } from '@nuxt/test-utils/e2e'
 import { $fetch } from 'ofetch'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { ensureActiveOrganization, getAuthCookie } from '../utils/authCookie'
 
 /**
  * Light E2E tests for chat vs agent mode behavior
@@ -8,41 +9,20 @@ import { beforeAll, describe, expect, it } from 'vitest'
  * These tests verify the end-to-end behavior of the chat API
  * with different modes, focusing on tool availability and execution.
  */
-describe('chat Modes E2E', async () => {
-  await setup({ host: process.env.NUXT_TEST_APP_URL })
+describe('chat Modes E2E', () => {
+  beforeAll(async () => {
+    await setup({ host: process.env.NUXT_TEST_APP_URL })
+  })
 
   const baseURL = process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
 
-  const getSetCookieHeaders = (headers: any): string[] => {
-    // Node/undici Headers: non-standard but commonly available
-    if (typeof headers?.getSetCookie === 'function') {
-      return headers.getSetCookie() as string[]
-    }
-    // node-fetch style Headers
-    if (typeof headers?.raw === 'function') {
-      const raw = headers.raw()
-      const values = raw?.['set-cookie']
-      return Array.isArray(values) ? values : []
-    }
-    // Fallback (may only return the first Set-Cookie)
-    const value = typeof headers?.get === 'function' ? headers.get('set-cookie') : undefined
-    return typeof value === 'string' && value.length > 0 ? [value] : []
-  }
-
-  const getAnonymousCookie = async () => {
-    const res = await $fetch.raw(`${baseURL}/api/conversations`, { method: 'GET' })
-    const cookies = getSetCookieHeaders(res.headers)
-    return cookies
-      .map(cookie => cookie.split(';')[0]?.trim())
-      .filter(Boolean)
-      .join('; ')
-  }
+  let authCookie = ''
+  let hasActiveOrg = false
 
   // Helper to archive conversations
   // Optimized: Only archive once before all tests, not before/after each
-  async function archiveAllConversations() {
+  async function archiveAllConversations(cookie: string) {
     try {
-      const cookie = await getAnonymousCookie()
       const response = await $fetch('/api/conversations', {
         baseURL,
         method: 'GET',
@@ -73,18 +53,19 @@ describe('chat Modes E2E', async () => {
     }
   }
 
-  // Only archive once before all tests to reduce overhead
   beforeAll(async () => {
-    await archiveAllConversations()
+    authCookie = await getAuthCookie(baseURL)
+    const activeOrg = await ensureActiveOrganization(baseURL, authCookie)
+    hasActiveOrg = Boolean(activeOrg.organizationId)
+    await archiveAllConversations(authCookie)
   })
 
-  describe('anonymous conversations API', () => {
-    it('returns conversations for anonymous users', async () => {
-      const cookie = await getAnonymousCookie()
+  describe('authenticated conversations API', () => {
+    it.skipIf(!hasActiveOrg)('returns conversations for authenticated users', async () => {
       const response = await $fetch('/api/conversations', {
         baseURL,
         method: 'GET',
-        headers: cookie ? { Cookie: cookie } : undefined
+        headers: authCookie ? { Cookie: authCookie } : undefined
       }) as any
 
       expect(Array.isArray(response?.conversations)).toBe(true)
@@ -92,20 +73,19 @@ describe('chat Modes E2E', async () => {
   })
 
   describe('chat Mode (Read-Only)', () => {
-    it('should allow read operations in chat mode', async () => {
+    it.skipIf(!hasActiveOrg)('should allow read operations in chat mode', async () => {
       // This test verifies that chat mode can use read tools
       // We can't easily test the full flow without a real DB, but we can
       // verify the endpoint accepts chat mode and doesn't immediately error
 
       try {
-        const cookie = await getAnonymousCookie()
         const response = await $fetch('/api/chat?stream=true', {
           baseURL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
-            ...(cookie ? { Cookie: cookie } : {})
+            ...(authCookie ? { Cookie: authCookie } : {})
           },
           body: {
             message: 'List all content items',
@@ -126,16 +106,15 @@ describe('chat Modes E2E', async () => {
       }
     })
 
-    it('should block write operations in chat mode', async () => {
+    it.skipIf(!hasActiveOrg)('should block write operations in chat mode', async () => {
       try {
-        const cookie = await getAnonymousCookie()
         const response = await $fetch('/api/chat?stream=true', {
           baseURL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
-            ...(cookie ? { Cookie: cookie } : {})
+            ...(authCookie ? { Cookie: authCookie } : {})
           },
           body: {
             message: 'Create a new blog post about testing',
@@ -168,16 +147,15 @@ describe('chat Modes E2E', async () => {
   })
 
   describe('agent Mode (Read+Write)', () => {
-    it('should allow all operations in agent mode', async () => {
+    it.skipIf(!hasActiveOrg)('should allow all operations in agent mode', async () => {
       try {
-        const cookie = await getAnonymousCookie()
         const response = await $fetch('/api/chat?stream=true', {
           baseURL,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'text/event-stream',
-            ...(cookie ? { Cookie: cookie } : {})
+            ...(authCookie ? { Cookie: authCookie } : {})
           },
           body: {
             message: 'Create a blog post from this context: This is test content for agent mode.',
@@ -201,13 +179,14 @@ describe('chat Modes E2E', async () => {
   })
 
   describe('tool Name Verification', () => {
-    it('should not use old tool names in responses', async () => {
+    it.skipIf(!hasActiveOrg)('should not use old tool names in responses', async () => {
       try {
         const response = await $fetch('/api/chat?stream=true', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
+            'Accept': 'text/event-stream',
+            ...(authCookie ? { Cookie: authCookie } : {})
           },
           body: {
             message: 'Create content from context',

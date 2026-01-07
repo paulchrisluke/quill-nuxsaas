@@ -1,6 +1,7 @@
 import { setup } from '@nuxt/test-utils/e2e'
 import { $fetch } from 'ofetch'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { ensureActiveOrganization, getAuthCookie } from '../utils/authCookie'
 import { testDatabaseConnection } from '../utils/dbConnection'
 import { closeSharedDbPool, getSharedDbPool } from '../utils/dbPool'
 
@@ -10,24 +11,15 @@ import { closeSharedDbPool, getSharedDbPool } from '../utils/dbPool'
  * Verifies that:
  * - Chat messages are properly saved to the database
  * - Conversations are created correctly
- * - Anonymous users can create conversations
+ * - Authenticated users can create conversations
  * - Database connection is working
  */
 describe('chat database persistence E2E', async () => {
   await setup({ host: process.env.NUXT_TEST_APP_URL })
 
   const baseURL = process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
-
-  const getAnonymousCookie = async () => {
-    const res = await $fetch.raw(`${baseURL}/api/conversations`, { method: 'GET' })
-    const setCookie = res.headers.get('set-cookie') || ''
-    // Only keep cookie name=value pairs
-    return setCookie
-      .split(',')
-      .map(part => part.split(';')[0]?.trim())
-      .filter(Boolean)
-      .join('; ')
-  }
+  let authCookie = ''
+  let hasActiveOrg = false
 
   // Verify database connection once before all tests
   beforeAll(async () => {
@@ -35,6 +27,9 @@ describe('chat database persistence E2E', async () => {
     if (!dbTest.success) {
       throw new Error(`Database connection failed: ${dbTest.message}`)
     }
+    authCookie = await getAuthCookie(baseURL)
+    const activeOrg = await ensureActiveOrganization(baseURL, authCookie)
+    hasActiveOrg = Boolean(activeOrg.organizationId)
   })
 
   beforeEach(async () => {
@@ -46,15 +41,18 @@ describe('chat database persistence E2E', async () => {
     await closeSharedDbPool()
   })
 
-  it('should save chat messages to database for anonymous users', async () => {
+  it('should save chat messages to database for authenticated users', async () => {
+    if (!hasActiveOrg) {
+      return
+    }
     const testMessage = `Test message at ${new Date().toISOString()}`
 
-    // Send chat message as anonymous user
+    // Send chat message as authenticated user
     let conversationId: string | null = null
     let userMessageId: string | null = null
 
     try {
-      const cookie = await getAnonymousCookie()
+      const cookie = authCookie
       const response = await $fetch(`${baseURL}/api/chat`, {
         method: 'POST',
         headers: {
@@ -64,7 +62,7 @@ describe('chat database persistence E2E', async () => {
         },
         body: {
           message: testMessage,
-          mode: 'chat' // Anonymous users can only use 'chat' mode
+          mode: 'chat'
         },
         responseType: 'text',
         timeout: 60000

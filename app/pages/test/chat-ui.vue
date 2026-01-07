@@ -247,7 +247,7 @@ const tools = {
   ],
   write: [
     { name: 'content_write', display: 'Write Content', description: 'Write new content from source. Use action="create" to create new content.', availableIn: ['agent'] },
-    { name: 'edit_section', display: 'Edit Section', description: 'Edit a specific section of an existing content item using the user\'s instructions.', availableIn: ['agent'] },
+    { name: 'edit_ops', display: 'Edit Content', description: 'Apply precise edit operations to an existing content item.', availableIn: ['agent'] },
     { name: 'edit_metadata', display: 'Update Metadata', description: 'Update metadata fields (title, slug, status, primaryKeyword, targetLocale, contentType) for an existing content item.', availableIn: ['agent'] }
   ],
   ingest: [
@@ -288,7 +288,7 @@ const scenarios = [
     description: 'Read + edit operation',
     prompt: 'Make the introduction section more engaging',
     mode: 'agent' as const,
-    tools: ['read_content', 'edit_section']
+    tools: ['read_content', 'edit_ops']
   },
   {
     id: 'update-metadata',
@@ -366,7 +366,7 @@ const getProgressMessages = (toolName: string, step: number): string => {
       'Formatting and structuring content...',
       'Finalizing content...'
     ],
-    edit_section: [
+    edit_ops: [
       'Reading current section...',
       'Analyzing requested changes...',
       'Generating updated content...',
@@ -824,8 +824,18 @@ const simulateAgentTurn = async (messageText: string, state: ScenarioState = 'co
     } else if (toolName === 'read_content') {
       toolArgs = { contentId: 'abc-123' }
       progressSteps = 2
-    } else if (toolName === 'edit_section') {
-      toolArgs = { contentId: 'abc-123', sectionId: 'intro' }
+    } else if (toolName === 'edit_ops') {
+      toolArgs = {
+        contentId: 'abc-123',
+        ops: [
+          {
+            type: 'replace',
+            anchor: 'Sample intro sentence for the edit',
+            newText: 'Updated intro sentence for the edit'
+          }
+        ],
+        constraints: { maxChangedLines: 20 }
+      }
       progressSteps = 3
     } else if (toolName === 'edit_metadata') {
       toolArgs = { contentId: 'abc-123', title: 'New Title', status: 'published' }
@@ -928,7 +938,7 @@ const simulateAgentTurn = async (messageText: string, state: ScenarioState = 'co
   let assistantText = ''
   if (toolsToRun.includes('content_write')) {
     assistantText = 'I\'ve successfully created content from the YouTube video. The content includes a comprehensive introduction to AI agents with sections covering key concepts, use cases, and implementation strategies.'
-  } else if (toolsToRun.includes('edit_section')) {
+  } else if (toolsToRun.includes('edit_ops')) {
     assistantText = 'I\'ve updated the introduction section to be more engaging and compelling.'
   } else if (toolsToRun.includes('edit_metadata')) {
     assistantText = 'I\'ve successfully updated the metadata for the content item.'

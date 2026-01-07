@@ -3,16 +3,13 @@ import type { ConversationIntentSnapshot } from '~~/shared/utils/intent'
 import type {
   ContentGenerationInput,
   ContentGenerationResult,
-  ImageSuggestion,
-  SectionUpdateInput,
-  SectionUpdateResult
+  ImageSuggestion
 } from './types'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
 import * as schema from '~~/server/db/schema'
 
-import { callChatCompletions } from '~~/server/utils/aiGateway'
 import {
   CONTENT_TYPES,
   ensureUniqueContentSlug,
@@ -21,36 +18,22 @@ import {
 import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { validateEnum } from '~~/server/utils/validation'
 import { getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
-import { calculateDiffStats, findSectionLineRange } from '../diff'
-import { invalidateWorkspaceCache } from '../workspaceCache'
 import { assembleMarkdownFromSections } from './assembly'
-import {
-  ensureSourceContentChunksExist,
-  findGlobalRelevantChunks
-} from './chunking'
+import { ensureSourceContentChunksExist } from './chunking'
 import {
   buildConversationContext,
   determineGenerationMode
 } from './context'
 import {
   createFrontmatterFromOutline,
-  enrichFrontmatterWithMetadata,
-  extractFrontmatterFromVersion
+  enrichFrontmatterWithMetadata
 } from './frontmatter'
 import { suggestImagesForContent } from './imageSuggestions'
-import { createGenerationMetadata, createSectionUpdateMetadata } from './metadata'
+import { createGenerationMetadata } from './metadata'
 import { generateContentOutline } from './planning'
 import { deriveSchemaMetadata, validateSchemaMetadata } from './schemaMetadata'
 import { attachThumbnailsToSuggestions } from './screencaps'
-import {
-  CONTENT_SECTION_UPDATE_SYSTEM_PROMPT,
-  generateContentSectionsFromOutline,
-  normalizeContentSections
-} from './sections'
-import {
-  countWords,
-  parseAIResponseAsJSON
-} from './utils'
+import { generateContentSectionsFromOutline } from './sections'
 
 function formatIntentSummary(snapshot?: ConversationIntentSnapshot | null): string | null {
   if (!snapshot) {
@@ -110,9 +93,6 @@ export type {
   ContentGenerationInput as GenerateContentInput,
   ContentGenerationResult as GenerateContentResult
 }
-
-// Internal constant alias
-const SECTION_PATCH_SYSTEM_PROMPT = CONTENT_SECTION_UPDATE_SYSTEM_PROMPT
 
 const loadOrganizationTonePrompt = async (
   db: NodePgDatabase<typeof schema>,
@@ -330,7 +310,7 @@ export const generateContentDraftFromSource = async (
   } else if (resolvedSourceText && resolvedIngestMethod === 'conversation_context') {
     // Persist conversation context as a SourceContent record
     // This allows the context to be chunked and embedded for RAG search
-    // (edit_section uses findGlobalRelevantChunks which searches the entire org's vector index)
+    // This allows future edits to leverage org-level semantic search.
     // Marked as ephemeral - can be cleaned up by a periodic job for old records
     const [newSource] = await db.insert(schema.sourceContent).values({
       organizationId,
@@ -387,7 +367,6 @@ export const generateContentDraftFromSource = async (
       }
 
       // Don't wait for chunks - proceed with content generation
-      // edit_section will check status and inform user if chunks aren't ready yet
       chunks = null
     }
   } else if (resolvedSourceText) {
@@ -828,395 +807,6 @@ export const generateContentFromSource = async (
   return generateContentDraftFromSource(db, input)
 }
 
-/**
- * Updates a content section using AI based on user instructions
- *
- * @param db - Database instance
- * @param input - Input parameters for section update
- * @returns Updated content with new version and section information
- */
-export const updateContentSectionWithAI = async (
-  db: NodePgDatabase<typeof schema>,
-  input: SectionUpdateInput
-): Promise<SectionUpdateResult> => {
-  const {
-    organizationId,
-    userId,
-    contentId,
-    sectionId,
-    instructions,
-    temperature,
-    mode,
-    onProgress
-  } = input
-  const emitProgress = createProgressEmitter(onProgress, 'updateContentSection')
-
-  safeLog('[updateContentSection] Starting section update', {
-    hasContentId: !!contentId,
-    hasSectionId: !!sectionId,
-    mode,
-    hasOrganizationId: !!organizationId,
-    hasUserId: !!userId,
-    hasInstructions: !!instructions
-  })
-
-  // Enforce agent mode for writes
-  if (mode === 'chat') {
-    safeError('[updateContentSection] Mode check failed - chat mode not allowed for writes', { mode })
-    throw createError({
-      statusCode: 403,
-      statusMessage: 'Writes are not allowed in chat mode'
-    })
-  }
-
-  const trimmedInstructions = instructions?.trim()
-
-  if (!organizationId || !userId || !contentId) {
-    safeError('[updateContentSection] Missing required parameters', {
-      hasOrganizationId: !!organizationId,
-      hasUserId: !!userId,
-      hasContentId: !!contentId
-    })
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'organization, user, and content context are required'
-    })
-  }
-
-  if (!trimmedInstructions) {
-    safeError('[updateContentSection] Missing instructions')
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'instructions are required to patch a section'
-    })
-  }
-
-  safeLog('[updateContentSection] Querying database for content', {
-    hasContentId: !!contentId,
-    hasOrganizationId: !!organizationId
-  })
-  const [record] = await db
-    .select({
-      content: schema.content,
-      version: schema.contentVersion,
-      sourceContent: schema.sourceContent
-    })
-    .from(schema.content)
-    .leftJoin(schema.contentVersion, eq(schema.contentVersion.id, schema.content.currentVersionId))
-    .leftJoin(schema.sourceContent, eq(schema.sourceContent.id, schema.content.sourceContentId))
-    .where(and(
-      eq(schema.content.organizationId, organizationId),
-      eq(schema.content.id, contentId)
-    ))
-    .limit(1)
-
-  if (!record || !record.content) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: 'Content not found for this organization'
-    })
-  }
-
-  if (!record.version) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'This draft has no version to patch yet'
-    })
-  }
-
-  const recordContent = record.content
-  const currentVersion = record.version
-
-  const normalizedSections = normalizeContentSections(
-    currentVersion.sections,
-    currentVersion.bodyMarkdown ?? null
-  )
-
-  if (!normalizedSections.length) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'This draft has no structured sections to edit yet'
-    })
-  }
-
-  const targetSection = normalizedSections.find(section => section.id === sectionId)
-
-  if (!targetSection) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: 'Section not found on this draft'
-    })
-  }
-
-  const tonePrompt = await loadOrganizationTonePrompt(db, organizationId)
-
-  // Store original section body for diff calculation
-  const originalSectionBody = targetSection.body || ''
-
-  let frontmatter = extractFrontmatterFromVersion({
-    content: recordContent,
-    version: currentVersion
-  })
-
-  // Check status of the specific source content linked to this record
-  if (record.sourceContent?.id) {
-    const sourceMeta = (record.sourceContent.metadata as Record<string, any>) || {}
-    const chunkingStatus = sourceMeta.chunkingStatus
-
-    if (chunkingStatus === 'processing' || chunkingStatus === 'pending') {
-      // Check for timeout/stale job
-      const startedAtStr = sourceMeta.chunkingStartedAt || sourceMeta.createdAt
-      const startedAt = startedAtStr ? new Date(startedAtStr).getTime() : Date.now()
-      const elapsedMinutes = (Date.now() - startedAt) / (1000 * 60)
-
-      if (elapsedMinutes > 10) {
-        // Job is stale/stuck (>10 mins). Mark as failed and proceed (on a best-effort basis)
-        safeWarn('[Content Update] Found stale chunking job for source, marking failed.', {
-          hasSourceContentId: !!record.sourceContent.id
-        })
-        await updateChunkingStatus(db, record.sourceContent.id, 'failed', 'Chunking timeout - auto-failed')
-        // Proceed without throwing 503
-      } else {
-        // Job is still fresh, ask user to wait
-        throw createError({
-          statusCode: 503,
-          statusMessage: 'Context is still being processed for semantic search. Please wait a moment and try again.'
-        })
-      }
-    }
-  }
-
-  // RAG: Search global context instead of partial source
-  safeLog('[updateContentSection] Starting RAG context search', {
-    hasSectionTitle: !!targetSection.title,
-    queryTextLength: `${targetSection.title} ${trimmedInstructions}`.length
-  })
-  const relevantChunks = await findGlobalRelevantChunks({
-    db,
-    organizationId,
-    queryText: `${targetSection.title} ${trimmedInstructions}`
-  })
-  safeLog('[updateContentSection] RAG search completed', {
-    chunksFound: relevantChunks.length
-  })
-  await emitProgress('Context search completed.')
-
-  // Format context for the AI
-  let contextBlock = 'No external context available.'
-  if (relevantChunks.length) {
-    contextBlock = relevantChunks
-      .map(chunk => `[Source: ${chunk.sourceContentId?.slice(0, 8) ?? 'Unknown'}] ${chunk.text.slice(0, 600)}`)
-      .join('\n\n')
-  }
-
-  const prompt = [
-    `You are editing a single section of a ${frontmatter.contentType}.`,
-    `Section title: ${targetSection.title}`,
-    `Current section body:\n${targetSection.body}`,
-    `Author instructions: ${trimmedInstructions}`,
-    tonePrompt ? `Organization tone guide:\n${tonePrompt}` : null,
-    `Frontmatter: ${JSON.stringify({
-      title: frontmatter.title,
-      description: frontmatter.description,
-      tags: frontmatter.tags,
-      contentType: frontmatter.contentType,
-      schemaTypes: frontmatter.schemaTypes,
-      primaryKeyword: frontmatter.primaryKeyword,
-      targetLocale: frontmatter.targetLocale
-    })}`,
-    'Context to ground this update:',
-    contextBlock,
-    'Respond with JSON {"body": string, "summary": string?}. Rewrite only this section content - do NOT include the section heading or title, as it will be added automatically.'
-  ].filter(Boolean).join('\n\n')
-
-  safeLog('[updateContentSection] Calling AI for section generation', {
-    hasSectionTitle: !!targetSection.title,
-    promptLength: prompt.length,
-    temperature,
-    contextChunks: relevantChunks.length
-  })
-  const raw = await callChatCompletions({
-    messages: [
-      { role: 'system', content: SECTION_PATCH_SYSTEM_PROMPT },
-      { role: 'user', content: prompt }
-    ],
-    temperature
-  })
-  safeLog('[updateContentSection] AI call completed', {
-    responseLength: raw?.length || 0
-  })
-  await emitProgress('Section content generated.')
-
-  const parsed = parseAIResponseAsJSON<{ body?: string, summary?: string }>(raw, 'section patch')
-  const updatedBody = (parsed.body ?? '').trim()
-
-  if (!updatedBody) {
-    safeError('[updateContentSection] AI response parsing failed - no content returned', {
-      hasParsed: !!parsed,
-      rawLength: raw?.length || 0
-    })
-    throw createError({
-      statusCode: 502,
-      statusMessage: 'AI section patch did not return any content'
-    })
-  }
-
-  safeLog('[updateContentSection] AI response parsed successfully', {
-    bodyLength: updatedBody.length,
-    hasSummary: !!parsed.summary
-  })
-
-  const updatedSections = normalizedSections.map((section) => {
-    if (section.id !== targetSection.id) {
-      return section
-    }
-
-    const summary = parsed.summary?.trim() || null
-    return {
-      ...section,
-      body: updatedBody,
-      summary,
-      wordCount: countWords(updatedBody),
-      meta: {
-        ...section.meta,
-        summary
-      }
-    }
-  })
-
-  const assembled = assembleMarkdownFromSections({
-    frontmatter,
-    sections: updatedSections
-  })
-  await emitProgress('Section assembled.')
-  const lineRange = findSectionLineRange(
-    assembled.markdown,
-    targetSection.id,
-    assembled.sections
-  )
-
-  frontmatter = deriveSchemaMetadata(frontmatter, assembled.sections)
-  const schemaValidation = validateSchemaMetadata(frontmatter)
-
-  const diffStats = calculateDiffStats(originalSectionBody, updatedBody)
-
-  safeLog('[updateContentSection] Calculated diff stats', {
-    originalLength: originalSectionBody.length,
-    updatedLength: updatedBody.length,
-    additions: diffStats.additions,
-    deletions: diffStats.deletions,
-    hasChanges: originalSectionBody !== updatedBody
-  })
-
-  const slug = record.version.frontmatter?.slug || record.content.slug
-  const previousSeoSnapshot = currentVersion.seoSnapshot ?? {}
-  const assets = createSectionUpdateMetadata(record.sourceContent ?? null, targetSection.id)
-  const seoSnapshot = {
-    ...previousSeoSnapshot,
-    primaryKeyword: frontmatter.primaryKeyword,
-    targetLocale: frontmatter.targetLocale,
-    contentType: frontmatter.contentType,
-    schemaTypes: frontmatter.schemaTypes,
-    lastPatchedSectionId: targetSection.id,
-    patchedAt: new Date().toISOString(),
-    schemaValidation
-  }
-
-  const result = await db.transaction(async (tx) => {
-    const [latestVersion] = await tx
-      .select({ version: schema.contentVersion.version })
-      .from(schema.contentVersion)
-      .where(eq(schema.contentVersion.contentId, recordContent.id))
-      .orderBy(desc(schema.contentVersion.version))
-      .limit(1)
-
-    const nextVersionNumber = (latestVersion?.version ?? 0) + 1
-
-    const [newVersion] = await tx
-      .insert(schema.contentVersion)
-      .values({
-        id: uuidv7(),
-        contentId: recordContent.id,
-        version: nextVersionNumber,
-        createdByUserId: userId,
-        frontmatter: {
-          title: frontmatter.title,
-          description: frontmatter.description ?? (record.version?.frontmatter as Record<string, any> | null)?.description,
-          slug,
-          tags: frontmatter.tags,
-          keywords: frontmatter.keywords,
-          status: frontmatter.status,
-          contentType: frontmatter.contentType,
-          schemaTypes: frontmatter.schemaTypes,
-          sourceContentId: frontmatter.sourceContentId,
-          primaryKeyword: frontmatter.primaryKeyword,
-          targetLocale: frontmatter.targetLocale,
-          diffStats: {
-            additions: diffStats.additions,
-            deletions: diffStats.deletions
-          }
-        },
-        bodyMarkdown: assembled.markdown,
-        sections: assembled.sections,
-        assets,
-        seoSnapshot
-      })
-      .returning()
-
-    if (!newVersion) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Failed to create content version'
-      })
-    }
-
-    const [updatedContent] = await tx
-      .update(schema.content)
-      .set({
-        currentVersionId: newVersion.id,
-        updatedAt: new Date()
-      })
-      .where(eq(schema.content.id, recordContent.id))
-      .returning()
-
-    if (!updatedContent) {
-      throw createError({
-        statusCode: 500,
-        statusMessage: 'Failed to update content record'
-      })
-    }
-
-    return {
-      content: updatedContent,
-      version: newVersion
-    }
-  })
-
-  await emitProgress('Section update saved.')
-  invalidateWorkspaceCache(organizationId, result.content.id)
-
-  return {
-    content: result.content,
-    version: result.version,
-    markdown: assembled.markdown,
-    section: {
-      id: targetSection.id,
-      title: targetSection.title,
-      index: targetSection.index
-    },
-    lineRange: lineRange || null,
-    diffStats
-  }
-}
-
-// Export with new name for cleaner API
-export const updateContentSection = async (
-  db: NodePgDatabase<typeof schema>,
-  input: SectionUpdateInput
-): Promise<SectionUpdateResult> => {
-  return updateContentSectionWithAI(db, input)
-}
-
 // Export with new name for cleaner API
 // Export granular functions
 export {
@@ -1250,8 +840,7 @@ export {
 } from './manualUpdate'
 
 export {
-  createGenerationMetadata,
-  createSectionUpdateMetadata
+  createGenerationMetadata
 } from './metadata'
 
 export {

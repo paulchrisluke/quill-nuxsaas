@@ -92,12 +92,17 @@ export function useAuth() {
     return (activeOrgState.value?.data as any)?.subscriptions || []
   })
 
-  interface AuthSessionResponse {
-    session: InferSessionFromClient<ClientOptions> | null
+  type SessionWithExtras = InferSessionFromClient<ClientOptions> & {
+    activeOrganizationId?: string | null
+    impersonatedBy?: string | null
+  }
+
+  interface SessionFetchResponse {
+    session: SessionWithExtras | null
     user: User | null
   }
 
-  const applyAuthSession = (data: AuthSessionResponse | null | undefined) => {
+  const applyAuthSession = (data: SessionFetchResponse | null | undefined) => {
     session.value = data?.session || null
     user.value = data?.user
       ? Object.assign({}, AUTH_USER_DEFAULTS, data.user)
@@ -111,7 +116,7 @@ export function useAuth() {
     sessionFetching.value = true
 
     try {
-      const data = await $fetch<AuthSessionResponse>('/api/auth/get-session', {
+      const data = await $fetch<SessionFetchResponse>('/api/session', {
         headers: import.meta.server ? useRequestHeaders() : undefined,
         retry: 0
       })

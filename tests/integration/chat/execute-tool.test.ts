@@ -12,7 +12,7 @@ describe('tool Execution Mode Enforcement', () => {
   describe('chat Mode - Write Tools Blocked', () => {
     const writeTools: Array<ChatToolInvocation['name']> = [
       'content_write',
-      'edit_section',
+      'edit_ops',
       'edit_metadata'
     ]
 
@@ -56,7 +56,9 @@ describe('tool Execution Mode Enforcement', () => {
       'read_source',
       'read_content_list',
       'read_source_list',
-      'read_workspace_summary'
+      'read_workspace_summary',
+      'analyze_content_images',
+      'read_files'
     ]
 
     for (const toolName of readTools) {
@@ -81,7 +83,7 @@ describe('tool Execution Mode Enforcement', () => {
       'read_source_list',
       'read_workspace_summary',
       'content_write',
-      'edit_section',
+      'edit_ops',
       'edit_metadata',
       'source_ingest'
     ]
@@ -102,7 +104,7 @@ describe('tool Execution Mode Enforcement', () => {
     it('should have consistent error message format for all blocked tools', () => {
       const blockedTools: Array<ChatToolInvocation['name']> = [
         'content_write',
-        'edit_section',
+        'edit_ops',
         'edit_metadata',
         'source_ingest'
       ]

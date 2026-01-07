@@ -317,7 +317,10 @@ export class LocalStorageProvider implements StorageProvider {
     // First check if the original path exists
     // Use lstat (not stat) to avoid following symlinks
     try {
-      await fs.lstat(resolvedPath)
+      const stats = await fs.lstat(resolvedPath)
+      if (stats.isSymbolicLink()) {
+        throw new Error('Invalid path: symlink detected - security violation. Cannot delete symlinks.')
+      }
     } catch (error: any) {
       if (error?.code === 'ENOENT') {
         // File doesn't exist, that's fine

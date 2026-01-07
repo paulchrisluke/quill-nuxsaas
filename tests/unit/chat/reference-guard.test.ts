@@ -42,10 +42,13 @@ describe('reference scope enforcement', () => {
     expect(error).toBeNull()
   })
 
-  it('requires section references for edit_section', () => {
-    const toolInvocation: ChatToolInvocation<'edit_section'> = {
-      name: 'edit_section',
-      arguments: { contentId: 'content-123', sectionId: 'section-1', instructions: 'Rewrite' }
+  it('allows edit_ops when content is referenced', () => {
+    const toolInvocation: ChatToolInvocation<'edit_ops'> = {
+      name: 'edit_ops',
+      arguments: {
+        contentId: 'content-123',
+        ops: [{ type: 'replace', anchor: 'Original text', newText: 'Updated text' }]
+      }
     }
 
     const scope = buildReferenceScope([
@@ -58,6 +61,6 @@ describe('reference scope enforcement', () => {
     ])
 
     const error = getReferenceScopeError(toolInvocation, { mode: 'agent', scope })
-    expect(error).toContain('wasn\'t referenced')
+    expect(error).toBeNull()
   })
 })

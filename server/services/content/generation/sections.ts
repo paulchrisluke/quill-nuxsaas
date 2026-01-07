@@ -7,9 +7,6 @@ import { findRelevantChunksForSection } from './chunking'
 import { countWords, parseAIResponseAsJSON } from './utils'
 
 export const CONTENT_SECTION_SYSTEM_PROMPT = 'You are a skilled writer creating well-structured content. Write in markdown. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
-
-export const CONTENT_SECTION_UPDATE_SYSTEM_PROMPT = 'You are revising a single section of an existing article. Only update that section using the author instructions and contextual snippets. Do NOT include the section heading in your response - only write the body content. Respond with JSON.'
-
 export const MAX_SECTION_CONTEXT_CHUNKS = 3
 
 export const generateContentSectionsFromOutline = async (params: {
