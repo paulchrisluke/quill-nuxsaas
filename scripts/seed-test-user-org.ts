@@ -46,6 +46,10 @@ const ensureUser = async () => {
     })
     .returning()
 
+  if (!created) {
+    throw new Error(`Failed to create test user for ${email} (${userId})`)
+  }
+
   return created
 }
 
@@ -76,6 +80,10 @@ const ensureCredentialAccount = async (userId: string) => {
       password: passwordHash
     })
     .returning()
+
+  if (!created) {
+    throw new Error(`Failed to create credential account for user ${userId}`)
+  }
 
   return created
 }
@@ -112,6 +120,10 @@ const ensureOrganization = async () => {
     })
     .returning()
 
+  if (!created) {
+    throw new Error(`Failed to create organization ${orgId} (${organizationSlug})`)
+  }
+
   return created
 }
 
@@ -140,6 +152,10 @@ const ensureMember = async (userId: string, orgId: string) => {
       role: 'owner'
     })
     .returning()
+
+  if (!created) {
+    throw new Error(`Failed to create membership for user ${userId} in org ${orgId}`)
+  }
 
   return created
 }

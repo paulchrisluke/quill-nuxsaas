@@ -1,5 +1,7 @@
+export const shouldSkipAuthClient = () => process.env.NODE_ENV === 'test'
+
 export default defineNuxtPlugin(async (nuxtApp) => {
-  if (import.meta.env.MODE === 'test') {
+  if (shouldSkipAuthClient()) {
     return
   }
   if (!nuxtApp.payload.serverRendered) {

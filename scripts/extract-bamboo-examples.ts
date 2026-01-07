@@ -7,12 +7,15 @@ import { calculateDiffStats } from '../server/services/content/diff'
 /**
  * Extract rewrite/edit examples for a user email with tool logs and content versions.
  * Usage: pnpm dlx tsx scripts/extract-bamboo-examples.ts [email]
+ * Alternatively, set TARGET_EMAIL in the environment before running.
  */
 
 dotenv.config()
 
-const DEFAULT_EMAIL = 'bamboo.chow@gmail.com'
-const TARGET_EMAIL = process.argv[2] || process.env.TARGET_EMAIL || DEFAULT_EMAIL
+const TARGET_EMAIL = process.argv[2] || process.env.TARGET_EMAIL
+if (!TARGET_EMAIL) {
+  throw new Error('TARGET_EMAIL is required via CLI argument or environment variable.')
+}
 
 const MAX_EXAMPLES = Number(process.env.MAX_EXAMPLES || 5)
 const CONTEXT_BEFORE = Number(process.env.CONTEXT_BEFORE || 2)

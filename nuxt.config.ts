@@ -5,7 +5,6 @@ import { defineNuxtConfig } from 'nuxt/config'
 import { generateRuntimeConfig } from './server/utils/runtimeConfig'
 
 const isTest = process.env.NODE_ENV === 'test'
-console.log(`Current NODE_ENV: ${process.env.NODE_ENV}`)
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-12-10',
