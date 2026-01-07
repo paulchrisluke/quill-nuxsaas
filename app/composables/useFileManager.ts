@@ -77,8 +77,16 @@ export function useFileManager(config: FileManagerConfig = {}) {
         method: 'POST',
         body: formData
       })
-      config.onSuccess?.(response?.file)
-      return response?.file
+
+      if (!response?.file) {
+        const errorMsg = 'Invalid server response: missing file data'
+        error.value = errorMsg
+        config.onError?.(new Error(errorMsg))
+        throw new Error(errorMsg)
+      }
+
+      config.onSuccess?.(response.file)
+      return response.file
     } catch (err: any) {
       const errorMsg = err.data?.message || 'Upload failed'
       error.value = errorMsg

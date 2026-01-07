@@ -25,7 +25,8 @@ const SUPPORTED_MIME_DECODERS = new Map<string, (bytes: Uint8Array) => Promise<I
   ['image/avif', bytes => decodeAvif(toArrayBuffer(bytes))]
 ])
 
-const SUPPORTED_OUTPUT_FORMATS = new Set(['webp', 'avif'])
+type OutputFormat = 'webp' | 'avif'
+const SUPPORTED_OUTPUT_FORMATS: Set<OutputFormat> = new Set(['webp', 'avif'])
 const STALE_PROCESSING_MINUTES = 10
 
 const toUint8Array = (input: Uint8Array | ArrayBuffer) => {
@@ -89,12 +90,25 @@ const calculateSize = (width: number, height: number, targetWidth: number) => {
   }
 }
 
-const encodeVariant = async (format: string, image: ImageDataLike, quality: number) => {
+const ensureImageData = (image: ImageDataLike): ImageData => {
+  const pixels = new Uint8ClampedArray(image.data)
+  if (typeof globalThis.ImageData === 'function') {
+    return new globalThis.ImageData(pixels, image.width, image.height)
+  }
+  return {
+    data: pixels,
+    width: image.width,
+    height: image.height,
+    colorSpace: 'srgb'
+  } as ImageData
+}
+
+const encodeVariant = async (format: OutputFormat, image: ImageData, quality: number) => {
   if (format === 'webp') {
-    return await encodeWebp(image as ImageData, { quality } as any)
+    return await encodeWebp(image, { quality })
   }
   if (format === 'avif') {
-    return await encodeAvif(image as ImageData, { quality } as any)
+    return await encodeAvif(image)
   }
   throw new Error(`Unsupported output format: ${format}`)
 }
@@ -283,12 +297,13 @@ const generateBlurDataUrl = async (image: ImageDataLike) => {
   if (image.width <= 0 || image.height <= 0) {
     return null
   }
+  const imageData = ensureImageData(image)
   const targetWidth = 16
-  const resized = await resize(image as ImageData, {
+  const resized = await resize(imageData, {
     width: targetWidth,
     height: Math.max(1, Math.round((image.height / image.width) * targetWidth))
   })
-  const encoded = await encodeWebp(resized as ImageData, { quality: 30 })
+  const encoded = await encodeWebp(resized, { quality: 30 })
   const base64 = toBase64(toUint8Array(encoded))
   return `data:image/webp;base64,${base64}`
 }
@@ -424,19 +439,26 @@ export async function optimizeImageInBackground(fileId: string) {
     const decoded = await decoder(bytes)
     const orientation = record.mimeType === 'image/jpeg' ? getExifOrientation(bytes) : null
     const oriented = applyExifOrientation(decoded, orientation)
+    const orientedData = ensureImageData(oriented)
     const quality = clampQuality(config.image?.quality)
     const sizes = [...new Set((config.image?.sizes || []).filter(size => size > 0))].sort((a, b) => a - b)
-    const formats = (config.image?.formats || ['webp']).filter(format => SUPPORTED_OUTPUT_FORMATS.has(format))
+    const requestedFormats = ((config.image?.formats && config.image.formats.length > 0)
+      ? config.image.formats
+      : ['webp']) as OutputFormat[]
+    const formats = requestedFormats.filter((format): format is OutputFormat => SUPPORTED_OUTPUT_FORMATS.has(format))
+    if (!formats.length) {
+      formats.push('webp')
+    }
     const variants: ImageVariantMap = {}
 
     const blurDataUrl = await generateBlurDataUrl(oriented) ?? undefined
 
     for (const format of formats) {
       for (const width of sizes) {
-        if (width >= oriented.width) {
+        if (width >= orientedData.width) {
           continue
         }
-        const resized = await resize(oriented as ImageData, calculateSize(oriented.width, oriented.height, width))
+        const resized = await resize(orientedData, calculateSize(orientedData.width, orientedData.height, width))
         const encoded = await encodeVariant(format, resized, quality)
         const encodedBytes = toUint8Array(encoded)
         const path = buildVariantPath(record.path, width, format)

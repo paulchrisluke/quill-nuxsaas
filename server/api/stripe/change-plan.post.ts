@@ -90,6 +90,12 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Subscription has no items'
     })
   }
+  if (!currentItem.price || !currentItem.price.id) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Subscription item missing price information'
+    })
+  }
   const currentPriceId = currentItem.price.id
 
   // Get user's current tier (pro, business, etc.)
@@ -151,6 +157,12 @@ export default defineEventHandler(async (event) => {
         throw createError({
           statusCode: 500,
           statusMessage: 'Subscription schedule missing current phase'
+        })
+      }
+      if (!currentPhase.start_date || !currentPhase.end_date) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Subscription schedule phase missing date information'
         })
       }
       await stripe.subscriptionSchedules.update(schedule.id, {

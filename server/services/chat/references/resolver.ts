@@ -199,7 +199,7 @@ const resolveFileToken = async (token: ReferenceToken, context: ResolveContext) 
         id: file.id,
         label,
         subtitle: file.originalName !== file.fileName ? file.originalName ?? undefined : undefined,
-        reference: file.fileName || file.originalName || label
+        reference: file.fileName || file.originalName || file.id
       }
     }), 'file')
 

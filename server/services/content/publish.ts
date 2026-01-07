@@ -199,8 +199,9 @@ export async function publishContentVersion(
   const authorPayload = authorDefaults
     ? { ...authorDefaults, ...(siteConfig.author ?? {}) }
     : (siteConfig.author ?? null)
-  const normalizedAuthor = authorPayload && typeof authorPayload.name === 'string' && authorPayload.name.trim().length > 0
-    ? { ...authorPayload, name: authorPayload.name.trim() }
+  const normalizedAuthorName = normalizeOptionalString(authorPayload?.name)
+  const normalizedAuthor = normalizedAuthorName
+    ? { ...authorPayload, name: normalizedAuthorName }
     : null
   const blog = siteConfig.blog ?? null
   const categories = siteConfig.categories ?? null
