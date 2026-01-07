@@ -4,6 +4,7 @@ import { NON_ORG_SLUG } from '~~/shared/constants/routing'
 import { SITE_CONFIG_FILENAME, SITE_CONFIG_VIRTUAL_KEY } from '~~/shared/utils/siteConfig'
 import { useContentList } from '~/composables/useContentList'
 import { useFileList } from '~/composables/useFileList'
+import { useFileManager } from '~/composables/useFileManager'
 import WorkspaceFileTreeNode from './WorkspaceFileTreeNode.vue'
 
 const emit = defineEmits<{
@@ -44,12 +45,32 @@ const {
   initialized: _fileInitialized,
   loadInitial: loadFileInitial,
   refresh: refreshFileList,
+  upsert: upsertFile,
   remove: removeFile,
   reset: resetFileList
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
 
 const expandedPaths = ref<Set<string>>(new Set(['organization', 'content', 'files']))
 const toast = useToast()
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const { uploading: isUploading, uploadMultipleFiles } = useFileManager({
+  parallelUploads: true,
+  onSuccess: (file) => {
+    if (file?.id) {
+      upsertFile(file)
+    }
+    toast.add({
+      title: 'File uploaded',
+      color: 'success'
+    })
+  },
+  onError: (error) => {
+    toast.add({
+      title: error.message || 'Upload failed',
+      color: 'error'
+    })
+  }
+})
 // Track in-flight archive operations to prevent concurrent invocations
 const archivingFiles = ref<Set<string>>(new Set())
 const archivingContent = ref<Set<string>>(new Set())
@@ -342,6 +363,26 @@ const toggleFolder = (path: string) => {
   expandedPaths.value = next
 }
 
+const openFilePicker = () => {
+  if (!isAuthenticatedUser.value || isUploading.value)
+    return
+  fileInputRef.value?.click()
+}
+
+const handleFileInputChange = async (event: Event) => {
+  const target = event.target as HTMLInputElement | null
+  const files = target?.files
+  if (!files || files.length === 0)
+    return
+
+  await uploadMultipleFiles(files)
+  await refreshFileList()
+
+  if (target) {
+    target.value = ''
+  }
+}
+
 const resolveContentPath = (contentId: string | null | undefined) => {
   const slug = orgSlug.value
   if (!slug)
@@ -556,6 +597,13 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
     role="tree"
   >
     <div class="flex-1 overflow-y-auto px-1 pb-4">
+      <input
+        ref="fileInputRef"
+        type="file"
+        class="hidden"
+        multiple
+        @change="handleFileInputChange"
+      >
       <template v-if="!isAuthenticatedUser">
         <div class="space-y-2 px-2">
           <div class="space-y-1">
@@ -615,6 +663,7 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
             @select="openNode"
             @archive-file="archiveFile"
             @archive-content="archiveContent"
+            @upload-files="openFilePicker"
           />
           <WorkspaceFileTreeNode
             v-for="node in tree"
@@ -630,6 +679,7 @@ watch(() => activeOrg.value?.data?.id, (orgId, previousId) => {
             @select="openNode"
             @archive-file="archiveFile"
             @archive-content="archiveContent"
+            @upload-files="openFilePicker"
           />
         </ul>
 

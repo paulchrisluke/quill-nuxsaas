@@ -1062,6 +1062,28 @@ async function executeChatTool(
       }
     }
 
+    const allowedOpTypes = new Set(['replace', 'insert', 'delete', 'format'])
+    const invalidOpIndex = args.ops.findIndex(op => !op || typeof op.type !== 'string' || !allowedOpTypes.has(op.type))
+    if (invalidOpIndex >= 0) {
+      safeError('[edit_ops] Invalid operation type', {
+        invalidOpIndex,
+        opType: (args.ops[invalidOpIndex] as any)?.type
+      })
+      return {
+        success: false,
+        error: `edit_ops op at index ${invalidOpIndex} has an invalid or missing type.`
+      }
+    }
+
+    const missingAnchorIndex = args.ops.findIndex(op => !op || typeof op.anchor !== 'string' || !op.anchor.trim())
+    if (missingAnchorIndex >= 0) {
+      safeError('[edit_ops] Missing anchor', { missingAnchorIndex })
+      return {
+        success: false,
+        error: `edit_ops op at index ${missingAnchorIndex} is missing a valid anchor.`
+      }
+    }
+
     try {
       const normalizedOps = args.ops.map(op => ({
         ...op,

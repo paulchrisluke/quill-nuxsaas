@@ -27,16 +27,14 @@ declare module 'vue-router' {
   }
 }
 
-export default defineNuxtRouteMiddleware(async (to) => {
+export default defineNuxtRouteMiddleware((to) => {
   // If auth is disabled, skip middleware
   if (to.meta?.auth === false) {
     return
   }
-  const { loggedIn, user, fetchSession } = useAuth()
+  const { loggedIn, user } = useAuth()
   const redirectOptions = useRuntimeConfig().public.auth
   const { only, redirectUserTo, redirectGuestTo } = defu(to.meta?.auth, redirectOptions)
-
-  await fetchSession()
 
   const localePath = useLocalePath()
 

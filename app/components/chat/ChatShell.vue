@@ -306,9 +306,7 @@ const openGoogleDrivePickerInstance = (accessToken: string) => {
         if (!Array.isArray(documents) || !documents.length)
           return
 
-        for (const doc of documents) {
-          await importDriveDocument(doc)
-        }
+        await Promise.allSettled(documents.map(doc => importDriveDocument(doc)))
       } catch (error) {
         console.error('[ChatShell] Picker callback failed', error)
         toast.add({
@@ -470,7 +468,7 @@ const uploadMenuDisabled = computed(() => {
 
 const uploadMenuItems = computed(() => [
   {
-    label: 'Upload Image',
+    label: 'Upload Images',
     icon: 'i-lucide-upload',
     onSelect: handleImageUploadClick
   },
@@ -482,10 +480,11 @@ const uploadMenuItems = computed(() => [
   }
 ])
 
-const { uploading: _fileUploading, uploadToServer } = useFileManager({
+const { uploading: _fileUploading, uploadMultipleFiles } = useFileManager({
   maxSize: 10 * 1024 * 1024, // 10MB
   allowedTypes: ['image/*'],
   contentId: props.contentId || null,
+  parallelUploads: true,
   onSuccess: (file) => {
     notifyFileAdded(file as FileRecord, {
       title: 'Image uploaded',
@@ -509,22 +508,26 @@ const handleFileSelect = async (event: Event) => {
   if (!files || files.length === 0)
     return
 
-  const file = files[0]
-  if (!file) {
-    return
-  }
-
-  if (!file.type.startsWith('image/')) {
+  const selected = Array.from(files).filter(file => file.type.startsWith('image/'))
+  if (!selected.length) {
     toast.add({
       title: 'Invalid file type',
-      description: 'Please select an image file.',
+      description: 'Please select image files.',
       color: 'error'
     })
     return
   }
 
+  if (selected.length !== files.length) {
+    toast.add({
+      title: 'Some files skipped',
+      description: 'Only image files can be uploaded.',
+      color: 'warning'
+    })
+  }
+
   try {
-    await uploadToServer(file)
+    await uploadMultipleFiles(selected)
   } catch (error) {
     console.error('File upload failed:', error)
   }
@@ -940,6 +943,7 @@ if (import.meta.client) {
                 type="file"
                 accept="image/*"
                 class="hidden"
+                multiple
                 @change="handleFileSelect"
               >
               <component
