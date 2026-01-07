@@ -114,7 +114,7 @@ export function useFileManager(config: FileManagerConfig = {}) {
       uploading.value = true
       progress.value = 0
       error.value = null
-      let settled: Array<PromiseSettledResult<any>> = []
+      let settled: Array<PromiseSettledResult<any>> | null = null
       try {
         settled = await Promise.allSettled(
           fileArray.map(file => uploadFile(file, { manageState: false }))
@@ -130,8 +130,10 @@ export function useFileManager(config: FileManagerConfig = {}) {
       } finally {
         uploading.value = false
         progress.value = 0
-        const hasErrors = settled?.some(result => result.status === 'rejected')
-        error.value = hasErrors ? 'Some uploads failed' : null
+        if (settled) {
+          const hasErrors = settled.some(result => result.status === 'rejected')
+          error.value = hasErrors ? 'Some uploads failed' : null
+        }
       }
       return results
     }
