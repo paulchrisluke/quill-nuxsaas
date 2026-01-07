@@ -157,7 +157,7 @@ async function getStripeSubscriptionDetails(subscription: any): Promise<{
     const stripeSub = await client.subscriptions.retrieve(subId, {
       expand: ['items.data.price']
     }) as Stripe.Subscription
-    const currentPeriodEnd = (stripeSub as Stripe.Subscription & { current_period_end?: number }).current_period_end
+    const currentPeriodEnd = stripeSub.current_period_end
 
     if (process.env.NODE_ENV === 'development') {
       console.log('[Stripe Email] Stripe subscription:', {

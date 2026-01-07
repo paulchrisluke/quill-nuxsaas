@@ -85,7 +85,7 @@ export class R2StorageProvider implements StorageProvider {
 
     const response = await this.client!.fetch(url, {
       method: 'PUT',
-      body: file as unknown as BodyInit,
+      body: file as BodyInit,
       headers: {
         'Content-Type': mimeType
       }

@@ -131,14 +131,14 @@ const estimateTimestampForSuggestion = (
   suggestion: ImageSuggestion,
   cues: VttCue[],
   totalLines: number
-): number | null => {
+): number | undefined => {
   if (!cues.length || totalLines <= 0) {
-    return null
+    return undefined
   }
 
   const duration = cues.reduce((max, cue) => Math.max(max, cue.end), 0)
   if (!duration || !Number.isFinite(duration)) {
-    return null
+    return undefined
   }
 
   const ratio = Math.min(1, Math.max(0, (suggestion.position - 1) / totalLines))
@@ -146,7 +146,7 @@ const estimateTimestampForSuggestion = (
   const cue = cues.find(entry => estimated >= entry.start && estimated <= entry.end)
   const timestamp = cue?.start ?? estimated
 
-  return Number.isFinite(timestamp) ? Number(timestamp.toFixed(3)) : null
+  return Number.isFinite(timestamp) ? Number(timestamp.toFixed(3)) : undefined
 }
 
 export const suggestImagesForContent = async (params: {
@@ -237,8 +237,8 @@ export const suggestImagesForContent = async (params: {
             altText,
             reason,
             priority,
-            type: 'generated' as const
-          }
+            type: 'generated'
+          } as ImageSuggestion
         })
         .filter(item => item.sectionId && item.altText && item.reason)
         .map((item) => {
@@ -269,13 +269,13 @@ export const suggestImagesForContent = async (params: {
   return sanitized.map((suggestion) => {
     const estimatedTimestamp = cues.length
       ? estimateTimestampForSuggestion(suggestion, cues, totalLines)
-      : null
+      : undefined
 
     return {
       ...suggestion,
-      type: 'screencap' as const,
+      type: 'screencap',
       videoId,
-      estimatedTimestamp: estimatedTimestamp ?? undefined,
+      ...(estimatedTimestamp !== undefined ? { estimatedTimestamp } : {}),
       status: 'pending'
     }
   })
