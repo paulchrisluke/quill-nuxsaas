@@ -1,9 +1,9 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import type * as schema from '~~/server/db/schema'
 import type { ImageSuggestion } from './types'
 import { and, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { v7 as uuidv7 } from 'uuid'
+import * as schema from '~~/server/db/schema'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { extractScreencapFromYouTube } from './screencaps'
@@ -65,7 +65,8 @@ export const insertImageSuggestion = async (
     })
   }
 
-  const assets = (record.version.assets || {}) as Record<string, any>
+  const versionRecord = record.version
+  const assets = (versionRecord.assets || {}) as Record<string, any>
   const imageSuggestions = Array.isArray((assets as any).imageSuggestions)
     ? (assets as any).imageSuggestions as ImageSuggestion[]
     : []
@@ -78,6 +79,18 @@ export const insertImageSuggestion = async (
   }
 
   const suggestion = imageSuggestions[suggestionIndex]
+  if (!suggestion) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Image suggestion not found'
+    })
+  }
+  if (!suggestion.sectionId) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'Image suggestion is missing section metadata'
+    })
+  }
   if (suggestion.status === 'added') {
     throw createError({
       statusCode: 400,
@@ -181,7 +194,7 @@ export const insertImageSuggestion = async (
     ? `|${fileRecord.width}x${fileRecord.height}`
     : ''
   const markdownImage = `![${escapedAltText}${dimensions}](${imageUrl})`
-  const existingMarkdown = record.version.bodyMarkdown || ''
+  const existingMarkdown = versionRecord.bodyMarkdown || ''
   const targetLine = typeof suggestion.position === 'number' && Number.isFinite(suggestion.position)
     ? suggestion.position
     : existingMarkdown.split('\n').length + 1
@@ -221,7 +234,7 @@ export const insertImageSuggestion = async (
       .where(eq(schema.content.id, record.content.id))
       .limit(1)
 
-    if (currentContent?.currentVersionId !== record.version.id) {
+    if (currentContent?.currentVersionId !== versionRecord.id) {
       throw createError({
         statusCode: 409,
         statusMessage: 'Content was modified by another process. Please retry.'
@@ -244,11 +257,11 @@ export const insertImageSuggestion = async (
         contentId: record.content.id,
         version: nextVersionNumber,
         createdByUserId: userId,
-        frontmatter: record.version.frontmatter,
+        frontmatter: versionRecord.frontmatter,
         bodyMarkdown: updatedMarkdown,
-        sections: record.version.sections,
+        sections: versionRecord.sections,
         assets: updatedAssets,
-        seoSnapshot: record.version.seoSnapshot
+        seoSnapshot: versionRecord.seoSnapshot
       })
       .returning()
 

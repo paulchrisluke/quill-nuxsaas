@@ -1,9 +1,9 @@
-import type { UseAsyncDataOptions } from '#app'
+import type { AsyncDataOptions } from '#app'
 
 type OrganizationList = any[]
 
 export const useUserOrganizationsCache = () =>
-  useState<OrganizationList | null>('user-organizations-cache', () => null)
+  useState<OrganizationList | undefined>('user-organizations-cache', () => undefined)
 
 /**
  * Shared org list with SSR enabled and client-side caching.
@@ -11,18 +11,18 @@ export const useUserOrganizationsCache = () =>
  * If you need fresh data, pass options that disable caching and avoid mixing options for the same key.
  */
 export const useUserOrganizations = (
-  options: UseAsyncDataOptions<OrganizationList, OrganizationList> = {}
+  options: AsyncDataOptions<OrganizationList, OrganizationList> = {}
 ) => {
   const { organization } = useAuth()
   const cache = useUserOrganizationsCache()
 
-  const defaultOptions: UseAsyncDataOptions<OrganizationList, OrganizationList> = {
+  const defaultOptions: AsyncDataOptions<OrganizationList, OrganizationList> = {
     server: true,
     lazy: true,
     getCachedData: () => cache.value
   }
 
-  const mergedOptions: UseAsyncDataOptions<OrganizationList, OrganizationList> = {
+  const mergedOptions: AsyncDataOptions<OrganizationList, OrganizationList> = {
     ...defaultOptions,
     ...options,
     getCachedData: options.getCachedData ?? defaultOptions.getCachedData

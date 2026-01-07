@@ -102,7 +102,7 @@ export class FileService {
     }
     const fileType = getFileTypeFromMimeType(mimeType)
     const resolvedOriginalName = options?.overrideOriginalName?.trim() || originalName
-    const optimizationStatus = fileType === 'image' && mimeType.startsWith('image/')
+    const optimizationStatus: 'pending' | 'done' = fileType === 'image' && mimeType.startsWith('image/')
       ? 'pending'
       : 'done'
 

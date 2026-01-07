@@ -83,7 +83,14 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const currentPriceId = subscription.items.data[0].price.id
+  const currentItem = subscription.items.data[0]
+  if (!currentItem) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Subscription has no items'
+    })
+  }
+  const currentPriceId = currentItem.price.id
 
   // Get user's current tier (pro, business, etc.)
   const currentTierKey = getPlanKeyFromId(localSub?.plan)
@@ -125,7 +132,7 @@ export default defineEventHandler(async (event) => {
     (targetTier.order === currentTier.order && newInterval === 'month' && currentInterval === 'year')
   )
 
-  const quantity = subscription.items.data[0].quantity ?? 1
+  const quantity = currentItem.quantity ?? 1
 
   // All plan tier downgrades are scheduled at period end (no credit)
   // This prevents revenue loss - users keep features until renewal
@@ -139,11 +146,17 @@ export default defineEventHandler(async (event) => {
       })
 
       // Update the schedule to change plan at next phase (period end)
-      const currentPhase = schedule.phases[0]
+      const currentPhase = schedule.phases?.[0]
+      if (!currentPhase) {
+        throw createError({
+          statusCode: 500,
+          statusMessage: 'Subscription schedule missing current phase'
+        })
+      }
       await stripe.subscriptionSchedules.update(schedule.id, {
         phases: [
           {
-            items: [{ price: subscription.items.data[0].price.id, quantity }],
+            items: [{ price: currentItem.price.id, quantity }],
             start_date: currentPhase.start_date,
             end_date: currentPhase.end_date
           },
@@ -155,7 +168,7 @@ export default defineEventHandler(async (event) => {
         end_behavior: 'release' // Release back to regular subscription after schedule completes
       })
 
-      const periodEnd = subscription.current_period_end
+      const periodEnd = (subscription as { current_period_end?: number }).current_period_end
 
       await db.update(subscriptionTable)
         .set({
@@ -185,7 +198,7 @@ export default defineEventHandler(async (event) => {
   // Build update params for upgrades only
   const updateParams: any = {
     items: [{
-      id: subscription.items.data[0].id,
+      id: currentItem.id,
       price: newPriceId,
       quantity
     }],

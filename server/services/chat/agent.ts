@@ -109,11 +109,12 @@ function generateSummaryFromToolHistory(
   // Generate specific summaries for each successful tool
   for (const entry of successfulTools) {
     const { toolName, result, invocation } = entry
+    const invocationArgs = invocation.arguments as Record<string, any> | undefined
 
     if (toolName === 'edit_ops' && result.result) {
       const contentTitle = result.result.content?.title || 'content'
       const contentId = result.result.contentId || result.result.content?.id
-      const opCount = Array.isArray(invocation.arguments.ops) ? invocation.arguments.ops.length : 0
+      const opCount = Array.isArray(invocationArgs?.ops) ? invocationArgs.ops.length : 0
       let summary = `Applied ${opCount || 'targeted'} edit operation${opCount === 1 ? '' : 's'} in "${contentTitle}"`
 
       if (result.result.lineRange && contentId) {
@@ -128,7 +129,7 @@ function generateSummaryFromToolHistory(
 
       summaries.push(summary)
     } else if (toolName === 'content_write' && result.result) {
-      if (invocation.arguments.action === 'create') {
+      if (invocationArgs?.action === 'create') {
         const title = result.result.content?.title || 'new content'
         const contentId = result.result.content?.id
 
@@ -142,13 +143,13 @@ function generateSummaryFromToolHistory(
     } else if (toolName === 'edit_metadata' && result.result) {
       const title = result.result.content?.title || 'content'
       const changes: string[] = []
-      if (invocation.arguments.title)
+      if (invocationArgs?.title)
         changes.push('title')
-      if (invocation.arguments.slug)
+      if (invocationArgs?.slug)
         changes.push('slug')
-      if (invocation.arguments.status)
+      if (invocationArgs?.status)
         changes.push('status')
-      if (invocation.arguments.primaryKeyword)
+      if (invocationArgs?.primaryKeyword)
         changes.push('primary keyword')
       const changeText = changes.length > 0 ? changes.join(', ') : 'metadata'
       summaries.push(`Updated ${changeText} for "${title}"`)
@@ -162,11 +163,11 @@ function generateSummaryFromToolHistory(
     } else if (toolName === 'read_section' && result.result) {
       summaries.push(`Retrieved section information`)
     } else if (toolName === 'source_ingest' && result.result) {
-      const sourceType = invocation.arguments.sourceType === 'youtube' ? 'YouTube video' : 'source content'
+      const sourceType = invocationArgs?.sourceType === 'youtube' ? 'YouTube video' : 'source content'
       summaries.push(`Ingested ${sourceType}`)
     } else if (toolName === 'insert_image' && result.result) {
       const contentTitle = result.result.content?.title || result.result.contentTitle || 'content'
-      const fileName = invocation.arguments.fileId ? 'image' : 'an image'
+      const fileName = invocationArgs?.fileId ? 'image' : 'an image'
       summaries.push(`Inserted ${fileName} into "${contentTitle}"`)
     } else if (toolName === 'read_files' && result.result) {
       const files = Array.isArray(result.result.files) ? result.result.files : []

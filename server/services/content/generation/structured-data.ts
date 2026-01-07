@@ -241,12 +241,14 @@ const buildAutoBreadcrumbs = (
 
   const categoryNames = normalizeStringArray(params.frontmatter.categories)
   if (categoryNames.length) {
-    const categoryName = categoryNames[0]
-    const categoryMeta = resolveCategoryMeta(categoryName, params.categories)
-    const categorySlug = categoryMeta?.slug?.trim() || normalizeSlug(categoryName)
-    if (categorySlug) {
-      const categoryUrl = `${blogUrl.replace(/\/+$/, '')}/${categorySlug}`
-      crumbs.push({ name: categoryMeta?.name ?? categoryName, item: categoryUrl })
+    const categoryName = categoryNames[0] ?? ''
+    if (categoryName) {
+      const categoryMeta = resolveCategoryMeta(categoryName, params.categories)
+      const categorySlug = categoryMeta?.slug?.trim() || normalizeSlug(categoryName)
+      if (categorySlug) {
+        const categoryUrl = `${blogUrl.replace(/\/+$/, '')}/${categorySlug}`
+        crumbs.push({ name: categoryMeta?.name ?? categoryName, item: categoryUrl })
+      }
     }
   }
 

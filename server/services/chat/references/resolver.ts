@@ -73,7 +73,7 @@ const selectBestMatch = <T>(identifier: string, candidates: T[], getKeys: (candi
   const bestMatches = matches.filter(match => match.priority === bestPriority).map(match => match.item)
 
   if (bestMatches.length === 1) {
-    return { match: bestMatches[0], ambiguous: [], priority: bestPriority }
+    return { match: bestMatches[0]!, ambiguous: [], priority: bestPriority }
   }
 
   return { match: null, ambiguous: bestMatches, priority: bestPriority }
@@ -186,19 +186,22 @@ const resolveFileToken = async (token: ReferenceToken, context: ResolveContext) 
           mimeType: file.mimeType,
           fileType: file.fileType,
           size: file.size,
-          url: file.url
+          url: file.url ?? ''
         }
       } satisfies ResolvedReference
     }
   }
 
   if (match.ambiguous.length > 1) {
-    const candidateList = toCandidateList(match.ambiguous.map(file => ({
-      id: file.id,
-      label: file.fileName || file.originalName,
-      subtitle: file.originalName !== file.fileName ? file.originalName : undefined,
-      reference: file.fileName || file.originalName
-    })), 'file')
+    const candidateList = toCandidateList(match.ambiguous.map((file) => {
+      const label = file.fileName || file.originalName || 'Unnamed file'
+      return {
+        id: file.id,
+        label,
+        subtitle: file.originalName !== file.fileName ? file.originalName ?? undefined : undefined,
+        reference: file.fileName || file.originalName || label
+      }
+    }), 'file')
 
     return {
       ambiguous: {

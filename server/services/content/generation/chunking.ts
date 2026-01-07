@@ -54,6 +54,9 @@ function findParagraphBoundary(text: string, targetPos: number, maxLookback: num
   const sentenceMatches = [...searchText.matchAll(/[.!?]\s/g)]
   if (sentenceMatches.length > 0) {
     const lastMatch = sentenceMatches[sentenceMatches.length - 1]
+    if (!lastMatch) {
+      return targetPos
+    }
     return lookbackStart + (lastMatch.index ?? 0) + 2
   }
 
@@ -314,7 +317,7 @@ export const findGlobalRelevantChunks = async (params: {
     const [sourceContentId, chunkIndexStr] = match.id.split(':')
     return {
       sourceContentId,
-      chunkIndex: parseInt(chunkIndexStr, 10),
+      chunkIndex: Number.parseInt(chunkIndexStr ?? '', 10),
       score: match.score
     }
   }).filter((item): item is { sourceContentId: string, chunkIndex: number, score: number } =>

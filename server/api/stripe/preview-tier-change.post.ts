@@ -71,7 +71,11 @@ export default defineEventHandler(async (event) => {
   }
 
   // Get current plan info from STRIPE (source of truth), not local DB
-  const stripePrice = subscription.items.data[0].price
+  const currentItem = subscription.items.data[0]
+  if (!currentItem) {
+    throw createError({ statusCode: 500, statusMessage: 'Subscription has no items' })
+  }
+  const stripePrice = currentItem.price
   const stripePriceId = stripePrice.id
   const stripeInterval = stripePrice.recurring?.interval as 'month' | 'year' || 'month'
 
@@ -146,11 +150,11 @@ export default defineEventHandler(async (event) => {
     const fullSubscription = await stripe.subscriptions.retrieve(subscription.id)
 
     // Try billing_cycle_anchor if current_period_end doesn't exist
-    let periodEndTimestamp = fullSubscription.current_period_end
+    let periodEndTimestamp = (fullSubscription as { current_period_end?: number }).current_period_end
     if (!periodEndTimestamp) {
       // Calculate next period from billing_cycle_anchor
       const anchor = fullSubscription.billing_cycle_anchor
-      const interval = fullSubscription.plan?.interval || 'month'
+      const interval = (fullSubscription as { plan?: { interval?: string } }).plan?.interval || 'month'
       if (anchor) {
         const anchorDate = new Date(anchor * 1000)
         if (interval === 'year') {
@@ -169,7 +173,7 @@ export default defineEventHandler(async (event) => {
     const periodEnd = periodEndTimestamp
       ? new Date(periodEndTimestamp * 1000)
       : null
-    const qty = subscription.items.data[0].quantity || 1
+    const qty = currentItem.quantity || 1
 
     const periodEndText = periodEnd
       ? periodEnd.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -249,14 +253,14 @@ export default defineEventHandler(async (event) => {
       },
       isUpgrade,
       isDowngrade,
-      seats: subscription.items.data[0].quantity || 1,
+      seats: currentItem.quantity || 1,
       paymentMethod,
       message: 'Your trial will continue. You will be charged the new plan price when your trial ends.'
     }
   }
 
   // For active subscriptions, get proration preview from Stripe
-  const quantity = subscription.items.data[0].quantity || 1
+  const quantity = currentItem.quantity || 1
 
   try {
     // Use Stripe's invoice preview to get exact proration amounts
@@ -266,7 +270,7 @@ export default defineEventHandler(async (event) => {
       subscription: subscription.id,
       subscription_details: {
         items: [{
-          id: subscription.items.data[0].id,
+          id: currentItem.id,
           price: newPlan.priceId,
           quantity
         }],
@@ -322,8 +326,9 @@ export default defineEventHandler(async (event) => {
     console.log('[preview-tier-change] Calculated:', { creditAmount, chargeAmount, netAmount, immediateCharge, isDowngrade, isUpgrade })
 
     // Period end date
-    const periodEnd = subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000)
+    const periodEndTimestamp = (subscription as { current_period_end?: number }).current_period_end
+    const periodEnd = periodEndTimestamp
+      ? new Date(periodEndTimestamp * 1000)
       : null
 
     // Build message based on upgrade/downgrade

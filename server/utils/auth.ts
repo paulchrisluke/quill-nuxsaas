@@ -18,19 +18,14 @@ import { createStripeClient, setupStripe } from './stripe'
 console.log(`Base URL is ${runtimeConfig.public.baseURL}`)
 console.log('Schema keys:', Object.keys(schema))
 
-const coerceMetadataToString = (metadata: unknown) => {
-  if (metadata === undefined) {
+const coerceMetadataToString = (metadata: unknown): Record<string, any> | undefined => {
+  if (metadata === undefined || metadata === null) {
     return undefined
   }
-  if (metadata === null || typeof metadata === 'string') {
-    return metadata
+  if (typeof metadata === 'object') {
+    return metadata as Record<string, any>
   }
-  try {
-    return JSON.stringify(metadata)
-  } catch (error) {
-    console.error('[Auth Hook] Failed to serialize organization metadata:', error)
-    return '<unserializable metadata>'
-  }
+  return { value: String(metadata) }
 }
 
 // Helper to strictly enforce the production URL for auth callbacks
@@ -91,11 +86,15 @@ export const createBetterAuth = () => betterAuth({
       enabled: true,
       async sendDeleteAccountVerification({ user, url }) {
         if (resendInstance) {
-          const name = user.name || user.email.split('@')[0]
+          const email = user.email ?? ''
+          if (!email) {
+            return
+          }
+          const name = user.name || email.split('@')[0] || 'there'
           const html = await renderDeleteAccount(name, url)
           await resendInstance.emails.send({
             from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-            to: user.email,
+            to: email,
             subject: 'Confirm account deletion',
             html
           })
@@ -275,7 +274,7 @@ export const createBetterAuth = () => betterAuth({
               .limit(1)
 
             if (members.length > 0)
-              activeOrgId = members[0].organizationId
+              activeOrgId = members[0]!.organizationId
           }
 
           if (activeOrgId) {
@@ -356,11 +355,15 @@ export const createBetterAuth = () => betterAuth({
     enabled: true,
     requireEmailVerification: true,
     sendResetPassword: async ({ user, url }) => {
-      const name = user.name || user.email.split('@')[0]
+      const email = user.email ?? ''
+      if (!email) {
+        return
+      }
+      const name = user.name || email.split('@')[0] || 'there'
       const html = await renderResetPassword(name, url)
       const response = await resendInstance.emails.send({
         from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-        to: user.email,
+        to: email,
         subject: 'Reset your password',
         html
       })
@@ -392,12 +395,16 @@ export const createBetterAuth = () => betterAuth({
       console.log(url)
       console.log('>>> ------------------------ <<<')
       try {
-        const name = user.name || user.email.split('@')[0]
+        const email = user.email ?? ''
+        if (!email) {
+          return
+        }
+        const name = user.name || email.split('@')[0] || 'there'
         const html = await renderVerifyEmail(name, url)
         console.log('[Auth] Rendering verification email...')
         const response = await resendInstance.emails.send({
           from: `${runtimeConfig.public.appName} <${runtimeConfig.public.appNotifyEmail}>`,
-          to: user.email,
+          to: email,
           subject: 'Verify your email address',
           html
         })
@@ -547,7 +554,8 @@ export const createBetterAuth = () => betterAuth({
       enableMetadata: true,
       async sendInvitationEmail({ email, inviter, organization, invitation }) {
         if (resendInstance) {
-          const inviterName = inviter.user.name || inviter.user.email.split('@')[0]
+          const inviterEmail = inviter.user.email ?? ''
+          const inviterName = inviter.user.name || inviterEmail.split('@')[0] || 'there'
           const inviteUrl = `${runtimeConfig.public.baseURL}/invite/${invitation.id}`
           const html = await renderTeamInvite(inviterName, organization.name, inviteUrl)
           await resendInstance.emails.send({
@@ -658,10 +666,15 @@ export const requireAuth = async (event: H3Event, options: { allowAnonymous?: bo
       cookiesFromSetCookie.push(...setCookieHeader.split(','))
     }
 
-    const cookieHeader = cookiesFromSetCookie
-      .map(value => value.split(';')[0].trim())
-      .filter(Boolean)
-      .join('; ')
+    const cookieValues: string[] = []
+    for (const value of cookiesFromSetCookie) {
+      const safeValue = typeof value === 'string' ? value : ''
+      if (!safeValue) {
+        continue
+      }
+      cookieValues.push((safeValue.split(';')[0] ?? '').trim())
+    }
+    const cookieHeader = cookieValues.filter(Boolean).join('; ')
     if (cookieHeader) {
       mergedHeaders.set('cookie', cookieHeader)
     }

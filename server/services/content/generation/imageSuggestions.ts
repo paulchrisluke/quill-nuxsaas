@@ -101,8 +101,13 @@ const parseVttToTimestamps = (vttContent: string): VttCue[] => {
     const timestampMatch = line.match(/(?<start>[0-9:,.]+)\s+-->\s+(?<end>[0-9:,.]+)/)
 
     if (timestampMatch?.groups) {
-      const start = parseVttTimestamp(timestampMatch.groups.start)
-      const end = parseVttTimestamp(timestampMatch.groups.end)
+      const startRaw = timestampMatch.groups.start
+      const endRaw = timestampMatch.groups.end
+      if (!startRaw || !endRaw) {
+        continue
+      }
+      const start = parseVttTimestamp(startRaw)
+      const end = parseVttTimestamp(endRaw)
 
       if (start !== null && end !== null) {
         current = { start, end, text: '' }
@@ -232,7 +237,7 @@ export const suggestImagesForContent = async (params: {
             altText,
             reason,
             priority,
-            type: 'generated'
+            type: 'generated' as const
           }
         })
         .filter(item => item.sectionId && item.altText && item.reason)
@@ -268,9 +273,9 @@ export const suggestImagesForContent = async (params: {
 
     return {
       ...suggestion,
-      type: 'screencap',
+      type: 'screencap' as const,
       videoId,
-      estimatedTimestamp,
+      estimatedTimestamp: estimatedTimestamp ?? undefined,
       status: 'pending'
     }
   })

@@ -135,12 +135,19 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
       }
 
       const sections = Array.isArray(version?.sections) ? version.sections : []
-      const sectionsSummary = sections.map((section: RawSection) => ({
-        id: section.id || section.section_id,
-        title: section.title ?? null,
-        type: section.type ?? null,
-        index: section.index ?? null
-      }))
+      const sectionsSummary = sections.reduce<Array<{ id: string, title: string | null, type: string | null, index: number | null }>>((acc, section) => {
+        const id = section.id || section.section_id
+        if (!id) {
+          return acc
+        }
+        acc.push({
+          id,
+          title: section.title ?? null,
+          type: section.type ?? null,
+          index: section.index ?? null
+        })
+        return acc
+      }, [])
 
       contents.push({
         type: 'content',
@@ -181,7 +188,7 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
       let version: { id: string, sections: RawSection[] | null } | null = null
       if (content?.currentVersionId) {
         try {
-          ;[version] = await context.db
+          const [selected] = await context.db
             .select({
               id: schema.contentVersion.id,
               sections: schema.contentVersion.sections
@@ -189,6 +196,7 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
             .from(schema.contentVersion)
             .where(eq(schema.contentVersion.id, content.currentVersionId))
             .limit(1)
+          version = selected ?? null
         } catch (error) {
           console.error('[references] Failed to load section version:', content.currentVersionId, error)
           continue

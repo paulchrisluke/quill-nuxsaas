@@ -73,12 +73,12 @@ export function useFileManager(config: FileManagerConfig = {}) {
         ? `/api/file/upload?${new URLSearchParams(queryParams).toString()}`
         : '/api/file/upload'
 
-      const response = await $fetch(url, {
+      const response = await $fetch<{ file: any }>(url, {
         method: 'POST',
         body: formData
       })
-      config.onSuccess?.(response.file)
-      return response.file
+      config.onSuccess?.(response?.file)
+      return response?.file
     } catch (err: any) {
       const errorMsg = err.data?.message || 'Upload failed'
       error.value = errorMsg

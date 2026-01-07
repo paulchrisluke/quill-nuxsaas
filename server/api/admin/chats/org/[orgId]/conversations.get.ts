@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm'
 import { and, desc, eq, lt, or } from 'drizzle-orm'
 import { z } from 'zod'
 import * as schema from '~~/server/db/schema'
@@ -97,19 +98,22 @@ export default defineEventHandler(async (event) => {
     selectFields.metadata = schema.conversation.metadata
   }
 
-  const filters = [eq(schema.conversation.organizationId, orgId)]
+  const filters: SQL<unknown>[] = [eq(schema.conversation.organizationId, orgId)]
 
   if (cursorDate && cursorId) {
-    filters.push(or(
+    const cursorFilter = or(
       lt(schema.conversation.updatedAt, cursorDate),
       and(
         eq(schema.conversation.updatedAt, cursorDate),
         lt(schema.conversation.id, cursorId)
       )
-    ))
+    )
+    if (cursorFilter) {
+      filters.push(cursorFilter)
+    }
   }
 
-  const whereClause = filters.length === 1 ? filters[0] : and(...filters)
+  const whereClause = filters.length === 1 ? filters[0]! : and(...filters)
 
   const results = await db
     .select(selectFields)
@@ -123,7 +127,7 @@ export default defineEventHandler(async (event) => {
 
   let nextCursor: string | null = null
   if (hasMore && conversations.length > 0) {
-    const last = conversations[conversations.length - 1]
+    const last = conversations[conversations.length - 1]!
     const updatedAt = last.updatedAt instanceof Date
       ? last.updatedAt.toISOString()
       : new Date(last.updatedAt).toISOString()

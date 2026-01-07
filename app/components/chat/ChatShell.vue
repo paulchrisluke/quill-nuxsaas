@@ -902,7 +902,7 @@ if (import.meta.client) {
     </div>
 
     <div
-      class="w-full flex flex-col justify-center overflow-x-hidden mt-auto border-t border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2"
+      class="w-full flex flex-col justify-center overflow-x-hidden mt-auto border-t border-neutral-200/70 dark:border-neutral-800/60 px-3 py-2 touch-manipulation"
     >
       <div class="w-full">
         <PromptComposer

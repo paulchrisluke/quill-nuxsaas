@@ -75,6 +75,10 @@ async function getOrgOwnerInfo(organizationId: string): Promise<OrgOwnerInfo | n
   })
   if (!ownerUser)
     return null
+  const ownerEmail = ownerUser.email ?? ''
+  if (!ownerEmail) {
+    return null
+  }
 
   return {
     org: {
@@ -84,8 +88,8 @@ async function getOrgOwnerInfo(organizationId: string): Promise<OrgOwnerInfo | n
       stripeCustomerId: (org as any).stripeCustomerId || null
     },
     owner: {
-      name: ownerUser.name || ownerUser.email.split('@')[0],
-      email: ownerUser.email
+      name: ownerUser.name || ownerEmail.split('@')[0] || 'there',
+      email: ownerEmail
     }
   }
 }
@@ -153,12 +157,13 @@ async function getStripeSubscriptionDetails(subscription: any): Promise<{
     const stripeSub = await client.subscriptions.retrieve(subId, {
       expand: ['items.data.price']
     }) as Stripe.Subscription
+    const currentPeriodEnd = (stripeSub as Stripe.Subscription & { current_period_end?: number }).current_period_end
 
     if (process.env.NODE_ENV === 'development') {
       console.log('[Stripe Email] Stripe subscription:', {
         id: stripeSub.id,
         status: stripeSub.status,
-        current_period_end: stripeSub.current_period_end,
+        current_period_end: currentPeriodEnd,
         items: stripeSub.items.data.map(i => ({
           quantity: i.quantity,
           unit_amount: i.price?.unit_amount,
@@ -178,8 +183,8 @@ async function getStripeSubscriptionDetails(subscription: any): Promise<{
       currency
     }).format(totalAmount)
 
-    const periodEnd = stripeSub.current_period_end
-      ? new Date(stripeSub.current_period_end * 1000)
+    const periodEnd = currentPeriodEnd
+      ? new Date(currentPeriodEnd * 1000)
       : null
 
     if (process.env.NODE_ENV === 'development') {

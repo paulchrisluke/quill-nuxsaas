@@ -28,7 +28,8 @@ const encodeCursor = (payload: CursorPayload) => {
   // Convert bytes to base64 using btoa on the binary string
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+    const code = bytes[i] ?? 0
+    binary += String.fromCharCode(code)
   }
   const base64 = btoa(binary)
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '')
@@ -240,7 +241,7 @@ export default defineEventHandler(async (event) => {
 
     let nextCursor: string | null = null
     if (hasMore && conversations.length > 0) {
-      const last = conversations[conversations.length - 1]
+      const last = conversations[conversations.length - 1]!
       const updatedAtDate = last.updatedAt instanceof Date ? last.updatedAt : new Date(last.updatedAt)
       nextCursor = encodeCursor({
         id: last.id,

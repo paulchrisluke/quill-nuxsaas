@@ -111,8 +111,8 @@ export const generateRuntimeConfig = () => ({
       const normalizedSizes = parsedSizes.length > 0 ? parsedSizes : [150, 400, 800, 1200, 1600]
 
       const parsedFormats = parseCommaList(process.env.NUXT_FILE_IMAGE_FORMATS)
-      const validFormats = parsedFormats.filter(format => format === 'webp' || format === 'avif') as FileManagerConfig['image']['formats']
-      const normalizedFormats = validFormats.length > 0 ? validFormats : ['webp'] as FileManagerConfig['image']['formats']
+      const validFormats = parsedFormats.filter((format): format is 'webp' | 'avif' => format === 'webp' || format === 'avif')
+      const normalizedFormats = (validFormats.length > 0 ? validFormats : ['webp']) as Array<'webp' | 'avif'>
 
       return {
         sizes: normalizedSizes,
@@ -146,11 +146,11 @@ export const generateRuntimeConfig = () => ({
 })
 
 if (typeof useRuntimeConfig !== 'undefined') {
-  runtimeConfigInstance = useRuntimeConfig()
+  runtimeConfigInstance = useRuntimeConfig() as NitroRuntimeConfig
 } else {
   // for cli: npm run auth:schema
   config()
-  runtimeConfigInstance = generateRuntimeConfig() as unknown as NitroRuntimeConfig
+  runtimeConfigInstance = { nitro: {}, ...generateRuntimeConfig() } as NitroRuntimeConfig
 }
 
 export const runtimeConfig = runtimeConfigInstance

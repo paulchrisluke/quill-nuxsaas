@@ -10,6 +10,9 @@ const isComment = (value: string) => value.trim().startsWith('#')
 const findNextMeaningfulLine = (lines: string[], startIndex: number) => {
   for (let index = startIndex; index < lines.length; index += 1) {
     const line = lines[index]
+    if (line === undefined) {
+      continue
+    }
     if (!line.trim() || isComment(line)) {
       continue
     }
@@ -79,7 +82,7 @@ const parseYamlLines = (lines: string[]) => {
   }
 
   for (let index = 0; index < lines.length; index += 1) {
-    const raw = lines[index]
+    const raw = lines[index] ?? ''
     if (!raw.trim() || isComment(raw)) {
       continue
     }
@@ -87,11 +90,14 @@ const parseYamlLines = (lines: string[]) => {
     const indent = raw.match(/^\s*/)?.[0].length ?? 0
     const trimmed = raw.trim()
 
-    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
+    while (stack.length > 1 && indent <= (stack[stack.length - 1]?.indent ?? -1)) {
       stack.pop()
     }
 
-    const current = stack[stack.length - 1]
+    const current = stack[stack.length - 1] ?? stack[0]
+    if (!current) {
+      continue
+    }
 
     if (trimmed.startsWith('- ')) {
       const arrayContext = ensureArrayContext(current)
@@ -160,7 +166,8 @@ export const parseFrontmatterMarkdown = (markdown: string): FrontmatterParseResu
 
   let endIndex = -1
   for (let index = 1; index < lines.length; index += 1) {
-    if (lines[index].trim() === '---') {
+    const line = lines[index] ?? ''
+    if (line.trim() === '---') {
       endIndex = index
       break
     }
