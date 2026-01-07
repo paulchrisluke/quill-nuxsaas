@@ -1,4 +1,4 @@
-import { createError, readMultipartFormData } from 'h3'
+import { createError, getHeader, getQuery, getRequestIP, readMultipartFormData } from 'h3'
 import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { optimizeImageInBackground } from '~~/server/services/file/imageOptimizer'
@@ -7,6 +7,7 @@ import { createStorageProvider } from '~~/server/services/file/storage/factory'
 import { sanitizeSVG } from '~~/server/services/file/svgSanitizer'
 import { requireActiveOrganization, requireAuth } from '~~/server/utils/auth'
 import { getWaitUntil } from '~~/server/utils/waitUntil'
+import { formatFileSize } from '~~/shared/utils/format'
 
 export default defineEventHandler(async (event) => {
   const config = useFileManagerConfig()

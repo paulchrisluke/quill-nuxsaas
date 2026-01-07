@@ -467,7 +467,6 @@ export function useConversation() {
     }
 
     try {
-      status.value = 'streaming'
       const payload = { ...body }
       if (conversationId.value) {
         payload.conversationId = conversationId.value
@@ -561,6 +560,9 @@ export function useConversation() {
 
                 switch (eventType) {
                   case 'message:chunk': {
+                    if (status.value !== 'streaming') {
+                      status.value = 'streaming'
+                    }
                     if (activeToolActivities.value.size > 0) {
                       currentActivity.value = 'thinking'
                     } else {
@@ -637,6 +639,9 @@ export function useConversation() {
                   }
 
                   case 'tool:preparing': {
+                    if (status.value !== 'streaming') {
+                      status.value = 'streaming'
+                    }
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
                     const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:preparing')
@@ -678,6 +683,9 @@ export function useConversation() {
                   }
 
                   case 'tool:start': {
+                    if (status.value !== 'streaming') {
+                      status.value = 'streaming'
+                    }
                     currentActivity.value = 'thinking'
                     currentToolName.value = eventData.toolName || null
                     const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:start')
@@ -779,6 +787,9 @@ export function useConversation() {
                   }
 
                   case 'tool:progress': {
+                    if (status.value !== 'streaming') {
+                      status.value = 'streaming'
+                    }
                     const toolCallId = getToolCallIdOrWarn(eventData.toolCallId, 'tool:progress')
                     if (!toolCallId) {
                       break

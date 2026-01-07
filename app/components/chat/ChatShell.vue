@@ -61,12 +61,6 @@ onMounted(() => {
   }
 })
 
-watch(organizationIdForIntegrations, (orgId) => {
-  if (orgId) {
-    refreshIntegrations()
-  }
-}, { immediate: true })
-
 const hasGoogleDrive = computed(() => {
   if (!integrationsResponse.value)
     return false

@@ -2,7 +2,6 @@ export interface FileManagerConfig {
   maxSize?: number
   allowedTypes?: string[]
   contentId?: string | null
-  onProgress?: (progress: number) => void
   onSuccess?: (file: any) => void
   onError?: (error: Error) => void
   parallelUploads?: boolean
@@ -129,6 +128,8 @@ export function useFileManager(config: FileManagerConfig = {}) {
         }
       } finally {
         uploading.value = false
+        progress.value = 0
+        error.value = null
       }
       return results
     }
