@@ -179,7 +179,9 @@ export function buildWorkspaceFilesPayload(
   const contentSlug = typeof content.slug === 'string' ? content.slug : filenameSlug
 
   // Extract diff stats from frontmatter if available
-  const frontmatterDiff = frontmatter?.diffStats as { additions?: number, deletions?: number } | undefined
+  const frontmatterDiff = frontmatter && typeof frontmatter === 'object' && 'diffStats' in frontmatter
+    ? (frontmatter as { diffStats?: { additions?: number, deletions?: number } }).diffStats
+    : undefined
   const diffStats = frontmatterDiff && (frontmatterDiff.additions !== undefined || frontmatterDiff.deletions !== undefined)
     ? {
         additions: frontmatterDiff.additions !== undefined ? Number(frontmatterDiff.additions) || 0 : 0,

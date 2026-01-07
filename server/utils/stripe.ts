@@ -237,7 +237,11 @@ export const syncSubscriptionQuantity = async (organizationId: string) => {
     return
 
   const subscription = subscriptions.data[0]
-  const currentQuantity = subscription.items.data[0].quantity
+  const currentItem = subscription?.items?.data?.[0]
+  if (!subscription || !currentItem) {
+    return
+  }
+  const currentQuantity = currentItem.quantity
 
   // Calculate new quantity
   const memberCount = org.members.length
@@ -247,7 +251,7 @@ export const syncSubscriptionQuantity = async (organizationId: string) => {
   if (currentQuantity !== newQuantity && newQuantity > 0) {
     await client.subscriptions.update(subscription.id, {
       items: [{
-        id: subscription.items.data[0].id,
+        id: currentItem.id,
         quantity: newQuantity
       }]
     })

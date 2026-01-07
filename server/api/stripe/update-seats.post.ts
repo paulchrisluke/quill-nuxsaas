@@ -88,8 +88,15 @@ export default defineEventHandler(async (event) => {
     newPriceId = getTierForInterval(effectiveTierKey, newInterval).priceId
   }
 
-  const subscriptionItemId = subscription.items.data[0].id
-  const currentSeats = subscription.items.data[0].quantity || 1
+  const currentItem = subscription.items.data[0]
+  if (!currentItem) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Subscription has no items'
+    })
+  }
+  const subscriptionItemId = currentItem.id
+  const currentSeats = currentItem.quantity || 1
   const isDowngrade = seats < currentSeats
 
   // Update subscription params
@@ -116,7 +123,7 @@ export default defineEventHandler(async (event) => {
     updateParams.trial_end = 'now'
   }
 
-  let updatedSubscription: any
+  let updatedSubscription: (Stripe.Subscription & { current_period_end?: number | null }) | null = null
   try {
     updatedSubscription = await stripe.subscriptions.update(subscription.id, updateParams)
   } catch (stripeError: any) {
@@ -144,8 +151,9 @@ export default defineEventHandler(async (event) => {
   })
 
   // Update local database immediately
-  const periodEnd = updatedSubscription.current_period_end
-    ? new Date(updatedSubscription.current_period_end * 1000)
+  const periodEndTimestamp = updatedSubscription.current_period_end ?? null
+  const periodEnd = periodEndTimestamp
+    ? new Date(periodEndTimestamp * 1000)
     : undefined
 
   const updateData: any = {

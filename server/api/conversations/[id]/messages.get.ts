@@ -83,7 +83,7 @@ export default defineEventHandler(async (event) => {
       .limit(limit)
       .offset(offset)
 
-    const total = rows.length > 0 ? Number(rows[0].totalCount ?? 0) : 0
+    const total = rows.length > 0 ? Number(rows[0]!.totalCount ?? 0) : 0
 
     const mappedMessages = rows.map(row => ({
       id: row.id,

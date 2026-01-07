@@ -72,17 +72,17 @@ export function parseReferences(message: string): ReferenceToken[] {
     }
 
     const nextChar = message[index + 1]
-    if (!isValidIdentifierStart(nextChar)) {
+    if (!nextChar || !isValidIdentifierStart(nextChar)) {
       continue
     }
 
     let end = index + 1
-    while (end < length && !/\s/.test(message[end])) {
+    while (end < length && !/\s/.test(message[end] ?? '')) {
       end += 1
     }
 
     let raw = message.slice(index, end)
-    while (raw.length > 1 && TRAILING_PUNCTUATION.has(raw[raw.length - 1])) {
+    while (raw.length > 1 && TRAILING_PUNCTUATION.has(raw[raw.length - 1] ?? '')) {
       raw = raw.slice(0, -1)
     }
 

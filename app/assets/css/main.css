@@ -77,8 +77,14 @@
     scrollbar-width: none;  /* Firefox */
   }
 
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;  /* Chrome, Safari and Opera */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+}
+
+@layer utilities {
+  .touch-manipulation {
+    touch-action: manipulation;
   }
 }
 

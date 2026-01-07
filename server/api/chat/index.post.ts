@@ -412,8 +412,8 @@ function _formatClarifyingMessage(_questions: IntentGap[]): string {
   }
 
   const intro = 'Before I start planning your content, I need a bit more information:'
-  const items = questions
-    .map((gap, index) => `${index + 1}. ${gap.question}`)
+  const items = _questions
+    .map((gap: IntentGap, index: number) => `${index + 1}. ${gap.question}`)
     .join('\n')
 
   return `${intro}\n${items}`
@@ -884,10 +884,11 @@ async function executeChatTool(
   if (toolInvocation.name === 'content_write') {
     const args = toolInvocation.arguments as ChatToolInvocation<'content_write'>['arguments']
     const action = validateRequiredString(args.action, 'action') as 'create'
+    const contentId = 'contentId' in args ? (args as { contentId?: string | null }).contentId : null
 
     safeLog('[content_write] Starting content_write tool', {
       action,
-      hasContentId: !!args.contentId,
+      hasContentId: !!contentId,
       hasSourceContentId: !!args.sourceContentId,
       hasSourceText: !!(args.sourceText || args.context),
       mode: context.mode,
@@ -1062,13 +1063,29 @@ async function executeChatTool(
     }
 
     try {
+      const normalizedOps = args.ops.map(op => ({
+        ...op,
+        scope: op.scope ?? undefined,
+        lineRange: op.lineRange ?? undefined,
+        oldText: op.oldText ?? undefined,
+        newText: op.newText ?? undefined,
+        position: op.position ?? undefined
+      }))
+      const normalizedConstraints = args.constraints
+        ? {
+            ...args.constraints,
+            maxChangedLines: args.constraints.maxChangedLines ?? undefined,
+            allowHeadingChanges: args.constraints.allowHeadingChanges ?? undefined,
+            scope: args.constraints.scope ?? undefined
+          }
+        : undefined
       const result = await handleEditOps({
         db,
         organizationId,
         userId,
         contentId: args.contentId,
-        ops: args.ops,
-        constraints: args.constraints ?? undefined,
+        ops: normalizedOps,
+        constraints: normalizedConstraints,
         rationale: args.rationale ?? null
       })
 
@@ -2163,6 +2180,13 @@ export default defineEventHandler(async (event) => {
             payload: payload ?? null
           })
 
+          if (!assistantMessage) {
+            throw createError({
+              statusCode: 500,
+              statusMessage: 'Failed to persist assistant message'
+            })
+          }
+
           await patchConversationPreviewMetadata(db, activeConversation.id, organizationId, {
             latestMessage: {
               role: assistantMessage.role as 'assistant',
@@ -2354,6 +2378,12 @@ export default defineEventHandler(async (event) => {
                 role: 'user',
                 content: trimmedMessage
               })
+              if (!userMessageRecord) {
+                throw createError({
+                  statusCode: 500,
+                  statusMessage: 'Failed to persist user message'
+                })
+              }
               await addLogEntryToConversation(db, {
                 conversationId: activeConversation.id,
                 organizationId,
@@ -2824,12 +2854,13 @@ export default defineEventHandler(async (event) => {
         }
 
         const createdContentItems = (multiPassResult?.toolHistory ?? [])
-          .filter(toolExec =>
-            toolExec.toolName === 'content_write'
-            && toolExec.invocation.arguments.action === 'create'
-            && toolExec.result.success
-            && toolExec.result.result?.content
-          )
+          .filter((toolExec) => {
+            if (toolExec.toolName !== 'content_write' || !toolExec.result.success || !toolExec.result.result?.content) {
+              return false
+            }
+            const args = toolExec.invocation.arguments as { action?: string } | undefined
+            return args?.action === 'create'
+          })
           .map(toolExec => ({
             id: toolExec.result.result.content.id,
             title: toolExec.result.result.content.title,

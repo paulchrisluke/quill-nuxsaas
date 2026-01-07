@@ -62,6 +62,13 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  if (!content || !version) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Failed to import manual markdown'
+    })
+  }
+
   return {
     contentId: content.id,
     versionId: version.id,

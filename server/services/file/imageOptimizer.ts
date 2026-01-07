@@ -1,3 +1,4 @@
+import type { EncodeOptions as AvifEncodeOptions } from '@jsquash/avif/codec/enc/avif_enc.js'
 import type { ImageDataLike, ImageVariantMap } from './imageTypes'
 import { decode as decodeAvif, encode as encodeAvif } from '@jsquash/avif'
 import { decode as decodeJpeg } from '@jsquash/jpeg'
@@ -12,14 +13,21 @@ import { createStorageProvider } from './storage/factory'
 
 const CACHE_CONTROL_IMMUTABLE = 'public, max-age=31536000, immutable'
 
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy.buffer
+}
+
 const SUPPORTED_MIME_DECODERS = new Map<string, (bytes: Uint8Array) => Promise<ImageDataLike>>([
-  ['image/jpeg', decodeJpeg],
-  ['image/png', decodePng],
-  ['image/webp', decodeWebp],
-  ['image/avif', decodeAvif]
+  ['image/jpeg', bytes => decodeJpeg(toArrayBuffer(bytes))],
+  ['image/png', bytes => decodePng(toArrayBuffer(bytes))],
+  ['image/webp', bytes => decodeWebp(toArrayBuffer(bytes))],
+  ['image/avif', bytes => decodeAvif(toArrayBuffer(bytes))]
 ])
 
-const SUPPORTED_OUTPUT_FORMATS = new Set(['webp', 'avif'])
+type OutputFormat = 'webp' | 'avif'
+const SUPPORTED_OUTPUT_FORMATS: Set<OutputFormat> = new Set(['webp', 'avif'])
 const STALE_PROCESSING_MINUTES = 10
 
 const toUint8Array = (input: Uint8Array | ArrayBuffer) => {
@@ -32,8 +40,9 @@ const toBase64 = (bytes: Uint8Array) => {
   // This works because btoa() expects Latin-1 encoding (ISO-8859-1) where code points 0-255 map directly
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i] ?? 0
     // String.fromCharCode correctly handles values 0-255 for Latin-1 encoding
-    binary += String.fromCharCode(bytes[i] & 0xFF)
+    binary += String.fromCharCode(byte & 0xFF)
   }
   return btoa(binary)
 }
@@ -82,12 +91,34 @@ const calculateSize = (width: number, height: number, targetWidth: number) => {
   }
 }
 
-const encodeVariant = async (format: string, image: ImageDataLike, quality: number) => {
+const ensureImageData = (image: ImageDataLike): ImageData => {
+  const pixels = new Uint8ClampedArray(image.data)
+  if (typeof globalThis.ImageData === 'function') {
+    return new globalThis.ImageData(pixels, image.width, image.height)
+  }
+  return {
+    data: pixels,
+    width: image.width,
+    height: image.height,
+    colorSpace: 'srgb'
+  } as ImageData
+}
+
+const mapQualityToAvifOptions = (quality: number): Partial<AvifEncodeOptions> => {
+  const normalizedQuality = Math.max(0, Math.min(100, Math.round(quality)))
+  const inverted = Math.round(63 - (normalizedQuality / 100) * 63)
+  const cqLevel = Math.max(0, Math.min(63, inverted))
+  return { cqLevel }
+}
+
+const encodeVariant = async (format: OutputFormat, image: ImageData, quality: number) => {
   if (format === 'webp') {
     return await encodeWebp(image, { quality })
   }
   if (format === 'avif') {
-    return await encodeAvif(image, { quality })
+    // AVIF encoding uses cqLevel where 0 is best and 63 is worst quality; map our normalized quality accordingly.
+    const options = mapQualityToAvifOptions(quality)
+    return await encodeAvif(image, options)
   }
   throw new Error(`Unsupported output format: ${format}`)
 }
@@ -194,10 +225,10 @@ const applyExifOrientation = (image: ImageDataLike, orientation: number | null):
 
   const setPixel = (x: number, y: number, idx: number) => {
     const outIndex = (y * outputWidth + x) * 4
-    output[outIndex] = data[idx]
-    output[outIndex + 1] = data[idx + 1]
-    output[outIndex + 2] = data[idx + 2]
-    output[outIndex + 3] = data[idx + 3]
+    output[outIndex] = data[idx] ?? 0
+    output[outIndex + 1] = data[idx + 1] ?? 0
+    output[outIndex + 2] = data[idx + 2] ?? 0
+    output[outIndex + 3] = data[idx + 3] ?? 0
   }
 
   for (let y = 0; y < height; y++) {
@@ -253,18 +284,18 @@ const applyExifOrientation = (image: ImageDataLike, orientation: number | null):
 const extractSvgDimensions = (svg: string) => {
   const widthMatch = svg.match(/width=["']?([0-9.]+)(px)?["']?/i)
   const heightMatch = svg.match(/height=["']?([0-9.]+)(px)?["']?/i)
-  const width = widthMatch ? Number.parseFloat(widthMatch[1]) : null
-  const height = heightMatch ? Number.parseFloat(heightMatch[1]) : null
+  const width = widthMatch?.[1] ? Number.parseFloat(widthMatch[1]) : null
+  const height = heightMatch?.[1] ? Number.parseFloat(heightMatch[1]) : null
   // Only use explicit dimensions if they're unitless or px (not %, em, etc.)
-  const widthHasValidUnit = widthMatch && (!widthMatch[2] || widthMatch[2] === 'px')
-  const heightHasValidUnit = heightMatch && (!heightMatch[2] || heightMatch[2] === 'px')
+  const widthHasValidUnit = !!widthMatch && (!widthMatch[2] || widthMatch[2] === 'px')
+  const heightHasValidUnit = !!heightMatch && (!heightMatch[2] || heightMatch[2] === 'px')
   if (width && height && widthHasValidUnit && heightHasValidUnit) {
     return { width, height }
   }
   const viewBoxMatch = svg.match(/viewBox=["']?\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*["']?/i)
   if (viewBoxMatch) {
-    const viewWidth = Number.parseFloat(viewBoxMatch[3])
-    const viewHeight = Number.parseFloat(viewBoxMatch[4])
+    const viewWidth = Number.parseFloat(viewBoxMatch[3] ?? '0')
+    const viewHeight = Number.parseFloat(viewBoxMatch[4] ?? '0')
     if (Number.isFinite(viewWidth) && Number.isFinite(viewHeight)) {
       return { width: viewWidth, height: viewHeight }
     }
@@ -276,8 +307,9 @@ const generateBlurDataUrl = async (image: ImageDataLike) => {
   if (image.width <= 0 || image.height <= 0) {
     return null
   }
+  const imageData = ensureImageData(image)
   const targetWidth = 16
-  const resized = await resize(image, {
+  const resized = await resize(imageData, {
     width: targetWidth,
     height: Math.max(1, Math.round((image.height / image.width) * targetWidth))
   })
@@ -417,19 +449,26 @@ export async function optimizeImageInBackground(fileId: string) {
     const decoded = await decoder(bytes)
     const orientation = record.mimeType === 'image/jpeg' ? getExifOrientation(bytes) : null
     const oriented = applyExifOrientation(decoded, orientation)
+    const orientedData = ensureImageData(oriented)
     const quality = clampQuality(config.image?.quality)
     const sizes = [...new Set((config.image?.sizes || []).filter(size => size > 0))].sort((a, b) => a - b)
-    const formats = (config.image?.formats || ['webp']).filter(format => SUPPORTED_OUTPUT_FORMATS.has(format))
+    const requestedFormats = ((config.image?.formats && config.image.formats.length > 0)
+      ? config.image.formats
+      : ['webp']) as OutputFormat[]
+    const formats = requestedFormats.filter((format): format is OutputFormat => SUPPORTED_OUTPUT_FORMATS.has(format))
+    if (!formats.length) {
+      formats.push('webp')
+    }
     const variants: ImageVariantMap = {}
 
     const blurDataUrl = await generateBlurDataUrl(oriented) ?? undefined
 
     for (const format of formats) {
       for (const width of sizes) {
-        if (width >= oriented.width) {
+        if (width >= orientedData.width) {
           continue
         }
-        const resized = await resize(oriented, calculateSize(oriented.width, oriented.height, width))
+        const resized = await resize(orientedData, calculateSize(orientedData.width, orientedData.height, width))
         const encoded = await encodeVariant(format, resized, quality)
         const encodedBytes = toUint8Array(encoded)
         const path = buildVariantPath(record.path, width, format)

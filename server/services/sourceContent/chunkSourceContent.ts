@@ -48,7 +48,7 @@ function findParagraphBoundary(text: string, targetPos: number, maxLookback: num
   // Look for sentence endings (period, exclamation, question mark followed by space)
   const sentenceMatches = [...searchText.matchAll(/[.!?]\s/g)]
   if (sentenceMatches.length > 0) {
-    const lastMatch = sentenceMatches[sentenceMatches.length - 1]
+    const lastMatch = sentenceMatches[sentenceMatches.length - 1]!
     return lookbackStart + (lastMatch.index ?? 0) + 2
   }
 

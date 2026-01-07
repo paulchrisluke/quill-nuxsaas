@@ -290,7 +290,7 @@ export async function getContentWorkspacePayload(
 
   let structuredData: string | null = null
   let structuredDataGraph: Record<string, any> | null = null
-  if (resolvedFrontmatter) {
+  if (resolvedFrontmatter && currentVersion) {
     const baseUrl = runtimeConfig.public.baseURL || undefined
     const publisherDefaults = organizationRow
       ? {
@@ -311,6 +311,12 @@ export async function getContentWorkspacePayload(
     const author = authorDefaults
       ? { ...authorDefaults, ...(siteConfig.author ?? {}) }
       : (siteConfig.author ?? null)
+    const normalizedAuthor = author && typeof author.name === 'string' && author.name.trim().length > 0
+      ? { ...author, name: author.name.trim() }
+      : null
+    const normalizedPublisher = publisher && typeof publisher.name === 'string' && publisher.name.trim().length > 0
+      ? { ...publisher, name: publisher.name.trim() }
+      : null
     const blog = siteConfig.blog ?? null
     const categories = siteConfig.categories ?? null
     const structuredDataParams = {
@@ -319,8 +325,8 @@ export async function getContentWorkspacePayload(
       sections: currentVersion.sections as ContentSection[] | null | undefined,
       baseUrl,
       contentId: contentRow.id,
-      author,
-      publisher,
+      author: normalizedAuthor,
+      publisher: normalizedPublisher,
       datePublished: contentRow.publishedAt ?? currentVersion.createdAt ?? null,
       dateModified: contentRow.updatedAt ?? currentVersion.createdAt ?? null,
       breadcrumbs: siteConfig.breadcrumbs ?? null,

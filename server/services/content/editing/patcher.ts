@@ -95,7 +95,7 @@ export function applyEditOps(
       }
     }
 
-    const lineRange = op.lineRange ? resolveLineRange(result, op.lineRange) : null
+    const lineRange = op.lineRange ? (resolveLineRange(result, op.lineRange) ?? undefined) : undefined
     if (op.lineRange && !lineRange) {
       return {
         success: false,
@@ -212,8 +212,8 @@ export function buildSectionsFromMarkdown(
     const title = currentSection.title
     const normalizedTitle = normalizeText(title)
     const id = existingByTitle.get(normalizedTitle) || slugifyTitle(title)
-    const startOffset = lineOffsets[startLine]
-    const endOffset = endLine < lineOffsets.length ? lineOffsets[endLine] : markdown.length
+    const startOffset = lineOffsets[startLine] ?? 0
+    const endOffset = endLine < lineOffsets.length ? (lineOffsets[endLine] ?? markdown.length) : markdown.length
 
     sections.push({
       id,
@@ -229,13 +229,16 @@ export function buildSectionsFromMarkdown(
   }
 
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]
+    const line = lines[i] ?? ''
     const hashMatch = /^(#{1,6})/.exec(line)
     if (!hashMatch) {
       continue
     }
 
-    const level = hashMatch[1].length
+    const level = hashMatch[1]?.length ?? 0
+    if (!level) {
+      continue
+    }
     const rest = line.slice(level)
     if (!rest || !/^[ \t]/.test(rest)) {
       continue
@@ -319,10 +322,14 @@ function findAnchor(
 
   const exactMatches = findAllMatches(searchSpace, trimmedAnchor)
   if (exactMatches.length === 1) {
+    const match = exactMatches[0]
+    if (!match) {
+      return { found: false }
+    }
     return {
       found: true,
-      startIndex: exactMatches[0].start + searchStartOffset,
-      endIndex: exactMatches[0].end + searchStartOffset,
+      startIndex: match.start + searchStartOffset,
+      endIndex: match.end + searchStartOffset,
       sectionContext
     }
   }
@@ -344,12 +351,18 @@ function findAnchor(
   const normalizedMatches = findAllMatches(normalized.normalized, normalizedAnchor)
   if (normalizedMatches.length === 1) {
     const match = normalizedMatches[0]
+    if (!match) {
+      return { found: false }
+    }
     const startIndex = normalized.map[match.start]
-    const endIndex = normalized.map[Math.min(match.end - 1, normalized.map.length - 1)] + 1
+    const endIndex = normalized.map[Math.min(match.end - 1, normalized.map.length - 1)]
+    if (startIndex === undefined || endIndex === undefined) {
+      return { found: false }
+    }
     return {
       found: true,
       startIndex: startIndex + searchStartOffset,
-      endIndex: endIndex + searchStartOffset,
+      endIndex: endIndex + searchStartOffset + 1,
       sectionContext
     }
   }
@@ -556,8 +569,8 @@ function resolveLineRange(
 
   const startIndex = range.start - 1
   const endIndex = range.end - 1
-  const startOffset = lineOffsets[startIndex]
-  const endOffset = endIndex + 1 < lineOffsets.length ? lineOffsets[endIndex + 1] : markdown.length
+  const startOffset = lineOffsets[startIndex] ?? 0
+  const endOffset = endIndex + 1 < lineOffsets.length ? (lineOffsets[endIndex + 1] ?? markdown.length) : markdown.length
 
   return { startOffset, endOffset }
 }
@@ -577,7 +590,8 @@ function getParagraphBounds(
 
   const findLineIndex = (pos: number) => {
     for (let i = lineOffsets.length - 1; i >= 0; i -= 1) {
-      if (pos >= lineOffsets[i]) {
+      const lineOffset = lineOffsets[i] ?? 0
+      if (pos >= lineOffset) {
         return i
       }
     }
@@ -587,13 +601,16 @@ function getParagraphBounds(
   const startLine = findLineIndex(startOffset)
   const endLine = findLineIndex(Math.max(startOffset, endOffset - 1))
 
-  if (lines[startLine]?.trim() === '' || lines[endLine]?.trim() === '') {
+  const startLineText = lines[startLine] ?? ''
+  const endLineText = lines[endLine] ?? ''
+  if (startLineText.trim() === '' || endLineText.trim() === '') {
     return null
   }
 
   let paragraphStartLine = startLine
   for (let i = startLine - 1; i >= 0; i -= 1) {
-    if (lines[i].trim() === '') {
+    const line = lines[i] ?? ''
+    if (line.trim() === '') {
       paragraphStartLine = i + 1
       break
     }
@@ -604,7 +621,8 @@ function getParagraphBounds(
 
   let paragraphEndLine = endLine
   for (let i = endLine + 1; i < lines.length; i += 1) {
-    if (lines[i].trim() === '') {
+    const line = lines[i] ?? ''
+    if (line.trim() === '') {
       paragraphEndLine = i - 1
       break
     }
@@ -613,8 +631,10 @@ function getParagraphBounds(
     }
   }
 
-  const start = lineOffsets[paragraphStartLine]
-  const end = paragraphEndLine + 1 < lineOffsets.length ? lineOffsets[paragraphEndLine + 1] : markdown.length
+  const start = lineOffsets[paragraphStartLine] ?? 0
+  const end = paragraphEndLine + 1 < lineOffsets.length
+    ? (lineOffsets[paragraphEndLine + 1] ?? markdown.length)
+    : markdown.length
 
   return { start, end }
 }
@@ -642,7 +662,7 @@ function buildNormalizedMap(text: string): { normalized: string, map: number[] }
   let lastWasSpace = false
 
   for (let i = 0; i < text.length; i += 1) {
-    const char = text[i]
+    const char = text[i] ?? ''
     if (/\s/.test(char)) {
       if (!lastWasSpace && normalized.length > 0) {
         normalized += ' '
@@ -693,12 +713,16 @@ function extractSection(markdown: string, sectionTitle: string): SectionMatch | 
   let sectionHeading = ''
 
   for (let i = 0; i < lines.length; i += 1) {
-    const match = /^(#{1,6})/.exec(lines[i])
+    const line = lines[i] ?? ''
+    const match = /^(#{1,6})/.exec(line)
     if (!match) {
       continue
     }
-    const level = match[1].length
-    const rest = lines[i].slice(level)
+    const level = match[1]?.length ?? 0
+    if (!level) {
+      continue
+    }
+    const rest = line.slice(level)
     if (!rest || !/^[ \t]/.test(rest)) {
       continue
     }
@@ -719,22 +743,27 @@ function extractSection(markdown: string, sectionTitle: string): SectionMatch | 
 
   let sectionEndLine = lines.length
   for (let i = sectionStartLine + 1; i < lines.length; i += 1) {
-    const headingMatch = /^(#{1,6})/.exec(lines[i])
+    const line = lines[i] ?? ''
+    const headingMatch = /^(#{1,6})/.exec(line)
     if (!headingMatch) {
       continue
     }
-    const rest = lines[i].slice(headingMatch[1].length)
+    const headingLevel = headingMatch[1]?.length ?? 0
+    if (!headingLevel) {
+      continue
+    }
+    const rest = line.slice(headingLevel)
     if (!rest || !/^[ \t]/.test(rest)) {
       continue
     }
-    if (headingMatch[1].length <= sectionLevel) {
+    if (headingLevel <= sectionLevel) {
       sectionEndLine = i
       break
     }
   }
 
-  const startOffset = lineOffsets[sectionStartLine]
-  const endOffset = sectionEndLine < lineOffsets.length ? lineOffsets[sectionEndLine] : markdown.length
+  const startOffset = lineOffsets[sectionStartLine] ?? 0
+  const endOffset = sectionEndLine < lineOffsets.length ? (lineOffsets[sectionEndLine] ?? markdown.length) : markdown.length
   const content = markdown.slice(startOffset, endOffset)
 
   return {

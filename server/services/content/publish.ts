@@ -199,6 +199,10 @@ export async function publishContentVersion(
   const authorPayload = authorDefaults
     ? { ...authorDefaults, ...(siteConfig.author ?? {}) }
     : (siteConfig.author ?? null)
+  const normalizedAuthorName = normalizeOptionalString(authorPayload?.name)
+  const normalizedAuthor = normalizedAuthorName
+    ? { ...authorPayload, name: normalizedAuthorName }
+    : null
   const blog = siteConfig.blog ?? null
   const categories = siteConfig.categories ?? null
 
@@ -209,7 +213,7 @@ export async function publishContentVersion(
     {
       organizationSlug: organization.slug,
       baseUrl: runtimeConfig.public.baseURL ?? null,
-      author: authorPayload,
+      author: normalizedAuthor,
       publisher,
       breadcrumbs: siteConfig.breadcrumbs ?? null,
       blog,
@@ -262,7 +266,7 @@ export async function publishContentVersion(
       bodyMarkdown: versionRecord.bodyMarkdown
     },
     filePayload,
-    author: authorPayload,
+    author: normalizedAuthor,
     publisher
   })
   const jsonExport = `${JSON.stringify(jsonExportPayload, null, 2)}\n`

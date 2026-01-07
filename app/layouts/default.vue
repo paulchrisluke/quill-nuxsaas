@@ -351,9 +351,46 @@ const canExpandConversationList = computed(() => {
         </template>
       </UDashboardSidebar>
 
+      <!-- Desktop: Workspace (center) -->
+      <div
+        class="hidden lg:flex min-h-0 min-w-0 flex-1 flex-col"
+        :class="{ 'lg:border-l border-neutral-200/70 dark:border-neutral-800/60': shouldShowChatPanel }"
+      >
+        <UDashboardNavbar
+          v-if="(pageTitle || (!isAuthenticatedUser && !isAuthPage)) && !contentRouteMatch"
+          :title="pageTitle || undefined"
+        >
+          <template
+            v-if="!isAuthenticatedUser && !isAuthPage"
+            #right
+          >
+            <div class="flex items-center gap-2">
+              <UButton
+                :to="localePath('/signin')"
+                size="sm"
+                variant="ghost"
+              >
+                {{ t('global.auth.signIn') }}
+              </UButton>
+              <UButton
+                :to="localePath('/signup')"
+                size="sm"
+              >
+                {{ t('global.auth.signUp') }}
+              </UButton>
+            </div>
+          </template>
+        </UDashboardNavbar>
+        <div
+          class="flex-1 overflow-y-auto overflow-x-hidden min-h-0 min-w-0"
+        >
+          <slot />
+        </div>
+      </div>
+
       <aside
         v-if="shouldShowChatPanel"
-        class="flex w-full min-h-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-full lg:h-full lg:w-[400px] lg:border-t-0 lg:border-l lg:border-r"
+        class="flex w-full min-h-0 min-w-0 flex-shrink-0 flex-col border-t border-neutral-200/70 bg-white dark:border-neutral-800/60 dark:bg-neutral-950 max-lg:h-full lg:h-full lg:w-[400px] lg:min-w-[320px] lg:max-w-[420px] lg:border-t-0 lg:border-l lg:border-r"
       >
         <div class="flex items-center gap-2 border-b border-neutral-200/70 px-2 h-[40px] dark:border-neutral-800/60">
           <UButton
@@ -399,7 +436,7 @@ const canExpandConversationList = computed(() => {
           />
         </div>
 
-        <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <div class="flex-1 min-h-0 min-w-0 overflow-hidden flex flex-col">
           <div
             v-if="chatView === 'list'"
             class="flex-1 min-h-0 overflow-y-auto"
@@ -528,43 +565,6 @@ const canExpandConversationList = computed(() => {
           />
         </div>
       </aside>
-
-      <!-- Desktop: Workspace (right side) -->
-      <div
-        class="hidden lg:flex min-h-0 flex-1 flex-col"
-        :class="{ 'lg:border-l border-neutral-200/70 dark:border-neutral-800/60': shouldShowChatPanel }"
-      >
-        <UDashboardNavbar
-          v-if="(pageTitle || (!isAuthenticatedUser && !isAuthPage)) && !contentRouteMatch"
-          :title="pageTitle || undefined"
-        >
-          <template
-            v-if="!isAuthenticatedUser && !isAuthPage"
-            #right
-          >
-            <div class="flex items-center gap-2">
-              <UButton
-                :to="localePath('/signin')"
-                size="sm"
-                variant="ghost"
-              >
-                {{ t('global.auth.signIn') }}
-              </UButton>
-              <UButton
-                :to="localePath('/signup')"
-                size="sm"
-              >
-                {{ t('global.auth.signUp') }}
-              </UButton>
-            </div>
-          </template>
-        </UDashboardNavbar>
-        <div
-          class="flex-1 overflow-y-auto overflow-x-hidden min-h-0"
-        >
-          <slot />
-        </div>
-      </div>
 
       <!-- Mobile: Direct content view (for non-workspace routes like homepage) -->
       <div

@@ -73,10 +73,18 @@ export function useFileManager(config: FileManagerConfig = {}) {
         ? `/api/file/upload?${new URLSearchParams(queryParams).toString()}`
         : '/api/file/upload'
 
-      const response = await $fetch(url, {
+      const response = await $fetch<{ file: any }>(url, {
         method: 'POST',
         body: formData
       })
+
+      if (!response?.file) {
+        const errorMsg = 'Invalid server response: missing file data'
+        error.value = errorMsg
+        config.onError?.(new Error(errorMsg))
+        throw new Error(errorMsg)
+      }
+
       config.onSuccess?.(response.file)
       return response.file
     } catch (err: any) {

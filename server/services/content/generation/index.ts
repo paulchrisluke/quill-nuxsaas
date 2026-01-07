@@ -77,7 +77,6 @@ function formatIntentSummary(snapshot?: ConversationIntentSnapshot | null): stri
 async function getWaitUntil(): Promise<((promise: Promise<any>) => void) | undefined> {
   // Try to import waitUntil from cloudflare:workers (only available in Workers runtime)
   try {
-    // @ts-expect-error - cloudflare:workers is only available in Workers runtime
     // Use variable to bypass static analysis/bundler resolution errors in Node
     const pkg = 'cloudflare:workers'
     const { waitUntil } = await import(pkg)

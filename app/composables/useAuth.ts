@@ -88,7 +88,6 @@ export function useAuth() {
 
   // Subscriptions are derived from the active org state
   const subscriptions = computed(() => {
-    const activeOrgState = useActiveOrgState()
     return (activeOrgState.value?.data as any)?.subscriptions || []
   })
 
@@ -212,7 +211,6 @@ export function useAuth() {
     isAnonymousUser: computed(() => Boolean(user.value?.isAnonymous)),
     isAuthenticatedUser: computed(() => !!session.value && !!user.value && !user.value.isAnonymous),
     activeStripeSubscription: computed(() => {
-      const activeOrgState = useActiveOrgState()
       const subs = (activeOrgState.value?.data as any)?.subscriptions || []
       if (!Array.isArray(subs))
         return undefined

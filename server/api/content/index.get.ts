@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm'
 import { and, desc, eq, isNull, lt, ne, or } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
@@ -27,7 +28,8 @@ const encodeCursor = (payload: CursorPayload) => {
   // Convert bytes to base64 using btoa on the binary string
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+    const code = bytes[i] ?? 0
+    binary += String.fromCharCode(code)
   }
   const base64 = btoa(binary)
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '')
@@ -134,23 +136,29 @@ export default defineEventHandler(async (event) => {
       cursorDate = parsedDate
     }
 
-    const whereClauses = [eq(schema.content.organizationId, organizationId)]
+    const whereClauses: SQL<unknown>[] = [eq(schema.content.organizationId, organizationId)]
     if (!query.includeArchived) {
       // Explicitly allow NULL status values: ne() excludes NULLs in SQL (NULL != 'archived' evaluates to NULL/falsy).
       // While the schema enforces NOT NULL with default('draft'), we handle NULLs defensively for edge cases.
-      whereClauses.push(or(isNull(schema.content.status), ne(schema.content.status, 'archived')))
+      const statusFilter = or(isNull(schema.content.status), ne(schema.content.status, 'archived'))
+      if (statusFilter) {
+        whereClauses.push(statusFilter)
+      }
     }
     if (cursorDate && cursorId) {
-      whereClauses.push(or(
+      const cursorFilter = or(
         lt(schema.content.updatedAt, cursorDate),
         and(
           eq(schema.content.updatedAt, cursorDate),
           lt(schema.content.id, cursorId)
         )
-      ))
+      )
+      if (cursorFilter) {
+        whereClauses.push(cursorFilter)
+      }
     }
 
-    const whereClause = whereClauses.length === 1 ? whereClauses[0] : and(...whereClauses)
+    const whereClause = whereClauses.length === 1 ? whereClauses[0]! : and(...whereClauses)
 
     const results = await db
       .select({
@@ -179,7 +187,7 @@ export default defineEventHandler(async (event) => {
 
     let nextCursor: string | null = null
     if (hasMore && contents.length > 0) {
-      const last = contents[contents.length - 1]
+      const last = contents[contents.length - 1]!
       const updatedAtDate = last.updatedAt instanceof Date ? last.updatedAt : new Date(last.updatedAt)
       nextCursor = encodeCursor({
         id: last.id,

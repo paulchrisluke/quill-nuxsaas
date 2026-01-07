@@ -57,7 +57,7 @@ export default defineEventHandler(async (event) => {
     // Also check upcoming invoice for proration credits (negative line items)
     let upcomingCredit = 0
     try {
-      const upcomingInvoice = await stripe.invoices.retrieveUpcoming({
+      const upcomingInvoice = await (stripe.invoices as any).retrieveUpcoming({
         customer: org.stripeCustomerId
       })
 

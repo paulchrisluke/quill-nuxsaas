@@ -359,6 +359,10 @@ export default defineEventHandler(async (event) => {
         }
       })
 
+      if (!content) {
+        throw new Error('Import did not return content')
+      }
+
       imported.push({ path, contentId: content.id, slug: content.slug })
     } catch (error: any) {
       skipped.push({ path, reason: error?.message || 'Import failed.' })

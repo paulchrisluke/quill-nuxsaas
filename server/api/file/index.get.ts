@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm'
 import { and, desc, eq, lt, or } from 'drizzle-orm'
 import { createError, getValidatedQuery } from 'h3'
 import { z } from 'zod'
@@ -29,7 +30,8 @@ const encodeCursor = (payload: CursorPayload) => {
   // Convert bytes to base64 using btoa on the binary string
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+    const code = bytes[i] ?? 0
+    binary += String.fromCharCode(code)
   }
   const base64 = btoa(binary)
   return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '')
@@ -101,7 +103,7 @@ export default defineEventHandler(async (event) => {
       cursorDate = parsedDate
     }
 
-    const whereClauses = [eq(schema.file.organizationId, organizationId)]
+    const whereClauses: SQL<unknown>[] = [eq(schema.file.organizationId, organizationId)]
     if (!query.includeArchived) {
       whereClauses.push(eq(schema.file.isActive, true))
     }
@@ -115,16 +117,19 @@ export default defineEventHandler(async (event) => {
     }
 
     if (cursorDate && cursorId) {
-      whereClauses.push(or(
+      const cursorFilter = or(
         lt(schema.file.updatedAt, cursorDate),
         and(
           eq(schema.file.updatedAt, cursorDate),
           lt(schema.file.id, cursorId)
         )
-      ))
+      )
+      if (cursorFilter) {
+        whereClauses.push(cursorFilter)
+      }
     }
 
-    const whereClause = whereClauses.length === 1 ? whereClauses[0] : and(...whereClauses)
+    const whereClause = whereClauses.length === 1 ? whereClauses[0]! : and(...whereClauses)
 
     const results = await db
       .select({

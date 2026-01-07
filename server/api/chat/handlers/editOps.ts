@@ -63,7 +63,8 @@ export async function handleEditOps(params: {
     })
   }
 
-  const originalMarkdown = record.version.bodyMarkdown || ''
+  const version = record.version
+  const originalMarkdown = version.bodyMarkdown || ''
   const patchResult = applyEditOps(originalMarkdown, ops, constraints)
 
   if (!patchResult.success || !patchResult.text || !patchResult.changes) {
@@ -77,11 +78,11 @@ export async function handleEditOps(params: {
   const diffStats = calculateDiffStats(originalMarkdown, updatedMarkdown)
   const updatedSections = buildSectionsFromMarkdown(
     updatedMarkdown,
-    (record.version.sections as Array<{ id?: string, title?: string }> | null) || undefined
+    (version.sections as Array<{ id?: string, title?: string }> | null) || undefined
   )
   const lineRange = calculateEditLineRange(originalMarkdown, updatedMarkdown, patchResult.changes)
 
-  const previousFrontmatter = (record.version.frontmatter as Record<string, any> | null) ?? {}
+  const previousFrontmatter = (version.frontmatter as Record<string, any> | null) ?? {}
   const nextFrontmatter = {
     ...previousFrontmatter,
     diffStats: {
@@ -110,8 +111,8 @@ export async function handleEditOps(params: {
         frontmatter: nextFrontmatter,
         bodyMarkdown: updatedMarkdown,
         sections: updatedSections,
-        assets: record.version.assets ?? null,
-        seoSnapshot: record.version.seoSnapshot ?? null
+        assets: version.assets ?? null,
+        seoSnapshot: version.seoSnapshot ?? null
       })
       .returning()
 

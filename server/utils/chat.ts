@@ -10,7 +10,7 @@ export const extractYouTubeId = (url: URL): string | null => {
   const pathSegments = url.pathname.split('/')
   const embedIndex = pathSegments.indexOf('embed')
   if (embedIndex !== -1 && pathSegments[embedIndex + 1]) {
-    return pathSegments[embedIndex + 1]
+    return pathSegments[embedIndex + 1] ?? null
   }
 
   return null

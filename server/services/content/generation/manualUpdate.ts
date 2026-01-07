@@ -59,7 +59,7 @@ export const parseSectionsFromMarkdown = (params: {
       introLines = []
       current = {
         title: match[2]?.trim() || '',
-        level: match[1].length,
+        level: match[1]?.length ?? 1,
         bodyLines: []
       }
       continue

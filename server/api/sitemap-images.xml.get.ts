@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
     const basePath = '/api/sitemap-images.xml'
 
     // Get total count to determine if we need a sitemap index
-    const [{ value: totalCount }] = await db
+    const [totalRow] = await db
       .select({ value: count() })
       .from(fileTable)
       .where(and(
@@ -45,6 +45,7 @@ export default defineEventHandler(async (event) => {
         eq(fileTable.isActive, true)
       ))
 
+    const totalCount = totalRow?.value ?? 0
     const totalPages = Math.ceil(totalCount / MAX_ITEMS_PER_SITEMAP)
 
     // If total exceeds max items per sitemap and page is 1, return sitemap index
