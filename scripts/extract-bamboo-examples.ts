@@ -236,9 +236,7 @@ const main = async () => {
     const lines: string[] = []
     lines.push('# Bamboo Rewrite Examples (Auto Extracted)')
     lines.push('')
-    lines.push(`User: ${user.email}`)
-    lines.push(`User ID: ${user.id}`)
-    lines.push(`Organizations: ${orgList.join(', ')}`)
+    lines.push('- User identifiers and organization IDs have been redacted for privacy.')
     lines.push('')
 
     lines.push('## Examples')

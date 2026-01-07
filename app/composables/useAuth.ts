@@ -92,11 +92,13 @@ export function useAuth() {
     return (activeOrgState.value?.data as any)?.subscriptions || []
   })
 
+  type SessionWithExtras = InferSessionFromClient<ClientOptions> & {
+    activeOrganizationId?: string | null
+    impersonatedBy?: string | null
+  }
+
   interface SessionFetchResponse {
-    session: {
-      activeOrganizationId?: string | null
-      impersonatedBy?: string | null
-    } | null
+    session: SessionWithExtras | null
     user: User | null
   }
 
