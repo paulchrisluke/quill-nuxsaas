@@ -378,13 +378,16 @@ function buildEditOpsParameters(): ParameterSchema {
             lineRange: {
               type: 'object',
               description: 'Optional 1-based line range to narrow anchor lookup (secondary to text anchors).',
+              required: ['start', 'end'],
               properties: {
                 start: {
                   type: 'number',
+                  minimum: 1,
                   description: 'Start line number (1-based).'
                 },
                 end: {
                   type: 'number',
+                  minimum: 1,
                   description: 'End line number (1-based, inclusive).'
                 }
               }

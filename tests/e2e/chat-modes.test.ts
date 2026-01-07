@@ -1,6 +1,6 @@
 import { setup } from '@nuxt/test-utils/e2e'
 import { $fetch } from 'ofetch'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { ensureActiveOrganization, getAuthCookie } from '../utils/authCookie'
 
 /**
@@ -9,10 +9,15 @@ import { ensureActiveOrganization, getAuthCookie } from '../utils/authCookie'
  * These tests verify the end-to-end behavior of the chat API
  * with different modes, focusing on tool availability and execution.
  */
-describe('chat Modes E2E', async () => {
-  await setup({ host: process.env.NUXT_TEST_APP_URL })
+describe('chat Modes E2E', () => {
+  beforeAll(async () => {
+    await setup({ host: process.env.NUXT_TEST_APP_URL })
+  })
 
   const baseURL = process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
+
+  let authCookie = ''
+  let hasActiveOrg = false
 
   // Helper to archive conversations
   // Optimized: Only archive once before all tests, not before/after each
@@ -48,11 +53,12 @@ describe('chat Modes E2E', async () => {
     }
   }
 
-  const authCookie = await getAuthCookie(baseURL)
-  const activeOrg = await ensureActiveOrganization(baseURL, authCookie)
-  const hasActiveOrg = Boolean(activeOrg.organizationId)
-
-  await archiveAllConversations(authCookie)
+  beforeAll(async () => {
+    authCookie = await getAuthCookie(baseURL)
+    const activeOrg = await ensureActiveOrganization(baseURL, authCookie)
+    hasActiveOrg = Boolean(activeOrg.organizationId)
+    await archiveAllConversations(authCookie)
+  })
 
   describe('authenticated conversations API', () => {
     it.skipIf(!hasActiveOrg)('returns conversations for authenticated users', async () => {

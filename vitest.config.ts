@@ -11,7 +11,8 @@ if (typeof crypto.hash !== 'function') {
     data: string | Buffer | ArrayBuffer | ArrayBufferView,
     outputEncoding?: BufferEncoding
   ) => {
-    const hash = crypto.createHash(algorithm).update(data as any)
+    const normalizedData = data instanceof ArrayBuffer ? new Uint8Array(data) : data
+    const hash = crypto.createHash(algorithm).update(normalizedData)
     return outputEncoding ? hash.digest(outputEncoding) : hash.digest()
   }
 }

@@ -412,12 +412,13 @@ function applyOperation(
       const afterSlice = markdown.substring(insertPos, Math.min(markdown.length, insertPos + 2))
       const leadingSeparator = insertPos === 0 || beforeSlice === '\n\n' ? '' : '\n\n'
       const trailingSeparator = insertPos === markdown.length || afterSlice === '\n\n' ? '' : '\n\n'
-      newText = markdown.substring(0, insertPos) + leadingSeparator + op.newText + trailingSeparator + markdown.substring(insertPos)
+      const insertedText = `${leadingSeparator}${op.newText}${trailingSeparator}`
+      newText = markdown.substring(0, insertPos) + insertedText + markdown.substring(insertPos)
       change = {
         type: 'insert',
         location: insertPos,
         oldText: '',
-        newText: op.newText
+        newText: insertedText
       }
       break
     }
