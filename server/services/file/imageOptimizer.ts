@@ -1,3 +1,4 @@
+import type { EncodeOptions as AvifEncodeOptions } from '@jsquash/avif/codec/enc/avif_enc.js'
 import type { ImageDataLike, ImageVariantMap } from './imageTypes'
 import { decode as decodeAvif, encode as encodeAvif } from '@jsquash/avif'
 import { decode as decodeJpeg } from '@jsquash/jpeg'
@@ -103,12 +104,21 @@ const ensureImageData = (image: ImageDataLike): ImageData => {
   } as ImageData
 }
 
+const mapQualityToAvifOptions = (quality: number): Partial<AvifEncodeOptions> => {
+  const normalizedQuality = Math.max(0, Math.min(100, Math.round(quality)))
+  const inverted = Math.round(63 - (normalizedQuality / 100) * 63)
+  const cqLevel = Math.max(0, Math.min(63, inverted))
+  return { cqLevel }
+}
+
 const encodeVariant = async (format: OutputFormat, image: ImageData, quality: number) => {
   if (format === 'webp') {
     return await encodeWebp(image, { quality })
   }
   if (format === 'avif') {
-    return await encodeAvif(image)
+    // AVIF encoding uses cqLevel where 0 is best and 63 is worst quality; map our normalized quality accordingly.
+    const options = mapQualityToAvifOptions(quality)
+    return await encodeAvif(image, options)
   }
   throw new Error(`Unsupported output format: ${format}`)
 }
