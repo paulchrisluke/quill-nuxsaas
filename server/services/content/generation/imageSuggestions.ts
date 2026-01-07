@@ -237,7 +237,7 @@ export const suggestImagesForContent = async (params: {
             altText,
             reason,
             priority,
-            type: 'generated'
+            type: 'generated' as const
           } as ImageSuggestion
         })
         .filter(item => item.sectionId && item.altText && item.reason)
@@ -273,7 +273,7 @@ export const suggestImagesForContent = async (params: {
 
     return {
       ...suggestion,
-      type: 'screencap',
+      type: 'screencap' as const,
       videoId,
       ...(estimatedTimestamp !== undefined ? { estimatedTimestamp } : {}),
       status: 'pending'

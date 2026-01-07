@@ -119,22 +119,27 @@ export async function loadReferenceContent(resolved: ResolvedReference[], contex
       }
 
       let version: { id: string, frontmatter: Record<string, any> | null, sections: RawSection[] | null } | null = null
-      if (content?.currentVersionId) {
-        try {
-          const [selected] = await context.db
-            .select({
-              id: schema.contentVersion.id,
-              frontmatter: schema.contentVersion.frontmatter,
-              sections: schema.contentVersion.sections
-            })
-            .from(schema.contentVersion)
-            .where(eq(schema.contentVersion.id, content.currentVersionId))
-            .limit(1)
-          version = selected ?? null
-        } catch (error) {
-          console.error('[references] Failed to load content version:', content.currentVersionId, error)
-          continue
-        }
+      try {
+        const [selected] = await context.db
+          .select({
+            id: schema.contentVersion.id,
+            frontmatter: schema.contentVersion.frontmatter,
+            sections: schema.contentVersion.sections
+          })
+          .from(schema.contentVersion)
+          .where(eq(schema.contentVersion.id, content.currentVersionId))
+          .limit(1)
+        version = selected ?? null
+      } catch (error) {
+        console.error('[references] Failed to load content version:', content.currentVersionId, error)
+        contents.push({
+          type: 'content',
+          token: reference.token,
+          metadata: reference.metadata,
+          frontmatterSummary: null,
+          sectionsSummary: []
+        })
+        continue
       }
       if (!version) {
         contents.push({
