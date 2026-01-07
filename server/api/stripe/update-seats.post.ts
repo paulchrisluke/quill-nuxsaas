@@ -151,7 +151,7 @@ export default defineEventHandler(async (event) => {
   })
 
   // Update local database immediately
-  const periodEndTimestamp = (updatedSubscription as { current_period_end?: number }).current_period_end
+  const periodEndTimestamp = updatedSubscription.items?.data?.[0]?.current_period_end ?? null
   const periodEnd = periodEndTimestamp
     ? new Date(periodEndTimestamp * 1000)
     : undefined

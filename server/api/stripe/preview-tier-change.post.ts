@@ -150,7 +150,7 @@ export default defineEventHandler(async (event) => {
     const fullSubscription = await stripe.subscriptions.retrieve(subscription.id)
 
     // Try billing_cycle_anchor if current_period_end doesn't exist
-    let periodEndTimestamp = (fullSubscription as { current_period_end?: number }).current_period_end
+    let periodEndTimestamp = fullSubscription.items?.data?.[0]?.current_period_end ?? null
     if (!periodEndTimestamp) {
       // Calculate next period from billing_cycle_anchor
       const anchor = fullSubscription.billing_cycle_anchor
@@ -326,7 +326,7 @@ export default defineEventHandler(async (event) => {
     console.log('[preview-tier-change] Calculated:', { creditAmount, chargeAmount, netAmount, immediateCharge, isDowngrade, isUpgrade })
 
     // Period end date
-    const periodEndTimestamp = (subscription as { current_period_end?: number }).current_period_end
+    const periodEndTimestamp = subscription.items?.data?.[0]?.current_period_end ?? null
     const periodEnd = periodEndTimestamp
       ? new Date(periodEndTimestamp * 1000)
       : null

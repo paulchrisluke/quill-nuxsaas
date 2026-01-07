@@ -180,7 +180,8 @@ export default defineEventHandler(async (event) => {
         end_behavior: 'release' // Release back to regular subscription after schedule completes
       })
 
-      const periodEnd = (subscription as { current_period_end?: number }).current_period_end
+      const periodEndTimestamp = subscription.items?.data?.[0]?.current_period_end
+      const periodEnd = periodEndTimestamp
 
       await db.update(subscriptionTable)
         .set({
