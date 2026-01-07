@@ -1,3 +1,4 @@
+import type Stripe from 'stripe'
 import type { PlanInterval, PlanKey } from '~~/shared/utils/plans'
 import { and, eq } from 'drizzle-orm'
 import { member as memberTable, organization as organizationTable, subscription as subscriptionTable } from '~~/server/db/schema'
@@ -150,7 +151,7 @@ export default defineEventHandler(async (event) => {
     const fullSubscription = await stripe.subscriptions.retrieve(subscription.id)
 
     // Try billing_cycle_anchor if current_period_end doesn't exist
-    let periodEndTimestamp = fullSubscription.items?.data?.[0]?.current_period_end ?? null
+    let periodEndTimestamp = (fullSubscription as Stripe.Subscription & { current_period_end?: number | null }).current_period_end ?? null
     if (!periodEndTimestamp) {
       // Calculate next period from billing_cycle_anchor
       const anchor = fullSubscription.billing_cycle_anchor
@@ -326,7 +327,7 @@ export default defineEventHandler(async (event) => {
     console.log('[preview-tier-change] Calculated:', { creditAmount, chargeAmount, netAmount, immediateCharge, isDowngrade, isUpgrade })
 
     // Period end date
-    const periodEndTimestamp = subscription.items?.data?.[0]?.current_period_end ?? null
+    const periodEndTimestamp = (subscription as Stripe.Subscription & { current_period_end?: number | null }).current_period_end ?? null
     const periodEnd = periodEndTimestamp
       ? new Date(periodEndTimestamp * 1000)
       : null

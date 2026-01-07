@@ -21,8 +21,10 @@ import {
 import { runtimeConfig } from './runtimeConfig'
 import { createStripeClient } from './stripe'
 
-const getSubscriptionItemPeriodEnd = (subscription: Stripe.Subscription | null | undefined): number | null => {
-  return subscription?.items?.data?.[0]?.current_period_end ?? null
+type StripeSubscriptionWithPeriodEnd = Stripe.Subscription & { current_period_end?: number | null }
+
+const getSubscriptionPeriodEnd = (subscription: StripeSubscriptionWithPeriodEnd | null | undefined): number | null => {
+  return subscription?.current_period_end ?? null
 }
 
 // ============================================================================
@@ -125,7 +127,7 @@ function getSubscriptionInfo(subscription: any): SubscriptionInfo {
   // Get seats from subscription
   const seats = subscription.seats || subscription.quantity || subscription.items?.data?.[0]?.quantity || 1
 
-  const periodEndTimestamp = getSubscriptionItemPeriodEnd(subscription as Stripe.Subscription)
+  const periodEndTimestamp = getSubscriptionPeriodEnd(subscription as StripeSubscriptionWithPeriodEnd)
   return {
     planName: planResult?.tier.name || 'Pro',
     billingCycle,
@@ -162,7 +164,7 @@ async function getStripeSubscriptionDetails(subscription: any): Promise<{
     const stripeSub = await client.subscriptions.retrieve(subId, {
       expand: ['items.data.price']
     }) as Stripe.Subscription
-    const currentPeriodEnd = getSubscriptionItemPeriodEnd(stripeSub)
+    const currentPeriodEnd = getSubscriptionPeriodEnd(stripeSub as StripeSubscriptionWithPeriodEnd)
 
     if (process.env.NODE_ENV === 'development') {
       console.log('[Stripe Email] Stripe subscription:', {
@@ -260,7 +262,7 @@ async function buildSubscriptionEmailData(organizationId: string, subscription: 
   const seats = subscription.seats || subscription.quantity || subscription.items?.data?.[0]?.quantity || subInfo.seats
 
   // Get period end from various sources
-  const periodEndTimestamp = getSubscriptionItemPeriodEnd(subscription as Stripe.Subscription)
+  const periodEndTimestamp = getSubscriptionPeriodEnd(subscription as StripeSubscriptionWithPeriodEnd)
   const periodEnd = subscription.periodEnd
     ? new Date(subscription.periodEnd)
     : periodEndTimestamp
@@ -454,7 +456,7 @@ export async function sendSubscriptionResumedEmail(organizationId: string, subsc
     ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'usd' }).format(totalAmount)
     : subInfo.amount
 
-  const resumedPeriodEndTimestamp = getSubscriptionItemPeriodEnd(subscription as Stripe.Subscription)
+  const resumedPeriodEndTimestamp = getSubscriptionPeriodEnd(subscription as StripeSubscriptionWithPeriodEnd)
   const periodEnd = subInfo.periodEnd
     || (resumedPeriodEndTimestamp ? new Date(resumedPeriodEndTimestamp * 1000) : null)
 

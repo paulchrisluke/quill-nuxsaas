@@ -1,3 +1,4 @@
+import type Stripe from 'stripe'
 import { and, eq } from 'drizzle-orm'
 import { member as memberTable, organization as organizationTable, subscription as subscriptionTable } from '~~/server/db/schema'
 import { getAuthSession } from '~~/server/utils/auth'
@@ -180,7 +181,7 @@ export default defineEventHandler(async (event) => {
         end_behavior: 'release' // Release back to regular subscription after schedule completes
       })
 
-      const periodEndTimestamp = subscription.items?.data?.[0]?.current_period_end
+      const periodEndTimestamp = (subscription as Stripe.Subscription & { current_period_end?: number | null }).current_period_end ?? null
       const periodEnd = periodEndTimestamp
 
       await db.update(subscriptionTable)
