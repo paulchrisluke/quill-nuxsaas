@@ -1,8 +1,9 @@
+import { toWebRequest } from 'h3'
 import { getAuthSession, useServerAuth } from '~~/server/utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const path = event.path || event.node.req.url?.split('?')[0] || ''
-  if (path.includes('get-session')) {
+  const url = new URL(event.node.req.url || '', 'http://localhost')
+  if (url.pathname.endsWith('/get-session')) {
     const session = await getAuthSession(event)
     return {
       session: session ?? null,

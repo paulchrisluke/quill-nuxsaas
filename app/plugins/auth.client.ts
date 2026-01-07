@@ -1,5 +1,5 @@
 export default defineNuxtPlugin(async (nuxtApp) => {
-  if (process.env.NODE_ENV === 'test') {
+  if (import.meta.env.MODE === 'test') {
     return
   }
   if (!nuxtApp.payload.serverRendered) {

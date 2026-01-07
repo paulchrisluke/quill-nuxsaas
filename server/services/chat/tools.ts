@@ -31,6 +31,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
             type: 'replace' | 'insert' | 'delete' | 'format'
             anchor: string
             scope?: string | null
+            lineRange?: { start: number, end: number } | null
             oldText?: string | null
             newText?: string | null
             position?: 'before' | 'after' | 'replace' | null
@@ -38,6 +39,7 @@ export type ChatToolArguments<TName extends ChatToolName> =
           constraints?: {
             maxChangedLines?: number | null
             allowHeadingChanges?: boolean | null
+            scope?: 'single-paragraph' | 'multi-paragraph' | null
           } | null
           rationale?: string | null
         }
@@ -373,6 +375,20 @@ function buildEditOpsParameters(): ParameterSchema {
               type: 'string',
               description: 'Optional section title to limit search (use if anchor appears multiple times).'
             },
+            lineRange: {
+              type: 'object',
+              description: 'Optional 1-based line range to narrow anchor lookup (secondary to text anchors).',
+              properties: {
+                start: {
+                  type: 'number',
+                  description: 'Start line number (1-based).'
+                },
+                end: {
+                  type: 'number',
+                  description: 'End line number (1-based, inclusive).'
+                }
+              }
+            },
             oldText: {
               type: 'string',
               description: 'For replace: exact text to replace. If not provided, anchor is used.'
@@ -395,11 +411,16 @@ function buildEditOpsParameters(): ParameterSchema {
         properties: {
           maxChangedLines: {
             type: 'number',
-            description: 'Maximum number of lines that can be changed (default: 50).'
+            description: 'Maximum number of lines that can be changed (default: 12 or 8% of content, whichever is smaller).'
           },
           allowHeadingChanges: {
             type: 'boolean',
             description: 'Whether heading changes are allowed (default: false).'
+          },
+          scope: {
+            type: 'string',
+            enum: ['single-paragraph', 'multi-paragraph'],
+            description: 'Scope limit for edits (default: single-paragraph). Use multi-paragraph only when explicitly requested.'
           }
         }
       },

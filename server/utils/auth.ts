@@ -735,15 +735,17 @@ export const requireActiveOrganization = async (event: H3Event, options: { allow
           id: orgId,
           name: 'Anonymous Workspace',
           slug,
-          isAnonymous: true
-        })
+          isAnonymous: true,
+          createdAt: new Date()
+        }).onConflictDoNothing()
 
         await tx.insert(schema.member).values({
           id: uuidv7(),
           organizationId: orgId,
           userId: user.id,
-          role: 'owner'
-        })
+          role: 'owner',
+          createdAt: new Date()
+        }).onConflictDoNothing()
 
         await tx
           .update(schema.user)
@@ -782,8 +784,9 @@ export const requireActiveOrganization = async (event: H3Event, options: { allow
         id: uuidv7(),
         organizationId: activeOrganizationId,
         userId: user.id,
-        role: 'owner'
-      })
+        role: 'owner',
+        createdAt: new Date()
+      }).onConflictDoNothing()
       return { organizationId: activeOrganizationId }
     }
     throw createError({

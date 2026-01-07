@@ -5,6 +5,7 @@ export interface EditOp {
   type: 'replace' | 'insert' | 'delete' | 'format'
   anchor: string
   scope?: string
+  lineRange?: { start: number, end: number }
   oldText?: string
   newText?: string
   position?: 'before' | 'after' | 'replace'
@@ -13,6 +14,7 @@ export interface EditOp {
 export interface EditConstraints {
   maxChangedLines?: number
   allowHeadingChanges?: boolean
+  scope?: 'single-paragraph' | 'multi-paragraph'
 }
 
 export interface Change {
@@ -46,22 +48,62 @@ interface SectionMatch {
   content: string
 }
 
-const DEFAULT_MAX_CHANGED_LINES = 50
+const DEFAULT_MAX_CHANGED_LINES = 12
+const DEFAULT_MAX_CHANGED_RATIO = 0.08
 
 export function applyEditOps(
   markdown: string,
   ops: EditOp[],
   constraints: EditConstraints = {}
 ): PatchResult {
+  if (typeof markdown !== 'string') {
+    return {
+      success: false,
+      error: 'markdown parameter must be a string'
+    }
+  }
+  if (!Array.isArray(ops) || ops.length === 0) {
+    return {
+      success: false,
+      error: 'ops must be a non-empty array'
+    }
+  }
+
   let result = markdown
   const changes: Change[] = []
+  const totalLines = Math.max(1, markdown.split('\n').length)
+  const defaultMaxChangedLines = Math.min(
+    DEFAULT_MAX_CHANGED_LINES,
+    Math.max(1, Math.floor(totalLines * DEFAULT_MAX_CHANGED_RATIO))
+  )
   const {
-    maxChangedLines = DEFAULT_MAX_CHANGED_LINES,
-    allowHeadingChanges = false
+    allowHeadingChanges = false,
+    scope = 'single-paragraph'
   } = constraints
+  const requestedMaxChangedLines = constraints.maxChangedLines
+  const maxChangedLines = scope === 'multi-paragraph' && typeof requestedMaxChangedLines === 'number'
+    ? Math.max(1, Math.floor(requestedMaxChangedLines))
+    : typeof requestedMaxChangedLines === 'number'
+      ? Math.min(defaultMaxChangedLines, Math.max(1, Math.floor(requestedMaxChangedLines)))
+      : defaultMaxChangedLines
 
   for (const op of ops) {
-    const location = findAnchor(result, op.anchor, op.scope)
+    if (!op || typeof op.anchor !== 'string') {
+      return {
+        success: false,
+        error: 'Each edit op must include a string anchor'
+      }
+    }
+
+    const lineRange = op.lineRange ? resolveLineRange(result, op.lineRange) : null
+    if (op.lineRange && !lineRange) {
+      return {
+        success: false,
+        error: 'lineRange must be a valid 1-based range within the current content.'
+      }
+    }
+
+    const location = findAnchor(result, op.anchor, op.scope, lineRange)
 
     if (!location.found) {
       return {
@@ -86,15 +128,31 @@ export function applyEditOps(
       }
     }
 
+    const scopeValidation = validateScopeChange(result, patched.text, patched.change, scope)
+    if (!scopeValidation.valid) {
+      return {
+        success: false,
+        error: scopeValidation.error || 'Edit violates scope constraints'
+      }
+    }
+
     const validation = validatePatch(result, patched.text, {
       maxChangedLines,
-      allowHeadingChanges
+      allowHeadingChanges,
+      scope
     })
 
     if (!validation.valid) {
       return {
         success: false,
         error: validation.error || 'Edit violates constraints'
+      }
+    }
+
+    const lengthDelta = patched.change.newText.length - patched.change.oldText.length
+    for (const existingChange of changes) {
+      if (existingChange.location >= patched.change.location) {
+        existingChange.location += lengthDelta
       }
     }
 
@@ -109,6 +167,10 @@ export function buildSectionsFromMarkdown(
   markdown: string,
   existingSections?: Array<{ id?: string, title?: string, [key: string]: any }>
 ) {
+  if (typeof markdown !== 'string') {
+    return []
+  }
+
   const lines = markdown.split('\n')
   const sections: Array<{
     id: string
@@ -204,6 +266,12 @@ export function calculateEditLineRange(
   patched: string,
   changes: Change[]
 ): { start: number, end: number } | null {
+  if (typeof original !== 'string' || typeof patched !== 'string') {
+    return null
+  }
+  if (!Array.isArray(changes)) {
+    return null
+  }
   if (!changes.length) {
     return null
   }
@@ -212,7 +280,12 @@ export function calculateEditLineRange(
   return calculateLineRange(patched, startOffset, endOffset)
 }
 
-function findAnchor(markdown: string, anchor: string, scope?: string): AnchorLocation {
+function findAnchor(
+  markdown: string,
+  anchor: string,
+  scope?: string,
+  lineRange?: { startOffset: number, endOffset: number }
+): AnchorLocation {
   const trimmedAnchor = anchor.trim()
   if (!trimmedAnchor) {
     return { found: false }
@@ -222,13 +295,25 @@ function findAnchor(markdown: string, anchor: string, scope?: string): AnchorLoc
   let searchSpace = markdown
   let sectionContext: string | undefined
 
+  if (lineRange) {
+    searchStartOffset = lineRange.startOffset
+    searchSpace = markdown.slice(lineRange.startOffset, lineRange.endOffset)
+  }
+
   if (scope) {
     const section = extractSection(markdown, scope)
     if (!section) {
       return { found: false }
     }
-    searchStartOffset = section.startOffset
-    searchSpace = section.content
+    const sectionStart = section.startOffset
+    const sectionEnd = section.endOffset
+    const boundedStart = lineRange ? Math.max(lineRange.startOffset, sectionStart) : sectionStart
+    const boundedEnd = lineRange ? Math.min(lineRange.endOffset, sectionEnd) : sectionEnd
+    if (boundedStart >= boundedEnd) {
+      return { found: false }
+    }
+    searchStartOffset = boundedStart
+    searchSpace = markdown.slice(boundedStart, boundedEnd)
     sectionContext = section.title
   }
 
@@ -323,8 +408,11 @@ function applyOperation(
       }
 
       const insertPos = op.position === 'before' ? startIndex : endIndex
-      const separator = '\n\n'
-      newText = markdown.substring(0, insertPos) + separator + op.newText + separator + markdown.substring(insertPos)
+      const beforeSlice = markdown.substring(Math.max(0, insertPos - 2), insertPos)
+      const afterSlice = markdown.substring(insertPos, Math.min(markdown.length, insertPos + 2))
+      const leadingSeparator = insertPos === 0 || beforeSlice === '\n\n' ? '' : '\n\n'
+      const trailingSeparator = insertPos === markdown.length || afterSlice === '\n\n' ? '' : '\n\n'
+      newText = markdown.substring(0, insertPos) + leadingSeparator + op.newText + trailingSeparator + markdown.substring(insertPos)
       change = {
         type: 'insert',
         location: insertPos,
@@ -366,7 +454,7 @@ function applyOperation(
 function validatePatch(
   original: string,
   patched: string,
-  constraints: Required<Pick<EditConstraints, 'maxChangedLines' | 'allowHeadingChanges'>>
+  constraints: Required<Pick<EditConstraints, 'maxChangedLines' | 'allowHeadingChanges' | 'scope'>>
 ): { valid: boolean, error?: string } {
   const diffStats = calculateDiffStats(original, patched)
   const changedLines = diffStats.additions + diffStats.deletions
@@ -374,7 +462,7 @@ function validatePatch(
   if (changedLines > constraints.maxChangedLines) {
     return {
       valid: false,
-      error: `Edit would change ${changedLines} lines (max ${constraints.maxChangedLines}). Please make smaller edits or increase maxChangedLines.`
+      error: `Edit would change ${changedLines} lines (max ${constraints.maxChangedLines}). Please make smaller edits or request a broader scope.`
     }
   }
 
@@ -395,20 +483,155 @@ function validatePatch(
   return { valid: true }
 }
 
+function validateScopeChange(
+  original: string,
+  patched: string,
+  change: Change,
+  scope: EditConstraints['scope']
+): { valid: boolean, error?: string } {
+  if (scope === 'multi-paragraph') {
+    return { valid: true }
+  }
+
+  const newText = change.newText || ''
+  if (/\n\s*\n/.test(newText)) {
+    return {
+      valid: false,
+      error: 'Edit introduces multiple paragraphs. Request a multi-paragraph scope to continue.'
+    }
+  }
+
+  const rangeStart = change.location
+  const rangeEnd = change.location + (change.oldText?.length ?? 0)
+  const paragraphBounds = getParagraphBounds(original, rangeStart, rangeEnd)
+  if (!paragraphBounds) {
+    return {
+      valid: false,
+      error: 'Edit spans multiple paragraphs. Request a multi-paragraph scope to continue.'
+    }
+  }
+
+  if (rangeStart < paragraphBounds.start || rangeEnd > paragraphBounds.end) {
+    return {
+      valid: false,
+      error: 'Edit spans multiple paragraphs. Request a multi-paragraph scope to continue.'
+    }
+  }
+
+  const patchedBounds = getParagraphBounds(patched, change.location, change.location + newText.length)
+  if (!patchedBounds) {
+    return {
+      valid: false,
+      error: 'Edit spans multiple paragraphs. Request a multi-paragraph scope to continue.'
+    }
+  }
+
+  return { valid: true }
+}
+
+function resolveLineRange(
+  markdown: string,
+  range: { start: number, end: number }
+): { startOffset: number, endOffset: number } | null {
+  if (!Number.isInteger(range.start) || !Number.isInteger(range.end)) {
+    return null
+  }
+  if (range.start < 1 || range.end < range.start) {
+    return null
+  }
+
+  const lines = markdown.split('\n')
+  const totalLines = lines.length
+  if (range.end > totalLines) {
+    return null
+  }
+
+  const lineOffsets: number[] = []
+  let offset = 0
+  for (const line of lines) {
+    lineOffsets.push(offset)
+    offset += line.length + 1
+  }
+
+  const startIndex = range.start - 1
+  const endIndex = range.end - 1
+  const startOffset = lineOffsets[startIndex]
+  const endOffset = endIndex + 1 < lineOffsets.length ? lineOffsets[endIndex + 1] : markdown.length
+
+  return { startOffset, endOffset }
+}
+
+function getParagraphBounds(
+  markdown: string,
+  startOffset: number,
+  endOffset: number
+): { start: number, end: number } | null {
+  const lines = markdown.split('\n')
+  const lineOffsets: number[] = []
+  let offset = 0
+  for (const line of lines) {
+    lineOffsets.push(offset)
+    offset += line.length + 1
+  }
+
+  const findLineIndex = (pos: number) => {
+    for (let i = lineOffsets.length - 1; i >= 0; i -= 1) {
+      if (pos >= lineOffsets[i]) {
+        return i
+      }
+    }
+    return 0
+  }
+
+  const startLine = findLineIndex(startOffset)
+  const endLine = findLineIndex(Math.max(startOffset, endOffset - 1))
+
+  if (lines[startLine]?.trim() === '' || lines[endLine]?.trim() === '') {
+    return null
+  }
+
+  let paragraphStartLine = startLine
+  for (let i = startLine - 1; i >= 0; i -= 1) {
+    if (lines[i].trim() === '') {
+      paragraphStartLine = i + 1
+      break
+    }
+    if (i === 0) {
+      paragraphStartLine = 0
+    }
+  }
+
+  let paragraphEndLine = endLine
+  for (let i = endLine + 1; i < lines.length; i += 1) {
+    if (lines[i].trim() === '') {
+      paragraphEndLine = i - 1
+      break
+    }
+    if (i === lines.length - 1) {
+      paragraphEndLine = lines.length - 1
+    }
+  }
+
+  const start = lineOffsets[paragraphStartLine]
+  const end = paragraphEndLine + 1 < lineOffsets.length ? lineOffsets[paragraphEndLine + 1] : markdown.length
+
+  return { start, end }
+}
+
 function extractHeadings(markdown: string): string[] {
   return markdown
     .split('\n')
     .map(line => line.trim())
-    .filter(line => /^#{1,6}/.test(line) && /[ \t]/.test(line))
+    .filter(line => /^#{1,6}[ \t]/.test(line))
 }
 
-const WHITESPACE_PATTERN = /[\t\v\f \xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]+/g
+const WHITESPACE_PATTERN = /[\t\v\f \xa0\u1680\u2000-\u200a\u202f\u205f\u3000\ufeff]+/gu
 
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
     .replace(WHITESPACE_PATTERN, ' ')
-    .replace(/[^\w\s]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
     .trim()
 }
 
@@ -428,7 +651,7 @@ function buildNormalizedMap(text: string): { normalized: string, map: number[] }
       continue
     }
 
-    const normalizedChar = char.toLowerCase().replace(/\W/g, '')
+    const normalizedChar = char.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
     if (!normalizedChar) {
       continue
     }
@@ -481,7 +704,7 @@ function extractSection(markdown: string, sectionTitle: string): SectionMatch | 
     const title = rest.trim()
     const normalizedTitle = normalizeText(title)
 
-    if (normalizedTitle.includes(normalizedTarget) || normalizedTarget.includes(normalizedTitle)) {
+    if (normalizedTitle === normalizedTarget) {
       sectionStartLine = i
       sectionLevel = level
       sectionHeading = title

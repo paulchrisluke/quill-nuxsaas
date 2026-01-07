@@ -1,4 +1,4 @@
-import type { Buffer } from 'node:buffer'
+import type { Buffer, BufferEncoding } from 'node:buffer'
 import { createRequire } from 'node:module'
 import { defineVitestConfig } from '@nuxt/test-utils/config'
 
@@ -6,8 +6,14 @@ const require = createRequire(import.meta.url)
 const crypto = require('node:crypto')
 
 if (typeof crypto.hash !== 'function') {
-  crypto.hash = (algorithm: string, data: string | Buffer) =>
-    crypto.createHash(algorithm).update(data).digest('hex')
+  crypto.hash = (
+    algorithm: string,
+    data: string | Buffer | ArrayBuffer | ArrayBufferView,
+    outputEncoding?: BufferEncoding
+  ) => {
+    const hash = crypto.createHash(algorithm).update(data as any)
+    return outputEncoding ? hash.digest(outputEncoding) : hash.digest()
+  }
 }
 
 export default defineVitestConfig({

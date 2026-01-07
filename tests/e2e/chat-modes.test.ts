@@ -1,6 +1,6 @@
 import { setup } from '@nuxt/test-utils/e2e'
 import { $fetch } from 'ofetch'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ensureActiveOrganization, getAuthCookie } from '../utils/authCookie'
 
 /**
@@ -13,9 +13,6 @@ describe('chat Modes E2E', async () => {
   await setup({ host: process.env.NUXT_TEST_APP_URL })
 
   const baseURL = process.env.NUXT_TEST_APP_URL || 'http://localhost:3000'
-
-  let authCookie = ''
-  let hasActiveOrg = false
 
   // Helper to archive conversations
   // Optimized: Only archive once before all tests, not before/after each
@@ -51,32 +48,26 @@ describe('chat Modes E2E', async () => {
     }
   }
 
-  // Only archive once before all tests to reduce overhead
-  beforeAll(async () => {
-    authCookie = await getAuthCookie(baseURL)
-    const activeOrg = await ensureActiveOrganization(baseURL, authCookie)
-    hasActiveOrg = Boolean(activeOrg.organizationId)
-    await archiveAllConversations(authCookie)
-  })
+  const authCookie = await getAuthCookie(baseURL)
+  const activeOrg = await ensureActiveOrganization(baseURL, authCookie)
+  const hasActiveOrg = Boolean(activeOrg.organizationId)
+
+  await archiveAllConversations(authCookie)
 
   describe('authenticated conversations API', () => {
-    it('returns conversations for authenticated users', async () => {
+    it.skipIf(!hasActiveOrg)('returns conversations for authenticated users', async () => {
       const response = await $fetch('/api/conversations', {
         baseURL,
         method: 'GET',
         headers: authCookie ? { Cookie: authCookie } : undefined
       }) as any
 
-      if (!hasActiveOrg) {
-        return
-      }
-
       expect(Array.isArray(response?.conversations)).toBe(true)
     })
   })
 
   describe('chat Mode (Read-Only)', () => {
-    it('should allow read operations in chat mode', async () => {
+    it.skipIf(!hasActiveOrg)('should allow read operations in chat mode', async () => {
       // This test verifies that chat mode can use read tools
       // We can't easily test the full flow without a real DB, but we can
       // verify the endpoint accepts chat mode and doesn't immediately error
@@ -96,10 +87,6 @@ describe('chat Modes E2E', async () => {
           }
         }) as string
 
-        if (!hasActiveOrg) {
-          return
-        }
-
         // Should not contain mode enforcement errors
         expect(response).not.toContain('not available in chat mode')
         expect(response).not.toContain('Switch to agent mode')
@@ -113,7 +100,7 @@ describe('chat Modes E2E', async () => {
       }
     })
 
-    it('should block write operations in chat mode', async () => {
+    it.skipIf(!hasActiveOrg)('should block write operations in chat mode', async () => {
       try {
         const response = await $fetch('/api/chat?stream=true', {
           baseURL,
@@ -128,10 +115,6 @@ describe('chat Modes E2E', async () => {
             mode: 'chat'
           }
         }) as string
-
-        if (!hasActiveOrg) {
-          return
-        }
 
         // Should contain mode enforcement error OR the LLM should explain it can't do this
         const hasModeError = response.includes('not available in chat mode') ||
@@ -158,7 +141,7 @@ describe('chat Modes E2E', async () => {
   })
 
   describe('agent Mode (Read+Write)', () => {
-    it('should allow all operations in agent mode', async () => {
+    it.skipIf(!hasActiveOrg)('should allow all operations in agent mode', async () => {
       try {
         const response = await $fetch('/api/chat?stream=true', {
           baseURL,
@@ -173,10 +156,6 @@ describe('chat Modes E2E', async () => {
             mode: 'agent'
           }
         }) as string
-
-        if (!hasActiveOrg) {
-          return
-        }
 
         // Should not contain mode enforcement errors
         expect(response).not.toContain('not available in chat mode')
@@ -194,7 +173,7 @@ describe('chat Modes E2E', async () => {
   })
 
   describe('tool Name Verification', () => {
-    it('should not use old tool names in responses', async () => {
+    it.skipIf(!hasActiveOrg)('should not use old tool names in responses', async () => {
       try {
         const response = await $fetch('/api/chat?stream=true', {
           method: 'POST',
@@ -208,10 +187,6 @@ describe('chat Modes E2E', async () => {
             mode: 'agent'
           }
         }) as string
-
-        if (!hasActiveOrg) {
-          return
-        }
 
         const oldToolNames = ['write_content', 'enrich_content', 'fetch_youtube', 'save_source']
         for (const oldTool of oldToolNames) {

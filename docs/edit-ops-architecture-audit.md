@@ -193,9 +193,8 @@ These are not available in the repo. Real examples would need to come from logs 
 - Repeated phrases origin (transcript vs hallucination).
 - Specific wording/structure that should be preserved.
 
-### Data Access Status (for example extraction)
 - `DATABASE_URL` is not set in the current environment, so no DB queries can be run to pull real examples.
-- The email `bamboo.chow@gmail.com` alone is not enough without DB access to join `user` → `conversation` → `conversation_message`.
+- A specific email address alone is not enough without DB access to join `user` → `conversation` → `conversation_message`.
 - Once DB access is available, the query path is:
   - `user.email` → `conversation.createdByUserId`
   - `conversation.id` → `conversation_message.conversationId`
@@ -207,8 +206,8 @@ These are not available in the repo. Real examples would need to come from logs 
 - Word choice should remain unchanged unless explicitly requested.
 - “Reorganizing” should allow sentence/paragraph reordering without paraphrasing.
 
-## Open Questions (for human review)
-- Default max-diff threshold per edit request.
-- Whether heading changes are ever allowed.
-- Whether edits should be restricted to a single paragraph unless expanded.
-- Whether edit-ops should accept explicit line numbers as anchors.
+## Edit-Ops Constraints (Decided)
+- Default max-diff threshold: allow at most 12 changed lines or 8% of total lines (whichever is smaller). If the request exceeds this, return a clarification prompt or require an explicit “expand scope” request.
+- Heading changes: disallowed by default. Allow only when the user explicitly requests a heading change and the request sets `allowHeadingChanges: true`.
+- Scope restriction: default to the smallest containing paragraph or the smallest matched anchor block. Any multi-paragraph change requires explicit “expand”/“rewrite” language or a `scope: 'multi-paragraph'` override.
+- Line-number anchors: supported as optional, but secondary to text anchors. If provided, validate they map to the current content version and do not broaden the scope beyond the allowed diff/paragraph limits.
