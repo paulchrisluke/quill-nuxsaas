@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import ContentWorkspacePage from '~/components/content/ContentWorkspacePage.vue'
 
+const route = useRoute()
+
 definePageMeta({
   ssr: false
 })
 </script>
 
 <template>
-  <ContentWorkspacePage />
+  <ContentWorkspacePage :key="route.params.id" />
 </template>

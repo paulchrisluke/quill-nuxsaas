@@ -1,4 +1,4 @@
-import { readMultipartFormData } from 'h3'
+import { createError, readMultipartFormData } from 'h3'
 import { z } from 'zod'
 import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
 import { optimizeImageInBackground } from '~~/server/services/file/imageOptimizer'

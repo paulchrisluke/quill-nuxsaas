@@ -39,6 +39,7 @@ const emit = defineEmits<{
   (e: 'select', node: FileTreeNode): void
   (e: 'archiveFile', node: FileTreeNode): void
   (e: 'archiveContent', node: FileTreeNode): void
+  (e: 'uploadFiles'): void
 }>()
 
 const depth = computed(() => props.depth ?? 0)
@@ -50,6 +51,7 @@ const contentId = computed(() => props.node.metadata?.contentId ?? null)
 const isFileNode = computed(() => props.node.type === 'file' && Boolean(fileId.value))
 const isContentNode = computed(() => props.node.type === 'file' && Boolean(contentId.value))
 const isArchivableNode = computed(() => isFileNode.value || isContentNode.value)
+const showUploadAction = computed(() => isFolder.value && props.node.path === 'files')
 
 const isActive = computed(() => {
   if (props.node.type !== 'file')
@@ -218,6 +220,16 @@ const handleKeydown = (event: KeyboardEvent) => {
         class="h-4 w-4 text-muted-500 flex-shrink-0"
       />
       <span class="truncate flex-1">{{ label }}</span>
+      <UButton
+        v-if="showUploadAction"
+        aria-label="Upload files"
+        icon="i-lucide-plus"
+        size="xs"
+        color="neutral"
+        variant="ghost"
+        class="opacity-100"
+        @click.stop="emit('uploadFiles')"
+      />
       <UDropdownMenu
         v-if="archiveMenuItems.length > 0"
         :items="archiveMenuItems"

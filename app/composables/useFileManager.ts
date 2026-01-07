@@ -5,6 +5,7 @@ export interface FileManagerConfig {
   onProgress?: (progress: number) => void
   onSuccess?: (file: any) => void
   onError?: (error: Error) => void
+  parallelUploads?: boolean
 }
 
 export function useFileManager(config: FileManagerConfig = {}) {
@@ -12,7 +13,8 @@ export function useFileManager(config: FileManagerConfig = {}) {
   const progress = ref(0)
   const error = ref<string | null>(null)
 
-  const uploadToServer = async (file: File): Promise<any> => {
+  const uploadFile = async (file: File, options?: { manageState?: boolean }): Promise<any> => {
+    const manageState = options?.manageState !== false
     if (config.maxSize && file.size > config.maxSize) {
       const errorMsg = `File size exceeds ${formatFileSize(config.maxSize)}`
       error.value = errorMsg
@@ -59,9 +61,11 @@ export function useFileManager(config: FileManagerConfig = {}) {
     const formData = new FormData()
     formData.append('file', file)
 
-    uploading.value = true
-    progress.value = 0
-    error.value = null
+    if (manageState) {
+      uploading.value = true
+      progress.value = 0
+      error.value = null
+    }
 
     try {
       const queryParams: Record<string, string> = {}
@@ -93,13 +97,41 @@ export function useFileManager(config: FileManagerConfig = {}) {
       config.onError?.(new Error(errorMsg))
       throw err
     } finally {
-      uploading.value = false
+      if (manageState) {
+        uploading.value = false
+      }
     }
+  }
+
+  const uploadToServer = async (file: File): Promise<any> => {
+    return uploadFile(file, { manageState: true })
   }
 
   const uploadMultipleFiles = async (files: FileList | File[]): Promise<any[]> => {
     const fileArray = Array.from(files)
-    const results = []
+    const results: any[] = []
+
+    if (config.parallelUploads) {
+      uploading.value = true
+      progress.value = 0
+      error.value = null
+      try {
+        const settled = await Promise.allSettled(
+          fileArray.map(file => uploadFile(file, { manageState: false }))
+        )
+        for (const result of settled) {
+          if (result.status === 'fulfilled') {
+            results.push(result.value)
+          } else {
+            const message = result.reason?.message || 'Upload failed'
+            results.push({ error: message })
+          }
+        }
+      } finally {
+        uploading.value = false
+      }
+      return results
+    }
 
     for (const file of fileArray) {
       try {
