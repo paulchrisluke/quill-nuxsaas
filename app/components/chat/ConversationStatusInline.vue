@@ -67,7 +67,7 @@ const iconClass = computed(() => (
     </div>
 
     <div
-      v-if="showSteps"
+      v-if="showSteps && showDetails"
       class="mt-2 space-y-1 text-xs text-muted-600 dark:text-muted-400"
     >
       <div

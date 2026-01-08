@@ -46,6 +46,8 @@ export interface DriveFolderImportResult {
 const fetchFolderFiles = async (accessToken: string, folderId: string): Promise<DriveFile[]> => {
   const files: DriveFile[] = []
   let pageToken: string | undefined
+  const safeFolderId = folderId.replace(/'/g, `\\'`)
+  const folderQuery = `'${safeFolderId}' in parents and trashed = false and mimeType contains 'image/'`
 
   do {
     const response = await $fetch<{
@@ -60,7 +62,7 @@ const fetchFolderFiles = async (accessToken: string, folderId: string): Promise<
         pageToken,
         orderBy: 'modifiedTime desc',
         fields: 'files(id,name,mimeType,size),nextPageToken',
-        q: `'${folderId}' in parents and trashed = false and mimeType contains 'image/'`,
+        q: folderQuery,
         supportsAllDrives: true,
         includeItemsFromAllDrives: true
       }

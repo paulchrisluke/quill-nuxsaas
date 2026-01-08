@@ -1,6 +1,5 @@
 const DRIVE_FOLDER_LINK_PATTERN = /drive\.google\.com\/drive\/folders\/([\w-]{25,})/i
-// eslint-disable-next-line regexp/no-useless-non-capturing-group, regexp/no-super-linear-backtracking
-const DRIVE_COMMAND_PATTERN = /(?:--drive-folder|drive(?:[-\s]+)folder)\s*[:=]?\s*["']?([\w-]{25,})["']?/i
+const DRIVE_COMMAND_PATTERN = /(?:--drive-folder|drive[-\s]+folder)(?:\s*[=:]\s*|\s+)(["']?)([\w-]{25,})\1/i
 
 const cleanId = (value: string): string => {
   return value.replace(/^["']|["']$/g, '').trim()
