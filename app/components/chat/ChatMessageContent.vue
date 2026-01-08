@@ -3,15 +3,16 @@ import type { ChatMessage, MessagePart } from '#shared/utils/types'
 import { computed } from 'vue'
 import { useContentPaths } from '~/composables/useContentPaths'
 import AgentProgressTracker from './progress/AgentProgressTracker.vue'
-import WorkspaceFilesAccordion from './WorkspaceFilesAccordion.vue'
 
 const props = withDefaults(defineProps<{
   message: ChatMessage
   displayText?: string | null
   bodyClass?: string
+  showToolDetails?: boolean
 }>(), {
   displayText: null,
-  bodyClass: ''
+  bodyClass: '',
+  showToolDetails: false
 })
 
 const { t } = useI18n()
@@ -117,28 +118,13 @@ const preview = computed(() => payload.value?.preview ?? null)
 const isError = computed(() => payload.value?.type === 'agent_failure' || payload.value?.type === 'error')
 const errorDetails = computed(() => payload.value?.error || null)
 const createdContentItems = computed(() => {
-  if (payload.value?.type !== 'created_content') {
-    return []
+  const payloadValue = payload.value
+  let items: any[] | null = null
+  if (payloadValue?.type === 'created_content') {
+    items = payloadValue.items
+  } else if (payloadValue?.type === 'workspace_files') {
+    items = payloadValue.createdContent || payloadValue.created_content
   }
-  const items = payload.value?.items
-  if (!Array.isArray(items)) {
-    return []
-  }
-  return items
-    .filter(item => item && typeof item.id === 'string' && item.id.length > 0)
-    .map(item => ({
-      id: item.id,
-      title: typeof item.title === 'string' && item.title.trim().length > 0
-        ? item.title.trim()
-        : 'Untitled content'
-    }))
-})
-
-const workspaceCreatedContentItems = computed(() => {
-  if (payload.value?.type !== 'workspace_files') {
-    return []
-  }
-  const items = payload.value?.createdContent || payload.value?.created_content
   if (!Array.isArray(items)) {
     return []
   }
@@ -234,7 +220,7 @@ function toSummaryBullets(summary: string | null | undefined) {
 
 <template>
   <div
-    v-if="payload?.type === 'created_content'"
+    v-if="createdContentItems.length"
     class="space-y-2"
   >
     <p class="text-xs uppercase tracking-wide text-muted-foreground">
@@ -331,12 +317,6 @@ function toSummaryBullets(summary: string | null | undefined) {
       </ul>
     </div>
   </div>
-  <div v-else-if="payload?.type === 'workspace_files' && Array.isArray(payload.files)">
-    <WorkspaceFilesAccordion
-      :files="payload.files"
-      :created-content="workspaceCreatedContentItems"
-    />
-  </div>
   <div
     v-else
     :class="baseClass"
@@ -388,7 +368,7 @@ function toSummaryBullets(summary: string | null | undefined) {
     </div>
 
     <!-- Tool calls: Show first (they execute before the LLM response) -->
-    <template v-if="hasToolCalls || hasLiveToolActivities">
+    <template v-if="props.showToolDetails && (hasToolCalls || hasLiveToolActivities)">
       <AgentProgressTracker
         :message="message"
         :current-activity="currentActivity"

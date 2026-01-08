@@ -80,7 +80,10 @@ const {
   mode,
   hydrateConversation,
   getCachedMessagesMeta,
-  stopResponse
+  stopResponse,
+  currentActivity,
+  currentToolName,
+  activeToolActivities
 } = useConversation()
 
 if (props.initialMode)
@@ -110,12 +113,65 @@ const googlePickerOpening = ref(false)
 const { latestCreated } = useContentUpdates()
 const lastAutoOpenedContentId = useState<string | null>('chat/auto-opened-content', () => null)
 
-const uiStatus = computed(() => status.value)
+const uiStatus = computed(() => status.value === 'submitted' ? 'streaming' : status.value)
+const showToolDetails = ref(false)
 const displayMessages = computed<ChatMessage[]>(() => messages.value)
 const {
   refresh: refreshWorkspaceFiles,
   upsert: upsertWorkspaceFile
 } = useFileList({ pageSize: 100, stateKey: 'workspace-file-tree' })
+
+const humanizeToolName = (value?: string | null) => {
+  if (!value) {
+    return 'Tool'
+  }
+  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
+}
+
+const statusPhase = computed<'idle' | 'submitting' | 'working' | 'streaming' | 'error'>(() => {
+  if (status.value === 'error') {
+    return 'error'
+  }
+  if (currentActivity.value === 'thinking' || activeToolActivities.value.length > 0) {
+    return 'working'
+  }
+  if (status.value === 'submitted') {
+    return 'submitting'
+  }
+  if (status.value === 'streaming') {
+    return 'streaming'
+  }
+  return 'idle'
+})
+
+const statusLabel = computed(() => {
+  if (statusPhase.value === 'error') {
+    return errorMessage.value || 'Something went wrong.'
+  }
+  if (statusPhase.value === 'submitting') {
+    return 'Sending...'
+  }
+  if (statusPhase.value === 'working') {
+    const toolName = currentToolName.value || activeToolActivities.value[0]?.toolName
+    return toolName ? `Working on ${humanizeToolName(toolName)}...` : 'Working...'
+  }
+  if (statusPhase.value === 'streaming') {
+    return 'Writing response...'
+  }
+  return null
+})
+
+const statusSteps = computed(() => {
+  return activeToolActivities.value
+    .map(activity => ({
+      id: activity.toolCallId,
+      label: humanizeToolName(activity.toolName),
+      status: activity.status,
+      progressMessage: activity.progressMessage
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .slice(0, 3)
+})
 
 const ensureIsoString = (value: string | Date | null | undefined) => {
   if (!value)
@@ -693,6 +749,7 @@ const requestConversationMessages = async (conversationId: string, options?: { f
 }
 
 const switchingConversation = ref(false)
+const isConversationLoading = computed(() => switchingConversation.value)
 
 const loadConversationById = async (targetId: string | null) => {
   if (switchingConversation.value)
@@ -896,6 +953,12 @@ if (import.meta.client) {
           :error-message="errorMessage"
           :is-busy="isBusy"
           :prompt-submitting="promptSubmitting"
+          :status-phase="statusPhase"
+          :status-label="statusLabel"
+          :status-steps="statusSteps"
+          :show-tool-details="showToolDetails"
+          :is-conversation-loading="isConversationLoading"
+          @toggle-tool-details="showToolDetails = !showToolDetails"
           @copy="handleCopy"
           @regenerate="handleRegenerate"
           @send-again="handleSendAgain"

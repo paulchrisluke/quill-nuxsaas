@@ -372,8 +372,19 @@ const buildLineDiff = (beforeLines: string[], afterLines: string[]) => {
   return diff
 }
 
-const focusDiffLines = computed(() => {
-  const range = focusLineRange.value
+const changeLineRange = computed(() => {
+  if (focusLineRange.value) {
+    return focusLineRange.value
+  }
+  const totalLines = markdownLines.value.length
+  if (!totalLines) {
+    return null
+  }
+  return { start: 1, end: totalLines }
+})
+
+const changeDiffLines = computed(() => {
+  const range = changeLineRange.value
   if (!range)
     return []
   const currentLines = markdownLines.value
@@ -381,7 +392,7 @@ const focusDiffLines = computed(() => {
   const end = Math.min(range.end, currentLines.length)
   const currentSlice = currentLines.slice(start, end)
   if (!previousVersionData.value?.bodyMarkdown) {
-    return currentSlice.map(text => ({ type: 'same' as const, text }))
+    return currentSlice.map(text => ({ type: 'add' as const, text }))
   }
   const beforeText = previousVersionData.value.bodyMarkdown || ''
   const beforeLines = beforeText.replace(/\r/g, '').split('\n')
@@ -418,6 +429,20 @@ const previousVersionEntry = computed(() => {
     return null
   }
   return contentVersions.value[index + 1] || null
+})
+
+const changesHeaderLabel = computed(() => (focusLineRange.value ? 'Focused changes' : 'Changes'))
+const changesSubLabel = computed(() => {
+  if (focusLineRange.value) {
+    return `Lines ${focusLineRange.value.start}-${focusLineRange.value.end}`
+  }
+  if (!markdownLines.value.length) {
+    return 'No content yet'
+  }
+  if (!previousVersionEntry.value) {
+    return 'New content'
+  }
+  return `Lines 1-${markdownLines.value.length}`
 })
 
 const currentVersionLabel = computed(() => {
@@ -996,11 +1021,11 @@ watch(contentEntry, (entry) => {
   }
 })
 
-watch([focusLineRange, previousVersionEntry], ([range, previous]) => {
-  if (range && previous?.id) {
+watch(previousVersionEntry, (previous) => {
+  if (previous?.id) {
     loadPreviousVersionBody(previous.id).catch(() => {})
   }
-})
+}, { immediate: true })
 
 watch([focusedSection, () => editorContent.value], ([section]) => {
   if (!section) {
@@ -1208,57 +1233,6 @@ watch(latestUpdate, (update) => {
     />
 
     <template v-if="!isPending && contentEntry">
-      <UCard
-        v-if="focusLineRange"
-        class="mb-4"
-      >
-        <template #header>
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div>
-              <p class="text-sm font-semibold">
-                Focused changes
-              </p>
-              <p class="text-xs text-muted-500">
-                Lines {{ focusLineRange.start }}-{{ focusLineRange.end }}
-                <span v-if="focusedSection"> • {{ focusedSection.title }}</span>
-              </p>
-            </div>
-            <UButton
-              v-if="focusedSection"
-              size="xs"
-              variant="ghost"
-              icon="i-lucide-locate"
-              @click="scrollToSection(focusedSection.title)"
-            >
-              Jump to section
-            </UButton>
-          </div>
-        </template>
-        <div class="space-y-1 font-mono text-xs">
-          <div
-            v-if="previousVersionLoading"
-            class="text-muted-500"
-          >
-            Loading diff preview...
-          </div>
-          <div v-else>
-            <div
-              v-for="(line, index) in focusDiffLines"
-              :key="`focus-line-${index}`"
-              class="flex items-start gap-2 rounded px-2 py-1"
-              :class="line.type === 'add' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' : line.type === 'remove' ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200 line-through' : 'text-muted-700'"
-            >
-              <span class="w-4 text-right text-muted-400">
-                {{ line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ' }}
-              </span>
-              <span class="whitespace-pre-wrap break-words flex-1">
-                {{ line.text }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </UCard>
-
       <!-- Body Markdown Editor - moved to top -->
       <UCard class="mb-4">
         <template #header>
@@ -1840,6 +1814,60 @@ watch(latestUpdate, (update) => {
         :video-id="contentEntry.videoId || undefined"
         class="mb-4"
       />
+
+      <UCard class="mt-4">
+        <template #header>
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <p class="text-sm font-semibold">
+                {{ changesHeaderLabel }}
+              </p>
+              <p class="text-xs text-muted-500">
+                {{ changesSubLabel }}
+                <span v-if="focusedSection"> • {{ focusedSection.title }}</span>
+              </p>
+            </div>
+            <UButton
+              v-if="focusedSection"
+              size="xs"
+              variant="ghost"
+              icon="i-lucide-locate"
+              @click="scrollToSection(focusedSection.title)"
+            >
+              Jump to section
+            </UButton>
+          </div>
+        </template>
+        <div class="space-y-1 font-mono text-xs">
+          <div
+            v-if="previousVersionLoading"
+            class="text-muted-500"
+          >
+            Loading diff preview...
+          </div>
+          <div
+            v-else-if="!changeDiffLines.length"
+            class="text-muted-500"
+          >
+            No changes yet.
+          </div>
+          <div v-else>
+            <div
+              v-for="(line, index) in changeDiffLines"
+              :key="`change-line-${index}`"
+              class="flex items-start gap-2 rounded px-2 py-1"
+              :class="line.type === 'add' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' : line.type === 'remove' ? 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200 line-through' : 'text-muted-700'"
+            >
+              <span class="w-4 text-right text-muted-400">
+                {{ line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ' }}
+              </span>
+              <span class="whitespace-pre-wrap break-words flex-1">
+                {{ line.text }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </UCard>
     </template>
 
     <UAlert

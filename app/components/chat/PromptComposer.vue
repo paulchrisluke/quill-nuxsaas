@@ -745,7 +745,7 @@ const handleNavigate = (delta: number) => {
                     :status="props.status || 'idle'"
                     submitted-color="primary"
                     submitted-variant="solid"
-                    submitted-icon="i-custom-square-solid"
+                    submitted-icon="i-lucide-square"
                     streaming-color="primary"
                     streaming-variant="solid"
                     @stop="handleStop"
