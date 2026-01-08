@@ -1,6 +1,7 @@
 import type { ReferenceScope, ReferenceSelection, ResolvedReference } from '~~/server/services/chat/references/types'
 import type { ChatToolInvocation } from '~~/server/services/chat/tools'
 import type { WorkspaceFilePayload } from '~~/server/services/content/workspaceFiles'
+import type { DriveFolderImportResult } from '~~/server/services/integration/googleDriveFolderImporter'
 import type { ChatRequestBody } from '~~/server/types/api'
 import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import type { ConversationIntentSnapshot, IntentGap } from '~~/shared/utils/intent'
@@ -31,6 +32,7 @@ import {
   maybeGenerateConversationTitle,
   patchConversationPreviewMetadata
 } from '~~/server/services/conversation'
+import { DRIVE_FOLDER_IMPORT_LIMIT, importGoogleDriveFolder } from '~~/server/services/integration/googleDriveFolderImporter'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromContext } from '~~/server/services/sourceContent/manualTranscript'
 import { ingestYouTubeVideoAsSourceContent } from '~~/server/services/sourceContent/youtubeIngest'
@@ -44,6 +46,7 @@ import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { createSSEStream } from '~~/server/utils/streaming'
 import { validateEnum, validateNumber, validateOptionalString, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
+import { extractGoogleDriveFolderId } from '~~/shared/utils/googleDrive'
 import { formatSiteConfig, getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 interface CreatedContentItem {
@@ -61,6 +64,37 @@ interface SummaryEdit {
   additions?: number
   deletions?: number
   reason?: string | null
+}
+
+const formatDriveFolderImportSummary = (result: DriveFolderImportResult): string => {
+  const folderLabel = result.folderName
+    ? `"${result.folderName}"`
+    : `folder ${result.folderId}`
+
+  if (result.totalImages === 0) {
+    return `No image files were found in Google Drive ${folderLabel}.`
+  }
+
+  const parts: string[] = []
+  if (result.importedCount > 0) {
+    parts.push(`Imported ${result.importedCount} image${result.importedCount === 1 ? '' : 's'} from Google Drive ${folderLabel}.`)
+  } else {
+    parts.push(`Could not import any images from Google Drive ${folderLabel}.`)
+  }
+
+  if (result.failedFiles.length > 0) {
+    const failures = result.failedFiles
+      .slice(0, 3)
+      .map(failure => `${failure.fileName} (${failure.reason})`)
+      .join(', ')
+    parts.push(`Failed for ${result.failedFiles.length} file${result.failedFiles.length === 1 ? '' : 's'}: ${failures}.`)
+  }
+
+  if (result.truncated) {
+    parts.push(`Import capped at ${DRIVE_FOLDER_IMPORT_LIMIT} files per request; there may be more images in the folder.`)
+  }
+
+  return parts.join(' ')
 }
 
 const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
@@ -2086,6 +2120,11 @@ export default defineEventHandler(async (event) => {
         if (!trimmedMessage) {
           throw createValidationError('Message is required')
         }
+        const driveFolderIdForBody = extractGoogleDriveFolderId(
+          typeof body.driveFolderId === 'string' ? body.driveFolderId : null
+        )
+        const driveFolderIdFromMessage = extractGoogleDriveFolderId(trimmedMessage)
+        const driveFolderId = driveFolderIdForBody || driveFolderIdFromMessage || null
 
         const ingestionErrors: Array<{ content: string, payload?: Record<string, any> | null }> = []
         const readySources: typeof schema.sourceContent.$inferSelect[] = []
@@ -2542,7 +2581,86 @@ export default defineEventHandler(async (event) => {
             error: err instanceof Error ? err.message : 'Unknown error'
           }))
 
-          const shouldRunAgent = true
+          let driveFolderImportMessage: string | null = null
+          if (driveFolderId) {
+            const toolCallId = randomUUID()
+            const toolName = 'drive_folder_import'
+            currentMessageId = randomUUID()
+            const messageIdForImport = currentMessageId
+            writeSSE('tool:preparing', {
+              toolCallId,
+              toolName,
+              messageId: messageIdForImport,
+              args: {
+                folderId: driveFolderId
+              },
+              timestamp: new Date().toISOString()
+            })
+            writeSSE('tool:start', {
+              toolCallId,
+              toolName,
+              messageId: messageIdForImport,
+              timestamp: new Date().toISOString()
+            })
+            try {
+              const importResult = await importGoogleDriveFolder({
+                db,
+                organizationId,
+                userId: user.id,
+                folderId: driveFolderId,
+                contentId: requestContentId ?? undefined
+              })
+              driveFolderImportMessage = formatDriveFolderImportSummary(importResult)
+              writeSSE('tool:progress', {
+                toolCallId,
+                toolName,
+                messageId: messageIdForImport,
+                message: `Imported ${importResult.importedCount}/${importResult.totalImages} images from Google Drive.`
+              })
+              writeSSE('tool:complete', {
+                toolCallId,
+                toolName,
+                messageId: messageIdForImport,
+                success: true,
+                result: importResult,
+                timestamp: new Date().toISOString()
+              })
+              agentAssistantReply = driveFolderImportMessage
+              if (driveFolderImportMessage) {
+                writeSSE('message:chunk', {
+                  messageId: messageIdForImport,
+                  chunk: driveFolderImportMessage
+                })
+                writeSSE('message:complete', {
+                  messageId: messageIdForImport,
+                  message: driveFolderImportMessage
+                })
+              }
+            } catch (error: any) {
+              const errorMessage = error?.data?.statusMessage || error?.message || 'Failed to import Google Drive folder.'
+              safeError('[Chat API] Drive folder import failed', {
+                error: errorMessage,
+                folderId: driveFolderId
+              })
+              writeSSE('tool:complete', {
+                toolCallId,
+                toolName,
+                messageId: messageIdForImport,
+                success: false,
+                error: errorMessage,
+                timestamp: new Date().toISOString()
+              })
+              ingestionErrors.push({
+                content: errorMessage,
+                payload: {
+                  folderId: driveFolderId,
+                  details: error?.data ?? null
+                }
+              })
+            }
+          }
+
+          const shouldRunAgent = !driveFolderId
           // Note: We skip blocking 'clarify' checks for speed optimization
           // The agent itself can handle clarification if needed in the prompt
 

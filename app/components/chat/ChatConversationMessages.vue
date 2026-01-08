@@ -4,6 +4,7 @@ import type { ChatStatus } from '~/composables/useConversation'
 import { computed, onBeforeUnmount, ref } from 'vue'
 
 import ChatMessageContent from './ChatMessageContent.vue'
+import ConversationStatusInline from './ConversationStatusInline.vue'
 import FilesChanged from './FilesChanged.vue'
 
 interface Props {
@@ -15,6 +16,11 @@ interface Props {
   errorMessage: string | null
   isBusy: boolean
   promptSubmitting: boolean
+  statusPhase?: 'idle' | 'submitting' | 'working' | 'streaming' | 'error'
+  statusLabel?: string | null
+  statusSteps?: Array<{ id: string, label: string, status: 'preparing' | 'running', progressMessage?: string | null }>
+  showToolDetails?: boolean
+  isConversationLoading?: boolean
 }
 
 const props = defineProps<Props>()
@@ -23,6 +29,7 @@ const emit = defineEmits<{
   (event: 'regenerate', message: ChatMessage): void
   (event: 'sendAgain', message: ChatMessage): void
   (event: 'share', message: ChatMessage): void
+  (event: 'toggleToolDetails'): void
 }>()
 
 const LONG_PRESS_DELAY_MS = 500
@@ -34,7 +41,7 @@ let longPressTimeout: ReturnType<typeof setTimeout> | null = null
 let longPressStartPosition: { x: number, y: number } | null = null
 
 const showLoadingSkeleton = computed(() =>
-  !props.messages.length && props.conversationId && props.status === 'ready' && !props.errorMessage
+  !props.isConversationLoading && !props.messages.length && props.conversationId && props.status === 'ready' && !props.errorMessage
 )
 
 const showWelcomeState = computed(() =>
@@ -206,9 +213,31 @@ onBeforeUnmount(() => {
     />
 
     <div
+      v-if="!messages.length && (isConversationLoading || statusPhase !== 'idle')"
+      class="flex-1 min-h-0 flex flex-col overflow-y-auto hide-scrollbar"
+    >
+      <ConversationStatusInline
+        :phase="statusPhase"
+        :label="statusLabel"
+        :steps="statusSteps"
+        :show-details="showToolDetails"
+        :loading="isConversationLoading"
+        @toggle-details="emit('toggleToolDetails')"
+      />
+    </div>
+
+    <div
       v-if="messages.length"
       class="flex-1 min-h-0 flex flex-col overflow-y-auto hide-scrollbar"
     >
+      <ConversationStatusInline
+        :phase="statusPhase"
+        :label="statusLabel"
+        :steps="statusSteps"
+        :show-details="showToolDetails"
+        :loading="isConversationLoading"
+        @toggle-details="emit('toggleToolDetails')"
+      />
       <UChatMessages
         class="py-4"
         :messages="displayMessages"
@@ -233,6 +262,7 @@ onBeforeUnmount(() => {
             <ChatMessageContent
               :message="message"
               :display-text="message.parts?.[0]?.text || ''"
+              :show-tool-details="showToolDetails"
             />
           </div>
         </template>

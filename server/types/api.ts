@@ -93,6 +93,8 @@ export interface ChatRequestBody {
     identifier?: string
     contentId?: string | null
   }>
+  /** Optional Google Drive folder ID to import before running the agent. */
+  driveFolderId?: string | null
   /** Chat mode: 'chat' for read-only, 'agent' for read+write */
   mode: 'chat' | 'agent'
 }
