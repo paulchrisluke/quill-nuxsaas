@@ -15,11 +15,18 @@ export function extractGoogleDriveFolderId(value: string | null | undefined): st
     return null
   }
 
-  const patterns = [DRIVE_FOLDER_LINK_PATTERN, DRIVE_COMMAND_PATTERN]
-  for (const pattern of patterns) {
-    const match = pattern.exec(note)
-    if (match && match[1]) {
-      return cleanId(match[1])
+  const patterns: Array<{ pattern: RegExp, idGroup: number }> = [
+    { pattern: DRIVE_FOLDER_LINK_PATTERN, idGroup: 1 },
+    { pattern: DRIVE_COMMAND_PATTERN, idGroup: 2 }
+  ]
+  for (const entry of patterns) {
+    const match = entry.pattern.exec(note)
+    if (!match) {
+      continue
+    }
+    const matchValue = match[entry.idGroup]
+    if (matchValue) {
+      return cleanId(matchValue)
     }
   }
 
