@@ -1,0 +1,179 @@
+import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
+import { and, eq } from 'drizzle-orm'
+import { createError } from 'h3'
+import * as schema from '~~/server/db/schema'
+import { FileService, useFileManagerConfig } from '~~/server/services/file/fileService'
+import { optimizeImageInBackground } from '~~/server/services/file/imageOptimizer'
+import { createStorageProvider } from '~~/server/services/file/storage/factory'
+import { ensureGoogleAccessToken } from '~~/server/services/integration/googleAuth'
+import { getWaitUntil } from '~~/server/utils/waitUntil'
+import { formatFileSize } from '~~/shared/utils/format'
+
+interface ImportDriveFileOptions {
+  db: NodePgDatabase<typeof schema>
+  organizationId: string
+  userId: string
+  fileId: string
+  contentId?: string | null
+  fileName?: string | null
+  mimeType?: string | null
+  ipAddress?: string
+  userAgent?: string
+}
+
+export async function importGoogleDriveFile(options: ImportDriveFileOptions) {
+  const {
+    db,
+    organizationId,
+    userId,
+    fileId,
+    contentId,
+    fileName,
+    mimeType,
+    ipAddress,
+    userAgent
+  } = options
+
+  const integration = await db.query.integration.findFirst({
+    where: and(
+      eq(schema.integration.organizationId, organizationId),
+      eq(schema.integration.type, 'google_drive'),
+      eq(schema.integration.isActive, true)
+    )
+  })
+
+  if (!integration?.accountId) {
+    throw createError({
+      statusCode: 412,
+      statusMessage: 'Google Drive integration is not connected for this organization.'
+    })
+  }
+
+  const [account] = await db
+    .select()
+    .from(schema.account)
+    .where(eq(schema.account.id, integration.accountId))
+    .limit(1)
+
+  if (!account) {
+    throw createError({
+      statusCode: 404,
+      statusMessage: 'Google Drive integration account not found.'
+    })
+  }
+
+  const config = useFileManagerConfig()
+  const storageProvider = await createStorageProvider(config.storage)
+  const fileService = new FileService(storageProvider)
+  const waitUntil = await getWaitUntil()
+
+  let accessToken: string
+  try {
+    accessToken = await ensureGoogleAccessToken(db, account)
+  } catch (error: any) {
+    console.error('[google-drive] Failed to ensure access token', error)
+    throw createError({
+      statusCode: 502,
+      statusMessage: 'Failed to refresh Google Drive credentials.'
+    })
+  }
+
+  const metadata = await $fetch<{
+    id: string
+    name: string
+    mimeType: string
+    size?: string
+  }>(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    query: {
+      fields: 'id,name,mimeType,size',
+      supportsAllDrives: true
+    }
+  }).catch((error: any) => {
+    console.error('[google-drive] Failed to fetch metadata', error)
+    throw createError({
+      statusCode: 502,
+      statusMessage: 'Unable to fetch file metadata from Google Drive.'
+    })
+  })
+
+  if (!metadata.mimeType?.startsWith('image/')) {
+    throw createError({
+      statusCode: 415,
+      statusMessage: 'Only image files can be imported from Google Drive.'
+    })
+  }
+
+  if (!metadata.size) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: 'File size information is missing from Google Drive metadata.'
+    })
+  }
+
+  const fileSizeBytes = Number.parseInt(metadata.size, 10)
+  if (Number.isNaN(fileSizeBytes) || fileSizeBytes < 0) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: 'Invalid file size information from Google Drive.'
+    })
+  }
+
+  if (config.maxFileSize && fileSizeBytes > config.maxFileSize) {
+    throw createError({
+      statusCode: 413,
+      statusMessage: `File size exceeds maximum allowed size of ${formatFileSize(config.maxFileSize)}`
+    })
+  }
+
+  const arrayBuffer = await $fetch<ArrayBuffer>(`https://www.googleapis.com/drive/v3/files/${metadata.id}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    query: {
+      alt: 'media',
+      supportsAllDrives: true,
+      acknowledgeAbuse: false
+    },
+    responseType: 'arrayBuffer'
+  }).catch((error: any) => {
+    console.error('[google-drive] Failed to download file content', error)
+    throw createError({
+      statusCode: 502,
+      statusMessage: 'Unable to download the selected Google Drive file.'
+    })
+  })
+
+  const fileBuffer = new Uint8Array(arrayBuffer)
+  const resolvedFileName = metadata.name || fileName || `drive-file-${metadata.id}`
+  const resolvedMimeType = metadata.mimeType || mimeType || 'application/octet-stream'
+
+  const file = await fileService.uploadFile(
+    fileBuffer,
+    resolvedFileName,
+    resolvedMimeType,
+    userId,
+    ipAddress,
+    userAgent,
+    {
+      organizationId,
+      contentId: contentId ?? undefined
+    }
+  )
+
+  const isSvg = resolvedMimeType === 'image/svg+xml'
+  if (file.fileType === 'image' && resolvedMimeType.startsWith('image/') && !isSvg) {
+    const optimizePromise = optimizeImageInBackground(file.id)
+    if (waitUntil) {
+      waitUntil(optimizePromise)
+    } else {
+      optimizePromise.catch((error) => {
+        console.error('Image optimization failed:', error)
+      })
+    }
+  }
+
+  return { file }
+}
