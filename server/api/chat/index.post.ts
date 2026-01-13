@@ -5,6 +5,7 @@ import type { DriveFolderImportResult } from '~~/server/services/integration/goo
 import type { ChatRequestBody } from '~~/server/types/api'
 import type { ChatCompletionMessage } from '~~/server/utils/aiGateway'
 import type { ConversationIntentSnapshot, IntentGap } from '~~/shared/utils/intent'
+import type { FileRecord } from '~~/shared/utils/types'
 import { and, asc, count, desc, eq } from 'drizzle-orm'
 import { createError } from 'h3'
 import { handleEditOps } from '~~/server/api/chat/handlers/editOps'
@@ -32,6 +33,7 @@ import {
   maybeGenerateConversationTitle,
   patchConversationPreviewMetadata
 } from '~~/server/services/conversation'
+import { importGoogleDriveFile } from '~~/server/services/integration/googleDriveFileImporter'
 import { DRIVE_FOLDER_IMPORT_LIMIT, importGoogleDriveFolder } from '~~/server/services/integration/googleDriveFolderImporter'
 import { upsertSourceContent } from '~~/server/services/sourceContent'
 import { createSourceContentFromContext } from '~~/server/services/sourceContent/manualTranscript'
@@ -46,7 +48,7 @@ import { safeError, safeLog, safeWarn } from '~~/server/utils/safeLogger'
 import { createSSEStream } from '~~/server/utils/streaming'
 import { validateEnum, validateNumber, validateOptionalString, validateOptionalUUID, validateRequestBody, validateRequiredString, validateUUID } from '~~/server/utils/validation'
 import { DEFAULT_CONTENT_TYPE } from '~~/shared/constants/contentTypes'
-import { extractGoogleDriveFolderId } from '~~/shared/utils/googleDrive'
+import { extractGoogleDriveFileId, extractGoogleDriveFolderId } from '~~/shared/utils/googleDrive'
 import { formatSiteConfig, getSiteConfigFromMetadata } from '~~/shared/utils/siteConfig'
 
 interface CreatedContentItem {
@@ -95,6 +97,11 @@ const formatDriveFolderImportSummary = (result: DriveFolderImportResult): string
   }
 
   return parts.join(' ')
+}
+
+const formatDriveFileImportSummary = (file: FileRecord): string => {
+  const displayName = file.originalName || file.fileName || 'file'
+  return `Imported "${displayName}" from Google Drive.`
 }
 
 const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
@@ -2125,6 +2132,8 @@ export default defineEventHandler(async (event) => {
         )
         const driveFolderIdFromMessage = extractGoogleDriveFolderId(trimmedMessage)
         const driveFolderId = driveFolderIdForBody || driveFolderIdFromMessage || null
+        const driveFileIdFromMessage = extractGoogleDriveFileId(trimmedMessage)
+        const driveFileId = driveFolderId ? null : driveFileIdFromMessage || null
 
         const ingestionErrors: Array<{ content: string, payload?: Record<string, any> | null }> = []
         const readySources: typeof schema.sourceContent.$inferSelect[] = []
@@ -2582,6 +2591,7 @@ export default defineEventHandler(async (event) => {
           }))
 
           let driveFolderImportMessage: string | null = null
+          let driveFileImportMessage: string | null = null
           if (driveFolderId) {
             const toolCallId = randomUUID()
             const toolName = 'drive_folder_import'
@@ -2658,9 +2668,85 @@ export default defineEventHandler(async (event) => {
                 }
               })
             }
+          } else if (driveFileId) {
+            const toolCallId = randomUUID()
+            const toolName = 'drive_file_import'
+            currentMessageId = randomUUID()
+            const messageIdForImport = currentMessageId
+            writeSSE('tool:preparing', {
+              toolCallId,
+              toolName,
+              messageId: messageIdForImport,
+              args: {
+                fileId: driveFileId
+              },
+              timestamp: new Date().toISOString()
+            })
+            writeSSE('tool:start', {
+              toolCallId,
+              toolName,
+              messageId: messageIdForImport,
+              timestamp: new Date().toISOString()
+            })
+            try {
+              const { file } = await importGoogleDriveFile({
+                db,
+                organizationId,
+                userId: user.id,
+                fileId: driveFileId,
+                contentId: requestContentId ?? undefined
+              })
+              driveFileImportMessage = formatDriveFileImportSummary(file)
+              writeSSE('tool:progress', {
+                toolCallId,
+                toolName,
+                messageId: messageIdForImport,
+                message: `Imported "${file.originalName || file.fileName}" from Google Drive.`
+              })
+              writeSSE('tool:complete', {
+                toolCallId,
+                toolName,
+                messageId: messageIdForImport,
+                success: true,
+                result: file,
+                timestamp: new Date().toISOString()
+              })
+              agentAssistantReply = driveFileImportMessage
+              if (driveFileImportMessage) {
+                writeSSE('message:chunk', {
+                  messageId: messageIdForImport,
+                  chunk: driveFileImportMessage
+                })
+                writeSSE('message:complete', {
+                  messageId: messageIdForImport,
+                  message: driveFileImportMessage
+                })
+              }
+            } catch (error: any) {
+              const errorMessage = error?.data?.statusMessage || error?.message || 'Failed to import Google Drive file.'
+              safeError('[Chat API] Drive file import failed', {
+                error: errorMessage,
+                fileId: driveFileId
+              })
+              writeSSE('tool:complete', {
+                toolCallId,
+                toolName,
+                messageId: messageIdForImport,
+                success: false,
+                error: errorMessage,
+                timestamp: new Date().toISOString()
+              })
+              ingestionErrors.push({
+                content: errorMessage,
+                payload: {
+                  fileId: driveFileId,
+                  details: error?.data ?? null
+                }
+              })
+            }
           }
 
-          const shouldRunAgent = !driveFolderId
+          const shouldRunAgent = !driveFolderId && !driveFileId
           // Note: We skip blocking 'clarify' checks for speed optimization
           // The agent itself can handle clarification if needed in the prompt
 
