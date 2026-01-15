@@ -104,6 +104,37 @@ const formatDriveFileImportSummary = (file: FileRecord): string => {
   return `Imported "${displayName}" from Google Drive.`
 }
 
+const buildDriveImportErrorMessage = (
+  error: unknown,
+  options: { type: 'file' | 'folder' }
+): { userMessage: string, statusCode: number | string, statusMessage: string } => {
+  const isDev = process.env.NODE_ENV === 'development'
+  const statusCode = (error as any)?.statusCode ?? (error as any)?.status ?? 'unknown'
+  const statusMessage = (error as any)?.data?.statusMessage
+    || (error as any)?.statusMessage
+    || (error as any)?.message
+    || 'Unable to import from Google Drive.'
+
+  let userMessage = 'Unable to import from Google Drive. Please confirm the link is correct and shared.'
+  if (statusCode === 412) {
+    userMessage = 'Google Drive is not connected for this workspace. Please connect Google Drive in Settings and try again.'
+  } else if (statusCode === 404) {
+    userMessage = `We could not find that Google Drive ${options.type}. Please verify the link and sharing permissions.`
+  } else if (statusCode === 415) {
+    userMessage = 'Only image files can be imported from Google Drive.'
+  } else if (statusCode === 413) {
+    userMessage = 'That file is too large to import from Google Drive.'
+  } else if (statusCode === 502) {
+    userMessage = 'Google Drive is temporarily unavailable. Please try again in a moment.'
+  }
+
+  if (isDev) {
+    userMessage += ` (status: ${statusCode}) ${statusMessage}`
+  }
+
+  return { userMessage, statusCode, statusMessage }
+}
+
 const normalizeSelectionInput = (input: unknown): ReferenceSelection[] => {
   if (!Array.isArray(input)) {
     return []
@@ -2647,23 +2678,29 @@ export default defineEventHandler(async (event) => {
                 })
               }
             } catch (error: any) {
-              const errorMessage = error?.data?.statusMessage || error?.message || 'Failed to import Google Drive folder.'
+              const { userMessage, statusCode, statusMessage } = buildDriveImportErrorMessage(error, {
+                type: 'folder'
+              })
               safeError('[Chat API] Drive folder import failed', {
-                error: errorMessage,
-                folderId: driveFolderId
+                error: statusMessage,
+                status: statusCode,
+                folderId: driveFolderId,
+                stack: process.env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined
               })
               writeSSE('tool:complete', {
                 toolCallId,
                 toolName,
                 messageId: messageIdForImport,
                 success: false,
-                error: errorMessage,
+                error: userMessage,
                 timestamp: new Date().toISOString()
               })
               ingestionErrors.push({
-                content: errorMessage,
+                content: userMessage,
                 payload: {
                   folderId: driveFolderId,
+                  status: statusCode,
+                  statusMessage,
                   details: error?.data ?? null
                 }
               })
@@ -2723,23 +2760,29 @@ export default defineEventHandler(async (event) => {
                 })
               }
             } catch (error: any) {
-              const errorMessage = error?.data?.statusMessage || error?.message || 'Failed to import Google Drive file.'
+              const { userMessage, statusCode, statusMessage } = buildDriveImportErrorMessage(error, {
+                type: 'file'
+              })
               safeError('[Chat API] Drive file import failed', {
-                error: errorMessage,
-                fileId: driveFileId
+                error: statusMessage,
+                status: statusCode,
+                fileId: driveFileId,
+                stack: process.env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined
               })
               writeSSE('tool:complete', {
                 toolCallId,
                 toolName,
                 messageId: messageIdForImport,
                 success: false,
-                error: errorMessage,
+                error: userMessage,
                 timestamp: new Date().toISOString()
               })
               ingestionErrors.push({
-                content: errorMessage,
+                content: userMessage,
                 payload: {
                   fileId: driveFileId,
+                  status: statusCode,
+                  statusMessage,
                   details: error?.data ?? null
                 }
               })
